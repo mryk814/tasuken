@@ -4,6 +4,7 @@ import {
   IconArrowLeft,
   IconArrowRight,
   IconChevronDown,
+  IconBellRinging,
   IconCalendarCheck,
   IconKeyboard,
   IconLayoutSidebarLeftCollapse,
@@ -28,10 +29,13 @@ import {
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { OpenDrawer, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
+import { todayTaskProgress } from "../domain-model/selectors";
 import { isPersonalDefaultTheme } from "../../../../../shared/personalTheme.mjs";
 import { themeColor } from "../lib/domain";
 import { buildDailyDebriefEvidence, findDailyDebriefNote } from "../lib/taskenDebrief";
 import { preloadWorkspacePage } from "../workspacePageLoaders";
+import { useReminderNow } from "./common";
+import { dueItemReminders } from "../lib/reminders";
 
 const taskenIconUrl = new URL("../../../../../../resources/icon.png", import.meta.url).href;
 
@@ -412,38 +416,28 @@ export function Sidebar({
   activeFocus,
   openActiveFocus,
 }: SidebarProps) {
-  const inbox = domain.capture_entries.filter(
-    (e) => e.state === "untriaged" && e.kind !== "micro_memo",
-  ).length;
   const today = todayIso();
   const schedulesByOwner = new Map(
     domain.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]),
   );
-  const todayCount = domain.tasks.filter((t) => {
-    if (t.state === "done" || t.state === "cancelled") return false;
-    const s = schedulesByOwner.get(`task:${t.id}`);
-    return (
-      t.today_date === today ||
-      (s &&
-        (s.start_date === today ||
-          s.end_date === today ||
-          (s.start_date && s.end_date && s.start_date <= today && s.end_date >= today)))
-    );
-  }).length;
+  // Today画面の「今日やること」の見出し（あとN件）と同じ数え方にする。
+  const todayProgress = todayTaskProgress(domain, today);
+  const todayCount = todayProgress.total - todayProgress.done;
   const overdueTasks = domain.tasks.filter((t) => {
     if (t.state === "done" || t.state === "cancelled") return false;
     const s = schedulesByOwner.get(`task:${t.id}`);
     const due = String(s?.end_date || "");
     return Boolean(due && due < today);
   }).length;
-  // badgeは「未処理のhuman attention」の数。判断単位で数え、同じTaskの質問と変更案は2件とする（#596）。
+  // Feedのbadgeは、AIが答えを待っている質問・判断の数だけ（2026-10-06に対応待ちタブを廃止）。
+  // 成果の確認や変更案はホームの投稿として並び、AI印で見分ける。
   const proposalCount = countAttention(
     buildAttentionQueue({
       tasks: domain.tasks,
       proposals: domain.ai_proposals,
       receipts: domain.work_receipts,
       themes,
-    }),
+    }).filter((item) => item.kind === "answer_request" || item.kind === "decision_request"),
   );
   const debriefCount =
     buildDailyDebriefEvidence(domain, today).length > 0 &&
@@ -453,20 +447,23 @@ export function Sidebar({
   const countByRoute: Record<string, number> = {
     today: todayCount,
     todo: overdueTasks,
-    inbox,
     feed: proposalCount,
     debrief: debriefCount,
   };
+  // 時刻を過ぎたリマインダー。Todayに今日やることの数とは別のベル付きバッジで出す。
+  const reminderNow = useReminderNow();
+  const dueReminderCount = dueItemReminders(domain.tasks, domain.waitings, reminderNow).length;
   const renderNavButton = (id: string) => {
     const label = routeLabel(id);
     const count = countByRoute[id] || 0;
+    const alertCount = id === "today" ? dueReminderCount : 0;
     const NavIcon = routeIcon(id);
     return (
       <button
         key={id}
         className={route === id ? "is-active" : ""}
         aria-current={route === id ? "page" : undefined}
-        aria-label={label}
+        aria-label={alertCount ? label + "（時刻を過ぎたリマインダー" + alertCount + "件）" : label}
         title={collapsed ? label : undefined}
         onMouseEnter={() => preloadWorkspacePage(id)}
         onFocus={() => preloadWorkspacePage(id)}
@@ -474,6 +471,12 @@ export function Sidebar({
       >
         {NavIcon && <NavIcon className="nav-icon" size={17} stroke={1.8} aria-hidden="true" />}
         <span className="nav-label">{label}</span>
+        {alertCount > 0 && (
+          <span className="count is-alert">
+            <IconBellRinging size={11} aria-hidden="true" />
+            {alertCount}
+          </span>
+        )}
         {count > 0 && <span className="count">{count}</span>}
       </button>
     );

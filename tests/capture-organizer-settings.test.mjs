@@ -124,12 +124,15 @@ test("read, encryption and clear failures retain saved configuration and never r
 
 test("settings encrypt keys, survive restart, keep keys only for the same provider and endpoint, and clear", async (t) => {
   const { service, directory, requests, fakeFetch } = setup(t);
+  // 未設定の既定はChatGPTの契約（#625）。従量APIは明示的に選んだときだけ使う。
   assert.deepEqual(await service.getSettings(), {
-    provider: "openai",
+    provider: "chatgpt",
     model: "",
     endpoint: "",
     vocabulary: "",
     hasApiKey: false,
+    monthlyRequestLimit: null,
+    monthlyRequestCount: 0,
     source: "none",
     secureStorageAvailable: true,
   });
@@ -250,14 +253,18 @@ test("connection test sends one bounded fixed input without saving and redacts p
   const data = JSON.parse(requests[0].body.messages[1].content);
   assert.equal(data.text, "牛乳を買う");
   assert.deepEqual(data.themes, []);
-  assert.deepEqual(fs.readdirSync(directory), []);
+  // 設定は保存しない。従量APIへの送信は接続確認でも月間回数に数える。
+  const usageFile = path.join(directory, "capture-organizer-usage.json");
+  assert.deepEqual(fs.readdirSync(directory), ["capture-organizer-usage.json"]);
+  assert.equal(JSON.parse(fs.readFileSync(usageFile, "utf8")).count, 1);
   const failing = new CaptureOrganizerSettingsService(directory, secure, {}, async () => {
     throw new Error(secret);
   });
   const result = await failing.testConnection(input);
   assert.equal(result.ok, false);
   assert.equal(JSON.stringify(result).includes(secret), false);
-  assert.deepEqual(fs.readdirSync(directory), []);
+  assert.deepEqual(fs.readdirSync(directory), ["capture-organizer-usage.json"]);
+  assert.equal(fs.readFileSync(usageFile, "utf8").includes(secret), false);
 });
 
 test("existing Gateway reads newly saved settings and clear without recreation or Core writes", async (t) => {

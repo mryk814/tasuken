@@ -2284,7 +2284,11 @@ function NoteFields({ entity, data }: { entity: DrawerConfig["entity"]; data: Wo
 
 function ResourceFields({ entity, data }: { entity: DrawerConfig["entity"]; data: WorkspaceData }) {
   const isChatRef = isChatReferenceEntity(entity);
-  const allResources = [...(data.resources || []), ...data.links];
+  const resourceIds = new Set((data.resources || []).map((resource) => resource.id));
+  const allResources = [
+    ...(data.resources || []),
+    ...data.links.filter((link) => !resourceIds.has(link.id)),
+  ];
   const [projectId, setProjectId] = useState(
     canonicalThemeId(str(entity.project_id || entity.theme_id), { defaultPersonal: true }),
   );

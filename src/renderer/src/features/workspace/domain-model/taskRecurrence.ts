@@ -1,5 +1,9 @@
 import type { SaveOperation } from "../types";
-import { buildSaveScheduleOperations, buildSaveTaskOperations, type SaveContext } from "./persistence";
+import {
+  buildSaveScheduleOperations,
+  buildSaveTaskOperations,
+  type SaveContext,
+} from "./persistence";
 import type { Schedule, Task, TaskChecklistItem, TaskRepeatRule } from "./types";
 
 function localDateIso(date = new Date()): string {
@@ -33,7 +37,10 @@ function addMonthsIso(value: string, months: number, dayOfMonth?: number | null)
   const target = new Date(base);
   target.setDate(1);
   target.setMonth(target.getMonth() + months);
-  const day = Math.min(dayOfMonth || base.getDate(), daysInMonth(target.getFullYear(), target.getMonth()));
+  const day = Math.min(
+    dayOfMonth || base.getDate(),
+    daysInMonth(target.getFullYear(), target.getMonth()),
+  );
   target.setDate(day);
   return dateIso(target);
 }
@@ -53,10 +60,15 @@ function nextWeeklyDate(base: string, rule: TaskRepeatRule): string {
   return addDaysIso(base, 7 * rule.interval);
 }
 
-export function nextRepeatDate(task: Task, schedule?: Schedule, completedDate = localDateIso()): string | null {
+export function nextRepeatDate(
+  task: Task,
+  schedule?: Schedule,
+  completedDate = localDateIso(),
+): string | null {
   const rule = task.repeat_rule;
   if (!rule) return null;
-  const baseDate = rule.next_from === "completed" ? completedDate : scheduleDate(schedule) || completedDate;
+  const baseDate =
+    rule.next_from === "completed" ? completedDate : scheduleDate(schedule) || completedDate;
   let nextDate = baseDate;
   if (rule.frequency === "daily") nextDate = addDaysIso(baseDate, rule.interval);
   if (rule.frequency === "weekly") nextDate = nextWeeklyDate(baseDate, rule);
@@ -68,6 +80,23 @@ export function nextRepeatDate(task: Task, schedule?: Schedule, completedDate = 
   return nextDate;
 }
 
+const DAY_SCOPED_SHELVES = new Set<string>(["maybe_today", "this_evening"]);
+
+/** リマインダーは期限と同じ日数だけ後ろへずらす。基準日が無ければ持ち越さない（過去の時刻で鳴らさない）。 */
+function shiftedReminder(
+  reminderAt: string | null | undefined,
+  baseDate: string,
+  nextDate: string,
+): string | null {
+  if (!reminderAt || !baseDate) return null;
+  const time = Date.parse(reminderAt);
+  if (!Number.isFinite(time)) return null;
+  const days = Math.round(
+    (parseDate(nextDate).getTime() - parseDate(baseDate).getTime()) / 86400000,
+  );
+  return new Date(time + days * 86400000).toISOString();
+}
+
 function resetChecklist(items?: TaskChecklistItem[]): TaskChecklistItem[] | undefined {
   if (!items?.length) return undefined;
   return items.map((item) => ({
@@ -77,7 +106,11 @@ function resetChecklist(items?: TaskChecklistItem[]): TaskChecklistItem[] | unde
   }));
 }
 
-export function buildCompleteTaskOperations(task: Task, schedule?: Schedule, context: SaveContext = {}): SaveOperation[] {
+export function buildCompleteTaskOperations(
+  task: Task,
+  schedule?: Schedule,
+  context: SaveContext = {},
+): SaveOperation[] {
   const now = context.now || new Date().toISOString();
   const completedDate = now.slice(0, 10);
   const nextState = task.state === "done" ? "todo" : "done";
@@ -98,6 +131,12 @@ export function buildCompleteTaskOperations(task: Task, schedule?: Schedule, con
     completed_at: null,
     // 前回の完了時のひとことは次回へ持ち越さない（#308）。
     completion_note: null,
+    // 「今日やる」と日ごとの棚はその回だけの印。次の回は日付が来てから選ぶ。
+    today_date: null,
+    planning_shelf: DAY_SCOPED_SHELVES.has(task.planning_shelf ?? "backlog")
+      ? null
+      : task.planning_shelf,
+    reminder_at: shiftedReminder(task.reminder_at, scheduleDate(schedule), nextDate),
     created_at: now,
     updated_at: undefined,
     repeat_series_id: task.repeat_series_id || task.id,

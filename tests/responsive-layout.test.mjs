@@ -182,7 +182,10 @@ test("低頻度操作は常設のoverflow menuへ畳み、幅で位置を入れ�
   );
 
   // 共通コンポーネントとして1箇所に持つ。
-  assert.match(commonSource, /export function ToolbarOverflow\(\{ label, ariaLabel, children \}/);
+  assert.match(
+    commonSource,
+    /export function ToolbarOverflow\(\{\s*label,\s*ariaLabel,\s*children,?\s*\}/,
+  );
   assert.match(commonSource, /aria-haspopup="menu"/);
   assert.match(commonSource, /aria-expanded=\{open\}/);
   assert.match(commonSource, /role="menu"\s*\n\s*aria-label=\{ariaLabel\}/);
@@ -190,7 +193,10 @@ test("低頻度操作は常設のoverflow menuへ畳み、幅で位置を入れ�
   assert.match(commonSource, /if \(event\.key === "Escape"\) setOpen\(false\);/);
   assert.match(commonSource, /\?\.closest\("\.toolbar-overflow"\)\) setOpen\(false\)/);
   // 一度きりの操作だけ閉じ、表示切替は開いたままにする。
-  assert.match(commonSource, /closest\("\[role=\\"menuitem\\"\]"\)\) setOpen\(false\)/);
+  assert.match(
+    commonSource,
+    /closest\((?:'\[role="menuitem"\]'|"\[role=\\"menuitem\\"\]")\)\)\s*setOpen\(false\)/,
+  );
 
   // Timelineは表示切替と一括開閉をメニューへ移し、主要な絞り込み・倍率は出したままにする。
   assert.match(timelineSource, /<section className="timeline-toolbar toolbar-row panel">/);

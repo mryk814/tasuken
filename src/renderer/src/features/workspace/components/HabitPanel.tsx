@@ -1,3 +1,4 @@
+import { IconCheck } from "@tabler/icons-react";
 import { useCallback, useMemo, useState } from "react";
 
 import {
@@ -31,6 +32,11 @@ export interface HabitPanelProps extends Pick<
   today: string;
   /** 「続けることを追加」を常設するか（Settingsの管理面だけ true）。 */
   manage?: boolean;
+  /**
+   * Todayの「今日やること」の中へ、Taskと同じ行で並べる（2026-10-06）。
+   * 丸を押すと1回記録、記録済みの丸を押すと今日の直前の記録を取り消す。
+   */
+  variant?: "panel" | "rows";
 }
 
 function habitScheduleOf(habit: BaseRecord): {
@@ -64,6 +70,7 @@ export function HabitPanel({
   removeEntity,
   setToast,
   manage = false,
+  variant = "panel",
 }: HabitPanelProps) {
   const habits = useMemo(
     () => (data.habits || []).filter((habit) => !habit.deleted_at),
@@ -123,6 +130,72 @@ export function HabitPanel({
       setBusy(false);
     }
   };
+
+  if (variant === "rows") {
+    return (
+      <>
+        {active.map((habit) => {
+          const title = String(habit.title || "無題");
+          const schedule = habitScheduleOf(habit);
+          const habitEntries = entriesOf(entries, String(habit.id));
+          const progress = habitProgress({ schedule, entries: habitEntries as never, today });
+          const todayEntry =
+            sortedEntries(habitEntries).find((entry) => String(entry.performed_on) === today) ||
+            null;
+          const doneToday = Boolean(todayEntry);
+          return (
+            <div
+              className={`today-task-row routine-row${doneToday ? " is-done" : ""}`}
+              key={String(habit.id)}
+            >
+              <span className="todo-theme-bar" />
+              <button
+                type="button"
+                className={`todo-check-circle ${doneToday ? "is-done" : ""}`}
+                aria-label={doneToday ? `${title}の今日の記録を取り消す` : `${title}を1回記録`}
+                title={doneToday ? "今日の記録を取り消す" : "1回記録"}
+                disabled={busy}
+                onClick={() =>
+                  todayEntry
+                    ? void removeEntity("habit_entry", { ...todayEntry, title: `${title}の記録` })
+                    : void record(habit, today)
+                }
+              >
+                {doneToday && <IconCheck size={13} stroke={2.4} />}
+              </button>
+              <div className="row-title-wrap">
+                <span className="today-row-spacer" aria-hidden="true" />
+                <span className="today-row-spacer" aria-hidden="true" />
+                <div className="row-title-main">
+                  <span className="today-task-title">
+                    <strong>{title}</strong>
+                    <span>
+                      続けること / {habitScheduleLabel(schedule)}
+                      {progress.todayCount > 1 ? ` ・ ${progress.todayLabel}` : ""}
+                    </span>
+                  </span>
+                </div>
+              </div>
+              <time>{progress.weekLabel}</time>
+              <span className="today-postpone-actions">
+                {doneToday && progress.todayCount < 50 ? (
+                  <button
+                    type="button"
+                    className="postpone-button"
+                    disabled={busy}
+                    onClick={() => void record(habit, today)}
+                    aria-label={`${title}をもう1回記録`}
+                  >
+                    +1回
+                  </button>
+                ) : null}
+              </span>
+            </div>
+          );
+        })}
+      </>
+    );
+  }
 
   const createHabit = async () => {
     const value = title.trim();

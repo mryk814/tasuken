@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   IconCalendarPlus,
   IconCalendarCheck,
+  IconBellRinging,
   IconClock,
   IconCopyPlus,
   IconLoader2,
@@ -15,7 +16,7 @@ import { captureOrganizerApi } from "../../../services/captureOrganizerApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { usePreference } from "../../../utils/usePreference";
 import { playCompleteSound } from "../../../utils/sounds";
-import type { PageProps } from "../types";
+import type { BaseRecord, PageProps } from "../types";
 import { themeColor } from "../lib/domain";
 import { formatDate } from "../lib/format";
 import { compareTodoRows, isTodayRow, scheduledDate } from "../lib/todoRows.js";
@@ -26,6 +27,8 @@ import {
   type TaskViewTab,
 } from "../lib/savedTaskViews";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
+import { ReminderDueBanner, useReminderNow } from "../components/common";
+import { isReminderDue } from "../lib/reminders";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { TaskBoard } from "../components/TaskBoard";
 import { ChecklistProgressBadge, InlineTaskChecklist } from "../../task/public";
@@ -35,7 +38,11 @@ import {
   taskAiDelegationLabel,
 } from "../domain-model/labels";
 import { buildTodoView } from "../domain-model/selectors";
-import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
+import {
+  buildSaveTaskOperations,
+  buildSaveScheduleOperations,
+  buildSaveWaitingOperations,
+} from "../domain-model/persistence";
 import { duplicateTask } from "../domain-model/taskDuplication";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type { Schedule, Task } from "../domain-model/types";
@@ -153,6 +160,7 @@ export function TodoPage({
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(() => new Set());
   const [bulkThemeId, setBulkThemeId] = useState(PERSONAL_DEFAULT_THEME_ID);
   const today = todayIso();
+  const reminderNow = useReminderNow();
 
   const taskRows: TodoRow[] = useMemo(() => buildTodoView(domain).tasks, [domain]);
   const currentFilters: TaskViewFilters = useMemo(
@@ -465,6 +473,7 @@ export function TodoPage({
     const urgency =
       !done && due ? (due < today ? "overdue" : due === today ? "due-today" : null) : null;
     const reminder = reminderTimeLabel(task.reminder_at, today);
+    const reminderDue = !done && isReminderDue(task.reminder_at, reminderNow);
     /**
      * AI委任の短い状態（計画フェーズ5）。
      *
@@ -590,7 +599,7 @@ export function TodoPage({
                 >
                   {TASK_AI_DELEGATION_LABELS[aiDelegation]}
                 </button>
-                {/* 確認待ちは成果の採用をFeedの「対応待ち」で行う。ToDo内で完結させない。 */}
+                {/* 確認待ちは成果の採用をFeedのホームの投稿で行う。ToDo内で完結させない。 */}
                 {aiDelegation === "review_waiting" ? (
                   <button
                     type="button"
@@ -621,9 +630,13 @@ export function TodoPage({
             </button>
           )}
           {reminder && (
-            <span className="row-reminder-meta">
-              <IconClock size={13} />
-              {reminder}
+            <span className={`row-reminder-meta${reminderDue ? " is-due" : ""}`}>
+              {reminderDue ? (
+                <IconBellRinging size={13} aria-hidden="true" />
+              ) : (
+                <IconClock size={13} />
+              )}
+              {reminderDue ? `リマインダー ${reminder}` : reminder}
             </span>
           )}
         </div>
@@ -649,6 +662,34 @@ export function TodoPage({
           <IconPlus size={16} /> タスクを追加
         </Button>
       </PageHeader>
+
+      <ReminderDueBanner
+        tasks={domain.tasks}
+        waitings={domain.waitings}
+        onOpen={(alert) =>
+          openDrawer({
+            type: alert.type === "waiting" ? "waiting" : "task",
+            mode: "edit",
+            entity: (alert.type === "task"
+              ? alert.task
+              : alert.type === "waiting"
+                ? alert.waiting
+                : {}) as unknown as BaseRecord,
+          })
+        }
+        onUpdate={async (alert, reminderAt, message) => {
+          if (alert.type === "task")
+            await saveEntities(
+              buildSaveTaskOperations({ ...alert.task, reminder_at: reminderAt }),
+              message,
+            );
+          else if (alert.type === "waiting")
+            await saveEntities(
+              buildSaveWaitingOperations({ ...alert.waiting, check_reminder_at: reminderAt }),
+              message,
+            );
+        }}
+      />
       {showAdd && (
         <InlineAddPanel
           heading="タスクを追加"

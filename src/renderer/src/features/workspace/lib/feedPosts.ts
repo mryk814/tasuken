@@ -1440,7 +1440,7 @@ export function clearFeedPostFocus(): void {
  * 既存の表示状態を保ったまま、次のFeed表示で指定タブを開く。
  * Feed表示中にも反映できるよう、同じ内容をイベントでも知らせる。
  */
-export function requestFeedTab(tab: "home" | "learn" | "bookmarks" | "needs"): void {
+export function requestFeedTab(tab: "home" | "learn" | "bookmarks"): void {
   try {
     const raw = localStorage.getItem("tasken:feed:view:v1");
     const state = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};

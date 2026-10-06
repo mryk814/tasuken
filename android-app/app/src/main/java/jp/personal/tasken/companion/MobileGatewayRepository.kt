@@ -1249,6 +1249,109 @@ class AndroidMobileTaskRepository(
         rejected
     }
 
+    override suspend fun fetchRoutines(date: String): MobileRoutinesDataDto? {
+        val configuration = store.configuration()
+        val token = store.readToken() ?: return null
+        if (configuration.origin.isBlank()) return null
+        val expectedServerId = dao.syncState()?.serverId ?: return null
+        return try {
+            val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
+            val response = gatewayRequest(
+                origin = configuration.origin,
+                path = "/v1/routines?apiVersion=$TASKEN_MOBILE_API_VERSION" +
+                    "&schemaVersion=$TASKEN_MOBILE_SCHEMA_VERSION&requestId=$requestId&date=$date",
+                method = "GET",
+                body = null,
+                accessToken = token,
+            )
+            if (response.status == 401) {
+                if (isConfirmedGatewayUnauthorized(response, expectedServerId)) store.clearTokenIfMatches(token)
+                return null
+            }
+            // この窓口を持たない古いDesktopでは、出さないだけにする。
+            require(response.status == 200) { "Routines request failed with HTTP ${response.status}" }
+            val decoded = MobileRoutineContract.decode(response.body)
+            if (decoded.meta.serverId != expectedServerId) return null
+            decoded.data
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile routines refresh failed", error)
+            null
+        }
+    }
+
+    override suspend fun recordRoutine(action: MobileRoutineActionDto): MobileRoutineActionResult {
+        val configuration = store.configuration()
+        if (configuration.origin.isBlank() || !configuration.paired) {
+            return MobileRoutineActionResult.Failed("Desktopへ接続すると記録できます。")
+        }
+        if (MOBILE_CAPTURE_WRITE_SCOPE !in configuration.scopes) {
+            return MobileRoutineActionResult.Failed(
+                "この権限では記録できません。Desktopで新しいコードを発行して再ペアリングしてください。",
+            )
+        }
+        val token = store.readToken()
+            ?: return MobileRoutineActionResult.Failed("Desktopへの接続をやり直してください。")
+        val serverId = dao.syncState()?.serverId
+            ?: return MobileRoutineActionResult.Failed("Taskを同期してから記録できます。")
+        val commandId = UUID.randomUUID().toString()
+        val envelope = MobileRoutineActionEnvelopeDto(
+            apiVersion = TASKEN_MOBILE_API_VERSION,
+            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
+            requestId = UUID.randomUUID().toString(),
+            commandId = commandId,
+            idempotencyKey = commandId,
+            clientDeviceId = store.deviceId(),
+            issuedAt = Instant.now().toString(),
+            action = action,
+        )
+        val response = try {
+            gatewayRequest(
+                origin = configuration.origin,
+                path = "/v1/routine-actions",
+                method = "POST",
+                body = MobileRoutineContract.encode(envelope),
+                accessToken = token,
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Routine action could not reach the Desktop", error)
+            return MobileRoutineActionResult.Failed("Desktopへ接続できませんでした。接続してから記録してください。")
+        }
+        return when (response.status) {
+            200 -> {
+                val decoded = MobileRoutineContract.decodeResponse(response.body)
+                if (decoded.meta.serverId != serverId || decoded.data.commandId != commandId) {
+                    MobileRoutineActionResult.Failed("別のDesktopから応答がありました。接続先を確認してください。")
+                } else if (decoded.data.status == "no_change") {
+                    MobileRoutineActionResult.Saved("記録済みです。")
+                } else {
+                    MobileRoutineActionResult.Saved(
+                        decoded.data.nextDueOn?.let { "記録しました。次の目安は${it.substring(5).replace('-', '/')}です。" }
+                            ?: "記録しました。",
+                    )
+                }
+            }
+            401 -> {
+                if (isConfirmedGatewayUnauthorized(response, serverId)) store.clearTokenIfMatches(token)
+                MobileRoutineActionResult.Failed("Desktopへの接続をやり直してください。")
+            }
+            else -> {
+                val error = runCatching { MobileTaskCommandContract.decodeError(response.body) }.getOrNull()
+                MobileRoutineActionResult.Failed(
+                    when (error?.error?.code) {
+                        "capability_unavailable" -> "この接続先では記録できません。Desktopへ接続してください。"
+                        "not_found" -> "Desktopで見つかりませんでした。再読込してください。"
+                        "forbidden" -> "この権限では記録できません。Desktopで新しいコードを発行して再ペアリングしてください。"
+                        else -> error?.error?.message ?: "Desktopが受け付けませんでした。"
+                    },
+                )
+            }
+        }
+    }
+
     override suspend fun refreshFeed(): Boolean {
         val configuration = store.configuration()
         val token = store.readToken()

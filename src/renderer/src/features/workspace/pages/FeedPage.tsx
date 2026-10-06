@@ -1,24 +1,14 @@
-import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import type { BaseRecord, PageProps } from "../types";
-import { Button, EmptyState, PageHeader } from "../components/common";
+import { Button, PageHeader } from "../components/common";
 import {
   AiProposalPanel,
   ProposalDetail,
   ProposalRisk,
   proposalHeadline,
-  agentSessionAdoptionCommand,
 } from "../components/AiProposalPanel";
-import { adoptSelectedProposals } from "../lib/selectedProposalAdoption";
 import { FeedArticleReader } from "../components/FeedArticleReader";
 import { FeedContextRail } from "../components/FeedContextRail";
 import { FeedStream } from "../components/FeedStream";
@@ -85,14 +75,17 @@ import {
  * 読む面の規則は `docs/feed-surface.md`。
  */
 
-type FeedTab = "home" | "learn" | "bookmarks" | "needs";
+type FeedTab = "home" | "learn" | "bookmarks";
 type FeedBookmarkFilter = "bookmark" | "interesting" | "known";
 
+/**
+ * 「対応待ち」タブは置かない（2026-10-06）。AIからの質問・成果の確認・変更案も
+ * ホームの投稿の流れに時刻順で並べ、その投稿を開いてその場で答える。AI由来は印で見分ける。
+ */
 const TABS: ReadonlyArray<{ id: FeedTab; label: string }> = [
   { id: "home", label: "ホーム" },
   { id: "learn", label: "学び" },
   { id: "bookmarks", label: "ブックマーク" },
-  { id: "needs", label: "対応待ち" },
 ];
 
 const FEED_VIEW_STATE_KEY = "tasken:feed:view:v1";
@@ -113,7 +106,8 @@ interface FeedViewState {
 }
 
 function isFeedTab(value: unknown): value is FeedTab {
-  return value === "home" || value === "learn" || value === "bookmarks" || value === "needs";
+  // 以前保存した「対応待ち」はホームとして開く（isFeedTabがfalseになり既定のhomeへ戻る）。
+  return value === "home" || value === "learn" || value === "bookmarks";
 }
 
 function isBookmarkFilter(value: unknown): value is FeedBookmarkFilter {
@@ -249,15 +243,6 @@ export function FeedPage(props: PageProps) {
   );
   /** 対応待ちの選択。判断・変更案・確認待ちを同じ1つの選択で扱う。 */
   const [selectedNeedsId, setSelectedNeedsId] = useState<string | null>(null);
-  const [refreshingNeeds, setRefreshingNeeds] = useState(false);
-  const [selectedRecords, setSelectedRecords] = useState<string[]>([]);
-  const [adoptingRecords, setAdoptingRecords] = useState(false);
-  const [adoptionProgress, setAdoptionProgress] = useState({ completed: 0, total: 0 });
-  const adoptionLock = useRef(false);
-  const [adoptionResult, setAdoptionResult] = useState<{
-    accepted: string[];
-    failed: { id: string; message: string }[];
-  } | null>(null);
   const refreshWorkspace = useWorkspaceStore((state) => state.refresh);
   const [openArticleId, setOpenArticleId] = useState<string | null>(() =>
     optionalFeedId(storedView.articlePostId),
@@ -265,6 +250,17 @@ export function FeedPage(props: PageProps) {
   const [arrivalsApplied, setArrivalsApplied] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /**
+   * 未整理のメモ（付箋メモを除く）。Inboxは廃止し、Androidの記録なども最初から
+   * ホームに自分のメモとして並べる。どうするか（Task化・Note化・削除）はメモを開いて決める。
+   */
+  const pendingCaptures = useMemo(
+    () =>
+      domain.capture_entries.filter(
+        (entry) => entry.state === "untriaged" && entry.kind !== "micro_memo",
+      ),
+    [domain.capture_entries],
+  );
   const [copyBusy, setCopyBusy] = useState(false);
   const [draftAnswer, setDraftAnswer] = useState("");
   /** 報告の差し戻しメモ。失敗しても入力を消さない（design-guide §5）。 */
@@ -594,59 +590,30 @@ export function FeedPage(props: PageProps) {
     };
   }, [captureScrollAnchor]);
 
-  const needsRows = useMemo(() => {
-    if (tab !== "needs") return [] as FeedItem[];
-    // 判断・変更案・確認待ちを1本の一覧にする。同じ報告を2つの面に出さない。
-    return selectNeedsYou(buildFeedProjection(live.items).items);
-  }, [live.items, tab]);
-
   /**
-   * 右レールの対応キュー。タブを問わず未処理の判断だけを並べる。
-   * 変更案も含む（レールは入口の目印で、採否そのものは対応待ちの詳細で行う）。
+   * AIからの質問・判断・成果の確認・変更案。ホームの投稿の間に時刻順で差し込み、
+   * 開いた投稿の下で答える。同じ報告を2か所に出さない。
    */
-  const railAttention = useMemo(
-    () => selectNeedsYou(buildFeedProjection(live.items).items).slice(0, 8),
+  const needsRows = useMemo(
+    () => selectNeedsYou(buildFeedProjection(live.items).items),
     [live.items],
   );
 
-  const openAttentionFromRail = useCallback((item: FeedItem) => {
-    setTab("needs");
-    setDraftAnswer("");
-    // 種別を問わず同じ一覧の行を選ぶ。詳細の読み順は行の種類が決める。
-    setSelectedNeedsId(item.id);
-  }, []);
-
-  /**
-   * 対応待ちの再読込。一覧を持つ面が更新の入口を持つ（旧「提案の確認」から移した）。
-   * Focus復帰では通知を連発せず、明示操作のときだけ結果を知らせる。
-   */
-  const refreshNeeds = useCallback(
-    async (showFeedback: boolean) => {
-      setRefreshingNeeds(true);
-      try {
-        await refreshWorkspace();
-        if (showFeedback) setToast("対応待ちを更新しました。", "success");
-      } catch (error) {
-        if (showFeedback) {
-          setToast(
-            `Proposalを更新できませんでした。${error instanceof Error ? error.message : String(error)}`,
-            "danger",
-          );
-        }
-      } finally {
-        setRefreshingNeeds(false);
-      }
-    },
-    [refreshWorkspace, setToast],
-  );
+  /** Focus復帰でAIからの更新を読み直す。通知は出さない。 */
+  const refreshNeeds = useCallback(async () => {
+    try {
+      await refreshWorkspace();
+    } catch {
+      // 失敗しても表示中の内容は保つ。次のfocusや操作で読み直す。
+    }
+  }, [refreshWorkspace]);
 
   useEffect(() => {
-    const resyncOnFocus = () => void refreshNeeds(false);
+    const resyncOnFocus = () => void refreshNeeds();
     window.addEventListener("focus", resyncOnFocus);
     return () => window.removeEventListener("focus", resyncOnFocus);
   }, [refreshNeeds]);
 
-  const selectedNeedsItem = needsRows.find((item) => item.id === selectedNeedsId) ?? null;
   /** 読める投稿が無いときの「記録する」。投稿欄は同じ面にあるので、そこへfocusを移す。 */
   const focusCompose = useCallback(() => {
     const node = document.getElementById("feed-compose-body");
@@ -1613,58 +1580,228 @@ export function FeedPage(props: PageProps) {
     [domain.ai_proposals],
   );
 
-  const visibleRecords = useMemo(
-    () =>
-      needsRows.flatMap((row) => {
-        const proposal = proposalOf(row);
-        return proposal?.payload_type === "agent_sessions" && proposal.status === "pending"
-          ? [proposal]
-          : [];
-      }),
-    [needsRows, proposalOf],
+  /** 開いた投稿の下に出す対応の詳細。回答・判断・成果の確認・変更案の採否はここで決着させる。 */
+  const renderNeedsDetail = (item: FeedItem) => (
+    <fieldset className="feed-needs-detail" aria-label={`${item.headline}への対応`}>
+      {usesProposalDetail(item) && proposalOf(item) ? null : (
+        <div className="section-heading">
+          <h3>{needsDetailHeading(item)}</h3>
+          <span className={`feed-state feed-state-${item.state}`}>{item.stateLabel}</span>
+        </div>
+      )}
+      <p className="feed-post-meta">表示理由: {item.reasonShown}</p>
+      <dl className="feed-detail-rows">
+        {item.detail.rows.map((row) => (
+          <div key={row.label}>
+            <dt>{row.label}</dt>
+            <dd>{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {usesProposalDetail(item) ? (
+        proposalOf(item) ? (
+          <ProposalDetail
+            {...props}
+            proposal={proposalOf(item) as BaseRecord}
+            onDecided={() => setSelectedNeedsId(null)}
+          />
+        ) : (
+          <p className="feed-post-meta">この提案を読み込めませんでした。画面を更新してください。</p>
+        )
+      ) : item.requestId ? (
+        <form
+          className="feed-reply"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitAnswer(item);
+          }}
+        >
+          <label htmlFor="feed-answer-body">回答</label>
+          <textarea
+            id="feed-answer-body"
+            value={draftAnswer}
+            onChange={(event) => setDraftAnswer(event.target.value)}
+            rows={3}
+            disabled={busy}
+          />
+          <div className="feed-detail-actions">
+            <Button variant="primary" type="submit" disabled={busy}>
+              {busy ? "送信中" : "回答を送る"}
+            </Button>
+            <Button
+              variant="ghost"
+              type="button"
+              disabled={busy}
+              onClick={() => void changeTodayDate(item, null)}
+            >
+              今日の選択を外す
+            </Button>
+          </div>
+        </form>
+      ) : item.kind === "review_ready" ? (
+        <div className="feed-review">
+          {/* 読み順は #599 の契約どおり。生成文で順序を変えない。 */}
+          <dl className="feed-detail-rows">
+            <div>
+              <dt>成果</dt>
+              <dd>{item.summary}</dd>
+            </div>
+            <div>
+              <dt>確認できたこと</dt>
+              <dd>{reviewDetailOf(item.sourceId).verification || "—"}</dd>
+            </div>
+            <div>
+              <dt>未確認事項</dt>
+              <dd>{reviewDetailOf(item.sourceId).remainingWork || "—"}</dd>
+            </div>
+            <div>
+              <dt>Taskenへ反映する内容</dt>
+              <dd>
+                {reviewDetailOf(item.sourceId).completedItems || "チェック項目の変更はありません"}
+              </dd>
+            </div>
+          </dl>
+          {/* 既定の主操作は「報告を採用」。Task完了は選ばれていない明示オプション（#599）。 */}
+          <label className="feed-review-check">
+            <input
+              type="checkbox"
+              checked={completeTask}
+              onChange={(event) => setCompleteTask(event.target.checked)}
+            />
+            Taskも完了する
+          </label>
+          <div className="feed-detail-actions">
+            <Button
+              variant="primary"
+              disabled={busy}
+              onClick={() => void acceptReport(item, completeTask)}
+            >
+              {busy ? "処理中" : completeTask ? "採用してTaskを完了" : "報告を採用"}
+            </Button>
+            <Button variant="ghost" disabled={busy} onClick={() => openTaskDrawer(item)}>
+              Taskを開く
+            </Button>
+          </div>
+          <form
+            className="feed-reply"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void returnReport(item);
+            }}
+          >
+            <label htmlFor="feed-review-note">修正してほしい点</label>
+            <textarea
+              id="feed-review-note"
+              value={draftReviewNote}
+              onChange={(event) => setDraftReviewNote(event.target.value)}
+              rows={2}
+              disabled={busy}
+            />
+            <div className="feed-detail-actions">
+              <Button variant="secondary" type="submit" disabled={busy}>
+                {busy ? "送信中" : "修正を依頼"}
+              </Button>
+            </div>
+          </form>
+        </div>
+      ) : (
+        <div className="feed-detail-actions">
+          <Button variant="secondary" compact onClick={() => openTaskDrawer(item)}>
+            Taskを開く
+          </Button>
+        </div>
+      )}
+    </fieldset>
   );
-  const selectedVisibleRecords = selectedRecords.filter((id) =>
-    visibleRecords.some((row) => row.id === id),
+
+  /** 未整理のメモを自分の投稿と同じ形で1件として描く。「整理する」でメモの詳細を開く。 */
+  const renderCapturePost = (entry: (typeof pendingCaptures)[number]) => (
+    <li className="feed-capture-post">
+      <div className="feed-post-body">
+        <span className="feed-avatar feed-avatar-human" aria-hidden="true">
+          私
+        </span>
+        <div className="feed-post-main">
+          <div className="feed-post-head">
+            <span className="feed-author-name">自分</span>
+            <time className="feed-post-time" dateTime={entry.captured_at}>
+              {feedTimeLabel(entry.captured_at)}
+            </time>
+            <span className="feed-post-kind">メモ</span>
+          </div>
+          <p className="feed-post-text">{entry.text}</p>
+          <div className="feed-attention-foot">
+            <span className="feed-post-meta">未整理</span>
+            <Button
+              variant="secondary"
+              compact
+              onClick={() =>
+                openDrawer({ type: "capture_entry", entity: entry as unknown as BaseRecord })
+              }
+            >
+              整理する
+            </Button>
+          </div>
+        </div>
+      </div>
+    </li>
   );
-  useEffect(() => {
-    setSelectedRecords((previous) => {
-      const next = previous.filter((id) => visibleRecords.some((row) => row.id === id));
-      return next.length === previous.length ? previous : next;
-    });
-  }, [visibleRecords]);
 
-  async function adoptRecords() {
-    if (adoptionLock.current || !selectedVisibleRecords.length) return;
-    adoptionLock.current = true;
-    setAdoptingRecords(true);
-    setAdoptionProgress({ completed: 0, total: selectedVisibleRecords.length });
-    setAdoptionResult(null);
-    try {
-      const result = await adoptSelectedProposals(
-        selectedVisibleRecords,
-        visibleRecords,
-        async (proposal) => {
-          try {
-            await executeCommand(
-              agentSessionAdoptionCommand(proposal, {
-                data,
-                themes: props.themes,
-                items: props.items,
-              }),
-            );
-          } finally {
-            setAdoptionProgress((previous) => ({ ...previous, completed: previous.completed + 1 }));
-          }
-        },
-      );
-      setAdoptionResult(result);
-      setSelectedRecords(result.failed.map((entry) => entry.id));
-    } finally {
-      adoptionLock.current = false;
-      setAdoptingRecords(false);
-    }
-  }
-
+  /**
+   * AIからの質問・成果の確認・変更案を、ホームの投稿と同じ形で1件として描く。
+   * 種類は小さなラベルで示し、開くとその投稿の下で答える（対応待ちの一覧は持たない）。
+   */
+  const renderAttentionPost = (item: FeedItem) => {
+    const proposal = proposalOf(item);
+    const title =
+      item.kind === "proposal_pending" && proposal ? proposalHeadline(proposal) : item.headline;
+    const open = item.id === selectedNeedsId;
+    return (
+      <li className={`feed-attention-post${open ? " is-open" : ""}`}>
+        <div className="feed-post-body">
+          <span className="feed-avatar feed-avatar-ai" aria-hidden="true">
+            AI
+          </span>
+          <div className="feed-post-main">
+            <div className="feed-post-head">
+              <span className="feed-author-name">{item.actorLabel ?? "Tasken"}</span>
+              <span className="feed-ai-badge">AI</span>
+              {item.receivedAt ? (
+                <time className="feed-post-time" dateTime={item.receivedAt}>
+                  {feedTimeLabel(item.receivedAt)}
+                </time>
+              ) : null}
+              <span className={`feed-post-kind feed-state feed-state-${item.state}`}>
+                {item.stateLabel}
+              </span>
+              {item.kind === "proposal_pending" && proposal ? (
+                <ProposalRisk proposal={proposal} />
+              ) : null}
+            </div>
+            <p className="feed-post-text">{title}</p>
+            {item.summary && item.summary !== title ? (
+              <p className="feed-attention-summary">{item.summary}</p>
+            ) : null}
+            <div className="feed-attention-foot">
+              {item.pathLabel ? <span className="feed-post-meta">{item.pathLabel}</span> : null}
+              <Button
+                variant={open ? "ghost" : "secondary"}
+                compact
+                aria-expanded={open}
+                onClick={() => {
+                  setSelectedNeedsId(open ? null : item.id);
+                  setDraftAnswer("");
+                }}
+              >
+                {open ? "閉じる" : needsDetailHeading(item)}
+              </Button>
+            </div>
+            {open ? renderNeedsDetail(item) : null}
+          </div>
+        </div>
+      </li>
+    );
+  };
   /** 報告の差し戻し。修正してほしい点を `ReturnTaskWork` で返す。 */
   const returnReport = useCallback(
     async (item: FeedItem) => {
@@ -1747,7 +1884,6 @@ export function FeedPage(props: PageProps) {
                   id={tabId}
                   type="button"
                   role="tab"
-                  disabled={adoptingRecords}
                   aria-selected={tab === entry.id}
                   aria-controls={panelId}
                   className={tab === entry.id ? "is-active" : undefined}
@@ -1759,14 +1895,11 @@ export function FeedPage(props: PageProps) {
                   }}
                 >
                   {entry.label}
-                  {entry.id === "needs" && live.unresolved > 0 ? (
-                    <span className="feed-tab-count">{live.unresolved}</span>
-                  ) : null}
                 </button>
               );
             })}
             <div className="feed-tabs-spacer" />
-            {tab !== "needs" && !arrivalsApplied && sourcePosts.arriving.length > 0 ? (
+            {!arrivalsApplied && sourcePosts.arriving.length > 0 ? (
               <button
                 type="button"
                 className="feed-new-arrivals"
@@ -1819,414 +1952,112 @@ export function FeedPage(props: PageProps) {
           ) : null}
 
           {/* 自分の投稿欄。Feed専用の投稿へ保存し、Notesには残さない。実データ0件のfixture表示中も出す。初投稿で実データ表示へ切り替わる。 */}
-          {tab !== "needs" ? (
-            <form
-              className="feed-compose"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void publishOwnPost();
-              }}
-            >
-              <label htmlFor="feed-compose-body">自分の投稿をFeedへ載せる</label>
-              <textarea
-                id="feed-compose-body"
-                value={compose}
-                onChange={(event) => setCompose(event.target.value)}
-                rows={2}
-                placeholder="気づいたことや、あとで読み返したいことを短く"
-              />
-              <div className="feed-detail-actions">
-                <Button variant="primary" type="submit" disabled={busy}>
-                  Feedへ投稿
-                </Button>
-                <span className="feed-compose-note">Notesには残りません</span>
-              </div>
-            </form>
-          ) : null}
+          <form
+            className="feed-compose"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void publishOwnPost();
+            }}
+          >
+            <textarea
+              id="feed-compose-body"
+              aria-label="自分の投稿をFeedへ載せる"
+              value={compose}
+              onChange={(event) => setCompose(event.target.value)}
+              rows={1}
+              placeholder="気づいたことや、あとで読み返したいことを短く"
+            />
+            <div className="feed-detail-actions">
+              <Button variant="primary" type="submit" disabled={busy}>
+                Feedへ投稿
+              </Button>
+              <span className="feed-compose-note">Notesには残りません</span>
+            </div>
+          </form>
 
-          {tab === "needs" ? (
-            <section
-              id="feed-panel-needs"
-              role="tabpanel"
-              aria-labelledby="feed-tab-needs"
-              className="feed-timeline"
-              aria-label="対応待ち"
-            >
-              {needsRows.length === 0 ? (
-                <>
-                  {adoptionResult ? (
-                    <p role="status" className="feed-adoption-result">
-                      {adoptionResult.accepted.length}件採用・{adoptionResult.failed.length}件失敗
-                    </p>
-                  ) : null}
-                  <EmptyState
-                    title="いま対応する更新はありません"
-                    action="ホームを読む"
-                    onAction={() => setTab("home")}
-                  />
-                </>
-              ) : (
-                /* 判断・変更案・確認待ちを1本の一覧にし、選んだ1件だけを詳細で決着させる。 */
-                <div className={`feed-needs-panel${selectedNeedsItem ? " has-selection" : ""}`}>
-                  <div className="feed-needs-heading">
-                    <h2>対応待ち</h2>
-                    <div className="proposal-inbox-actions">
-                      <span className="proposal-pending-count">{needsRows.length}件</span>
-                      <Button
-                        variant="secondary"
-                        disabled={refreshingNeeds || adoptingRecords}
-                        onClick={() => void refreshNeeds(true)}
-                      >
-                        {refreshingNeeds ? "更新中" : "更新"}
-                      </Button>
-                    </div>
-                    {visibleRecords.length ? (
-                      <div className="feed-record-adoption" aria-label="記録の一括採用">
-                        <span>{selectedVisibleRecords.length}件選択</span>
-                        <Button
-                          variant="secondary"
-                          disabled={adoptingRecords}
-                          onClick={() => setSelectedRecords(visibleRecords.map((row) => row.id))}
-                        >
-                          表示中の記録をすべて選択
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          disabled={adoptingRecords || !selectedVisibleRecords.length}
-                          onClick={() => setSelectedRecords([])}
-                        >
-                          選択解除
-                        </Button>
-                        <Button
-                          variant="primary"
-                          disabled={adoptingRecords || !selectedVisibleRecords.length}
-                          onClick={() => void adoptRecords()}
-                        >
-                          {adoptingRecords
-                            ? `採用中 ${adoptionProgress.completed}/${adoptionProgress.total}`
-                            : "選択した記録を採用"}
-                        </Button>
-                      </div>
-                    ) : null}
-                    {adoptionResult ? (
-                      <p className="feed-adoption-result" role="status">
-                        {adoptionResult.accepted.length}件採用・{adoptionResult.failed.length}件失敗
-                        {adoptionResult.failed.length
-                          ? "。失敗した記録の選択を残しました。再試行できます。"
-                          : ""}
-                      </p>
-                    ) : null}
-                  </div>
-                  <ul className="feed-needs-list">
-                    {needsRows.map((item, index) => {
-                      const proposal = proposalOf(item);
-                      // 変更案は種別ラベルではなく中身の見出しを先頭に出す（旧「提案の確認」の行と同じ）。
-                      const title =
-                        item.kind === "proposal_pending" && proposal
-                          ? proposalHeadline(proposal)
-                          : item.headline;
-                      return (
-                        <Fragment key={item.id}>
-                          {/* 判断と確認待ちの境目を1か所だけ示す（Androidの「確認待ち」と同じ意味）。 */}
-                          {item.group === "confirmation" &&
-                          needsRows[index - 1]?.group !== "confirmation" ? (
-                            <li className="feed-needs-section" role="presentation">
-                              <h3>確認待ち</h3>
-                            </li>
-                          ) : null}
-                          <li className="feed-needs-row">
-                            {proposal?.payload_type === "agent_sessions" &&
-                            proposal.status === "pending" ? (
-                              <label className="feed-record-check">
-                                <input
-                                  type="checkbox"
-                                  aria-label={`${title} を採用対象に選択`}
-                                  disabled={adoptingRecords}
-                                  checked={selectedVisibleRecords.includes(proposal.id)}
-                                  onChange={(event) =>
-                                    setSelectedRecords((previous) =>
-                                      event.target.checked
-                                        ? [...previous, proposal.id]
-                                        : previous.filter((id) => id !== proposal.id),
-                                    )
-                                  }
-                                />
-                              </label>
-                            ) : null}
-                            <button
-                              type="button"
-                              className="feed-needs-select"
-                              aria-pressed={item.id === selectedNeedsId}
-                              disabled={adoptingRecords}
-                              onClick={() => {
-                                setSelectedNeedsId(item.id === selectedNeedsId ? null : item.id);
-                                setDraftAnswer("");
-                              }}
-                              ref={(node) => {
-                                if (node) rowRefs.current.set(`needs-${item.id}`, node);
-                                else rowRefs.current.delete(`needs-${item.id}`);
-                              }}
-                            >
-                              <span className="feed-needs-head">
-                                <span className={`feed-state feed-state-${item.state}`}>
-                                  {item.stateLabel}
-                                </span>
-                                <span className="feed-author-name">
-                                  {item.actorLabel ?? "Tasken"}
-                                </span>
-                                {item.kind === "proposal_pending" && proposal ? (
-                                  <ProposalRisk proposal={proposal} />
-                                ) : null}
-                                {item.receivedAt ? (
-                                  <time className="feed-needs-time" dateTime={item.receivedAt}>
-                                    {feedTimeLabel(item.receivedAt)}
-                                  </time>
-                                ) : null}
-                              </span>
-                              <strong className="feed-needs-title">{title}</strong>
-                              {/* 見出しと中身の要旨が違うときだけ、要旨も行に出す。 */}
-                              {item.summary && item.summary !== title ? (
-                                <span className="feed-needs-summary">{item.summary}</span>
-                              ) : null}
-                              <span className="feed-post-meta">{item.pathLabel}</span>
-                            </button>
-                            {adoptionResult?.failed.find((entry) => entry.id === proposal?.id) ? (
-                              <p className="feed-adoption-error" role="alert">
-                                採用できませんでした:{" "}
-                                {
-                                  adoptionResult.failed.find((entry) => entry.id === proposal?.id)
-                                    ?.message
-                                }
-                              </p>
-                            ) : null}
-                          </li>
-                        </Fragment>
-                      );
-                    })}
-                  </ul>
-                  {selectedNeedsItem ? (
-                    <fieldset
-                      disabled={adoptingRecords}
-                      className="feed-needs-detail"
-                      aria-label="選んだ対応待ち"
-                    >
-                      {usesProposalDetail(selectedNeedsItem) &&
-                      proposalOf(selectedNeedsItem) ? null : (
-                        <div className="section-heading">
-                          <h3>{needsDetailHeading(selectedNeedsItem)}</h3>
-                          <span className={`feed-state feed-state-${selectedNeedsItem.state}`}>
-                            {selectedNeedsItem.stateLabel}
-                          </span>
-                        </div>
-                      )}
-                      <p className="feed-post-meta">表示理由: {selectedNeedsItem.reasonShown}</p>
-                      <dl className="feed-detail-rows">
-                        {selectedNeedsItem.detail.rows.map((row) => (
-                          <div key={row.label}>
-                            <dt>{row.label}</dt>
-                            <dd>{row.value}</dd>
-                          </div>
-                        ))}
-                      </dl>
-                      {usesProposalDetail(selectedNeedsItem) ? (
-                        proposalOf(selectedNeedsItem) ? (
-                          <ProposalDetail
-                            {...props}
-                            proposal={proposalOf(selectedNeedsItem) as BaseRecord}
-                            onDecided={() => setSelectedNeedsId(null)}
-                          />
-                        ) : (
-                          <p className="feed-post-meta">
-                            この提案を読み込めませんでした。画面を更新してください。
-                          </p>
-                        )
-                      ) : selectedNeedsItem.requestId ? (
-                        <form
-                          className="feed-reply"
-                          onSubmit={(event) => {
-                            event.preventDefault();
-                            void submitAnswer(selectedNeedsItem);
-                          }}
-                        >
-                          <label htmlFor="feed-answer-body">回答</label>
-                          <textarea
-                            id="feed-answer-body"
-                            value={draftAnswer}
-                            onChange={(event) => setDraftAnswer(event.target.value)}
-                            rows={3}
-                            disabled={busy}
-                          />
-                          <div className="feed-detail-actions">
-                            <Button variant="primary" type="submit" disabled={busy}>
-                              {busy ? "送信中" : "回答を送る"}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              type="button"
-                              disabled={busy}
-                              onClick={() => void changeTodayDate(selectedNeedsItem, null)}
-                            >
-                              今日の選択を外す
-                            </Button>
-                          </div>
-                        </form>
-                      ) : selectedNeedsItem.kind === "review_ready" ? (
-                        <div className="feed-review">
-                          {/* 読み順は #599 の契約どおり。生成文で順序を変えない。 */}
-                          <dl className="feed-detail-rows">
-                            <div>
-                              <dt>成果</dt>
-                              <dd>{selectedNeedsItem.summary}</dd>
-                            </div>
-                            <div>
-                              <dt>確認できたこと</dt>
-                              <dd>
-                                {reviewDetailOf(selectedNeedsItem.sourceId).verification || "—"}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>未確認事項</dt>
-                              <dd>
-                                {reviewDetailOf(selectedNeedsItem.sourceId).remainingWork || "—"}
-                              </dd>
-                            </div>
-                            <div>
-                              <dt>Taskenへ反映する内容</dt>
-                              <dd>
-                                {reviewDetailOf(selectedNeedsItem.sourceId).completedItems ||
-                                  "チェック項目の変更はありません"}
-                              </dd>
-                            </div>
-                          </dl>
-                          {/* 既定の主操作は「報告を採用」。Task完了は選ばれていない明示オプション（#599）。 */}
-                          <label className="feed-review-check">
-                            <input
-                              type="checkbox"
-                              checked={completeTask}
-                              onChange={(event) => setCompleteTask(event.target.checked)}
-                            />
-                            Taskも完了する
-                          </label>
-                          <div className="feed-detail-actions">
-                            <Button
-                              variant="primary"
-                              disabled={busy}
-                              onClick={() => void acceptReport(selectedNeedsItem, completeTask)}
-                            >
-                              {busy ? "処理中" : completeTask ? "採用してTaskを完了" : "報告を採用"}
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              disabled={busy}
-                              onClick={() => openTaskDrawer(selectedNeedsItem)}
-                            >
-                              Taskを開く
-                            </Button>
-                          </div>
-                          <form
-                            className="feed-reply"
-                            onSubmit={(event) => {
-                              event.preventDefault();
-                              void returnReport(selectedNeedsItem);
-                            }}
-                          >
-                            <label htmlFor="feed-review-note">修正してほしい点</label>
-                            <textarea
-                              id="feed-review-note"
-                              value={draftReviewNote}
-                              onChange={(event) => setDraftReviewNote(event.target.value)}
-                              rows={2}
-                              disabled={busy}
-                            />
-                            <div className="feed-detail-actions">
-                              <Button variant="secondary" type="submit" disabled={busy}>
-                                {busy ? "送信中" : "修正を依頼"}
-                              </Button>
-                            </div>
-                          </form>
-                        </div>
-                      ) : (
-                        <div className="feed-detail-actions">
-                          <Button
-                            variant="secondary"
-                            compact
-                            onClick={() => openTaskDrawer(selectedNeedsItem)}
-                          >
-                            Taskを開く
-                          </Button>
-                        </div>
-                      )}
-                    </fieldset>
-                  ) : null}
-                </div>
-              )}
-              {/* 決着済みの変更案とhookの観測だけを残す。判断の選択は対応待ちの一覧が持つ。 */}
-              <AiProposalPanel {...props} />
-            </section>
-          ) : (
-            <section
-              id={`feed-panel-${tab}`}
-              role="tabpanel"
-              aria-labelledby={`feed-tab-${tab}`}
-              className="feed-timeline"
-              aria-label={
-                tab === "learn" ? "学び" : tab === "bookmarks" ? "ブックマーク" : "ホーム"
+          <section
+            id={`feed-panel-${tab}`}
+            role="tabpanel"
+            aria-labelledby={`feed-tab-${tab}`}
+            className="feed-timeline"
+            aria-label={tab === "learn" ? "学び" : tab === "bookmarks" ? "ブックマーク" : "ホーム"}
+          >
+            <FeedStream
+              interleaved={
+                tab === "home" && !authorFilter
+                  ? [
+                      ...needsRows.map((item) => ({
+                        id: item.id,
+                        at: item.receivedAt ?? "",
+                        node: renderAttentionPost(item),
+                      })),
+                      ...pendingCaptures.map((entry) => ({
+                        id: `capture-${entry.id}`,
+                        at: entry.captured_at,
+                        node: renderCapturePost(entry),
+                      })),
+                    ]
+                  : []
               }
-            >
-              <FeedStream
-                posts={shownPosts}
-                replyPosts={replyPosts}
-                notes={domain.notes}
-                now={now}
-                authorFilter={authorFilter}
-                expanded={expanded}
-                openThreadId={openThreadId}
-                busy={busy}
-                bookmarks={shownBookmarks}
-                interesting={shownInteresting}
-                known={shownKnown}
-                hasMore={hasMorePosts}
-                emptyTitle={
-                  tab === "bookmarks"
-                    ? bookmarkFilter === "bookmark"
-                      ? "保存した投稿はまだありません"
-                      : bookmarkFilter === "interesting"
-                        ? "「おもしろい」を付けた投稿はまだありません"
-                        : "「既知だった」を付けた投稿はまだありません"
-                    : tab === "learn"
-                      ? "学びの投稿はまだありません"
-                      : "まだ読める投稿がありません"
-                }
-                emptyAction={
-                  tab === "home"
-                    ? { label: "記録する", onClick: focusCompose }
-                    : { label: "ホームを読む", onClick: () => setTab("home") }
-                }
-                onToggleExpanded={toggleExpanded}
-                onAuthorFilter={setAuthorFilter}
-                onOpenThread={openThread}
-                onOpenArticle={openArticle}
-                onToggleReaction={(target, kind) => void toggleReaction(target, kind)}
-                onHide={hidePost}
-                onOpenNote={openNoteEntity}
-                onOpenTask={openPostTask}
-                onSaveDraft={(target) => void saveDraftAsNote(target)}
-                onOpenSavedNote={openSavedNote}
-                editingOwnPostId={editingOwnPostId}
-                editingOwnPostBody={editingOwnPostBody}
-                onStartOwnPostEdit={startOwnPostEdit}
-                onChangeOwnPostEdit={setEditingOwnPostBody}
-                onCancelOwnPostEdit={cancelOwnPostEdit}
-                onSaveOwnPostEdit={(target) => void saveOwnPostEdit(target)}
-                onDeleteOwnPost={deleteOwnPost}
-                onMore={() => setLimit((value) => value + FEED_PAGE_SIZE)}
-                registerRow={(postId, node) => {
-                  if (node) rowRefs.current.set(`post-${postId}`, node);
-                  else rowRefs.current.delete(`post-${postId}`);
-                }}
-              />
-            </section>
-          )}
+              posts={shownPosts}
+              replyPosts={replyPosts}
+              notes={domain.notes}
+              now={now}
+              authorFilter={authorFilter}
+              expanded={expanded}
+              openThreadId={openThreadId}
+              busy={busy}
+              bookmarks={shownBookmarks}
+              interesting={shownInteresting}
+              known={shownKnown}
+              hasMore={hasMorePosts}
+              emptyTitle={
+                tab === "bookmarks"
+                  ? bookmarkFilter === "bookmark"
+                    ? "保存した投稿はまだありません"
+                    : bookmarkFilter === "interesting"
+                      ? "「おもしろい」を付けた投稿はまだありません"
+                      : "「既知だった」を付けた投稿はまだありません"
+                  : tab === "learn"
+                    ? "学びの投稿はまだありません"
+                    : "まだ読める投稿がありません"
+              }
+              emptyAction={
+                tab === "home"
+                  ? { label: "記録する", onClick: focusCompose }
+                  : { label: "ホームを読む", onClick: () => setTab("home") }
+              }
+              onToggleExpanded={toggleExpanded}
+              onAuthorFilter={setAuthorFilter}
+              onOpenThread={openThread}
+              onOpenArticle={openArticle}
+              onToggleReaction={(target, kind) => void toggleReaction(target, kind)}
+              onHide={hidePost}
+              onOpenNote={openNoteEntity}
+              onOpenTask={openPostTask}
+              onSaveDraft={(target) => void saveDraftAsNote(target)}
+              onOpenSavedNote={openSavedNote}
+              editingOwnPostId={editingOwnPostId}
+              editingOwnPostBody={editingOwnPostBody}
+              onStartOwnPostEdit={startOwnPostEdit}
+              onChangeOwnPostEdit={setEditingOwnPostBody}
+              onCancelOwnPostEdit={cancelOwnPostEdit}
+              onSaveOwnPostEdit={(target) => void saveOwnPostEdit(target)}
+              onDeleteOwnPost={deleteOwnPost}
+              onMore={() => setLimit((value) => value + FEED_PAGE_SIZE)}
+              registerRow={(postId, node) => {
+                if (node) rowRefs.current.set(`post-${postId}`, node);
+                else rowRefs.current.delete(`post-${postId}`);
+              }}
+            />
+            {/* 決着した変更案とhookの観測の履歴。普段は畳んでおき、必要なときだけ開く。 */}
+            {tab === "home" ? (
+              <details className="feed-proposal-history">
+                <summary>決着した提案の履歴</summary>
+                <AiProposalPanel {...props} />
+              </details>
+            ) : null}
+          </section>
 
           {openArticlePost ? (
             <FeedArticleReader
@@ -2247,10 +2078,10 @@ export function FeedPage(props: PageProps) {
             data={data}
             domain={domain}
             activeTheme={activeTheme}
-            attention={railAttention}
+            attention={[]}
             openDrawer={openDrawer}
             navigate={navigate}
-            onOpenAttention={openAttentionFromRail}
+            onOpenAttention={() => {}}
             onFilterAuthor={(authorId) => setAuthorFilter(authorId as FeedAuthorId | null)}
           />
         ) : null}

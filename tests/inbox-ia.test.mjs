@@ -36,11 +36,11 @@ test("micro memos are folded into Inbox navigation instead of a separate nav ite
   assert.equal(existsSync("src/renderer/src/features/workspace/pages/MicroMemoPage.tsx"), false);
 });
 
-test("Inbox page has separate untriaged and micro memo lanes", () => {
+test("Memo page owns only sticky memos and sends untriaged records to Feed", () => {
   assert.match(inboxPageSource, /buildMicroMemoView/);
   assert.match(inboxPageSource, /付箋メモ/);
-  assert.match(inboxPageSource, /lane === "untriaged"/);
-  assert.match(inboxPageSource, /lane === "micro"/);
+  assert.doesNotMatch(inboxPageSource, /lane|organizeSelected|postInboxRowToFeed|InboxDraft/);
+  assert.match(inboxPageSource, /Feedのホームに自分のメモとして並んでいます/);
   assert.match(inboxPageSource, /micro-memo-grid/);
 });
 
@@ -101,35 +101,22 @@ test("Inboxを未整理Task候補へ絞る（#317）", () => {
   assert.match(inboxPageSource, /kind: "micro_memo",\s*content_type: "text",\s*state: "untriaged"/);
 });
 
-test("Inbox itemの既定の行き先はTaskで、他種別はmenuへ畳む（#317）", () => {
-  // 7種を同格のbuttonで常設しない。
-  assert.equal(
-    /INBOX_KIND_OPTIONS\.map\(\(\[value, label\]\) => \(\s*\n\s*<button/.test(inboxPageSource),
-    false,
-  );
-  assert.match(inboxPageSource, /className=\{draft\.output === "task" \? "is-selected" : ""\}/);
-  assert.match(inboxPageSource, /items=\{INBOX_KIND_OPTIONS\.map\(\(\[value, label\]\) => \(\{/);
-  // 内部コードを画面へ出さない。
-  assert.match(inboxPageSource, /const INBOX_KIND_LABELS: Record<InboxKind, string>/);
-
-  // 既存のfile / handwriting / chat-link Captureも一覧・整理できる（schemaは削除しない）。
-  assert.match(inboxPageSource, /fileCaptureContentType/);
-  assert.match(inboxPageSource, /captureArtifacts\(row\.entry\.id\)/);
+test("未整理メモの操作はFeedからCapture詳細へ接続する", () => {
+  const feed = readFileSync("src/renderer/src/features/workspace/pages/FeedPage.tsx", "utf8");
+  assert.match(feed, /renderCapturePost/);
+  assert.match(feed, /type: "capture_entry", entity: entry/);
+  assert.doesNotMatch(inboxPageSource, /INBOX_KIND_OPTIONS|InboxDraft|captureOrganizerApi/);
 });
 
-test("未整理のInbox記録はFeed専用の投稿として整理できる", () => {
-  // 未整理の全件は流さず、選んだ行き先とショートカットだけFeed専用へ渡す。Notesには残さない。
-  assert.match(inboxPageSource, /"feed", "Feed"/);
-  assert.match(inboxPageSource, /organize\(row, "feed"\)/);
-  assert.match(inboxPageSource, /captureFeedPost\(\s*\{/);
-  assert.match(inboxPageSource, /buildSaveFeedPostOperations\(post\)/);
-  assert.match(
+test("未整理Captureはデータ変換せずFeedホームへ投影する", () => {
+  const feed = readFileSync("src/renderer/src/features/workspace/pages/FeedPage.tsx", "utf8");
+  assert.match(feed, /entry.state === "untriaged" && entry.kind !== "micro_memo"/);
+  assert.match(feed, /pendingCaptures.map/);
+  assert.match(feed, /at: entry.captured_at/);
+  assert.doesNotMatch(
     inboxPageSource,
-    /buildTriageCaptureEntryOperations\(row\.entry,\s*\{\s*type:\s*"feed_post",\s*id:\s*postId\s*\}\)/,
+    /captureFeedPost|buildSaveFeedPostOperations|postSelectedToFeed/,
   );
-  assert.match(inboxPageSource, /rememberOrganized\("feed", postId, title, post\)/);
-  assert.match(inboxPageSource, /aria-keyshortcuts="Alt\+P"/);
-  assert.match(inboxPageSource, /event\.key\.toLowerCase\(\) !== "p"/);
 });
 
 test("ToDoは表から追加を撤去し、作成しただけで今日へ入れない（#317）", async () => {

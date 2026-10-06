@@ -11,31 +11,91 @@ import {
 
 const themes = [{ id: "theme-1", name: "材料A評価" }];
 
+test("AI Import resolves unique Theme codes without changing existing ID/name precedence", () => {
+  const catalog = [
+    { id: "theme-1", name: "材料A評価", code: " MAT-A " },
+    { id: "theme-2", name: "MAT-A", code: "OTHER" },
+    { id: "MAT-B", name: "材料B評価", code: "B" },
+    { id: "theme-3", name: "他の材料", code: "MAT-B" },
+  ];
+  function candidate(value, entries = catalog) {
+    return parseAiImportPayload(
+      { items: [{ title: "測定", theme: value, kind: "task" }] },
+      entries,
+      { items: [] },
+    ).candidates[0];
+  }
+  assert.equal(candidate("mat-a").theme?.id, "theme-1");
+  assert.equal(candidate("mat-a").action, "create");
+  assert.equal(candidate("MAT-A").theme?.id, "theme-2");
+  assert.equal(candidate("MAT-B").theme?.id, "MAT-B");
+  const duplicate = candidate("mat-a", [
+    ...catalog,
+    { id: "duplicate", name: "別Theme", code: "mat-a" },
+  ]);
+  assert.equal(duplicate.theme, undefined);
+  assert.equal(duplicate.action, "ignore");
+  assert.throws(() => assertImportCandidateSavable({ ...duplicate, action: "create" }), /確認事項/);
+  assert.equal(candidate("", [{ id: "empty", name: "空", code: "" }]).theme, undefined);
+  assert.equal(candidate("[MAT-A] 材料A評価").action, "ignore");
+});
+
 test("AI Import rejects invalid url, date, and enum by defaulting candidate to ignore", () => {
-  const preview = parseAiImportPayload(JSON.stringify({
-    items: [{ title: "測定", theme: "材料A評価", kind: "unknown", planned_end: "June 20" }],
-    links: [{ title: "ローカル", url: "file:///C:/tmp/a.txt", link_type: "folder" }],
-    people: [{ name: "対象外" }],
-  }), themes, { items: [], notes: [], links: [] });
+  const preview = parseAiImportPayload(
+    JSON.stringify({
+      items: [{ title: "測定", theme: "材料A評価", kind: "unknown", planned_end: "June 20" }],
+      links: [{ title: "ローカル", url: "file:///C:/tmp/a.txt", link_type: "folder" }],
+      people: [{ name: "対象外" }],
+    }),
+    themes,
+    { items: [], notes: [], links: [] },
+  );
 
   assert.equal(preview.payloadIssues[0], "peopleはAI Import対象外のため無視します");
   assert.equal(preview.candidates[0].action, "ignore");
   assert.match(preview.candidates[0].issues.join(" / "), /kindが不正|planned_end/);
   assert.equal(preview.candidates[1].action, "ignore");
-  assert.match(preview.candidates[1].issues.join(" / "), /urlはhttps、http、mailto|link_typeが不正/);
-  assert.throws(() => assertImportCandidateSavable({ ...preview.candidates[0], action: "create" }), /確認事項が残っている候補/);
+  assert.match(
+    preview.candidates[1].issues.join(" / "),
+    /urlはhttps、http、mailto|link_typeが不正/,
+  );
+  assert.throws(
+    () => assertImportCandidateSavable({ ...preview.candidates[0], action: "create" }),
+    /確認事項が残っている候補/,
+  );
 });
 
 test("AI Import accepts items, notes, and mailto links with create and merge actions", () => {
-  const preview = parseAiImportPayload(JSON.stringify({
-    items: [{ title: "測定", theme: "材料A評価", kind: "task", status: "todo", planned_end: "2026-06-20", action: "merge", reason: "既存タスクと同名" }],
-    notes: [{ title: "方針", theme: "材料A評価", note_type: "memo", body: "確認する" }],
-    links: [{ title: "連絡", url: "mailto:test@example.com", link_type: "document", theme: "材料A評価" }],
-  }), themes, {
-    items: [{ id: "existing", title: "測定", status: "todo" }],
-    notes: [],
-    links: [],
-  });
+  const preview = parseAiImportPayload(
+    JSON.stringify({
+      items: [
+        {
+          title: "測定",
+          theme: "材料A評価",
+          kind: "task",
+          status: "todo",
+          planned_end: "2026-06-20",
+          action: "merge",
+          reason: "既存タスクと同名",
+        },
+      ],
+      notes: [{ title: "方針", theme: "材料A評価", note_type: "memo", body: "確認する" }],
+      links: [
+        {
+          title: "連絡",
+          url: "mailto:test@example.com",
+          link_type: "document",
+          theme: "材料A評価",
+        },
+      ],
+    }),
+    themes,
+    {
+      items: [{ id: "existing", title: "測定", status: "todo" }],
+      notes: [],
+      links: [],
+    },
+  );
 
   assert.equal(preview.candidates[0].action, "merge");
   assert.equal(preview.candidates[0].entry.reason, "既存タスクと同名");
@@ -53,51 +113,79 @@ test("MCP Note edit targets one version and becomes ignore after the Note change
     theme_id: "theme-1",
     version: 4,
   };
-  const matching = parseAiImportPayload({
-    notes: [{
-      action: "merge",
-      target_id: current.id,
-      base_version: 4,
-      title: "方針",
-      body: "変更後の本文",
-      reason: "表現を整理",
-    }],
-  }, themes, { items: [], notes: [current], links: [] });
+  const matching = parseAiImportPayload(
+    {
+      notes: [
+        {
+          action: "merge",
+          target_id: current.id,
+          base_version: 4,
+          title: "方針",
+          body: "変更後の本文",
+          reason: "表現を整理",
+        },
+      ],
+    },
+    themes,
+    { items: [], notes: [current], links: [] },
+  );
   assert.equal(matching.candidates[0].action, "merge");
   assert.equal(matching.candidates[0].duplicate.id, current.id);
   assert.doesNotThrow(() => assertImportCandidateSavable(matching.candidates[0]));
 
-  const stale = parseAiImportPayload({
-    notes: [{
-      action: "merge",
-      target_id: current.id,
-      base_version: 3,
-      title: "方針",
-      body: "古い内容を元にした本文",
-      reason: "表現を整理",
-    }],
-  }, themes, { items: [], notes: [current], links: [] });
+  const stale = parseAiImportPayload(
+    {
+      notes: [
+        {
+          action: "merge",
+          target_id: current.id,
+          base_version: 3,
+          title: "方針",
+          body: "古い内容を元にした本文",
+          reason: "表現を整理",
+        },
+      ],
+    },
+    themes,
+    { items: [], notes: [current], links: [] },
+  );
   assert.equal(stale.candidates[0].action, "ignore");
   assert.match(stale.candidates[0].issues.join(" / "), /提案 3 \/ 現在 4/);
 });
 
 test("AI Import accepts knowledge nodes and relation candidates through preview", () => {
-  const preview = parseAiImportPayload(JSON.stringify({
-    knowledge_nodes: [
-      { temp_id: "claim-1", node_type: "claim", title: "条件Bが遅延要因", theme: "材料A評価", confidence: "medium" },
-      { temp_id: "evidence-1", node_type: "evidence", title: "測定ログ", theme: "材料A評価", confidence: "high" },
-    ],
-    knowledge_edges: [
-      { source_temp_id: "claim-1", target_temp_id: "evidence-1", relation_type: "supports" },
-      { source_temp_id: "missing", target_temp_id: "evidence-1", relation_type: "supports" },
-    ],
-  }), themes, {
-    items: [],
-    notes: [],
-    links: [],
-    knowledge_nodes: [],
-    knowledge_edges: [],
-  });
+  const preview = parseAiImportPayload(
+    JSON.stringify({
+      knowledge_nodes: [
+        {
+          temp_id: "claim-1",
+          node_type: "claim",
+          title: "条件Bが遅延要因",
+          theme: "材料A評価",
+          confidence: "medium",
+        },
+        {
+          temp_id: "evidence-1",
+          node_type: "evidence",
+          title: "測定ログ",
+          theme: "材料A評価",
+          confidence: "high",
+        },
+      ],
+      knowledge_edges: [
+        { source_temp_id: "claim-1", target_temp_id: "evidence-1", relation_type: "supports" },
+        { source_temp_id: "missing", target_temp_id: "evidence-1", relation_type: "supports" },
+      ],
+    }),
+    themes,
+    {
+      items: [],
+      notes: [],
+      links: [],
+      knowledge_nodes: [],
+      knowledge_edges: [],
+    },
+  );
 
   assert.equal(preview.candidates[0].type, "knowledge_node");
   assert.equal(preview.candidates[0].action, "create");
@@ -117,7 +205,9 @@ test("AI Import prompt includes theme names and the current export context", () 
 });
 
 test("AI organize prompt brings external AI context back into Tasken", () => {
-  const prompt = buildAiOrganizePrompt("# Active Theme\n- 材料A評価\n\n# 未整理Inbox\n- 測定結果が届いた");
+  const prompt = buildAiOrganizePrompt(
+    "# Active Theme\n- 材料A評価\n\n# 未整理Inbox\n- 測定結果が届いた",
+  );
   assert.match(prompt, /AIサービス側に蓄積された作業文脈/);
   assert.match(prompt, /Taskenへ持ち帰る/);
   assert.match(prompt, /Taskenコンテキストを単に要約し直すだけならignore/);

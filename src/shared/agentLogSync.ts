@@ -32,4 +32,6 @@ export type AgentLogSourceConfig = {
 export type AgentLogSetup = AgentLogSyncStatus & {
   destination: string;
   candidates: Array<{ service: AgentLogService; label: string; path: string }>;
+  /** 旧版で採用待ちのまま残ったログ同期の記録（#629以降は自動で履歴へ入る）。 */
+  pendingRecords: number;
 };

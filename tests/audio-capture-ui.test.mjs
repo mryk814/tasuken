@@ -441,13 +441,12 @@ test("画面録画は通常停止で収録物へ自動保存し、失敗時だ�
   assert.doesNotMatch(studio, /screenRecordingOwners|ScreenRecordingOwnerOption/);
 });
 
-test("saved audio uses one metadata-rich button in untriaged and processed Inbox rows", () => {
-  assert.equal((inbox.match(/<CapturedArtifactButton\s+key=/g) || []).length, 2);
-  assert.match(inbox, /IconVolume size=\{14\}/);
-  assert.match(inbox, /formatMediaDuration\(artifact\.duration_ms\)/);
-  assert.match(inbox, /formatArtifactFileSize\(artifact\.file_size\)/);
-  assert.match(inbox, /TRANSCRIPTION_STATUS_LABELS\[transcription\]/);
-  assert.match(inbox, /MEDIA_AVAILABILITY_LABELS\[availability\]/);
+test("saved audio remains in Studio after Inbox lanes are retired", () => {
+  assert.doesNotMatch(inbox, /CapturedArtifactButton/);
+  assert.match(studio, /<RecordingsPanel/);
+  assert.match(recordings, /formatMediaDuration\(artifact\?\.duration_ms\)/);
+  assert.match(recordings, /formatArtifactFileSize\(artifact\.file_size\)/);
+  assert.match(recordings, /MEDIA_AVAILABILITY_LABELS\[availability\]/);
 });
 
 test("ContentViewer audio exposes loading, error and successful playback metadata accessibly", () => {

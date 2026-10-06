@@ -1,5 +1,6 @@
 export const CAPTURE_ORGANIZER_PROVIDERS = [
-  { id: "openai", label: "OpenAI" },
+  { id: "chatgpt", label: "ChatGPTの契約（推奨）" },
+  { id: "openai", label: "OpenAI API" },
   { id: "azure", label: "Azure OpenAI" },
   { id: "gemini", label: "Gemini" },
   { id: "opencode-zen", label: "OpenCode Zen" },
@@ -7,6 +8,13 @@ export const CAPTURE_ORGANIZER_PROVIDERS = [
 ] as const;
 
 export type CaptureOrganizerProvider = (typeof CAPTURE_ORGANIZER_PROVIDERS)[number]["id"];
+
+/** APIキーで従量課金されるprovider。ChatGPTの契約枠はここに含めない。 */
+export function isMeteredCaptureOrganizerProvider(provider: CaptureOrganizerProvider): boolean {
+  return provider !== "chatgpt";
+}
+
+export const CAPTURE_ORGANIZER_MONTHLY_LIMIT_MAX = 100000;
 
 export const CAPTURE_ORGANIZER_CHAT_MODELS = {
   "opencode-zen": [
@@ -50,6 +58,8 @@ export interface CaptureOrganizerSettingsInput {
   endpoint: string;
   vocabulary: string;
   apiKey?: string;
+  /** 従量APIの月間リクエスト上限。null は上限なし。ChatGPTの契約では使わない。 */
+  monthlyRequestLimit?: number | null;
 }
 
 export interface CaptureOrganizerSettingsState {
@@ -58,6 +68,9 @@ export interface CaptureOrganizerSettingsState {
   endpoint: string;
   vocabulary: string;
   hasApiKey: boolean;
+  monthlyRequestLimit: number | null;
+  /** 今月、従量APIへ送った整理リクエスト数（Tasken内の集計）。 */
+  monthlyRequestCount: number;
   source: "saved" | "environment" | "none";
   secureStorageAvailable: boolean;
   configurationError?: string;
@@ -66,4 +79,16 @@ export interface CaptureOrganizerSettingsState {
 export interface CaptureOrganizerConnectionResult {
   ok: boolean;
   message: string;
+}
+
+export interface ChatGptAccountState {
+  status: "disconnected" | "connecting" | "connected" | "reauth_required";
+  /** 表示用。ID tokenのemail claim。 */
+  email: string | null;
+  secureStorageAvailable: boolean;
+}
+
+export interface ChatGptModelOption {
+  slug: string;
+  displayName: string;
 }

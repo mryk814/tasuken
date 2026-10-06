@@ -248,6 +248,8 @@ internal fun TodayApp(
     val uiState by todayViewModel.uiState.collectAsState()
     val agentSessions by todayViewModel.agentSessions.collectAsState()
     val agentSessionsUnavailable by todayViewModel.agentSessionsUnavailable.collectAsState()
+    val routines by todayViewModel.routines.collectAsState()
+    val routineSavingId by todayViewModel.routineSavingId.collectAsState()
     val refreshing by todayViewModel.refreshing.collectAsState()
     val captureState by todayViewModel.captureState.collectAsState()
     val pendingCaptures by todayViewModel.pendingCaptures.collectAsState()
@@ -846,6 +848,10 @@ internal fun TodayApp(
                                 uiState = uiState,
                                 agentSessions = agentSessions,
                                 agentSessionsUnavailable = agentSessionsUnavailable,
+                                routines = routines,
+                                routineSavingId = routineSavingId,
+                                onRecordHabit = todayViewModel::recordHabit,
+                                onRecordMaintenance = todayViewModel::recordMaintenance,
                                 refreshing = refreshing,
                                 themes = themes,
                                 paneState = paneState,
@@ -1749,6 +1755,10 @@ internal fun TodayListPane(
     agentSessions: List<MobileAgentSessionDto> = emptyList(),
     agentSessionsUnavailable: Boolean = false,
     onRecordWorkLog: ((MobileTask) -> Unit)? = null,
+    routines: MobileRoutinesDataDto? = null,
+    routineSavingId: String? = null,
+    onRecordHabit: (MobileRoutineHabitDto) -> Unit = {},
+    onRecordMaintenance: (MobileRoutineMaintenanceDto) -> Unit = {},
 ) {
     val tasks = when (uiState) {
         is TodayUiState.Success -> uiState.tasks
@@ -1791,7 +1801,7 @@ internal fun TodayListPane(
                 onRefresh = if (cached?.recovery == TodayUiState.CachedRecovery.RePair) onRetryPairing else onRetry,
                 modifier = Modifier.weight(1f).testTag("today-pull-refresh"),
             ) {
-                if (tasks.isEmpty() && agentSessions.isEmpty() && !agentSessionsUnavailable) {
+                if (tasks.isEmpty() && agentSessions.isEmpty() && !agentSessionsUnavailable && routines?.isEmpty != false) {
                     CenteredState { Text("今日のタスクはありません") }
                 } else {
                     TodayTaskList(
@@ -1809,6 +1819,10 @@ internal fun TodayListPane(
                         agentSessionsUnavailable = agentSessionsUnavailable,
                         onAgentSessionRetry = onRetry,
                         onRecordWorkLog = onRecordWorkLog,
+                        routines = routines,
+                        routineSavingId = routineSavingId,
+                        onRecordHabit = onRecordHabit,
+                        onRecordMaintenance = onRecordMaintenance,
                     )
                 }
             }
@@ -2828,6 +2842,10 @@ internal fun TodayTaskList(
     agentSessionsUnavailable: Boolean = false,
     onAgentSessionRetry: () -> Unit = {},
     onRecordWorkLog: ((MobileTask) -> Unit)? = null,
+    routines: MobileRoutinesDataDto? = null,
+    routineSavingId: String? = null,
+    onRecordHabit: (MobileRoutineHabitDto) -> Unit = {},
+    onRecordMaintenance: (MobileRoutineMaintenanceDto) -> Unit = {},
 ) {
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = if (allTasksMode) paneState.taskListScrollIndex else paneState.listScrollIndex,
@@ -3093,6 +3111,11 @@ internal fun TodayTaskList(
                 }
               }
             }
+            }
+        }
+        if (!allTasksMode && routines != null && !routines.isEmpty) {
+            item(key = "today-routines") {
+                TodayRoutinesSection(routines, routineSavingId, onRecordHabit, onRecordMaintenance)
             }
         }
     }

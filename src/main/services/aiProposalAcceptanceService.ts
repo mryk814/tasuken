@@ -216,13 +216,23 @@ function canonicalThemeId(
 ): string | null {
   const requested = text(entry.theme).trim();
   if (!requested) return text(fallback).trim() || null;
-  const theme = [...repository.list("project"), ...repository.list("theme")].find(
+  const themes = [...repository.list("project"), ...repository.list("theme")];
+  const theme = themes.find(
     (candidate) =>
       candidate.id === requested ||
       text(candidate.name) === requested ||
       text(candidate.title) === requested,
   );
-  return theme?.id || null;
+  if (theme) return theme.id;
+  const code = requested.toLowerCase();
+  const matches = new Set(
+    themes
+      .filter((candidate) => text(candidate.code).trim().toLowerCase() === code)
+      .map((candidate) => candidate.id),
+  );
+  if (matches.size !== 1)
+    throw new Error("Themeを解決できません。指定を確認してPreviewを開き直してください。");
+  return [...matches][0];
 }
 
 function rebuildCanonicalCandidates(

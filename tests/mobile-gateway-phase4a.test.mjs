@@ -809,6 +809,8 @@ test("Phase 4A Mobile contract rejects unknown fields, forged actor/source, vers
     feed: "/v1/feed",
     // Feed投稿への反応と、自分のメモとしての返信。
     feedActions: "/v1/feed-actions",
+    routines: "/v1/routines",
+    routineActions: "/v1/routine-actions",
     agentReplies: "/v1/agent-replies",
     taskContextPreview: "/v1/task-context-preview",
     taskDelegations: "/v1/task-delegations",

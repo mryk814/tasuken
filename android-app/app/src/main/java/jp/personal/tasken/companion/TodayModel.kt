@@ -476,6 +476,11 @@ class TodayViewModel(
     private val mutableFeedMessages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     /** 反応・返信が受け付けられなかった理由。一時的な通知として見せる。 */
     val feedMessages: SharedFlow<String> = mutableFeedMessages.asSharedFlow()
+    private val mutableRoutines = MutableStateFlow<MobileRoutinesDataDto?>(null)
+    /** 続けること・手入れ（#454）。取れなかったときは前回の内容を残す。 */
+    val routines: StateFlow<MobileRoutinesDataDto?> = mutableRoutines.asStateFlow()
+    private val mutableRoutineSavingId = MutableStateFlow<String?>(null)
+    val routineSavingId: StateFlow<String?> = mutableRoutineSavingId.asStateFlow()
     private val mutableAttentionCounts = MutableStateFlow<MobileAttentionCountsDto?>(null)
     val attentionCounts: StateFlow<MobileAttentionCountsDto?> = mutableAttentionCounts.asStateFlow()
     private val mutableAttentionFetchedAt = MutableStateFlow<String?>(null)
@@ -499,6 +504,7 @@ class TodayViewModel(
     private var proposalRefreshJob: Job? = null
     private var attentionRefreshJob: Job? = null
     private var feedRefreshJob: Job? = null
+    private var routineRefreshJob: Job? = null
     private var cacheJob: Job? = null
     private var cacheDate: java.time.LocalDate? = null
     private var cachedGeneratedAt = ""
@@ -611,6 +617,69 @@ class TodayViewModel(
         refreshProposals(result !is MobileTodayResult.PairingRequired)
         refreshAttentionQueue(result !is MobileTodayResult.PairingRequired)
         refreshFeedPosts(result !is MobileTodayResult.PairingRequired)
+        refreshRoutines(result !is MobileTodayResult.PairingRequired)
+    }
+
+    /** 続けること・手入れの取り直し（#454）。失敗しても前回の内容を残す。 */
+    private fun refreshRoutines(canConnect: Boolean) {
+        routineRefreshJob?.cancel()
+        val gateway = repository as? MobileGatewayRepository
+        if (!canConnect || gateway == null) return
+        routineRefreshJob = viewModelScope.launch(ioDispatcher) {
+            val date = today().toString()
+            val read = try {
+                gateway.fetchRoutines(date)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                null
+            }
+            currentCoroutineContext().ensureActive()
+            if (read != null) mutableRoutines.value = read
+        }
+    }
+
+    fun recordHabit(habit: MobileRoutineHabitDto) {
+        val date = mutableRoutines.value?.date ?: return
+        val action = try {
+            MobileRoutineContract.habitAction(habit, date)
+        } catch (error: IllegalArgumentException) {
+            mutableFeedMessages.tryEmit(error.message ?: "記録できませんでした。")
+            return
+        }
+        recordRoutine(habit.habitId, action)
+    }
+
+    fun recordMaintenance(item: MobileRoutineMaintenanceDto) {
+        val date = mutableRoutines.value?.date ?: return
+        recordRoutine(item.maintenanceId, MobileRoutineContract.maintenanceAction(item, date))
+    }
+
+    private fun recordRoutine(id: String, action: MobileRoutineActionDto) {
+        val gateway = repository as? MobileGatewayRepository ?: return
+        if (mutableRoutineSavingId.value != null) return
+        mutableRoutineSavingId.value = id
+        viewModelScope.launch(ioDispatcher) {
+            try {
+                val result = try {
+                    gateway.recordRoutine(action)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    MobileRoutineActionResult.Failed("記録できませんでした。接続を確認してください。")
+                }
+                when (result) {
+                    is MobileRoutineActionResult.Saved -> {
+                        mutableFeedMessages.tryEmit(result.message)
+                        // Desktopの導出結果（今日N回・次の目安）に合わせ直す。
+                        gateway.fetchRoutines(action.performedOn)?.let { mutableRoutines.value = it }
+                    }
+                    is MobileRoutineActionResult.Failed -> mutableFeedMessages.tryEmit(result.message)
+                }
+            } finally {
+                mutableRoutineSavingId.value = null
+            }
+        }
     }
 
     /**
@@ -1901,6 +1970,11 @@ interface MobileGatewayRepository : MobileTaskRepository {
         MobileFeedActionResult.Unavailable("このDesktopでは返信を保存できません。")
     /** 送信待ちを送る。受け付けられなかった分の理由を返す（成功・接続できなかった分は返さない）。 */
     suspend fun flushFeedActions(): List<String> = emptyList()
+    /** 続けること・手入れ（#454）。窓口を持たないDesktopや接続できないときはnull。 */
+    suspend fun fetchRoutines(date: String): MobileRoutinesDataDto? = null
+    /** 続けること・手入れの記録。Desktopへ直接送り、送れなければ記録しない。 */
+    suspend fun recordRoutine(action: MobileRoutineActionDto): MobileRoutineActionResult =
+        MobileRoutineActionResult.Failed("このDesktopでは記録できません。Desktopを更新してください。")
     suspend fun replyToAgent(
         item: AttentionRow,
         choiceId: String?,

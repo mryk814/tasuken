@@ -58,16 +58,13 @@ test("Quick CaptureはTheme任意・連続入力・URLメタデータを保存�
   assert.match(captureWindowSource, /const usesTheme = mode !== "micro-memo"/);
 });
 
-test("Inboxはファイル・手書き・整理済み履歴を同じCaptureEntry経路で扱う", () => {
+test("Memoのファイルと手書きは既存CaptureEntry経路を保持する", () => {
   assert.match(
     inboxSource,
     /buildLinkedArtifactOperationsFromPaths\(picked\.files, "capture_entry", captureId\)/,
   );
   assert.match(inboxSource, /content_type:\s*"ink"/);
-  assert.match(inboxSource, /lane === "processed"/);
-  assert.match(inboxSource, /Inboxへ戻す/);
-  assert.match(inboxSource, /draft\.output === "document"/);
-  assert.match(inboxSource, /draft\.output === "artifact"/);
+  assert.doesNotMatch(inboxSource, /lane ===|Inboxへ戻す|draft\.output/);
 });
 
 test("Quick Captureの一行入力は全角・半角の区切りで本体と補足へ分かれる（#308）", () => {

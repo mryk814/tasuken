@@ -19,6 +19,7 @@ import { randomUUID } from "node:crypto";
 import { registerIpc } from "./ipc/registerIpc";
 import { registerMobileGatewayIpc } from "./ipc/registerMobileGatewayIpc";
 import { CaptureOrganizerSettingsService } from "./services/captureOrganizerSettings";
+import { ChatGptAccountService } from "./services/chatgptAccount";
 import { proposeTaskSchedule } from "./services/taskScheduleProposal";
 import { registerAttachmentProtocol, registerAttachmentScheme } from "./attachmentProtocol";
 import { registerMediaProtocol, registerMediaScheme } from "./mediaProtocol";
@@ -2625,10 +2626,23 @@ async function startDesktopApp(): Promise<void> {
   workspaceRepository = new WorkspaceDatabase(
     path.join(app.getPath("userData"), "research-desk.sqlite"),
   );
+  // Tasken自身の入力整理がChatGPTの契約枠を使うための認証。MCP（外部AI→Tasken）とは別の境界。
+  const chatGptAccount = new ChatGptAccountService(app.getPath("userData"), safeStorage, {
+    openExternal: (url) => shell.openExternal(url),
+  });
   const captureOrganizerSettings = new CaptureOrganizerSettingsService(
     app.getPath("userData"),
     safeStorage,
+    process.env,
+    fetch,
+    fs,
+    chatGptAccount,
   );
+  ipcMain.handle(IPC.captureOrganizerChatGptState, () => chatGptAccount.getState());
+  ipcMain.handle(IPC.captureOrganizerChatGptConnect, () => chatGptAccount.signIn());
+  ipcMain.handle(IPC.captureOrganizerChatGptCancel, () => chatGptAccount.cancelSignIn());
+  ipcMain.handle(IPC.captureOrganizerChatGptDisconnect, () => chatGptAccount.disconnect());
+  ipcMain.handle(IPC.captureOrganizerChatGptModels, () => chatGptAccount.listModels());
   ipcMain.handle(IPC.captureOrganizerGetSettings, () => captureOrganizerSettings.getSettings());
   ipcMain.handle(IPC.captureOrganizerSaveSettings, (_event, input) =>
     captureOrganizerSettings.saveSettings(input),
@@ -2673,6 +2687,23 @@ async function startDesktopApp(): Promise<void> {
         const removed = workspaceRepository.remove(type, id);
         notifyMainWindowRefresh(removed ? { type, entity: removed as never } : undefined);
         return removed;
+      },
+    },
+    // Androidからの続けること・手入れの記録（#454）。Desktopの記録と同じEntity保存を使う。
+    routineWriter: {
+      saveMany: (operations) => {
+        const saved: Record<string, unknown>[] = workspaceRepository.saveMany(
+          operations.map(({ type, entity }) => ({
+            action: "save",
+            type,
+            entity,
+            options: { source: "mobile" },
+          })),
+        );
+        saved.forEach((entity, index) => {
+          notifyMainWindowRefresh({ type: operations[index].type, entity: entity as never });
+        });
+        return saved;
       },
     },
     getCaptureOrganizer: () => captureOrganizerSettings.createOrganizer(),

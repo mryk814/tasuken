@@ -111,6 +111,69 @@ function root() {
   return fs.mkdtempSync(path.join(process.cwd(), ".tasken-ai-acceptance-"));
 }
 
+test("Theme code preview and Main acceptance agree and reject unknown or ambiguous codes", () => {
+  const directory = root();
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  database.loadWorkspace();
+  const workspace = new WorkspaceService(database, directory);
+  try {
+    const theme = database.save("theme", { id: "code-theme", name: "材料A", code: "MAT-A" });
+    const proposal = database.save("ai_proposal", {
+      id: "proposal-theme-code",
+      source: "mcp",
+      source_app: "fixture",
+      payload_type: "notes",
+      payload: {
+        notes: [{ action: "create", title: "Code Note", body: "Code body", theme: "mat-a" }],
+      },
+      request: { tool: "tasken.propose_note" },
+      status: "pending",
+      received_at: "2026-10-06T00:00:00.000Z",
+    });
+    const preview = buildPreview(proposal, { data: { notes: [] }, themes: [theme], items: [] });
+    assert.equal(preview.candidates[0].theme.id, theme.id);
+    const candidates = stabilizeProposalOperations(
+      proposal.id,
+      buildCandidateOperations(preview.candidates),
+    ).map((operation) => ({ type: operation.type, entity: operation.entity }));
+    const acceptance = new AiProposalAcceptanceService(
+      new ApplicationCommandService(database),
+      workspace,
+      database,
+    );
+    acceptance.execute(envelope(proposal, candidates));
+    const saved = database.list("note").find((note) => note.title === "Code Note");
+    assert.equal(saved.project_id, theme.id);
+    const count = database.list("note").length;
+    database.save("theme", { id: "duplicate-code", name: "別材料", code: "mat-a" });
+    for (const value of ["mat-a", "UNKNOWN"]) {
+      const invalid = database.save("ai_proposal", {
+        ...proposal,
+        id: `invalid-${value}`,
+        status: "pending",
+        payload: { notes: [{ action: "create", title: "Wrong Note", body: "body", theme: value }] },
+      });
+      assert.throws(
+        () =>
+          acceptance.execute(
+            envelope(invalid, [
+              {
+                type: "note",
+                entity: { id: `wrong-${value}`, title: "Wrong Note", body_markdown: "body" },
+              },
+            ]),
+          ),
+        /Theme/,
+      );
+      assert.equal(database.list("note").length, count);
+      assert.equal(database.get("ai_proposal", invalid.id).status, "pending");
+    }
+  } finally {
+    database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 function envelope(
   proposal,
   candidates,

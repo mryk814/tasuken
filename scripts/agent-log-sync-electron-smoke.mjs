@@ -1,4 +1,4 @@
-/** Synthetic folders only; actual source setup, Core adoption and refresh through Electron. */
+/** Synthetic folders only; actual source setup, direct history adoption (#629) and refresh through Electron. */
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -48,10 +48,17 @@ async function selectSession() {
   await timeline().getByLabel("表示日").fill("2026-10-03");
   await timeline().locator(".agent-log-block").first().click();
 }
-async function adopt() {
+/** #629: ログ同期の記録は採用待ちにせず履歴へ入る。採用ボタンも対応待ちも出ない。 */
+async function assertAdoptedWithoutReview() {
   const detail = timeline().getByRole("complementary", { name: "選択Sessionの詳細", exact: true });
-  await detail.getByRole("button", { name: "採用", exact: true }).click();
-  await detail.getByRole("button", { name: "採用", exact: true }).waitFor({ state: "detached" });
+  assert.equal(await detail.getByRole("button", { name: "採用", exact: true }).count(), 0);
+  const pending = await page.evaluate(async () =>
+    (await window.api.entities.list("ai_proposal")).filter(
+      (proposal) =>
+        proposal.status === "pending" && String(proposal.source_app).startsWith("tasken-log-sync:"),
+    ),
+  );
+  assert.deepEqual(pending, []);
 }
 try {
   await launch();
@@ -69,16 +76,19 @@ try {
   await collector().getByRole("button", { name: "この場所を登録", exact: true }).click();
   await collector().getByRole("button", { name: "ログ同期", exact: true }).click();
   await collector()
-    .getByText(/新規・更新提案 1/)
+    .getByText(/新規・更新 1/)
     .waitFor();
   await selectSession();
   await page.screenshot({ path: path.join(output, "desktop-sync-proposal.png") });
-  await adopt();
+  await assertAdoptedWithoutReview();
   const first = await page.evaluate(
     async () => (await window.api.entities.list("agent_session"))[0],
   );
   assert.equal(first.status, "unknown");
-  assert.deepEqual(first.request_events, []);
+  assert.deepEqual(
+    first.request_events.map((event) => event.text),
+    ["合成デモ: Activityを確認する"],
+  );
   assert.deepEqual(first.response_checkpoints, []);
   fs.appendFileSync(
     file,
@@ -95,10 +105,10 @@ try {
   );
   await collector().getByRole("button", { name: "ログ同期", exact: true }).click();
   await collector()
-    .getByText(/新規・更新提案 1/)
+    .getByText(/新規・更新 1/)
     .waitFor();
   await selectSession();
-  await adopt();
+  await assertAdoptedWithoutReview();
   const refreshed = await page.evaluate(() => window.api.entities.list("agent_session"));
   assert.equal(refreshed.length, 1);
   assert.equal(refreshed[0].id, first.id);
@@ -126,6 +136,35 @@ try {
   await collector()
     .getByText(/変更なし 1/)
     .waitFor();
+  // subagentのthreadは親の会話の一部なので、単独のSessionとして増えない。
+  const subagent = fs
+    .readFileSync("fixtures/agent-work-logs/codex-rollout.jsonl", "utf8")
+    .replaceAll("synthetic-rollout", "synthetic-subagent")
+    .replace(
+      '"payload":{',
+      '"payload":{"thread_source":"subagent","parent_thread_id":"synthetic-rollout",',
+    );
+  fs.writeFileSync(path.join(logs, "rollout-subagent.jsonl"), subagent);
+  await collector().getByRole("button", { name: "ログ同期", exact: true }).click();
+  await collector()
+    .getByText(/変更なし 2/)
+    .waitFor();
+  assert.equal(
+    await page.evaluate(async () => (await window.api.entities.list("agent_session")).length),
+    1,
+  );
+  // 旧版で残った採用待ち（ここでは手動取込で作る）は件数と案内だけを出し、対応待ちには並べない。
+  const legacy = fs
+    .readFileSync("fixtures/agent-work-logs/codex-rollout.jsonl", "utf8")
+    .replaceAll("synthetic-rollout", "synthetic-legacy-pending");
+  await page.evaluate((raw) => window.api.agentWorkLogs.import(raw, []), legacy);
+  await collector().getByRole("button", { name: "ログ同期", exact: true }).click();
+  await collector()
+    .getByText(/採用待ちのまま残った記録が 1/)
+    .waitFor();
+  assert.equal(await page.locator(".feed-needs-row").count(), 0);
+  await collector().getByRole("note").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: path.join(output, "desktop-legacy-pending.png") });
   await collector().getByLabel("Tasken 起動中に5分ごとに同期").check();
   await collector().getByLabel("Tasken 起動中に5分ごとに同期").uncheck();
   await collector().getByText("保存先を追加・再確認", { exact: true }).click();
@@ -139,7 +178,7 @@ try {
   await collector().locator(":scope > summary").click();
   await collector().getByRole("button", { name: "ログ同期", exact: true }).click();
   await collector()
-    .getByText(/変更なし 1/)
+    .getByText(/変更なし 2/)
     .waitFor();
   await app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].setContentSize(390, 844),
@@ -169,6 +208,9 @@ try {
       {
         passed: true,
         nativeSessions: 1,
+        adoptedWithoutReview: true,
+        delegatedThreadSkipped: true,
+        legacyPendingNoticed: 1,
         refreshedSameId: true,
         restart: true,
         widths: [1760, 390],

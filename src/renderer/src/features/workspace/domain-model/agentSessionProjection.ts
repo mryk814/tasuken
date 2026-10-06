@@ -1,3 +1,4 @@
+import { agentSessionHeading } from "../../../../../shared/agentWorkLogImport.ts";
 import { normalizeReferenceAssertion } from "../../../../../shared/relationAssertion.mjs";
 import type { RepositoryContext } from "../../../../../shared/repositoryContext.mjs";
 
@@ -222,8 +223,8 @@ export function buildAgentWorkProjection(
       const themes = byIds(domain.projects, themeIds);
       const repositories = byIds(domain.repository_contexts, repositoryIds);
       const tasks = byIds(domain.tasks, taskIds);
-      const topic =
-        tasks.length > 0 ? `${tasks[0].title} — ${session.intent.summary}` : session.intent.summary;
+      const heading = agentSessionHeading(session.intent);
+      const topic = tasks.length > 0 ? `${tasks[0].title} — ${heading}` : heading;
       const unresolved = session.status === "blocked" || remaining.length > 0;
       const sessionHasContent = agentSessionHasContent(session, hookSourceApps.get(session.id));
       const row = {

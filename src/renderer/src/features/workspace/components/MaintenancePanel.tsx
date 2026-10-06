@@ -33,6 +33,8 @@ export interface MaintenancePanelProps extends Pick<
   today: string;
   /** 追加・履歴・削除を出すか（Settingsの管理面だけ true）。 */
   manage?: boolean;
+  /** Todayの「今日やること」の中へ、Taskと同じ行で並べる（2026-10-06）。丸を押すと今日やったと記録する。 */
+  variant?: "panel" | "rows";
 }
 
 export function MaintenancePanel({
@@ -43,6 +45,7 @@ export function MaintenancePanel({
   removeEntityQuiet,
   setToast,
   manage = false,
+  variant = "panel",
 }: MaintenancePanelProps) {
   const items = useMemo(
     () => (data.maintenances || []).filter((item) => !item.deleted_at),
@@ -234,6 +237,47 @@ export function MaintenancePanel({
       setBusy(false);
     }
   };
+
+  if (variant === "rows") {
+    return (
+      <>
+        {[...visible]
+          .sort((a, b) => String(a.next_due_on).localeCompare(String(b.next_due_on)))
+          .map((item) => {
+            const label = maintenanceLabel(item);
+            const state = due(item);
+            // 目安を過ぎてもTaskの期限違反ではないので、赤ではなく「今日」と同じ注意色に留める。
+            const urgency =
+              state.state === "overdue" || state.daysUntil === 0 ? " is-due-today" : "";
+            return (
+              <div className={`today-task-row routine-row${urgency}`} key={String(item.id)}>
+                <span className="todo-theme-bar" />
+                <button
+                  type="button"
+                  className="todo-check-circle"
+                  aria-label={`${label}をやったと記録`}
+                  title="やったと記録"
+                  disabled={busy}
+                  onClick={() => void record(item)}
+                />
+                <div className="row-title-wrap">
+                  <span className="today-row-spacer" aria-hidden="true" />
+                  <span className="today-row-spacer" aria-hidden="true" />
+                  <div className="row-title-main">
+                    <span className="today-task-title">
+                      <strong>{label}</strong>
+                      <span>手入れ / {intervalOf(item)}日ごと</span>
+                    </span>
+                  </div>
+                </div>
+                <time className={urgency.trim() || undefined}>{state.label}</time>
+                <span className="today-postpone-actions" />
+              </div>
+            );
+          })}
+      </>
+    );
+  }
 
   return (
     <section className="panel maintenance-panel" aria-labelledby="maintenance-panel-title">

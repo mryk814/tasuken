@@ -114,13 +114,14 @@ test("durationはcompactな時刻へ整形する", () => {
   assert.equal(formatMediaDuration(undefined), "");
 });
 
-test("保存済みVoice Captureは未整理・整理済みの両方でduration、size、statusをcompact表示する", () => {
+test("保存済みVoice Captureの媒体状態はStudioの棚から読める", () => {
   assert.equal(TRANSCRIPTION_STATUS_LABELS.not_requested, "未文字起こし");
   assert.equal(MEDIA_AVAILABILITY_LABELS.available, "保存済み");
-  const inbox = readFileSync("src/renderer/src/features/workspace/pages/InboxPage.tsx", "utf8");
-  assert.equal((inbox.match(/<CapturedArtifactButton\s+key=/g) || []).length, 2);
-  assert.match(inbox, /formatMediaDuration\(artifact\.duration_ms\)/);
-  assert.match(inbox, /formatArtifactFileSize\(artifact\.file_size\)/);
-  assert.match(inbox, /TRANSCRIPTION_STATUS_LABELS\[transcription\]/);
-  assert.match(inbox, /MEDIA_AVAILABILITY_LABELS\[availability\]/);
+  const recordings = readFileSync(
+    "src/renderer/src/features/workspace/components/RecordingsPanel.tsx",
+    "utf8",
+  );
+  assert.match(recordings, /formatMediaDuration\(artifact\?\.duration_ms\)/);
+  assert.match(recordings, /formatArtifactFileSize\(artifact\.file_size\)/);
+  assert.match(recordings, /MEDIA_AVAILABILITY_LABELS\[availability\]/);
 });

@@ -1,4 +1,8 @@
 import {
+  agentSessionHeading,
+  formatAgentActiveDuration,
+} from "../../../../../shared/agentWorkLogImport";
+import {
   useEffect,
   useRef,
   useState,
@@ -999,7 +1003,7 @@ export function ActivityLogPanel({
                     const sessionRow = row.item_type === "session" ? row.session_row : null;
                     const event = row.item_type === "event" ? row.event : null;
                     const title =
-                      sessionRow?.session.intent.summary ||
+                      (sessionRow ? agentSessionHeading(sessionRow.session.intent) : "") ||
                       (event
                         ? eventTitle(
                             event,
@@ -1169,7 +1173,7 @@ export function ActivityLogPanel({
                                 ? burstEntityTitle
                                   ? `${burstEntityTitle} · ${burst.events.length}件`
                                   : `${burst.events.length}件のActivity`
-                                : session?.intent.summary ||
+                                : (session ? agentSessionHeading(session.intent) : "") ||
                                   session?.client_label ||
                                   "AI セッション";
                           const timeLabel = calendarEvent
@@ -1458,6 +1462,18 @@ export function ActivityLogPanel({
                             <dt>意図</dt>
                             <dd>{expandedSession.intent.summary || "未記録"}</dd>
                           </div>
+                          {formatAgentActiveDuration(
+                            expandedSession.observation?.active_duration_ms,
+                          ) && (
+                            <div>
+                              <dt>AIが動いた時間</dt>
+                              <dd>
+                                {formatAgentActiveDuration(
+                                  expandedSession.observation?.active_duration_ms,
+                                )}
+                              </dd>
+                            </div>
+                          )}
                           <div>
                             <dt>成果</dt>
                             <dd>{expandedSession.outcome?.summary || "未記録"}</dd>
@@ -1556,8 +1572,8 @@ export function ActivityLogPanel({
                         )}
                         <div className="activity-timeline-detail-section activity-session-evidence">
                           <span>
-                            {agentSessionInterval(expandedSession).endLabel}{" "}
-                            · 経過時間は実作業時間ではありません
+                            {agentSessionInterval(expandedSession).endLabel} ·
+                            経過時間は実作業時間ではありません
                           </span>
                           <span>
                             出典: {expandedSession.source_session_id || expandedSession.id} ·

@@ -123,6 +123,10 @@ export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
   feed: "/v1/feed",
   /** Feed投稿への反応（おもしろい・ブックマーク）と、自分のメモとしての返信。冪等。 */
   feedActions: "/v1/feed-actions",
+  /** 続けること（Habit）と手入れ（Maintenance）の読み出し（#454）。 */
+  routines: "/v1/routines",
+  /** Habitの1回記録とMaintenanceの実施記録。IDが決まっているので再送で増えない（#454）。 */
+  routineActions: "/v1/routine-actions",
   /** agentの質問への短い返答（#601）。 */
   agentReplies: "/v1/agent-replies",
   taskContextPreview: "/v1/task-context-preview",
