@@ -1827,12 +1827,12 @@ export function FeedPage(props: PageProps) {
                 void publishOwnPost();
               }}
             >
-              <label htmlFor="feed-compose-body">自分の投稿をFeedへ載せる</label>
               <textarea
                 id="feed-compose-body"
+                aria-label="自分の投稿をFeedへ載せる"
                 value={compose}
                 onChange={(event) => setCompose(event.target.value)}
-                rows={2}
+                rows={1}
                 placeholder="気づいたことや、あとで読み返したいことを短く"
               />
               <div className="feed-detail-actions">

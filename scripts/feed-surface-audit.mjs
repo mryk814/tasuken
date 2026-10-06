@@ -58,8 +58,8 @@ const ZOOM_STORAGE_KEY = "tasken:shell:zoom-factor:v1";
 const EXPECTED_UNRESOLVED = 3;
 /** 一覧の行数。判断3件＋確認待ち1件（進捗追記）。確認待ちは要対応の件数へ数えない。 */
 const EXPECTED_NEEDS_ROWS = 4;
-/** 投稿の本文は読み物として16px以上にする。 */
-const MIN_BODY_FONT_PX = 16;
+/** 投稿の本文はアプリ本文と同じ14px以上（2026-10-06、一覧の密度を上げる判断）。 */
+const MIN_BODY_FONT_PX = 14;
 const MIN_POSTS = 12;
 /** 実データ投稿（`--feed-post`で用意する1件）の識別情報。 */
 const LIVE_ARTICLE_TITLE = "「もう一度保存」に耐える設計";
