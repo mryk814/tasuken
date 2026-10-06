@@ -20,16 +20,6 @@ const ZOOM_STORAGE_KEY = "tasken:shell:zoom-factor:v1";
 const HABIT_TITLE = "読書";
 const WEEKLY_TARGET = 3;
 
-function isoDaysAgo(days) {
-  const date = new Date();
-  date.setDate(date.getDate() - days);
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0"),
-  ].join("-");
-}
-
 /** 今週（月曜開始）の外へ出すための日付。 */
 function lastWeekDate() {
   const date = new Date();
@@ -77,13 +67,21 @@ async function openHabitSettings(page) {
   await page.waitForTimeout(400);
 }
 
+// Settingsの管理面（追加・履歴・一時停止・削除）。
 const habitPanel = (page) => page.locator(".habit-panel").first();
+// Todayでは「今日やること」の中にTaskと同じ行で並ぶ（2026-10-06）。
+const habitRow = (page) =>
+  page.locator(".today-routine-list .routine-row", { hasText: HABIT_TITLE }).first();
 
 async function progressText(page) {
   return (await habitPanel(page).locator(".habit-progress").first().innerText()).replace(
     /\s+/gu,
     " ",
   );
+}
+
+async function rowText(page) {
+  return (await habitRow(page).innerText()).replace(/\s+/gu, " ");
 }
 
 async function withApp(run) {
@@ -98,7 +96,7 @@ async function withApp(run) {
 // 1. Habitが無いTodayへ、空の設定案内を常設しない。
 await withApp(async (page) => {
   await openToday(page);
-  if (await habitPanel(page).count()) {
+  if (await page.locator(".today-routine-list .routine-row, .habit-panel").count()) {
     failures.push("Habitが無いのにTodayへ「続けること」が出ています。");
   }
   await page.screenshot({ path: `${OUT_DIR}/today-empty.png`, fullPage: true });
@@ -124,66 +122,56 @@ await withApp(async (page) => {
     failures.push("SettingsでHabitを追加できません。");
   }
 
-  // 3. Todayへ戻ると「続けること」が現れ、目標と進みが出る。
+  // 3. Todayへ戻ると、Taskと同じ行で目標と今週の進みが出る。
   await openToday(page);
-  const todayPanel = habitPanel(page);
-  if (!(await todayPanel.count())) {
-    failures.push("Habitを追加してもTodayに「続けること」が出ません。");
+  if (!(await habitRow(page).count())) {
+    failures.push("Habitを追加してもTodayに「続けること」の行が出ません。");
     return;
   }
-  const initial = await progressText(page);
-  if (!initial.includes("今日0回") || !initial.includes(`今週0/${WEEKLY_TARGET}回`)) {
-    failures.push(`追加直後の進みが違います（${initial}）。`);
-  }
-  if (
-    !(await todayPanel.locator(".habit-schedule").first().innerText()).includes(
-      `週${WEEKLY_TARGET}回`,
-    )
-  ) {
-    failures.push("目標の表示が週N回になっていません。");
+  const initial = await rowText(page);
+  if (!initial.includes(`週${WEEKLY_TARGET}回`) || !initial.includes(`今週0/${WEEKLY_TARGET}回`)) {
+    failures.push(`追加直後の行が違います（${initial}）。`);
   }
 
-  // 4. 「1回記録」→ 今日1回。記録後は時刻と取消が出て、次は「もう1回記録」になる。
-  await todayPanel.locator("button", { hasText: "1回記録" }).first().click();
+  // 4. 丸を押すと1回記録され、丸が済みになる。
+  await page.getByRole("button", { name: `${HABIT_TITLE}を1回記録` }).click();
   await page.waitForTimeout(1200);
-  const once = await progressText(page);
-  if (!once.includes("今日1回") || !once.includes(`今週1/${WEEKLY_TARGET}回`)) {
+  const once = await rowText(page);
+  if (!once.includes(`今週1/${WEEKLY_TARGET}回`)) {
     failures.push(`1回記録のあとの進みが違います（${once}）。`);
   }
-  const lastText = await todayPanel.locator(".habit-last").first().innerText();
-  if (!lastText.includes(isoDaysAgo(0))) {
-    failures.push(`記録した日が出ていません（${lastText}）。`);
-  }
-  if (!(await todayPanel.locator("button", { hasText: "もう1回記録" }).count())) {
-    failures.push("記録後に「もう1回記録」が出ていません。");
+  if (!(await habitRow(page).evaluate((node) => node.classList.contains("is-done")))) {
+    failures.push("記録後に丸が済みになっていません。");
   }
   await page.screenshot({ path: `${OUT_DIR}/today-recorded.png`, fullPage: true });
 
-  // 5. 直前の記録を取り消すと戻る（連打で増えないことはテストで固定済み）。
-  await todayPanel.locator("button", { hasText: "直前の記録を取り消す" }).first().click();
+  // 5. 済みの丸をもう一度押すと、今日の記録を取り消す（Taskの完了を戻すのと同じ）。
+  await page.getByRole("button", { name: `${HABIT_TITLE}の今日の記録を取り消す` }).click();
   await page.waitForTimeout(1200);
-  const undone = await progressText(page);
-  if (!undone.includes("今日0回") || !undone.includes(`今週0/${WEEKLY_TARGET}回`)) {
+  const undone = await rowText(page);
+  if (!undone.includes(`今週0/${WEEKLY_TARGET}回`)) {
     failures.push(`取消のあとの進みが違います（${undone}）。`);
   }
 
-  // 6. 同じ日に2回記録すると別の記録として2回になる。
-  await todayPanel.locator("button", { hasText: "1回記録" }).first().click();
+  // 6. 同じ日に「+1回」で2回目を記録すると、別の記録として2回になる。
+  await page.getByRole("button", { name: `${HABIT_TITLE}を1回記録` }).click();
   await page.waitForTimeout(1000);
-  await todayPanel.locator("button", { hasText: "もう1回記録" }).first().click();
+  await page.getByRole("button", { name: `${HABIT_TITLE}をもう1回記録` }).click();
   await page.waitForTimeout(1200);
-  const twice = await progressText(page);
+  const twice = await rowText(page);
   if (!twice.includes("今日2回") || !twice.includes(`今週2/${WEEKLY_TARGET}回`)) {
     failures.push(`同じ日の2回目が別記録になっていません（${twice}）。`);
   }
 
-  // 7. 履歴から実施日を直すと、今週の数が変わる（記録は増えない）。
-  await todayPanel.locator("button", { hasText: "履歴" }).first().click();
+  // 7. 履歴（Settings）から実施日を直すと、今週の数が変わる（記録は増えない）。
+  await openHabitSettings(page);
+  const panel = habitPanel(page);
+  await panel.locator("button", { hasText: "履歴" }).first().click();
   await page.waitForTimeout(400);
-  const rows = todayPanel.locator(".habit-history-row");
+  const rows = panel.locator(".habit-history-row");
   if ((await rows.count()) !== 2)
     failures.push(`履歴が2件ではありません（${await rows.count()}件）。`);
-  await page.screenshot({ path: `${OUT_DIR}/today-history.png`, fullPage: true });
+  await page.screenshot({ path: `${OUT_DIR}/settings-history.png`, fullPage: true });
   await rows.first().locator("input[type=date]").fill(lastWeekDate());
   await rows.first().locator("button", { hasText: "実施日を修正" }).click();
   await page.waitForTimeout(1200);
@@ -193,33 +181,34 @@ await withApp(async (page) => {
   }
   if ((await rows.count()) !== 2) failures.push("実施日の修正で記録が増えています。");
 
-  // 8. 一時停止と再開。過去の記録は変わらない。
-  await todayPanel.locator("button", { hasText: "一時停止" }).first().click();
+  // 8. 一時停止するとTodayから外れ、再開すると戻る。過去の記録は変わらない。
+  await panel.locator("button", { hasText: "一時停止" }).first().click();
   await page.waitForTimeout(1200);
-  if (!(await todayPanel.locator(".habit-state", { hasText: "一時停止中" }).count())) {
+  if (!(await panel.locator(".habit-state", { hasText: "一時停止中" }).count())) {
     failures.push("一時停止が表示されていません。");
   }
   if (!(await progressText(page)).includes(`今週1/${WEEKLY_TARGET}回`)) {
     failures.push("一時停止で過去の記録が変わりました。");
   }
-  await todayPanel.locator("button", { hasText: "再開" }).first().click();
+  await openToday(page);
+  if (await habitRow(page).count()) failures.push("一時停止中のHabitがTodayに残っています。");
+  await openHabitSettings(page);
+  await habitPanel(page).locator("button", { hasText: "再開" }).first().click();
   await page.waitForTimeout(1200);
-  if (await todayPanel.locator(".habit-state", { hasText: "一時停止中" }).count()) {
-    failures.push("再開できません。");
-  }
+  await openToday(page);
+  if (!(await habitRow(page).count())) failures.push("再開してもTodayに戻りません。");
   await page.screenshot({ path: `${OUT_DIR}/today-paused-resumed.png`, fullPage: true });
 });
 
 // 9. 再起動しても記録と進みが残る。
 await withApp(async (page) => {
   await openToday(page);
-  const panel = habitPanel(page);
-  if (!(await panel.count())) {
+  if (!(await habitRow(page).count())) {
     failures.push("再起動後に「続けること」が消えています。");
     return;
   }
-  const progress = await progressText(page);
-  if (!progress.includes("今日1回") || !progress.includes(`今週1/${WEEKLY_TARGET}回`)) {
+  const progress = await rowText(page);
+  if (!progress.includes(`今週1/${WEEKLY_TARGET}回`)) {
     failures.push(`再起動後の進みが違います（${progress}）。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/today-restart.png`, fullPage: true });
@@ -229,7 +218,7 @@ await withApp(async (page) => {
   await habitPanel(page).locator("button", { hasText: "削除" }).first().click();
   await page.waitForTimeout(1200);
   await openToday(page);
-  if (await habitPanel(page).count()) {
+  if (await habitRow(page).count()) {
     failures.push("削除したHabitがTodayに残っています。");
   }
   const undo = page.locator(".toast button", { hasText: "元に戻す" }).first();
@@ -238,9 +227,9 @@ await withApp(async (page) => {
   } else {
     await undo.click();
     await page.waitForTimeout(1500);
-    if (!(await habitPanel(page).count())) {
+    if (!(await habitRow(page).count())) {
       failures.push("削除を元に戻してもTodayに戻りません。");
-    } else if (!(await progressText(page)).includes(`今週1/${WEEKLY_TARGET}回`)) {
+    } else if (!(await rowText(page)).includes(`今週1/${WEEKLY_TARGET}回`)) {
       failures.push("元に戻したHabitの記録が戻っていません。");
     }
   }

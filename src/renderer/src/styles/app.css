@@ -2821,6 +2821,13 @@ textarea:hover {
   color: var(--color-danger-strong);
   font-weight: var(--weight-medium);
 }
+/* 続けること・手入れの行（2026-10-06）。Taskの行と同じ形で、テーマ色の帯は持たない。 */
+.today-routine-list:empty {
+  display: none;
+}
+.routine-row.is-done .today-task-title strong {
+  color: var(--color-text-secondary);
+}
 .today-row-spacer {
   width: 26px;
   height: 26px;

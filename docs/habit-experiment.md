@@ -43,14 +43,15 @@ habit-entry:<habit_id>:<performed_on>:<sequence>
 
 ## 画面
 
-| 場所     | 内容                                                                                           |
-| -------- | ---------------------------------------------------------------------------------------------- |
-| Today    | 「続けること」の節。**Habitがある場合だけ現れる**（未使用の人へ空の設定案内を常設しない）      |
-| Today    | 主表示「今日1回」「今週2/3回」、主操作「1回記録」／同じ日の追加は「もう1回記録」               |
-| Today    | 記録後は実施日と「直前の記録を取り消す」、履歴（実施日を修正・取消）、一時停止と再開           |
-| Settings | 「Habits」の節。追加（名前・毎日1回／週N回）、削除と元に戻す、一時停止と再開はここからも行える |
+| 場所     | 内容                                                                                                        |
+| -------- | ----------------------------------------------------------------------------------------------------------- |
+| Today    | 「今日やること」の中に**Taskと同じ行**で並ぶ（2026-10-06）。一時停止中は出さない。Habitが無ければ何も出ない |
+| Today    | 行は「続けること / 毎日1回」と「今週2/3回」。丸を押すと1回記録、済みの丸を押すと今日の直前の記録を取り消す  |
+| Today    | 同じ日の2回目は行の「+1回」。履歴の修正と一時停止はSettingsで行う                                           |
+| Settings | 「Habits」の節。追加（名前・毎日1回／週N回）、履歴（実施日を修正・取消）、一時停止と再開、削除と元に戻す    |
 
-実装は `components/HabitPanel.tsx`（`manage` で Settings の管理面を出す）。
+実装は `components/HabitPanel.tsx`（`manage` で Settings の管理面、`variant="rows"` でTodayの行を出す）。
+Androidでも同じ導出をTodayに出し、1回記録できる（`GET /v1/routines` / `POST /v1/routine-actions`）。
 
 `projectWorkspaceData` は `WORKSPACE_ARRAY_KEYS` に載っているcollectionだけを画面へ渡す。
 `habit` / `habit_entrys` をここへ入れ忘れると、保存はできるのにTodayへ出ない
@@ -74,8 +75,8 @@ rtk node scripts/run-electron-node.mjs --test tests/workspace-projection-keys.te
 ```
 
 `audit:habit` は隔離した一時userDataで実画面を通す。Habitが無いTodayへ空の案内を出さないこと、
-Settingsでの追加、Todayの「今日1回」「今週1/3回」、記録後の実施日と取消、同じ日の2回目が
-別記録になること、履歴からの実施日修正（今週の数が変わり記録は増えない）、一時停止と再開、
+Settingsでの追加、Todayの行の「今週1/3回」、丸での記録と取消、「+1回」で同じ日の2回目が
+別記録になること、履歴からの実施日修正（今週の数が変わり記録は増えない）、一時停止でTodayから外れ再開で戻ること、
 削除と元に戻す、**再起動後の保持**を実測する。スクリーンショットは `output/playwright/habit-audit`。
 
 ## まだ無いもの
