@@ -2689,6 +2689,23 @@ async function startDesktopApp(): Promise<void> {
         return removed;
       },
     },
+    // Androidからの続けること・手入れの記録（#454）。Desktopの記録と同じEntity保存を使う。
+    routineWriter: {
+      saveMany: (operations) => {
+        const saved: Record<string, unknown>[] = workspaceRepository.saveMany(
+          operations.map(({ type, entity }) => ({
+            action: "save",
+            type,
+            entity,
+            options: { source: "mobile" },
+          })),
+        );
+        saved.forEach((entity, index) => {
+          notifyMainWindowRefresh({ type: operations[index].type, entity: entity as never });
+        });
+        return saved;
+      },
+    },
     getCaptureOrganizer: () => captureOrganizerSettings.createOrganizer(),
     userDataPath: app.getPath("userData"),
     persistence: workspaceRepository,

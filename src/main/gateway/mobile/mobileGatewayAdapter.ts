@@ -54,6 +54,12 @@ import {
   mobileFeedRequestSchema,
   mobileFeedResponseSchema,
   type MobileFeedActionRequest,
+  mobileRoutineActionRequestSchema,
+  mobileRoutineActionResponseSchema,
+  mobileRoutinesRequestSchema,
+  mobileRoutinesResponseSchema,
+  type MobileRoutineActionRequest,
+  type MobileRoutinesResponse,
   mobileTaskWorkProposalsResponseSchema,
   mobileThemeCatalogItemSchema,
   mobileThemesRequestSchema,
@@ -234,6 +240,14 @@ export type MobileGatewayFeedActionResult =
   | { ok: true; commandId: string; status: "applied" | "no_change" }
   | { ok: false; code: "not_found" | "idempotency_conflict" | "validation_failed" };
 
+/** 続けること・手入れの読み出し（#454）。Desktopの「Today」と同じ範囲を返す。 */
+export type MobileGatewayRoutinesRead = MobileRoutinesResponse["data"];
+
+/** 続けること・手入れの記録の結果。同じ日の同じ回の再送は `no_change` で、増やさない。 */
+export type MobileGatewayRoutineActionResult =
+  | { ok: true; commandId: string; status: "applied" | "no_change"; nextDueOn: string | null }
+  | { ok: false; code: "not_found" | "validation_failed" };
+
 export interface MobileGatewayAttentionRead {
   items: readonly AttentionItem[];
   /** 回答や採用の競合検出に使うTask版。Taskに紐づかないProposalでは参照されない。 */
@@ -306,6 +320,14 @@ export interface MobileGatewayCorePort {
     actorId: string;
     action: MobileFeedActionRequest["action"];
   }): Promise<MobileGatewayFeedActionResult> | MobileGatewayFeedActionResult;
+  /** 続けること・手入れ（#454）。未構成のCoreでは未定義でよく、その場合は取得できないと返す。 */
+  readRoutines?(date: string): Promise<MobileGatewayRoutinesRead> | MobileGatewayRoutinesRead;
+  /** 続けること・手入れの記録。書き込み口を持たないCoreでは未定義で、その場合は書き込めないと返す。 */
+  executeRoutineAction?(input: {
+    commandId: string;
+    issuedAt: string;
+    action: MobileRoutineActionRequest["action"];
+  }): Promise<MobileGatewayRoutineActionResult> | MobileGatewayRoutineActionResult;
   /** 人間の返答（#601）。質問IDはattentionのrequestIdをそのまま渡す。 */
   replyToAgentRequest?(input: {
     commandId: string;
@@ -971,6 +993,7 @@ export class MobileGatewayAdapter {
         TASKEN_MOBILE_ENDPOINTS.workReviews,
         TASKEN_MOBILE_ENDPOINTS.agentReplies,
         TASKEN_MOBILE_ENDPOINTS.feedActions,
+        TASKEN_MOBILE_ENDPOINTS.routineActions,
         TASKEN_MOBILE_ENDPOINTS.taskDelegations,
         TASKEN_MOBILE_ENDPOINTS.captureOrganization,
         TASKEN_MOBILE_ENDPOINTS.workLogOrganization,
@@ -1130,6 +1153,7 @@ export class MobileGatewayAdapter {
           TASKEN_MOBILE_ENDPOINTS.proposals,
           TASKEN_MOBILE_ENDPOINTS.attention,
           TASKEN_MOBILE_ENDPOINTS.feed,
+          TASKEN_MOBILE_ENDPOINTS.routines,
           TASKEN_MOBILE_ENDPOINTS.bootstrap,
           TASKEN_MOBILE_ENDPOINTS.sync,
         ].includes(request.path as never) &&
@@ -1184,6 +1208,12 @@ export class MobileGatewayAdapter {
         !request.principal.scopes.includes("mobile:capture-write")
       )
         return this.error(meta, "forbidden");
+      // 続けること・手入れの記録も本人の入力と同じ権限で書く。
+      if (
+        request.path === TASKEN_MOBILE_ENDPOINTS.routineActions &&
+        !request.principal.scopes.includes("mobile:capture-write")
+      )
+        return this.error(meta, "forbidden");
 
       const today =
         request.path === TASKEN_MOBILE_ENDPOINTS.today ? this.parseTodayQuery(request.query) : null;
@@ -1229,6 +1259,14 @@ export class MobileGatewayAdapter {
         request.path === TASKEN_MOBILE_ENDPOINTS.feedActions
           ? mobileFeedActionRequestSchema.safeParse(request.body)
           : null;
+      const routines =
+        request.path === TASKEN_MOBILE_ENDPOINTS.routines
+          ? this.parseRoutinesQuery(request.query)
+          : null;
+      const routineAction =
+        request.path === TASKEN_MOBILE_ENDPOINTS.routineActions
+          ? mobileRoutineActionRequestSchema.safeParse(request.body)
+          : null;
       const agentReply =
         request.path === TASKEN_MOBILE_ENDPOINTS.agentReplies
           ? mobileAgentReplyRequestSchema.safeParse(request.body)
@@ -1254,6 +1292,14 @@ export class MobileGatewayAdapter {
       if (request.path === TASKEN_MOBILE_ENDPOINTS.attention && !attention)
         return this.error(meta, "validation_failed");
       if (request.path === TASKEN_MOBILE_ENDPOINTS.feed && !feed)
+        return this.error(meta, "validation_failed");
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.routines && !routines)
+        return this.error(meta, "validation_failed");
+      if (
+        request.path === TASKEN_MOBILE_ENDPOINTS.routineActions &&
+        (!routineAction?.success ||
+          routineAction.data.clientDeviceId !== request.principal.deviceId)
+      )
         return this.error(meta, "validation_failed");
       if (
         request.path === TASKEN_MOBILE_ENDPOINTS.agentReplies &&
@@ -1290,6 +1336,8 @@ export class MobileGatewayAdapter {
       if (workReview?.success) diagnosticId = workReview.data.requestId;
       if (agentReply?.success) diagnosticId = agentReply.data.requestId;
       if (feedAction?.success) diagnosticId = feedAction.data.requestId;
+      if (routines) diagnosticId = routines.requestId;
+      if (routineAction?.success) diagnosticId = routineAction.data.requestId;
       if (contextPreview) diagnosticId = contextPreview.requestId;
       if (delegationRequest?.success) diagnosticId = delegationRequest.data.requestId;
       if (
@@ -1304,6 +1352,7 @@ export class MobileGatewayAdapter {
           TASKEN_MOBILE_ENDPOINTS.proposals,
           TASKEN_MOBILE_ENDPOINTS.attention,
           TASKEN_MOBILE_ENDPOINTS.feed,
+          TASKEN_MOBILE_ENDPOINTS.routines,
           TASKEN_MOBILE_ENDPOINTS.bootstrap,
           TASKEN_MOBILE_ENDPOINTS.sync,
           TASKEN_MOBILE_ENDPOINTS.taskContextPreview,
@@ -1621,6 +1670,11 @@ export class MobileGatewayAdapter {
         meta = this.meta(projected.truncated);
         return this.success(mobileFeedResponseSchema.parse({ ok: true, meta, data: projected }));
       }
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.routines) {
+        if (!this.options.core.readRoutines) return this.error(meta, "capability_unavailable");
+        const data = await this.options.core.readRoutines(routines!.date);
+        return this.success(mobileRoutinesResponseSchema.parse({ ok: true, meta, data }));
+      }
       if (request.path === TASKEN_MOBILE_ENDPOINTS.proposals) {
         const records = [...(await this.options.core.listTaskWorkProposals())].sort(
           (left, right) =>
@@ -1801,6 +1855,29 @@ export class MobileGatewayAdapter {
             ok: true,
             meta,
             data: { commandId: result.commandId, status: result.status },
+          }),
+        );
+      }
+      if (request.path === TASKEN_MOBILE_ENDPOINTS.routineActions) {
+        const command = routineAction?.success ? routineAction.data : null;
+        if (!command) return this.error(meta, "validation_failed");
+        if (!this.options.core.executeRoutineAction)
+          return this.error(meta, "capability_unavailable");
+        const result = await this.options.core.executeRoutineAction({
+          commandId: command.commandId,
+          issuedAt: command.issuedAt,
+          action: command.action,
+        });
+        if (!result.ok) return this.error(meta, result.code);
+        return this.success(
+          mobileRoutineActionResponseSchema.parse({
+            ok: true,
+            meta,
+            data: {
+              commandId: result.commandId,
+              status: result.status,
+              nextDueOn: result.nextDueOn,
+            },
           }),
         );
       }
@@ -2264,6 +2341,23 @@ export class MobileGatewayAdapter {
       schemaVersion: Number(values.schemaVersion),
       requestId: values.requestId,
       ...(values.limit === undefined ? {} : { limit: Number(values.limit) }),
+    });
+    return parsed.success ? parsed.data : null;
+  }
+
+  private parseRoutinesQuery(query: MobileGatewayRequest["query"]) {
+    const values = query || {};
+    if (
+      Object.keys(values).some(
+        (key) => !["apiVersion", "schemaVersion", "requestId", "date"].includes(key),
+      )
+    )
+      return null;
+    const parsed = mobileRoutinesRequestSchema.safeParse({
+      apiVersion: Number(values.apiVersion),
+      schemaVersion: Number(values.schemaVersion),
+      requestId: values.requestId,
+      date: values.date,
     });
     return parsed.success ? parsed.data : null;
   }

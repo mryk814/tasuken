@@ -24,6 +24,8 @@ habit-entry:<habit_id>:<performed_on>:<sequence>
 
 - 連打と通信再送は同じIDになるため、**記録が増えない**。
 - 同じ日の2回目は `nextEntrySequence` が返す次の番号を使い、**別の記録**になる（UIの「もう1回記録」）。
+- AndroidもDesktopが導出した次の番号を使う。今日の記録数とは分け、履歴の日付修正や取消による番号の欠番を保持する。
+- Androidからの実施記録と親の最終実施日は一つのtransactionで保存し、片方だけを残さない。
 - 実施日を後から直しても記録は作り直さないので、**IDは変えず** `performed_on` と `corrected_at` だけを更新する。
 - `sequence` は数値なので、文字列だけを見る汎用の必須field検証には入れず、domain側で検証する。
 
