@@ -281,7 +281,8 @@ export class ChatGptAccountService {
       const query = new URLSearchParams({
         client_id: saved.clientId ?? CHATGPT_AUTH.dynamicClientId,
         ...(firstRegistration ? { agent_name_hint: CHATGPT_AUTH.agentName } : {}),
-        ext_agent_host_id: saved.hostId,
+        // 文書の例（urn:uuid:...）に合わせる。素のUUIDはinvalid_authorize_requestで拒否された。
+        ext_agent_host_id: `urn:uuid:${saved.hostId}`,
         response_type: "code",
         redirect_uri: redirectUri,
         scope: CHATGPT_AUTH.scope,

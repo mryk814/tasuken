@@ -454,7 +454,7 @@ test("sign-in registers a dynamic client over loopback PKCE and stores only an e
     /^http:\/\/127\.0\.0\.1:\d+\/auth\/callback$/,
   );
   const hostId = authorize.searchParams.get("ext_agent_host_id");
-  assert.match(hostId, /^[0-9a-f-]{36}$/);
+  assert.match(hostId, /^urn:uuid:[0-9a-f-]{36}$/);
   const exchange = posts.find((post) => post.form.grant_type === "authorization_code");
   assert.equal(exchange.form.client_id, "oaiapp_test");
   assert.equal(exchange.form.code, "auth-code");
