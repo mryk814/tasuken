@@ -65,7 +65,7 @@ function AgentRow({
       <span>
         <strong>{agent.label}</strong>
         <small>
-          {waiting > 0 ? `対応待ち ${waiting} / ` : ""}
+          {waiting > 0 ? `要確認 ${waiting} / ` : ""}
           {working > 0 ? `作業中 ${working} / ` : ""}
           {queued > 0 ? `開始待ち ${queued} / ` : ""}
           投稿 {posts}

@@ -914,7 +914,7 @@ export function WorkspaceApp() {
       drawerGeneration.current += 1;
       setDrawer(null);
       setNotesEditorSelectionId(null);
-      // Agent Desk（ai-io）はFeedへ集約済み。旧URLからは対応待ちタブを開く。
+      // Agent Desk（ai-io）はFeedへ集約済み。旧URLからはホームを開く（対応待ちタブは2026-10-06に廃止）。
       if (next === "ai-io" || next === "proposal-inbox") requestFeedTab("home");
       const normalized = normalizeRoute(next);
       location.hash = normalized;

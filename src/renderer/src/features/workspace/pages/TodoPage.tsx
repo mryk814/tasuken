@@ -590,7 +590,7 @@ export function TodoPage({
                 >
                   {TASK_AI_DELEGATION_LABELS[aiDelegation]}
                 </button>
-                {/* 確認待ちは成果の採用をFeedの「対応待ち」で行う。ToDo内で完結させない。 */}
+                {/* 確認待ちは成果の採用をFeedのホームの投稿で行う。ToDo内で完結させない。 */}
                 {aiDelegation === "review_waiting" ? (
                   <button
                     type="button"
