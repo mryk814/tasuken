@@ -42,7 +42,7 @@ index 74f8245..c1d391e 100644
          setMarkdown: (markdown) => {
            realm.pub(setMarkdown$, markdown);
 diff --git a/node_modules/@mdxeditor/editor/dist/plugins/core/index.js b/node_modules/@mdxeditor/editor/dist/plugins/core/index.js
-index 74b65d4..798072b 100644
+index 74b65d4..da0d867 100644
 --- a/node_modules/@mdxeditor/editor/dist/plugins/core/index.js
 +++ b/node_modules/@mdxeditor/editor/dist/plugins/core/index.js
 @@ -257,14 +257,13 @@ const createRootEditorSubscription$ = Appender(rootEditorSubscriptions$, (r, sig
@@ -94,6 +94,15 @@ index 74b65d4..798072b 100644
      },
      (rootEditor) => {
        return rootEditor.registerCommand(
+@@ -549,7 +571,7 @@ const corePlugin = realmPlugin({
+     if (!(params == null ? void 0 : params.suppressHtmlProcessing)) {
+       r.pubIn({
+         [addMdastExtension$]: [mdxJsxFromMarkdown(), commentFromMarkdown()],
+-        [addSyntaxExtension$]: [mdxJsx(), mdxMd(), comment],
++        [addSyntaxExtension$]: [mdxJsx(), { disable: { null: mdxMd().disable.null.filter((syntax) => syntax !== "codeIndented") } }, comment],
+         [addImportVisitor$]: MdastHTMLVisitor
+       });
+     }
 @@ -570,7 +592,7 @@ const corePlugin = realmPlugin({
      });
      if ((params == null ? void 0 : params.editorState) !== null) {

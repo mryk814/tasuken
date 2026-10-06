@@ -3,6 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import ts from "typescript";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { mdxMd } from "micromark-extension-mdx-md";
+import { mdxJsx } from "micromark-extension-mdx-jsx";
 const file = "src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx";
 const source = readFileSync(file, "utf8");
 const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -55,4 +58,19 @@ test("MDXEditor initial import respects trim=false for leading indented code", (
   });
   vm.runInContext(`${statement};globalThis.body=markdown`, context);
   assert.equal(context.body, context.params.initialMarkdown);
+});
+test("MDXEditor core parses indented code as a code block before Rich Editor editing", () => {
+  const core = readFileSync("node_modules/@mdxeditor/editor/dist/plugins/core/index.js", "utf8");
+  const line = core.split("\n").find((line) => line.includes("[addSyntaxExtension$]: [mdxJsx()"));
+  const context = vm.createContext({ mdxMd, mdxJsx, comment: {} });
+  const extensions = vm.runInContext(
+    line
+      .slice(line.indexOf(":") + 1)
+      .trim()
+      .replace(/,$/, ""),
+    context,
+  );
+  const tree = fromMarkdown("    # shell comment\n    echo ok", { extensions });
+  assert.equal(tree.children[0].type, "code");
+  assert.equal(tree.children[0].value, "# shell comment\necho ok");
 });
