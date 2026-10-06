@@ -52,12 +52,33 @@ const SIZES = [
 ];
 const ZOOM_STORAGE_KEY = "tasken:shell:zoom-factor:v1";
 /**
- * 隔離workspaceに入れる判断の数（質問1・成果確認1・変更案1）。
- * 変更案も対応待ちの一覧行に出る（詳細ペインで採否を決める）。
+ * 隔離workspaceのAIからの判断（質問1・成果確認1・変更案1）。対応待ちタブは廃止し（2026-10-06）、
+ * 質問・成果確認・変更案・進捗追記はホームの投稿として並ぶ。サイドバーのFeedの数字は質問だけ。
  */
-const EXPECTED_UNRESOLVED = 3;
-/** 一覧の行数。判断3件＋確認待ち1件（進捗追記）。確認待ちは要対応の件数へ数えない。 */
+const EXPECTED_QUESTIONS = 1;
+/** ホームに並ぶ対応の投稿の数。判断3件＋確認待ち1件（進捗追記）。 */
 const EXPECTED_NEEDS_ROWS = 4;
+
+/** サイドバーのFeedの数字（AIが答えを待っている質問の数）。無ければ"0"。 */
+async function feedBadge(page) {
+  const count = page.getByRole("button", { name: "Feed", exact: true }).first().locator(".count");
+  return (await count.count()) ? (await count.innerText()).trim() : "0";
+}
+
+/** ホームへ移り、対応の投稿を待つ。 */
+async function openHomeAttention(page) {
+  await page.locator(".feed-tabs button", { hasText: "ホーム" }).first().click();
+  await page.waitForTimeout(600);
+}
+
+/** ホームの対応の投稿を本文で探し、その下に詳細を開く。 */
+async function openAttentionPost(page, text) {
+  const post = page.locator(".feed-attention-post", { hasText: text }).first();
+  if (!(await post.count())) return null;
+  await post.locator(".feed-attention-foot button").first().click();
+  await page.waitForTimeout(500);
+  return post;
+}
 /** 投稿の本文はアプリ本文と同じ14px以上（2026-10-06、一覧の密度を上げる判断）。 */
 const MIN_BODY_FONT_PX = 14;
 const MIN_POSTS = 12;
@@ -272,42 +293,33 @@ async function auditFixtures(app, page) {
   }
   await page.screenshot({ path: `${OUT_DIR}/learn.png`, fullPage: true });
 
-  // 6. 対応待ちは実データ。判断（質問・成果確認・変更案）と確認待ち（進捗追記）を1本の一覧に出す。
-  await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
-  await page.waitForTimeout(600);
-  const unresolvedText = (await page.locator(".feed-tab-count").first().innerText()).trim();
-  if (unresolvedText !== String(EXPECTED_UNRESOLVED)) {
-    failures.push(`対応待ちの件数が${EXPECTED_UNRESOLVED}件ではありません（${unresolvedText}）。`);
+  // 6. AIからの判断は実データ。質問・成果確認・変更案・進捗追記をホームの投稿として時刻順に並べる。
+  await openHomeAttention(page);
+  const unresolvedText = await feedBadge(page);
+  if (unresolvedText !== String(EXPECTED_QUESTIONS)) {
+    failures.push(
+      `Feedの数字が質問の数（${EXPECTED_QUESTIONS}）ではありません（${unresolvedText}）。`,
+    );
   }
-  const needsRows = await page.locator(".feed-needs-row").count();
+  const needsRows = await page.locator(".feed-attention-post").count();
   if (needsRows !== EXPECTED_NEEDS_ROWS) {
-    failures.push(`対応待ちの行数が${EXPECTED_NEEDS_ROWS}件ではありません（${needsRows}）。`);
+    failures.push(`ホームの対応の投稿が${EXPECTED_NEEDS_ROWS}件ではありません（${needsRows}）。`);
   }
-  // 変更案も同じ一覧に出る。同じ報告を2面に出さないので、旧「提案の確認」の一覧は無い。
-  const needsText = (await page.locator(".feed-needs-list").first().innerText()).replace(
-    /\s+/g,
-    " ",
-  );
+  const needsText = (await page.locator("#feed-panel-home").innerText()).replace(/\s+/g, " ");
   if (!needsText.includes("測定手順のNoteを作る案")) {
-    failures.push("対応待ちの一覧に変更案が出ていません。");
-  }
-  // 確認待ちは判断と分けて1つの見出しで示す。
-  const confirmationSections = await page.locator(".feed-needs-section").count();
-  if (confirmationSections !== 1) {
-    failures.push(`確認待ちの見出しが1つではありません（${confirmationSections}）。`);
+    failures.push("ホームに変更案の投稿が出ていません。");
   }
   if (!needsText.includes("比較表の下書きまで進みました。")) {
-    failures.push("確認待ちに進捗の追記が出ていません。");
+    failures.push("ホームに進捗の追記が出ていません。");
   }
-  if (await page.locator(".proposal-inbox-panel .proposal-list").count()) {
-    failures.push("「提案の履歴」に判断の一覧が残っています（同じ報告が2面に出ます）。");
+  if (await page.locator("#feed-tab-needs").count()) {
+    failures.push("「対応待ち」タブが残っています。");
   }
   await page.screenshot({ path: `${OUT_DIR}/needs.png`, fullPage: true });
 
   /*
-   * 6b. 右レール（Agent Desk集約）。
-   * 判断とAIの動きを面移動なしで見られること、変更案が対応待ちの選択へ入ること、
-   * 読み面を圧迫する幅では畳まれることを実測する（design-guide §21の1スロット）。
+   * 6b. 右レール。対応キューは置かない（対応はホームの投稿で行う）。
+   * AIの動きは面移動なしで見られ、読み面を圧迫する幅では畳まれることを実測する。
    */
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1536, 960));
   await page.waitForTimeout(700);
@@ -316,24 +328,8 @@ async function auditFixtures(app, page) {
     failures.push("広い幅（1536）でFeedの右レールが出ていません。");
   } else {
     const railText = (await rail.innerText()).replace(/\s+/g, " ");
-    if (!railText.includes("対応キュー")) failures.push("右レールに「対応キュー」がありません。");
+    if (railText.includes("対応キュー")) failures.push("右レールに「対応キュー」が残っています。");
     if (!railText.includes("AI活動")) failures.push("右レールに「AI活動」がありません。");
-    const railProposal = rail.locator(".context-row", { hasText: "Noteの変更案" }).first();
-    if (!(await railProposal.count())) {
-      failures.push("右レールの対応キューに変更案が出ていません。");
-    } else {
-      await railProposal.click();
-      await page.waitForTimeout(500);
-      const openedInPanel = await page
-        .locator('.feed-needs-panel .feed-needs-select[aria-pressed="true"]')
-        .count();
-      if (!openedInPanel) {
-        failures.push("右レールから変更案を開いても、対応待ちの一覧で選択されません。");
-      }
-      if (!(await page.locator(".feed-needs-detail .proposal-inline-preview").count())) {
-        failures.push("右レールから開いた変更案の詳細が出ていません。");
-      }
-    }
     await page.screenshot({ path: `${OUT_DIR}/rail-1536.png`, fullPage: true });
   }
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1280, 800));
@@ -433,8 +429,8 @@ async function auditFixtures(app, page) {
   ).trim();
   await bookmarkTarget.locator('button[aria-label^="ブックマーク"]').first().click();
   await page.waitForTimeout(300);
-  const afterBookmark = (await page.locator(".feed-tab-count").first().innerText()).trim();
-  if (afterBookmark !== String(EXPECTED_UNRESOLVED)) {
+  const afterBookmark = await feedBadge(page);
+  if (afterBookmark !== String(EXPECTED_QUESTIONS)) {
     failures.push(`ブックマークで対応待ち件数が変わりました（${afterBookmark}）。`);
   }
 
@@ -460,10 +456,7 @@ async function auditFixtures(app, page) {
         failures.push("保存済みに出ている投稿が、ブックマークした投稿と違います。");
       }
     }
-    if (
-      (await page.locator(".feed-tab-count").first().innerText()).trim() !==
-      String(EXPECTED_UNRESOLVED)
-    ) {
+    if ((await feedBadge(page)) !== String(EXPECTED_QUESTIONS)) {
       failures.push("保存済みの絞り込みで対応待ち件数が変わりました。");
     }
     await page.screenshot({ path: `${OUT_DIR}/saved.png`, fullPage: true });
@@ -487,8 +480,8 @@ async function auditFixtures(app, page) {
     } else {
       await known.click();
       await page.waitForTimeout(400);
-      const afterKnown = (await page.locator(".feed-tab-count").first().innerText()).trim();
-      if (afterKnown !== String(EXPECTED_UNRESOLVED)) {
+      const afterKnown = await feedBadge(page);
+      if (afterKnown !== String(EXPECTED_QUESTIONS)) {
         failures.push(`「既知だった」で対応待ち件数が変わりました（${afterKnown}）。`);
       }
       const noticeLine = await page.locator(".feed-notice-line").first().innerText();
@@ -632,20 +625,15 @@ async function auditFixtures(app, page) {
    * 12. 成果確認は報告の確認（採用・差戻し）へ入る（#599。#602の文言もここで読む）。
    * Agent DeskからFeedへ移した操作なので、実画面の一往復を確かめる。
    */
-  await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
-  await page.waitForTimeout(600);
-  const reviewRow = page
-    .locator(".feed-needs-row", { hasText: "3条件の比較表を作成しました。" })
-    .first();
-  if (!(await reviewRow.count())) {
-    failures.push("成果確認の行が対応待ちにありません。");
+  await openHomeAttention(page);
+  const reviewRow = await openAttentionPost(page, "3条件の比較表を作成しました。");
+  if (!reviewRow) {
+    failures.push("成果確認の投稿がホームにありません。");
     return;
   }
-  await reviewRow.locator(".feed-needs-select").first().click();
-  await page.waitForTimeout(500);
-  const review = page.locator(".feed-needs-detail .feed-review");
+  const review = reviewRow.locator(".feed-needs-detail .feed-review");
   if (!(await review.count())) {
-    failures.push("成果確認の行を選んでも、報告の確認が詳細に出ません。");
+    failures.push("成果確認の投稿を開いても、報告の確認が出ません。");
     return;
   }
   const reviewLabels = await review.locator("dt").allInnerTexts();
@@ -666,40 +654,31 @@ async function auditFixtures(app, page) {
   if (!acceptToast.includes("報告を採用しました")) {
     failures.push(`報告を採用した結果が読めません（${acceptToast}）。`);
   }
-  const afterAccept = (await page.locator(".feed-tab-count").first().innerText()).trim();
-  if (afterAccept !== String(EXPECTED_UNRESOLVED - 1)) {
-    failures.push(
-      `報告を採用しても対応待ちが${EXPECTED_UNRESOLVED - 1}件になりません（${afterAccept}）。`,
-    );
+  const afterAccept = await feedBadge(page);
+  if (afterAccept !== String(EXPECTED_QUESTIONS)) {
+    failures.push(`報告を採用したらFeedの数字（質問の数）が変わりました（${afterAccept}）。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/review-accepted.png`, fullPage: true });
 
   // 14. Taskに紐づかない変更案も、同じ一覧から決着できる（却下）。正式データは作らない。
-  await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
-  await page.waitForTimeout(500);
-  const noteProposalRow = page
-    .locator(".feed-needs-row", { hasText: "測定手順のNoteを作る案" })
-    .first();
-  if (!(await noteProposalRow.count())) {
-    failures.push("Taskに紐づかない変更案が対応待ちの一覧にありません。");
+  await openHomeAttention(page);
+  const noteProposalRow = await openAttentionPost(page, "測定手順のNoteを作る案");
+  if (!noteProposalRow) {
+    failures.push("Taskに紐づかない変更案がホームにありません。");
     return;
   }
-  await noteProposalRow.locator(".feed-needs-select").first().click();
-  await page.waitForTimeout(500);
-  const rejectButton = page
+  const rejectButton = noteProposalRow
     .locator(".feed-needs-detail .proposal-inline-preview button", { hasText: "拒否" })
     .first();
   if (!(await rejectButton.count())) {
-    failures.push("変更案を却下する操作が対応待ちの詳細にありません。");
+    failures.push("変更案を却下する操作が投稿の詳細にありません。");
     return;
   }
   await rejectButton.click();
   await page.waitForTimeout(2000);
-  const afterReject = (await page.locator(".feed-tab-count").first().innerText()).trim();
-  if (afterReject !== String(EXPECTED_UNRESOLVED - 2)) {
-    failures.push(
-      `変更案を却下しても対応待ちが${EXPECTED_UNRESOLVED - 2}件になりません（${afterReject}）。`,
-    );
+  const afterReject = await feedBadge(page);
+  if (afterReject !== String(EXPECTED_QUESTIONS)) {
+    failures.push(`変更案を却下したらFeedの数字（質問の数）が変わりました（${afterReject}）。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/proposal-rejected.png`, fullPage: true });
 }
@@ -787,25 +766,19 @@ async function auditLivePost(page) {
   const learnCount = await page.locator(".feed-post").count();
   if (learnCount !== 1) failures.push(`学びタブに実データの投稿が出ません（${learnCount}件）。`);
 
-  // 4. 読むことは判断ではない。対応待ち（実データ）は3件のまま。
-  await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
-  await page.waitForTimeout(600);
-  const unresolvedText = (await page.locator(".feed-tab-count").first().innerText()).trim();
-  if (unresolvedText !== String(EXPECTED_UNRESOLVED)) {
-    failures.push(
-      `投稿の閲覧で対応待ちが${EXPECTED_UNRESOLVED}件ではなくなりました（${unresolvedText}）。`,
-    );
+  // 4. 読むことは判断ではない。AIからの判断（実データ）は変わらない。
+  await openHomeAttention(page);
+  const unresolvedText = await feedBadge(page);
+  if (unresolvedText !== String(EXPECTED_QUESTIONS)) {
+    failures.push(`投稿の閲覧でFeedの数字が変わりました（${unresolvedText}）。`);
   }
-  const needsRows = await page.locator(".feed-needs-row").count();
+  const needsRows = await page.locator(".feed-attention-post").count();
   if (needsRows !== EXPECTED_NEEDS_ROWS) {
-    failures.push(`対応待ちの行数が${EXPECTED_NEEDS_ROWS}件ではありません（${needsRows}）。`);
+    failures.push(`ホームの対応の投稿が${EXPECTED_NEEDS_ROWS}件ではありません（${needsRows}）。`);
   }
-  const liveNeedsText = (await page.locator(".feed-needs-list").first().innerText()).replace(
-    /\s+/g,
-    " ",
-  );
+  const liveNeedsText = (await page.locator("#feed-panel-home").innerText()).replace(/\s+/g, " ");
   if (!liveNeedsText.includes("測定手順のNoteを作る案")) {
-    failures.push("対応待ちの一覧に変更案が出ていません。");
+    failures.push("ホームに変更案の投稿が出ていません。");
   }
   await page.screenshot({ path: `${OUT_DIR}/live-needs.png`, fullPage: true });
 
@@ -819,8 +792,8 @@ async function auditLivePost(page) {
   if ((await bookmark.getAttribute("aria-pressed")) !== "true") {
     failures.push("ブックマークを付けられません。");
   }
-  const afterBookmark = (await page.locator(".feed-tab-count").first().innerText()).trim();
-  if (afterBookmark !== String(EXPECTED_UNRESOLVED)) {
+  const afterBookmark = await feedBadge(page);
+  if (afterBookmark !== String(EXPECTED_QUESTIONS)) {
     failures.push(`ブックマークで対応待ち件数が変わりました（${afterBookmark}）。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/live-bookmark.png`, fullPage: true });
@@ -837,8 +810,8 @@ async function auditLivePost(page) {
   if (!(await openNote.count())) failures.push("Noteに保存の後、Noteへの導線が出ません。");
   const postsAfterSave = await page.locator(".feed-posts .feed-post").count();
   if (postsAfterSave !== 1) failures.push(`Noteに保存で投稿が消えました（${postsAfterSave}件）。`);
-  const countAfterSave = (await page.locator(".feed-tab-count").first().innerText()).trim();
-  if (countAfterSave !== String(EXPECTED_UNRESOLVED)) {
+  const countAfterSave = await feedBadge(page);
+  if (countAfterSave !== String(EXPECTED_QUESTIONS)) {
     failures.push(`Noteに保存で対応待ち件数が変わりました（${countAfterSave}）。`);
   }
   const bookmarkAfterSave = await page
@@ -936,8 +909,8 @@ async function auditLivePost(page) {
   if (await threadPanel.locator(".feed-reply textarea").inputValue()) {
     failures.push("返信保存後に入力欄が空になっていません。");
   }
-  const countAfterReply = (await page.locator(".feed-tab-count").first().innerText()).trim();
-  if (countAfterReply !== String(EXPECTED_UNRESOLVED)) {
+  const countAfterReply = await feedBadge(page);
+  if (countAfterReply !== String(EXPECTED_QUESTIONS)) {
     failures.push(`返信で対応待ち件数が変わりました（${countAfterReply}）。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/live-reply.png`, fullPage: true });
@@ -956,8 +929,8 @@ async function auditLivePost(page) {
   if ((await threadPanel.locator(".feed-thread-state", { hasText: "回答あり" }).count()) !== 1) {
     failures.push("依頼しただけで回答ありとして表示されています。");
   }
-  const countAfterAsk = (await page.locator(".feed-tab-count").first().innerText()).trim();
-  if (countAfterAsk !== String(EXPECTED_UNRESOLVED)) {
+  const countAfterAsk = await feedBadge(page);
+  if (countAfterAsk !== String(EXPECTED_QUESTIONS)) {
     failures.push(`AIへの依頼で対応待ち件数が変わりました（${countAfterAsk}）。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/live-question.png`, fullPage: true });
@@ -980,8 +953,8 @@ async function auditLivePost(page) {
   if (rootsAfterPost !== 2) {
     failures.push(`自分の投稿で投稿が2件ではありません（${rootsAfterPost}件）。`);
   }
-  const countAfterPost = (await page.locator(".feed-tab-count").first().innerText()).trim();
-  if (countAfterPost !== String(EXPECTED_UNRESOLVED)) {
+  const countAfterPost = await feedBadge(page);
+  if (countAfterPost !== String(EXPECTED_QUESTIONS)) {
     failures.push(`自分の投稿で対応待ち件数が変わりました（${countAfterPost}）。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/live-own-post.png`, fullPage: true });
@@ -1044,8 +1017,8 @@ async function auditLivePost(page) {
   if (!threadAfterPaste.includes(`自分が貼り付け · ${LIVE_MANUAL_SOURCE}`)) {
     failures.push("手動貼付と自動受信の区別が表示されていません。");
   }
-  const countAfterPaste = (await page.locator(".feed-tab-count").first().innerText()).trim();
-  if (countAfterPaste !== String(EXPECTED_UNRESOLVED)) {
+  const countAfterPaste = await feedBadge(page);
+  if (countAfterPaste !== String(EXPECTED_QUESTIONS)) {
     failures.push(`貼り付けで対応待ち件数が変わりました（${countAfterPaste}）。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/live-external-paste.png`, fullPage: true });
@@ -1098,8 +1071,8 @@ async function auditLiveRestart(page) {
   if (!(await page.locator(".feed-attachment button", { hasText: "Noteで読む" }).count())) {
     failures.push("再起動後に保存したNoteへの導線が残っていません。");
   }
-  const persistedCount = (await page.locator(".feed-tab-count").first().innerText()).trim();
-  if (persistedCount !== String(EXPECTED_UNRESOLVED)) {
+  const persistedCount = await feedBadge(page);
+  if (persistedCount !== String(EXPECTED_QUESTIONS)) {
     failures.push(`再起動後の対応待ち件数が違います（${persistedCount}）。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/live-restart.png`, fullPage: true });
@@ -1146,8 +1119,8 @@ async function auditLiveRestart(page) {
       if (!knownNotice.includes("既知だった")) {
         failures.push(`「既知だった」の案内が出ていません（${knownNotice}）。`);
       }
-      const countAfterKnown = (await page.locator(".feed-tab-count").first().innerText()).trim();
-      if (countAfterKnown !== String(EXPECTED_UNRESOLVED)) {
+      const countAfterKnown = await feedBadge(page);
+      if (countAfterKnown !== String(EXPECTED_QUESTIONS)) {
         failures.push(`「既知だった」で対応待ち件数が変わりました（${countAfterKnown}）。`);
       }
     }
@@ -1437,31 +1410,12 @@ async function auditEmpty(app, page) {
   }
   await page.screenshot({ path: `${OUT_DIR}/empty-home.png`, fullPage: true });
 
-  // 2. 対応待ちは0件。空の面には次の行動を1つ置き、履歴の面は出さない。
-  await page.locator(".feed-tabs button", { hasText: "対応待ち" }).first().click();
-  await page.waitForTimeout(600);
-  const needsPanel = page.locator("#feed-panel-needs");
-  if (!(await needsPanel.count())) {
-    failures.push("対応待ちの面が出ていません。");
-    return;
+  // 2. AIからの判断は0件。対応の投稿も「対応待ち」タブも出さない。
+  if (await page.locator(".feed-attention-post").count()) {
+    failures.push("何も無いworkspaceに対応の投稿が出ています。");
   }
-  const needsEmpty = needsPanel.locator(".empty-state").first();
-  if (!(await needsEmpty.count())) {
-    failures.push("対応待ちが0件のときの空状態が出ていません。");
-  } else {
-    const emptyText = (await needsEmpty.innerText()).replace(/\s+/g, " ");
-    if (!emptyText.includes("いま対応する更新はありません")) {
-      failures.push(`空状態の見出しが違います（${emptyText}）。`);
-    }
-    if (!(await needsEmpty.locator("button", { hasText: "ホームを読む" }).count())) {
-      failures.push("対応待ちが0件の空状態に、次の行動（ホームを読む）がありません。");
-    }
-  }
-  if (await page.locator(".proposal-inbox-panel").count()) {
-    failures.push("履歴が無いのに「提案の履歴」が出ています。");
-  }
-  if (await page.locator(".feed-needs-panel").count()) {
-    failures.push("対応待ちが0件なのに一覧の面が出ています。");
+  if (await page.locator("#feed-tab-needs").count()) {
+    failures.push("「対応待ち」タブが残っています。");
   }
 
   // 3. 右レールも0件のセクションを出さず、空なら次の行動を1つ示す。
@@ -1484,16 +1438,6 @@ async function auditEmpty(app, page) {
     }
   }
   await page.screenshot({ path: `${OUT_DIR}/empty-needs-rail.png`, fullPage: true });
-
-  // 4. 空状態の導線が実際に移動する。
-  const homeAction = needsEmpty.locator("button", { hasText: "ホームを読む" }).first();
-  if (await homeAction.count()) {
-    await homeAction.click();
-    await page.waitForTimeout(500);
-    if ((await page.locator("#feed-tab-home").getAttribute("aria-selected")) !== "true") {
-      failures.push("空状態の「ホームを読む」でホームへ移動しません。");
-    }
-  }
 }
 
 async function auditNoteReference(page) {

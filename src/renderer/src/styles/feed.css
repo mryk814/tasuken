@@ -26,20 +26,22 @@
   padding: 0 var(--space-4) var(--space-4);
 }
 
-.feed-posts,
-.feed-needs-list {
+.feed-posts {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-/* 投稿の区切りは細い線だけ。カードへ分けない。Xの一覧に近い密度で並べる。 */
-.feed-post {
+/* 投稿の区切りは細い線だけ。カードへ分けない。Xの一覧に近い密度で並べる。
+ * AIからの対応の投稿（.feed-attention-post）も同じ並びに置く。 */
+.feed-post,
+.feed-attention-post {
   padding: var(--space-2) 0;
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
-.feed-post:last-child {
+.feed-post:last-child,
+.feed-attention-post:last-child {
   border-bottom: none;
 }
 
@@ -483,236 +485,11 @@
   border-bottom: 1px solid var(--color-accent-subtle-bd);
 }
 
-/* 対応待ちタブ。件数の正本は buildAttentionQueue。 */
-.feed-needs-list {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-/* 判断と確認待ちの境目。見出しは一覧の中に1つだけ置く。 */
-.feed-needs-section {
-  padding: var(--space-3) 0 var(--space-1);
-  border-bottom: 1px solid var(--color-border-subtle);
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-}
-
-.feed-needs-section > h3 {
-  margin: 0;
-  font: inherit;
-}
-
-.feed-needs-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-
-.feed-record-check {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--space-8);
-  min-height: var(--space-8);
-  margin-top: var(--space-2);
-  cursor: pointer;
-}
-
-.feed-needs-row > .feed-needs-select {
-  flex: 1;
-  min-width: 0;
-}
-
-.feed-record-adoption {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  flex-basis: 100%;
-  font-size: var(--text-sm);
-}
-
-.feed-adoption-result,
-.feed-adoption-error {
-  flex-basis: 100%;
-  margin: var(--space-2) 0;
-  font-size: var(--text-sm);
-  overflow-wrap: anywhere;
-}
-
-.feed-adoption-error {
-  color: var(--color-danger);
-}
-
+/* 開いた対応の詳細（回答・判断・成果の確認・採否）。投稿の下に出す。 */
 fieldset.feed-needs-detail {
   margin: 0;
   border: 0;
   min-width: 0;
-}
-
-/* 行は選ぶだけ。決める操作は詳細ペインへ置く（判断は1か所）。 */
-.feed-needs-select {
-  display: grid;
-  gap: var(--space-1);
-  width: 100%;
-  padding: var(--space-3) var(--space-2);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-}
-
-.feed-needs-select:hover {
-  background: var(--color-surface-subtle);
-}
-
-.feed-needs-select[aria-pressed="true"] {
-  background: var(--color-accent-subtle-bg);
-  box-shadow: inset 3px 0 0 var(--color-accent);
-}
-
-.feed-needs-select:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.feed-needs-select[aria-pressed="true"]:focus-visible {
-  box-shadow:
-    var(--focus-ring),
-    inset 3px 0 0 var(--color-accent);
-}
-
-.feed-needs-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.feed-needs-title {
-  margin: 0;
-  font-size: var(--text-sm);
-  font-weight: var(--weight-bold);
-  line-height: var(--lh-tight);
-  overflow-wrap: anywhere;
-}
-
-.feed-needs-time {
-  margin-left: auto;
-  color: var(--color-text-tertiary);
-  font-size: var(--text-xs);
-}
-
-/* 行の中で中身の要旨を示す。行数は増やしすぎず2行で切る。 */
-.feed-needs-summary {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-  line-height: var(--lh-tight);
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-/*
- * 広い幅は一覧と詳細を並べ、狭い幅は詳細を下へ置く（design-guide §9の1120px）。
- * 一覧側は件数が増えても高さを占有しない。
- */
-.feed-needs-panel {
-  display: flex;
-  flex-direction: column;
-}
-
-/* 一覧が更新の入口を持つ。詳細の有無で位置が動かないよう見出しは常に出す。 */
-.feed-needs-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  padding-bottom: var(--space-2);
-}
-
-.feed-needs-heading > h2 {
-  margin: 0;
-  font-size: var(--text-lg);
-  font-weight: var(--weight-bold);
-}
-
-.feed-needs-panel.has-selection {
-  display: grid;
-  grid-template-columns: minmax(280px, 0.85fr) minmax(360px, 1.15fr);
-  column-gap: var(--space-3);
-  align-items: start;
-}
-
-.feed-needs-panel.has-selection > .feed-needs-heading {
-  grid-column: 1 / -1;
-}
-
-.feed-needs-panel.has-selection > .feed-needs-list {
-  grid-column: 1;
-  grid-row: 2;
-  min-width: 0;
-}
-
-.feed-needs-panel.has-selection > .feed-needs-detail {
-  grid-column: 2;
-  grid-row: 2;
-  position: sticky;
-  top: var(--space-3);
-  max-height: calc(100vh - var(--space-8));
-  overflow: auto;
-  padding: var(--space-3) var(--pad-card) var(--space-4);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-}
-
-@media (max-width: 1120px) {
-  .feed-record-check {
-    min-width: calc(var(--space-8) + var(--space-3));
-    min-height: calc(var(--space-8) + var(--space-3));
-  }
-
-  .feed-record-adoption button {
-    min-height: calc(var(--space-8) + var(--space-3));
-  }
-
-  .feed-needs-panel.has-selection {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .feed-needs-panel.has-selection > .feed-needs-list,
-  .feed-needs-panel.has-selection > .feed-needs-detail {
-    inline-size: 100%;
-  }
-
-  .feed-needs-panel.has-selection > .feed-needs-list {
-    max-height: min(42vh, 360px);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-  }
-
-  .feed-needs-panel.has-selection > .feed-needs-detail {
-    position: static;
-    max-height: min(58vh, 600px);
-    margin-top: var(--space-3);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    border: 0;
-    border-top: 1px solid var(--color-border-strong);
-    border-radius: 0;
-  }
 }
 
 .feed-answer {
@@ -1764,4 +1541,39 @@ fieldset.feed-needs-detail {
     border-inline: 0;
     border-radius: 0;
   }
+}
+
+/* AIからの質問・成果の確認・変更案。投稿と同じ形でホームに並べ、開いた投稿の下で答える。 */
+.feed-attention-summary {
+  margin: 2px 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.feed-attention-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.feed-attention-post .feed-needs-detail {
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+}
+
+.feed-proposal-history {
+  margin-top: var(--space-3);
+}
+
+.feed-proposal-history > summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
 }

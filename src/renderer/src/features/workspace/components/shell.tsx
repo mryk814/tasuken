@@ -436,14 +436,15 @@ export function Sidebar({
     const due = String(s?.end_date || "");
     return Boolean(due && due < today);
   }).length;
-  // badgeは「未処理のhuman attention」の数。判断単位で数え、同じTaskの質問と変更案は2件とする（#596）。
+  // Feedのbadgeは、AIが答えを待っている質問・判断の数だけ（2026-10-06に対応待ちタブを廃止）。
+  // 成果の確認や変更案はホームの投稿として並び、AI印で見分ける。
   const proposalCount = countAttention(
     buildAttentionQueue({
       tasks: domain.tasks,
       proposals: domain.ai_proposals,
       receipts: domain.work_receipts,
       themes,
-    }),
+    }).filter((item) => item.kind === "answer_request" || item.kind === "decision_request"),
   );
   const debriefCount =
     buildDailyDebriefEvidence(domain, today).length > 0 &&

@@ -78,29 +78,28 @@ async function openNavigation(page, label) {
 }
 
 async function openProposalConfirmation(page) {
-  // 提案の確認はFeedの「対応待ち」タブへ集約した（Agent Deskの独立画面は廃止）。
-  // 提案が1件も無いときは面ごと出さないので、タブの面を待ってから件数を読む（design-guide §5）。
+  // 提案の確認はFeedのホームに投稿として並ぶ（対応待ちタブは2026-10-06に廃止）。
   await openNavigation(page, "Feed");
-  await page.locator("#feed-tab-needs").click();
-  await page.locator("#feed-panel-needs").waitFor();
+  await page.locator("#feed-tab-home").click();
+  await page.locator("#feed-panel-home").waitFor();
 }
 
 /**
- * 未決着の件数は、対応待ちの一覧の行数で読む。
- * 変更案も作業報告も同じ一覧に並ぶ（「提案の確認」の一覧は廃止した）。
+ * 未決着の件数は、ホームに並ぶ対応の投稿（AIからの質問・成果確認・変更案）の数で読む。
  */
 async function waitForPendingCount(page, expected) {
   await page.waitForFunction(
-    (count) => document.querySelectorAll(".feed-needs-row").length === count,
+    (count) => document.querySelectorAll(".feed-attention-post").length === count,
     expected,
     { timeout: 15_000 },
   );
 }
 
-/** 一覧の先頭の行を選び、詳細を開く。 */
+/** 先頭の対応の投稿を開き、その下に詳細を出す。 */
 async function openFirstNeedsRow(page) {
-  await page.locator(".feed-needs-select").first().waitFor();
-  await page.locator(".feed-needs-select").first().click();
+  const open = page.locator(".feed-attention-post .feed-attention-foot button").first();
+  await open.waitFor();
+  await open.click();
 }
 
 /**
@@ -123,7 +122,7 @@ async function acceptSelectedNeedsItem(page) {
 async function waitForWorkProposalDecision(page) {
   const outcomeHandle = await page.waitForFunction(
     () => {
-      if (document.querySelectorAll(".feed-needs-row").length === 0) {
+      if (document.querySelectorAll(".feed-attention-post").length === 0) {
         return { status: "accepted" };
       }
       const message = document.querySelector(".toast-message")?.textContent?.trim() || "";
@@ -219,7 +218,7 @@ try {
 
   await openProposalConfirmation(page);
   // 提案が届く前は対応待ちに何も無い（履歴の面も出さない）。件数の基準は到着後に読む。
-  assert.equal(await page.locator(".feed-needs-row").count(), 0);
+  assert.equal(await page.locator(".feed-attention-post").count(), 0);
   assert.equal(await page.locator(".proposal-inbox-panel").count(), 0);
   const routeBeforeProposal = await page.evaluate(() => location.hash);
 
@@ -356,7 +355,8 @@ try {
       issuedAt: new Date().toISOString(),
     });
   }, staleWorkSummary);
-  await page.getByRole("button", { name: "更新", exact: true }).click();
+  // 対応待ちの「更新」は廃止した。Feedはwindowのfocusで読み直す。
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
   await waitForPendingCount(page, 0);
 
   const refreshedTaskContext = await getTaskContext(taskId);

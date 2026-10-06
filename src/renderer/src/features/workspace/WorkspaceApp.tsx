@@ -429,7 +429,7 @@ export function WorkspaceApp() {
   useEffect(() => {
     const onHash = () => {
       const raw = location.hash.slice(1) || "today";
-      if (raw === "ai-io" || raw === "proposal-inbox") requestFeedTab("needs");
+      if (raw === "ai-io" || raw === "proposal-inbox") requestFeedTab("home");
       setRoute(normalizeRoute(raw));
     };
     onHash();
@@ -915,7 +915,7 @@ export function WorkspaceApp() {
       setDrawer(null);
       setNotesEditorSelectionId(null);
       // Agent Desk（ai-io）はFeedへ集約済み。旧URLからは対応待ちタブを開く。
-      if (next === "ai-io" || next === "proposal-inbox") requestFeedTab("needs");
+      if (next === "ai-io" || next === "proposal-inbox") requestFeedTab("home");
       const normalized = normalizeRoute(next);
       location.hash = normalized;
       setRoute(normalized);
@@ -1116,7 +1116,7 @@ export function WorkspaceApp() {
         setInboxLane("micro");
       }),
       window.api?.app?.onNavigate?.((next) => {
-        if (next === "ai-io" || next === "proposal-inbox") requestFeedTab("needs");
+        if (next === "ai-io" || next === "proposal-inbox") requestFeedTab("home");
         const normalized = normalizeRoute(next);
         location.hash = normalized;
         setRoute(normalized);
