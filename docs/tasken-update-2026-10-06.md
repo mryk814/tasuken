@@ -1,4 +1,4 @@
-# Tasken v0.1.76
+# Tasken v0.1.77
 
 ## 変更
 
@@ -11,7 +11,9 @@
 
 ## 配布と更新の条件
 
-WindowsはNSIS installerとportable、AndroidはversionName `0.1.76`・versionCode `68`の恒久署名APKを、SHA-256とともに同じGitHub Releaseへ公開する。タグと版番号を一致させ、main上の固定commitから生成する。
+WindowsはNSIS installerとportable、AndroidはversionName `0.1.77`・versionCode `68`の恒久署名APKを、SHA-256とともに同じGitHub Releaseへ公開する。タグと版番号を一致させ、main上の固定commitから生成する。
+
+v0.1.76は公開前のActivity smokeでTodayの読み上げ名の前提差により停止した。公開済みtagは保持し、smokeを修正したv0.1.77を配布する。0.1.76の配布物・端末更新は行っていないため、Android versionCode 68は0.1.77に使用する。
 
 既存のWindows/Android品質ゲートとWindows `release:check`を通す。Androidの新APKは公開済み0.1.75と導入済み正式版の署名・lineage互換を確認してから、データ保持の通常更新を行う。
 

@@ -54,6 +54,7 @@ git push origin vX.Y.Z
 手動で再実行する場合は、GitHub Actionsの`Windows release`から`vX.Y.Z`タグを指定する。
 
 Activity smokeは孤立userDataへ代表的な材料研究者の1日を作り、08:00–19:00のカレンダー、range・point、Theme色、AI source chip、詳細、Task編集導線、横方向のclipを確認する。成功時の`activity-packaged.png`（失敗時は`activity-failure.png`）は、GitHub Actionsの`activity-packaged-smoke-vX.Y.Z` artifactから確認できる。
+Todayへの到達確認は、期限超過リマインダーの件数を含む読み上げ名にも対応する。代表fixtureの過去のWaitingリマインダーを削除して検証を通さない。
 この画像artifactの転送は補助診断で、容量上限などによる転送失敗だけは非致命とする。packaged smokeを含む`release:check`の成功は必須。
 
 ## Release assets
