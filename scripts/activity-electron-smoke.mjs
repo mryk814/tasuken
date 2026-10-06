@@ -436,7 +436,10 @@ try {
   });
   page = await electronApp.firstWindow();
   await page.waitForLoadState("domcontentloaded");
-  await page.getByRole("button", { name: "Today", exact: true }).waitFor();
+  await page
+    .locator(".sidebar")
+    .getByRole("button", { name: /^Today(?:（時刻を過ぎたリマインダー\d+件）)?$/ })
+    .waitFor();
   await electronApp.evaluate(({ BrowserWindow }) => {
     const [window] = BrowserWindow.getAllWindows();
     window?.setSize(1440, 720);
