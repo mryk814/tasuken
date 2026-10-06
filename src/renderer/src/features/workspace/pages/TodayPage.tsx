@@ -6,6 +6,7 @@ import {
   IconCheck,
   IconChevronRight,
   IconClipboard,
+  IconBellRinging,
   IconClock,
   IconNotebook,
   IconPlus,
@@ -24,13 +25,15 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import { captureOrganizerApi } from "../../../services/captureOrganizerApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
-import type { PageProps } from "../types";
+import type { BaseRecord, PageProps } from "../types";
 import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
 import { buildDailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
 import { taskShelfStatus } from "../lib/taskShelves";
 
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
+import { ReminderDueBanner, useReminderNow } from "../components/common";
+import { isReminderDue } from "../lib/reminders";
 import { HabitPanel } from "../components/HabitPanel";
 import { MaintenancePanel } from "../components/MaintenancePanel";
 import {
@@ -292,6 +295,7 @@ function TodayRows({
     x: number;
     y: number;
   } | null>(null);
+  const reminderNow = useReminderNow();
   if (!rows.length)
     return (
       <EmptyState title={empty} action={onAdd ? "タスクを追加" : undefined} onAction={onAdd} />
@@ -313,6 +317,9 @@ function TodayRows({
         const rawUrgency = dateUrgency(row.date, today, done);
         const urgency = rawUrgency === "due-today" && !markDueToday ? null : rawUrgency;
         const reminder = reminderMeta(row, today);
+        // 時刻を過ぎたリマインダーは薄い時刻ではなく、ベルと警告色ではっきり示す。
+        const reminderDue =
+          !done && row.v2?.type === "task" && isReminderDue(row.v2.task.reminder_at, reminderNow);
         const task = row.v2?.type === "task" ? row.v2.task : null;
         const taskWorkState =
           task?.work_state ||
@@ -389,9 +396,13 @@ function TodayRows({
                     <small>{repeatRuleLabel(row.v2.task.repeat_rule)}</small>
                   )}
                   {reminder && (
-                    <small className="row-reminder-meta">
-                      <IconClock size={13} />
-                      {reminder}
+                    <small className={`row-reminder-meta${reminderDue ? " is-due" : ""}`}>
+                      {reminderDue ? (
+                        <IconBellRinging size={13} aria-hidden="true" />
+                      ) : (
+                        <IconClock size={13} />
+                      )}
+                      {reminderDue ? `リマインダー ${reminder}` : reminder}
                     </small>
                   )}
                 </button>
@@ -1529,6 +1540,35 @@ export function TodayPage({
           <IconPlus size={16} /> 今日のTaskを追加
         </Button>
       </PageHeader>
+
+      {/* 時刻を過ぎたリマインダーを最上部で知らせる（薄い時刻表示だけでは気づけないため）。 */}
+      <ReminderDueBanner
+        tasks={v2.tasks}
+        waitings={v2.waitings}
+        onOpen={(alert) =>
+          openDrawer({
+            type: alert.type === "waiting" ? "waiting" : "task",
+            mode: "edit",
+            entity: (alert.type === "task"
+              ? alert.task
+              : alert.type === "waiting"
+                ? alert.waiting
+                : {}) as unknown as BaseRecord,
+          })
+        }
+        onUpdate={async (alert, reminderAt, message) => {
+          if (alert.type === "task")
+            await saveEntities(
+              buildSaveTaskOperations({ ...alert.task, reminder_at: reminderAt }),
+              message,
+            );
+          else if (alert.type === "waiting")
+            await saveEntities(
+              buildSaveWaitingOperations({ ...alert.waiting, check_reminder_at: reminderAt }),
+              message,
+            );
+        }}
+      />
       <WorkLogDialog
         open={showWorkLog}
         today={today}
