@@ -127,5 +127,6 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File "...\run-windows-runtime
 - Windows runtime clone: commit済みSHAでtray、global shortcut、clipboard、screen recording、Windows file dialogなどを独立して確認する場合に使う。
 - WSLgの`npm run dev:wsl`: WSL固有の表示・入力に変更がある場合の補助検証。
 - GitHub Actions: Windows package、packaged smoke、release artifactの正本。
+- Windows qualityのarchitecture audit reportアップロードは補助診断とし、保存容量などによる転送失敗だけは非致命とする。`npm run ci`、package、packaged smokeの成功は引き続き必須。
 
 自動testが通っても、操作対象が見えない、選択範囲が分からない、Windows固有機能を未確認、のいずれかが残る場合は実動確認完了にしない。
