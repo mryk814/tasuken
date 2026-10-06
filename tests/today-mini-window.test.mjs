@@ -30,6 +30,42 @@ const htmlSource = readFileSync("src/renderer/today-mini.html", "utf8");
 const contractsSource = readFileSync("src/shared/ipc/global.d.ts", "utf8");
 const ipcContractsSource = readFileSync("src/shared/ipc/contracts.ts", "utf8");
 
+test("Today mini preserves a Theme selected while the options response is pending", async () => {
+  const start = htmlSource.indexOf("      async function loadThemeOptions() {");
+  const end = htmlSource.indexOf("      function scheduleHint", start);
+  assert.ok(start >= 0 && end > start, "Actual loadThemeOptions source must be found");
+  let selection = "theme-a";
+  let resolveThemes;
+  const pendingThemes = new Promise((resolve) => {
+    resolveThemes = resolve;
+  });
+  const picker = {
+    getValue: () => selection,
+    element: {
+      querySelector: () => ({
+        getAttribute: () => (selection === "theme-b" ? "Theme B" : "Theme A"),
+      }),
+    },
+    setOptions: (options, value) => {
+      assert.ok(options.some((option) => option.value === value));
+      selection = value;
+    },
+  };
+  const run = new Function(
+    "window",
+    "addTaskThemePicker",
+    `${htmlSource.slice(start, end)}\nreturn loadThemeOptions();`,
+  );
+  const refreshing = run({ todayMiniApi: { listThemes: () => pendingThemes } }, picker);
+  selection = "theme-b";
+  resolveThemes([
+    { value: "theme-a", label: "Theme A" },
+    { value: "theme-b", label: "Theme B" },
+  ]);
+  await refreshing;
+  assert.equal(selection, "theme-b", "Refresh must preserve the user's newer Theme selection");
+});
+
 test("Today no longer exposes the daily loop shelf or morning planning flow", () => {
   assert.doesNotMatch(todaySource, /DailyLoopPanel/);
   assert.doesNotMatch(todaySource, /buildDailyLoopSummary/);
