@@ -627,7 +627,7 @@ test("Note編集ウィンドウはEditorを二重に実装せず本体と同じr
   // Settingsは業務の文脈と無関係なので、右列を設定本文へ返す。
   assert.match(
     workspaceAppSource,
-    /route !== "sketch-editor" && route !== "feed" && route !== "settings" && !detachedNoteId \? \(/,
+    /route !== "sketch-editor" &&\s+route !== "feed" &&\s+route !== "settings" &&\s+!detachedNoteId \? \(/,
   );
   // 狭幅でも高さの制約を失わないよう、Sidebarを積む760px以下のblockフォールバックへ落とさない（#329）。
   assert.match(
