@@ -102,7 +102,8 @@ test("cached format failures do not exhaust the next scan's read budget", async 
 });
 
 test("new logs are read first and transient read or submit failures retry", async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-log-order-"));
+  // The scanner resolves real paths, including Windows temporary-directory aliases.
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "tasken-log-order-")));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const source = path.join(root, "logs");
   await fs.mkdir(source);
@@ -114,15 +115,8 @@ test("new logs are read first and transient read or submit failures retry", asyn
   const newFile = path.join(source, "z-new.jsonl");
   await fs.writeFile(oldFile, raw.replaceAll("synthetic-rollout", "old-session"));
   await fs.writeFile(newFile, raw.replaceAll("synthetic-rollout", "new-session"));
-  // Windows can defer last-write timestamp updates until after a file is read.
-  // Fix the ordering input so this test exercises retries rather than filesystem timing.
-  const originalStat = fs.stat;
-  t.mock.method(fs, "stat", async (...args) => {
-    const stat = await originalStat(...args);
-    if (args[0] === oldFile) stat.mtimeMs = Date.parse("2026-08-22T00:00:00Z");
-    if (args[0] === newFile) stat.mtimeMs = Date.parse("2026-10-07T00:00:00Z");
-    return stat;
-  });
+  await fs.utimes(oldFile, new Date("2026-08-22T00:00:00Z"), new Date("2026-08-22T00:00:00Z"));
+  await fs.utimes(newFile, new Date("2026-10-07T00:00:00Z"), new Date("2026-10-07T00:00:00Z"));
   const seen = [];
   let failSubmit = true;
   let failRead = true;
@@ -149,7 +143,8 @@ test("new logs are read first and transient read or submit failures retry", asyn
     "local",
   );
   assert.equal((await sync.run()).state, "error");
-  assert.equal(seen[0], "new-session");
+  assert.deepEqual(seen, ["new-session"]);
+  assert.equal(failRead, false, "the transient read failure was injected at the resolved path");
   assert.equal((await sync.run()).state, "idle");
   assert.deepEqual(seen, ["new-session", "new-session", "old-session"]);
 });
