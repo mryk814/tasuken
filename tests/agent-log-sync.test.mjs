@@ -114,8 +114,15 @@ test("new logs are read first and transient read or submit failures retry", asyn
   const newFile = path.join(source, "z-new.jsonl");
   await fs.writeFile(oldFile, raw.replaceAll("synthetic-rollout", "old-session"));
   await fs.writeFile(newFile, raw.replaceAll("synthetic-rollout", "new-session"));
-  await fs.utimes(oldFile, new Date("2026-08-22T00:00:00Z"), new Date("2026-08-22T00:00:00Z"));
-  await fs.utimes(newFile, new Date("2026-10-07T00:00:00Z"), new Date("2026-10-07T00:00:00Z"));
+  // Windows can defer last-write timestamp updates until after a file is read.
+  // Fix the ordering input so this test exercises retries rather than filesystem timing.
+  const originalStat = fs.stat;
+  t.mock.method(fs, "stat", async (...args) => {
+    const stat = await originalStat(...args);
+    if (args[0] === oldFile) stat.mtimeMs = Date.parse("2026-08-22T00:00:00Z");
+    if (args[0] === newFile) stat.mtimeMs = Date.parse("2026-10-07T00:00:00Z");
+    return stat;
+  });
   const seen = [];
   let failSubmit = true;
   let failRead = true;
