@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12以降はランチャーの角丸に合わせ、枠線を引かない。 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <solid android:color="@color/tasken_widget_surface" />
-    <corners android:radius="20dp" />
-    <stroke android:width="1dp" android:color="@color/tasken_widget_outline" />
+    <corners android:radius="@android:dimen/system_app_widget_background_radius" />
 </shape>

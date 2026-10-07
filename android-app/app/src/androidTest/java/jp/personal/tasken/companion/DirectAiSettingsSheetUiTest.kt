@@ -29,8 +29,8 @@ class DirectAiSettingsSheetUiTest {
 
             composeRule.onNodeWithTag("direct-ai-settings-title").assertExists()
             composeRule.onNodeWithTag("direct-ai-model").assertIsDisplayed()
-            composeRule.onNodeWithText("整理の実行時はこの設定が自動で使われます。", substring = true).assertIsDisplayed()
-            composeRule.onNodeWithText("Desktopのキーが転送されることはありません。", substring = true).assertIsDisplayed()
+            composeRule.onNodeWithText("PCがオフでも、この端末から選んだAIへ直接送って整理できます。", substring = true).assertIsDisplayed()
+            composeRule.onNodeWithText("Desktopのキーが転送されることはなく", substring = true).assertIsDisplayed()
             composeRule.onNodeWithTag("direct-ai-test").assertExists()
             screenshot("11-standalone-direct-ai-settings")
             composeRule.onNodeWithTag("direct-ai-settings-close").performClick()

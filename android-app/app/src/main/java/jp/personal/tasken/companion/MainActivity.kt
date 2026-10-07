@@ -3052,6 +3052,9 @@ internal fun TodayTaskList(
                                 }
                             }
                         }
+                        if (task.checklistItems.isNotEmpty()) {
+                            TodayRowChecklist(task, actionState, onChecklistUpdate, onTaskSelected)
+                        }
                     }
                     if (onTodayDateUpdate != null && task.state !in setOf("done", "cancelled") &&
                         task.todayDate != LocalDate.now().toString()
@@ -3077,38 +3080,6 @@ internal fun TodayTaskList(
                             ?.eventId,
                     )
                 }
-                if (task.checklistItems.isNotEmpty()) {
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, bottom = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        task.checklistItems.sortedBy { it.sortOrder }.take(3).forEach { item ->
-                            InlineChecklistControl(
-                                item = item,
-                                onToggle = {
-                                    onChecklistUpdate(task, task.checklistItems.map { current ->
-                                        if (current.id == item.id) current.copy(
-                                            done = !current.done,
-                                            completedAt = if (current.done) null else Instant.now().toString(),
-                                        ) else current
-                                    })
-                                },
-                                enabled = (!task.pending || task.canEditPendingChecklist || task.canEditPendingCreate || task.canEditPendingTask) &&
-                                    task.conflict == null && actionState !is TaskActionUiState.Saving,
-                                modifier = Modifier.widthIn(max = 160.dp)
-                                    .testTag("task-list-checklist-${task.id}-${item.id}")
-                                    .semantics { contentDescription = "${item.title}を${if (item.done) "未完了に戻す" else "完了する"}" },
-                            )
-                        }
-                        if (task.checklistItems.size > 3) {
-                            TextButton(
-                                onClick = { onTaskSelected(task.id) },
-                                modifier = Modifier.heightIn(min = 44.dp),
-                                contentPadding = PaddingValues(horizontal = 4.dp),
-                            ) { Text("ほか${task.checklistItems.size - 3}項目") }
-                        }
-                    }
-                }
               }
             }
             }
@@ -3119,6 +3090,46 @@ internal fun TodayTaskList(
             }
         }
     }
+}
+
+/** Todayの行の中で、題名のすぐ下に並べるChecklist。行の完了丸は題名とこの欄をまとめた高さの中央に来る。 */
+@Composable
+private fun TodayRowChecklist(
+    task: MobileTask,
+    actionState: TaskActionUiState,
+    onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit,
+    onTaskSelected: (String) -> Unit,
+) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            task.checklistItems.sortedBy { it.sortOrder }.take(3).forEach { item ->
+                InlineChecklistControl(
+                    item = item,
+                    onToggle = {
+                        onChecklistUpdate(task, task.checklistItems.map { current ->
+                            if (current.id == item.id) current.copy(
+                                done = !current.done,
+                                completedAt = if (current.done) null else Instant.now().toString(),
+                            ) else current
+                        })
+                    },
+                    enabled = (!task.pending || task.canEditPendingChecklist || task.canEditPendingCreate || task.canEditPendingTask) &&
+                        task.conflict == null && actionState !is TaskActionUiState.Saving,
+                    modifier = Modifier.widthIn(max = 160.dp)
+                        .testTag("task-list-checklist-${task.id}-${item.id}")
+                        .semantics { contentDescription = "${item.title}を${if (item.done) "未完了に戻す" else "完了する"}" },
+                )
+            }
+            if (task.checklistItems.size > 3) {
+                TextButton(
+                    onClick = { onTaskSelected(task.id) },
+                    modifier = Modifier.heightIn(min = 44.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp),
+                ) { Text("ほか${task.checklistItems.size - 3}項目") }
+            }
+        }
 }
 
 @Composable
@@ -3647,9 +3658,9 @@ internal fun TodayDetailPane(
                 ) {
                     Icon(painterResource(R.drawable.ic_tabler_sun), contentDescription = null)
                     Text(
-                        if (task.todayDate == today.toString()) "今日の予定から外す" else "今日の予定に追加",
+                        if (task.todayDate == today.toString()) "今日から外す" else "今日に追加",
                         modifier = Modifier.padding(start = 8.dp),
-                        maxLines = 2,
+                        maxLines = 1,
                     )
                 }
                 Button(
@@ -4282,13 +4293,16 @@ private fun TaskScheduleEditor(
                     contentDescription = if (editing) "予定の編集を閉じる" else "予定を編集")
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                scheduleDraftLabel(startDate, endDate, rangeSemanticsDraft),
-                modifier = Modifier.testTag("schedule-kind")
-                    .clickable(enabled = enabled, onClickLabel = "予定を編集") { editing = true },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        // 日付が無いときは下の「予定なし」だけで足りる。「未設定」を重ねて出さない。
+        if (startDate != null || endDate != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    scheduleDraftLabel(startDate, endDate, rangeSemanticsDraft),
+                    modifier = Modifier.testTag("schedule-kind")
+                        .clickable(enabled = enabled, onClickLabel = "予定を編集") { editing = true },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
         if (!editing) {
             Text(
@@ -4554,11 +4568,17 @@ private fun TaskThemePicker(
             .semantics { this.stateDescription = displayedState },
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(
-            "Theme${selectedTheme?.let { ": ${it.title}" } ?: ": $emptyValue"}",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        // 見出しは「予定」と同じ形。選択中は下の札が示すので、名前を見出しで繰り返さない。
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Theme", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            if (selectedTheme == null) {
+                Text(emptyValue, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -4583,7 +4603,15 @@ private fun TaskThemePicker(
                     onClick = { if (!isSelected) onThemeSelected(theme.id) },
                     label = { Text(theme.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     leadingIcon = { ThemeColorDot(theme) },
-                    trailingIcon = { if (isSelected) Text("選択中") },
+                    trailingIcon = {
+                        if (isSelected) {
+                            Icon(
+                                painterResource(R.drawable.ic_tabler_circle_check),
+                                contentDescription = "選択中",
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    },
                     enabled = pickerEnabled,
                     modifier = Modifier.heightIn(min = 44.dp).widthIn(max = 220.dp)
                         .semantics { selected = isSelected },

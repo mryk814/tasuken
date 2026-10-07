@@ -1,20 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 1〜2マスの小さい形。残り件数を読めて、そのまま追加できる。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/tasken_widget_background"
-    android:gravity="center"
+    android:clipToOutline="true"
+    android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:padding="6dp">
+    android:paddingStart="14dp"
+    android:paddingEnd="8dp">
+
+    <TextView
+        android:id="@+id/widget_open_today"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:fontFamily="sans-serif-medium"
+        android:gravity="center_vertical"
+        android:includeFontPadding="false"
+        android:maxLines="2"
+        android:text="Today"
+        android:textColor="@color/tasken_widget_on_surface"
+        android:textSize="15sp" />
 
     <ImageView
         android:id="@+id/widget_add"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="@drawable/tasken_widget_action_background"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_marginStart="4dp"
+        android:background="@drawable/tasken_widget_primary_action_background"
         android:contentDescription="Taskを追加"
-        android:padding="12dp"
+        android:padding="9dp"
         android:scaleType="centerInside"
         android:src="@drawable/ic_tabler_plus"
-        android:tint="@color/tasken_widget_primary" />
+        android:tint="@color/tasken_widget_on_primary" />
 </LinearLayout>

@@ -112,4 +112,20 @@ class TaskenTodayWidgetTest {
         assertEquals("未同期", TaskenTodayWidget.statusText(snapshot()))
         assertEquals("", TaskenTodayWidget.statusText(snapshot(syncedAt = "2026-08-22T00:00:00Z")))
     }
+
+    @Test
+    fun header_status_line_joins_open_count_and_sync_state_and_skips_blanks() {
+        val synced = TaskenWidgetSnapshot(
+            tasks = emptyList(),
+            totalTaskCount = 6,
+            pendingCount = 0,
+            conflictCount = 0,
+            lastSuccessfulSyncAt = "2026-10-07T00:00:00Z",
+        )
+
+        assertEquals("未完了 6件", TaskenTodayWidget.headerStatusLine(synced))
+        assertEquals("未完了 6件 ・ 送信待ち 1件", TaskenTodayWidget.headerStatusLine(synced.copy(pendingCount = 1)))
+        assertEquals("未同期", TaskenTodayWidget.headerStatusLine(synced.copy(totalTaskCount = 0, lastSuccessfulSyncAt = null)))
+        assertEquals("", TaskenTodayWidget.headerStatusLine(synced.copy(totalTaskCount = 0)))
+    }
 }

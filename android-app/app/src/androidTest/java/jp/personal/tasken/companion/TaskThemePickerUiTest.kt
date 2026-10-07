@@ -8,7 +8,11 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasStateDescription
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
@@ -38,10 +42,10 @@ class TaskThemePickerUiTest {
             }
         }
 
-        composeRule.onNodeWithText("Theme: Research", substring = true).assertExists()
+        composeRule.onNode(hasText("Theme") and hasAnyAncestor(hasTestTag("task-theme-picker"))).assertExists()
         composeRule.onNodeWithTag("task-theme-picker")
             .assert(hasStateDescription("現在のTheme: Research"))
-        composeRule.onNodeWithText("選択中").assertExists()
+        composeRule.onNodeWithContentDescription("選択中").assertExists()
         screenshot("01-theme-chips-direct")
         composeRule.onNodeWithText("Personal").performClick()
 

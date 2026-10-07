@@ -182,7 +182,7 @@ class TaskStateActionUiTest {
 
         composeRule.onNodeWithTag("task-date-chip").performScrollTo().assertIsDisplayed()
         composeRule.onNode(hasText("未設定") and hasAnyAncestor(hasTestTag("task-date-chip"))).assertIsDisplayed()
-        composeRule.onNodeWithText("今日の予定に追加").assertIsDisplayed().assertIsEnabled().performClick()
+        composeRule.onNodeWithText("今日に追加").assertIsDisplayed().assertIsEnabled().performClick()
         composeRule.runOnIdle { assertEquals(LocalDate.now(), submitted) }
     }
 

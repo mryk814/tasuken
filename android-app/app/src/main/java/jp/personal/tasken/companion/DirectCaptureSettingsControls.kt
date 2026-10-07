@@ -31,17 +31,14 @@ internal fun DirectAiSettingsSheet(
     ) {
         Column(
             Modifier.fillMaxWidth().fillMaxHeight(0.9f)
-                .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+                .verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text("PCなしで整理する設定", style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("direct-ai-settings-title"))
+            // 説明は1文に絞る。送るもの・キーの扱いは下の欄の近くで1度だけ伝える。
             Text(
-                "PCがオフでも、この端末から選んだAIへ直接送って整理できます。整理の実行時はこの設定が自動で使われます。",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                "Desktopと同じサービス・モデルを選べば同じAPIを活用できます。Desktopのキーが転送されることはありません。キーはこの端末にのみ暗号化して保存します。",
-                style = MaterialTheme.typography.bodySmall,
+                "PCがオフでも、この端末から選んだAIへ直接送って整理できます。",
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             DirectCaptureSettingsControls(settings, store, true, initiallyOpen = true, showToggle = false) { settings = it; onChanged(it) }
@@ -118,19 +115,30 @@ internal fun DirectCaptureSettingsControls(
             }
         }
         if (open) {
+            // いまどちらへ送っているかを先に1行で示す。
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = MaterialTheme.shapes.medium,
+                modifier = Modifier.fillMaxWidth().testTag("capture-ai-destination"),
+            ) {
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("いまの送信先", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        if (settings.enabled) "${settings.provider.label}（この端末から直接・PCオフでも使えます）" else "Desktopで設定したAI（PCオフでは使えません）",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+            if (showToggle) Text("Android専用のAI設定", style = MaterialTheme.typography.titleSmall)
             Text(
-                if (settings.enabled) "送信先: ${settings.provider.label}（Androidから直接・PCオフでも利用可）" else "送信先: Desktopで設定したAI（PCオフでは使えません）",
+                "送るもの: 文字・録音時刻・Theme名・添付写真。API利用料がかかる場合があります。キーはこの端末だけに暗号化して保存します。Desktopのキーが転送されることはなく、同期やExportにも含めません。",
                 style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.testTag("capture-ai-destination"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Text("Android専用のAI設定", style = MaterialTheme.typography.titleSmall)
-            Text("PCがオフラインでも、Androidから選んだサービスへ通信して整理できます。文字・録音時刻・Theme名・添付写真を送信します。API利用料が発生する場合があります。",
-                style = MaterialTheme.typography.bodySmall)
-            Text("Desktopのキーはコピーされません。この端末に暗号化して保存し、同期・Exportには含めません。",
-                style = MaterialTheme.typography.bodySmall)
+            Text("サービス", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 4.dp))
             Box {
                 OutlinedButton(onClick = { menuOpen = true }, enabled = !busy,
-                    modifier = Modifier.testTag("direct-ai-provider")) { Text(editing.provider.label) }
+                    modifier = Modifier.testTag("direct-ai-provider")) { Text("${editing.provider.label}  ▾") }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     CaptureAiProvider.entries.forEach { provider -> DropdownMenuItem(text = { Text(provider.label) }, onClick = {
                         editing = editing.copy(provider = provider, model = "", endpoint = "")
@@ -139,19 +147,26 @@ internal fun DirectCaptureSettingsControls(
                     }) }
                 }
             }
+            val destination = runCatching { editing.destination() }.getOrNull()
+            // 補足は欄の直下（supportingText）に置き、欄と説明の対応を崩さない。
             OutlinedTextField(editing.model, { editing = editing.copy(model = it.trim()) },
                 label = { Text(if (editing.provider == CaptureAiProvider.Azure) "デプロイ名" else "モデルID") },
+                supportingText = {
+                    Text(
+                        directCaptureChatModels[editing.provider]?.let { "例: ${it.joinToString("、")}" }
+                            ?: "Structured Outputs対応のモデルを指定してください。",
+                    )
+                },
                 singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("direct-ai-model"))
-            directCaptureChatModels[editing.provider]?.let { models ->
-                Text("Chat Completions対応: ${models.joinToString("、")}", style = MaterialTheme.typography.bodySmall)
-            }
             if (editing.provider == CaptureAiProvider.Azure) OutlinedTextField(editing.endpoint,
                 { editing = editing.copy(endpoint = it.trim()) }, label = { Text("Azure HTTPS接続先") },
                 placeholder = { Text("https://YOUR-RESOURCE.openai.azure.com/") },
                 singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("direct-ai-endpoint"))
-            val destination = runCatching { editing.destination() }.getOrNull()
-            if (destination != null) Text("接続先: $destination", style = MaterialTheme.typography.bodySmall)
-            else Text("Structured Outputs対応のモデルを指定してください。", style = MaterialTheme.typography.bodySmall)
+            if (destination != null) {
+                Text("接続先: $destination", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else if (editing.model.isNotEmpty()) {
+                Text("Structured Outputs対応のモデルを指定してください。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
             OutlinedTextField(apiKey, { apiKey = it }, label = { Text("APIキー") },
                 placeholder = { Text(if (settings.hasApiKey && settings.provider == editing.provider && settings.endpoint == editing.endpoint) "空欄で保存済みキーを使用" else "この端末用のキーを入力") },
                 visualTransformation = PasswordVisualTransformation(), singleLine = true, enabled = !busy,
