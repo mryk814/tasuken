@@ -2905,7 +2905,7 @@ async function startDesktopApp(): Promise<void> {
     getAppIconPath,
     showTodayMini: () => todayMiniController?.show(),
     quickCaptureMenuItems: () => quickCaptureController?.menuItems() || [],
-    showQuickCapture: () => quickCaptureController?.show("inbox"),
+    showQuickCapture: () => quickCaptureController?.show("feed"),
     showMainWindow: () => {
       showMainWindow();
     },
@@ -2921,7 +2921,7 @@ async function startDesktopApp(): Promise<void> {
     trayController.setup();
     reminderController.start();
     const directHandlers: Record<(typeof DIRECT_SHORTCUT_DEFINITIONS)[number]["id"], () => void> = {
-      "quick-capture": () => quickCaptureController?.show("inbox"),
+      "quick-capture": () => quickCaptureController?.show("feed"),
       "today-task": () => quickCaptureController?.show("today-task"),
       "done-task": () => quickCaptureController?.show("done-task"),
       "micro-memo": () => quickCaptureController?.show("micro-memo"),

@@ -30,7 +30,7 @@ import type { CaptureOrganizerBatch, CaptureOrganizerInput } from "./gateway/mob
 import { SavedCaptureOrganizer } from "./services/savedCaptureOrganizer";
 import type { SavedCaptureOrganizationSource } from "../shared/savedCaptureOrganization";
 
-export type QuickCaptureMode = "inbox" | "today-task" | "micro-memo" | "done-task";
+export type QuickCaptureMode = "feed" | "today-task" | "micro-memo" | "done-task";
 
 interface QuickCaptureControllerOptions {
   repository: InstanceType<typeof WorkspaceDatabase>;
@@ -88,7 +88,7 @@ export function createQuickCaptureController(
     },
     executeCommands: options.executeCommands,
   });
-  let visibleMode: QuickCaptureMode = "inbox";
+  let visibleMode: QuickCaptureMode = "feed";
 
   function createWindow(): BrowserWindow {
     const win = new BrowserWindow({
@@ -149,7 +149,7 @@ export function createQuickCaptureController(
     win.webContents.send(IPC.quickCaptureShown, mode, source);
   }
 
-  function show(mode: QuickCaptureMode = "inbox"): void {
+  function show(mode: QuickCaptureMode = "feed"): void {
     visibleMode = mode;
     if (!captureWindow || captureWindow.isDestroyed()) {
       captureWindow = createWindow();
@@ -287,7 +287,12 @@ export function createQuickCaptureController(
       if (win.webContents.isLoading()) win.webContents.once("did-finish-load", send);
       else send();
     });
-    ipcMain.handle(IPC.quickCaptureOpenTask, () => show("today-task"));
+    ipcMain.handle(IPC.quickCaptureOpenTask, (event, mode = "today-task") => {
+      if (!options.isMainSender?.(event.sender.id)) throw new Error("この画面からは開けません。");
+      if (mode !== "today-task" && mode !== "feed")
+        throw new Error("この入力モードでは開けません。");
+      show(mode);
+    });
     ipcMain.handle(IPC.quickCaptureExternalPrompt, (event, input: unknown) => {
       if (event.sender !== captureWindow?.webContents)
         throw new Error("この画面からは依頼文をコピーできません。");
@@ -359,7 +364,7 @@ export function createQuickCaptureController(
       (
         event,
         text: string,
-        mode: QuickCaptureMode | "feed" | "saved-capture" = "inbox",
+        mode: QuickCaptureMode | "saved-capture" = "feed",
         themeId?: string,
         selectedRangeSemantics?: "once_within_window" | "ongoing",
         organization?: unknown,
@@ -380,7 +385,7 @@ export function createQuickCaptureController(
         const trimmed = (text || "").trim();
         if (!trimmed) throw new Error("入力が空です。");
         if (mode === "feed") {
-          // Quick CaptureのInbox窓からFeedへ直接投稿する。Inboxの整理（captureFeedPost相当）を
+          // Quick CaptureからFeedへ直接投稿する。Captureの整理を
           // 経由せず、Feed専用の正本だけを作る。Notes・capture_entryは増やさない。
           if (event.sender !== captureWindow?.webContents)
             throw new Error("この画面からは投稿できません。");
@@ -472,13 +477,14 @@ export function createQuickCaptureController(
           options.notifyCommandApplied(receipt, event.sender.id);
           return receipt.changes.find((change) => change.type === "task")?.entity;
         }
+        if (mode !== "micro-memo") throw new Error("この入力モードでは保存できません。");
         const contentType = quickCaptureContentType(trimmed);
         const saved = options.repository.save(
           "capture_entry",
           {
             text: trimmed,
-            title: mode === "micro-memo" ? null : quickCaptureTitle(trimmed),
-            kind: mode === "micro-memo" ? "micro_memo" : "inbox",
+            title: null,
+            kind: "micro_memo",
             content_type: contentType,
             url: contentType === "url" ? firstCaptureUrl(trimmed) : null,
             project_id: canonicalThemeId(themeId, { defaultPersonal: true }),
@@ -521,9 +527,9 @@ export function createQuickCaptureController(
   function menuItems(): Electron.MenuItemConstructorOptions[] {
     return [
       {
-        label: "Inboxへクイック記録",
+        label: "Feedへクイック投稿",
         accelerator: "CmdOrCtrl+Shift+N",
-        click: () => show("inbox"),
+        click: () => show("feed"),
       },
       { label: "タスクを追加", accelerator: "CmdOrCtrl+Shift+M", click: () => show("today-task") },
       {

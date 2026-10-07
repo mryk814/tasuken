@@ -1027,11 +1027,7 @@ export function WorkspaceApp() {
     return window.api.app.onOpenTaskenRootTarget((request) => {
       if (request.kind === "command") {
         if (request.id === "create:capture") {
-          openDrawer({
-            type: "capture_entry",
-            mode: "edit",
-            entity: { state: "untriaged", captured_at: new Date().toISOString() },
-          });
+          void window.api.openTaskCapture("feed");
           return;
         }
         if (request.id.startsWith("navigate:")) navigate(request.id.slice("navigate:".length));
@@ -2263,15 +2259,10 @@ export function WorkspaceApp() {
     {
       id: "create:capture",
       label: "Quick Captureを開く",
-      keywords: ["inbox", "記録", "capture"],
+      keywords: ["feed", "投稿", "記録", "capture"],
       category: "Commands",
       shortcut: "Ctrl+Shift+N",
-      execute: () =>
-        openDrawer({
-          type: "capture_entry",
-          mode: "edit",
-          entity: { state: "untriaged", captured_at: new Date().toISOString() },
-        }),
+      execute: () => window.api.openTaskCapture("feed"),
     },
     ...(activeTheme
       ? [

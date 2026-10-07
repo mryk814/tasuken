@@ -765,7 +765,7 @@ export type FeedLinkPreviewResult =
   { ok: true; preview: FeedLinkPreview } | { ok: false; reason: string };
 
 export interface ResearchDeskApi {
-  openTaskCapture(): Promise<void>;
+  openTaskCapture(mode?: "today-task" | "feed"): Promise<void>;
   captureOrganizer: {
     openSaved(captureId: string, version: number): Promise<void>;
     proposeTaskSchedule(

@@ -221,8 +221,8 @@
   <body>
     <div class="capture-form">
       <div class="capture-header">
-        <strong id="title">Inbox に記録</strong>
-        <span id="mode-pill" class="mode-pill">Inbox</span>
+        <strong id="title">Feedへ投稿</strong>
+        <span id="mode-pill" class="mode-pill">Feed</span>
         <button id="close" class="secondary" type="button" aria-label="閉じる">閉じる</button>
       </div>
       <span id="hint" class="capture-hint">Ctrl+Enter で記録 / Shift追加で続ける / Escで閉じる</span>
@@ -273,15 +273,13 @@
       <div class="capture-actions">
         <button id="saved-source-return" class="secondary" type="button" hidden>元Captureへ戻る</button>
         <button id="organize" class="secondary" type="button" hidden>AIで整理</button>
-        <button id="feed-submit" class="secondary" type="button" title="入力とThemeをそのままFeedへ投稿（Inboxを経由しない）">Feedへ投稿</button>
         <button id="submit" type="button">記録する</button>
       </div>
     </div>
-    <div id="feedback" class="feedback" style="display:none">Inbox整理に記録しました</div>
+    <div id="feedback" class="feedback" style="display:none">Feedへ投稿しました</div>
     <script>
       const input = document.getElementById("input");
       const submitButton = document.getElementById("submit");
-      const feedButton = document.getElementById("feed-submit");
       const feedback = document.getElementById("feedback");
       const title = document.getElementById("title");
       const modePill = document.getElementById("mode-pill");
@@ -295,7 +293,7 @@
       const externalPreview = document.getElementById("external-preview");
       const duePreview = document.getElementById("due-preview");
       const rangeChoice = document.getElementById("range-choice");
-      let mode = "inbox";
+      let mode = "feed";
       let lastThemeId = localStorage.getItem("tasken:quick-capture:last-theme-id") || "";
       let selectedRangeSemantics = "";
       let previewRequest = 0;
@@ -338,9 +336,6 @@
           hint.textContent = count ? "案ごとに内容を確認 / Ctrl+Enter でまとめて追加 / Escで閉じる" : "候補0件 / 原文は保持 / Escで閉じる";
         }
         submitButton.disabled = organizing || saving || Boolean(organization && count === 0);
-        const canPostToFeed = mode === "inbox" && !organization && submission === null;
-        feedButton.hidden = !canPostToFeed;
-        feedButton.disabled = organizing || saving || locked || !canPostToFeed;
         if (mode === "saved-capture") {
           input.readOnly = !organization;
           submitButton.disabled ||= !organization;
@@ -514,21 +509,21 @@
       const MODES = new Set(["today-task", "micro-memo", "done-task", "saved-capture"]);
 
       function applyMode(nextMode) {
-        mode = MODES.has(nextMode) ? nextMode : "inbox";
+        mode = MODES.has(nextMode) ? nextMode : "feed";
         const isTodayTask = mode === "today-task";
         const isMicroMemo = mode === "micro-memo";
         const isDoneTask = mode === "done-task";
         const usesTheme = !isMicroMemo;
-        title.textContent = isDoneTask ? "やったことを記録" : isTodayTask ? "タスクに追加" : isMicroMemo ? "付箋メモに記録" : "Inbox に記録";
-        modePill.textContent = isDoneTask ? "Done Task" : isTodayTask ? "Task" : isMicroMemo ? "Micro Memo" : "Inbox";
+        title.textContent = isDoneTask ? "やったことを記録" : isTodayTask ? "タスクに追加" : isMicroMemo ? "付箋メモに記録" : "Feedへ投稿";
+        modePill.textContent = isDoneTask ? "Done Task" : isTodayTask ? "Task" : isMicroMemo ? "Micro Memo" : "Feed";
         input.placeholder = isDoneTask
           ? "やったこと｜ひとこと"
-          : isTodayTask ? "タスク名｜金曜まで（期限は省略可）" : isMicroMemo ? "タイトルなしの走り書き" : "メモ・気づき・あとで整理すること";
+          : isTodayTask ? "タスク名｜金曜まで（期限は省略可）" : isMicroMemo ? "タイトルなしの走り書き" : "メモ・気づきをFeedへ投稿";
         hint.textContent = isDoneTask || isTodayTask
           ? "｜ の後ろが" + (isTodayTask ? "期限" : "ひとこと") + " / Ctrl+Enter で記録 / Escで閉じる"
           : "Ctrl+Enter で記録 / Shift追加で続ける / Escで閉じる";
-        submitButton.textContent = isTodayTask ? "追加" : isDoneTask ? "完了で記録" : "記録する";
-        feedback.textContent = isDoneTask ? "やったことを記録しました" : isTodayTask ? "タスクを追加しました" : isMicroMemo ? "付箋メモに記録しました" : "Inbox整理に記録しました";
+        submitButton.textContent = isTodayTask ? "追加" : isDoneTask ? "完了で記録" : isMicroMemo ? "記録する" : "Feedへ投稿";
+        feedback.textContent = isDoneTask ? "やったことを記録しました" : isTodayTask ? "タスクを追加しました" : isMicroMemo ? "付箋メモに記録しました" : "Feedへ投稿しました";
         themeRow.classList.toggle("is-visible", usesTheme);
         duePreview.className = "due-preview";
         duePreview.textContent = isTodayTask ? "期限指定なし · 今日" : "";
@@ -647,6 +642,7 @@
           externalResult.value = "";
           externalInput.open = false;
           if (savedCount) feedback.textContent = `${savedCount}件のタスクを追加しました`;
+          feedback.classList.remove("error");
           feedback.style.display = "";
           feedback.style.animation = "none";
           feedback.offsetHeight;
@@ -677,52 +673,7 @@
         }
       }
 
-      async function submitFeed(continueCapturing = false) {
-        if (mode !== "inbox" || organizing || saving || organization || submission) return;
-        const text = input.value.trim();
-        if (!text) return;
-        saving = true;
-        updateOrganizationControls();
-        try {
-          const themeId = themeSelect.value;
-          await window.captureApi.save(text, "feed", themeId);
-          lastThemeId = themeId;
-          localStorage.setItem("tasken:quick-capture:last-theme-id", themeId);
-          input.value = "";
-          captureAnchor = null;
-          clearOrganization();
-          externalResult.value = "";
-          externalInput.open = false;
-          feedback.classList.remove("error");
-          feedback.textContent = "Feedへ投稿しました";
-          feedback.style.display = "";
-          feedback.style.animation = "none";
-          feedback.offsetHeight;
-          feedback.style.animation = "";
-          feedbackTimeout = setTimeout(() => {
-            feedback.style.display = "none";
-            if (continueCapturing) {
-              input.focus();
-            } else {
-              window.captureApi.hide();
-            }
-          }, 600);
-        } catch (error) {
-          // 失敗しても入力は消さない。
-          const reason = String(error?.message || "").replace(/^Error: /, "").replace(/^.*Error invoking remote method '[^']*': Error: /, "");
-          feedback.textContent = reason
-            ? `${reason} 入力は残っています。`
-            : "投稿できませんでした。入力は残っています。メイン画面を開いて状態を確認してください。";
-          feedback.classList.add("error");
-          feedback.style.display = "";
-        } finally {
-          saving = false;
-          updateOrganizationControls();
-        }
-      }
-
-      submitButton.addEventListener("click", () => submit(false));
-      feedButton.addEventListener("click", (event) => submitFeed(event.shiftKey));
+      submitButton.addEventListener("click", (event) => submit(event.shiftKey));
       document.getElementById("close").addEventListener("click", () => { stopOrganizing(); window.captureApi.hide(); });
       input.addEventListener("input", () => {
         if (!organization) {
@@ -802,7 +753,7 @@
       window.captureApi.onThemes((themes) => {
         applyThemes(themes);
       });
-      applyMode("inbox");
+      applyMode("feed");
     </script>
   </body>
 </html>

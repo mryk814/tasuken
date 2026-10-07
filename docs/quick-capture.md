@@ -21,8 +21,9 @@ Clarify
 Quick Captureは分類を要求しない独立ウィンドウである。`Ctrl+Shift+N`で開き、
 `Ctrl+Enter`は保存して閉じる。`Ctrl+Shift+Enter`は保存後もウィンドウを残し、
 連続して記録できる。Themeは任意で、未指定でも保存できる。
-Inbox窓の「Feedへ投稿」は入力とThemeをそのままFeed専用の投稿（`feed_post`）として保存し、
-Inbox・Notesを経由しない。失敗時は入力を残す。
+通常のメモ入力は「Feedへ投稿」を主操作とし、入力とThemeをそのままFeed専用の投稿（`feed_post`）として保存する。
+未整理CaptureやNoteを作らないため、投稿後に「整理する」操作を要求しない。失敗時は入力を残す。
+上のCapture整理フローは既存Captureやファイル・画像・手書きの受取履歴に適用し、通常のメモショートカットには適用しない。
 
 ## 正本と境界
 
