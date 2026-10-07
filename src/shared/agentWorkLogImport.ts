@@ -310,8 +310,9 @@ export function parseAgentWorkLog(raw: string) {
  * 保存先のlogを読むparserの版。正規化を変えたら上げると、取り込み済みのファイルも次の同期で読み直す。
  * 2: Codex IDE拡張・Claude Codeの前置きを外して依頼本文だけを残し、委任threadを除き、
  *    会話名・AIが動いた時間・依頼の抜粋を加える（#629）。
+ * 3: 同じCodex Session IDの重複metadataを複数Sessionと誤判定しない。
  */
-export const NATIVE_AGENT_LOG_PARSER_VERSION = 2;
+export const NATIVE_AGENT_LOG_PARSER_VERSION = 3;
 
 const CLIENT_ONLY_MESSAGE =
   /^(?:# AGENTS\.md|<environment_context>|<user_instructions>|<system-reminder>|<local-command|<session-start-hook>)/;
@@ -352,7 +353,10 @@ function nativeEnvelope(values: unknown[]) {
   const lines = values.map(record);
   const meta = lines.filter((line) => line.type === "session_meta");
   const codex = meta.length > 0;
-  if (meta.length > 1 || (codex && lines.some((line) => line.sessionId)))
+  if (
+    meta.some((line) => record(line.payload).id !== record(meta[0].payload).id) ||
+    (codex && lines.some((line) => line.sessionId))
+  )
     throw new Error("複数Sessionが混在しています。Sessionごとのログを選択してください。");
   const ids = new Set(lines.map((line) => line.sessionId).filter((id) => typeof id === "string"));
   if (!codex && ids.size !== 1) throw new Error("対応する単一SessionのJSONLではありません。");
@@ -363,6 +367,12 @@ function nativeEnvelope(values: unknown[]) {
       throw new Error("JSONLの観測時刻にはタイムゾーン付きISO時刻が必要です。");
     return date(value);
   };
+  const startedAt = codex ? timestamp(header.timestamp || meta[0].timestamp) : null;
+  if (
+    codex &&
+    meta.some((line) => timestamp(record(line.payload).timestamp || line.timestamp) !== startedAt)
+  )
+    throw new Error("同じSessionの開始時刻が一致しません。ログの形式を確認してください。");
   const timestamps = lines
     .filter((line) => line.timestamp)
     .map((line) => timestamp(line.timestamp))
@@ -402,7 +412,7 @@ function nativeEnvelope(values: unknown[]) {
     adapter: codex ? "codex-rollout/1" : "claude-transcript/1",
     client_version: header.cli_version || header.version || "未記録",
     source_session: source,
-    started_at: codex ? timestamp(header.timestamp || meta[0].timestamp) : timestamps[0],
+    started_at: startedAt ?? timestamps[0],
     observed_until: timestamps.at(-1),
     coverage: "partial",
     payload,
@@ -457,14 +467,21 @@ export function createNativeAgentLogAccumulator(service: "codex" | "claude_code"
       }
       if (service === "codex" && line.type === "session_meta") {
         const header = record(line.payload);
-        if (++metaCount > 1) throw new Error("複数Sessionが混在しています。");
-        source = typeof header.id === "string" ? header.id : "";
+        const id = typeof header.id === "string" ? header.id : "";
+        if (metaCount > 0 && source !== id) throw new Error("複数Sessionが混在しています。");
         if (header.cli_version !== undefined && typeof header.cli_version !== "string")
           throw new Error("Client version の形式が不正です。");
-        version = String(header.cli_version || version).slice(0, 120);
-        headerStart = stamp(header.timestamp || line.timestamp);
+        const at = stamp(header.timestamp || line.timestamp);
+        if (metaCount > 0 && headerStart !== at)
+          throw new Error("同じSessionの開始時刻が一致しません。ログの形式を確認してください。");
+        if (metaCount++ === 0) {
+          source = id;
+          version = String(header.cli_version || version).slice(0, 120);
+          headerStart = at;
+        }
         // 親の会話から起動されたsubagent・レビュー用のthreadは、単独のSessionとして並べない。
         delegated =
+          delegated ||
           typeof header.parent_thread_id === "string" ||
           header.thread_source === "subagent" ||
           header.thread_source === "guardian_review";
@@ -543,7 +560,7 @@ export function createNativeAgentLogAccumulator(service: "codex" | "claude_code"
         : null;
     },
     finish(options: { title?: string } = {}): ImportedAgentWorkLog {
-      if (!source || !start || !until || (service === "codex" && metaCount !== 1))
+      if (!source || !start || !until || (service === "codex" && metaCount === 0))
         throw new Error("選んだサービスのSession形式ではありません。");
       const title = (customTitle || options.title || clientTitle).trim().slice(0, 200);
       const active = service === "codex" ? (activeSeen ? activeMs : null) : claudeActiveMs;

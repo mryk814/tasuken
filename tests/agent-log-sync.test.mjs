@@ -1,9 +1,193 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import nativeFs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { AgentLogSync, agentLogCandidates } from "../src/main/services/agentLogSync.ts";
+
+test("unchanged format failures retain diagnostics without rereading, and change or reconfirm retries", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-log-retry-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const source = path.join(root, "logs");
+  await fs.mkdir(source);
+  const file = path.join(source, "broken.jsonl");
+  await fs.writeFile(file, "{broken\n");
+  let reads = 0;
+  const original = nativeFs.createReadStream;
+  t.mock.method(nativeFs, "createReadStream", (...args) => {
+    reads++;
+    return original(...args);
+  });
+  const config = { service: "codex", path: source, consent: true, destination: "local" };
+  let sync = new AgentLogSync(path.join(root, "state"), async () => "queued");
+  await sync.configure(config, "local");
+  const first = await sync.run();
+  assert.match(first.errors[0], /壊れた行/);
+  sync = new AgentLogSync(path.join(root, "state"), async () => "queued");
+  assert.deepEqual((await sync.run()).errors, first.errors);
+  assert.equal(reads, 1);
+  const stateFile = path.join(root, "state", "sources.json");
+  const stored = JSON.parse(await fs.readFile(stateFile, "utf8"));
+  for (const key of Object.keys(stored.fingerprints))
+    if (/^p\d+:/.test(stored.fingerprints[key]))
+      stored.fingerprints[key] = stored.fingerprints[key].replace(/^p\d+:/, "p0:");
+  await fs.writeFile(stateFile, JSON.stringify(stored));
+  sync = new AgentLogSync(path.join(root, "state"), async () => "queued");
+  await sync.run();
+  assert.equal(reads, 2, "parser version change retries even an unchanged format failure");
+  await fs.appendFile(file, "{changed\n");
+  await sync.run();
+  assert.equal(reads, 3);
+  await sync.configure(config, "local");
+  await sync.run();
+  assert.equal(reads, 4);
+  const raw = await fs.readFile(
+    new URL("../fixtures/agent-work-logs/codex-rollout.jsonl", import.meta.url),
+    "utf8",
+  );
+  await fs.writeFile(file, raw);
+  assert.equal((await sync.run()).state, "idle");
+  assert.equal(reads, 5);
+});
+
+test("cached format failures do not exhaust the next scan's read budget", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-log-budget-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const source = path.join(root, "logs");
+  await fs.mkdir(source);
+  for (let index = 1; index <= 4; index++) {
+    const file = path.join(source, `broken-${index}.jsonl`);
+    await fs.writeFile(file, "{broken\n");
+    await fs.utimes(file, new Date("2026-10-07T00:00:00Z"), new Date("2026-10-07T00:00:00Z"));
+  }
+  const goodFile = path.join(source, "good.jsonl");
+  const raw = await fs.readFile(
+    new URL("../fixtures/agent-work-logs/codex-rollout.jsonl", import.meta.url),
+    "utf8",
+  );
+  await fs.writeFile(goodFile, raw);
+  await fs.utimes(goodFile, new Date("2026-10-01T00:00:00Z"), new Date("2026-10-01T00:00:00Z"));
+  const originalStat = fs.stat;
+  // 小さな合成ログを上限サイズとして数える。大きな実ファイルや実データを作らない。
+  t.mock.method(fs, "stat", async (...args) => {
+    const stat = await originalStat(...args);
+    return String(args[0]).endsWith(".jsonl") ? { ...stat, size: 128 * 1024 * 1024 } : stat;
+  });
+  let reads = 0;
+  const originalRead = nativeFs.createReadStream;
+  t.mock.method(nativeFs, "createReadStream", (...args) => {
+    reads++;
+    return originalRead(...args);
+  });
+  const submitted = [];
+  const sync = new AgentLogSync(path.join(root, "state"), async (log) => {
+    submitted.push(log);
+    return "queued";
+  });
+  await sync.configure(
+    { service: "codex", path: source, consent: true, destination: "local" },
+    "local",
+  );
+  const first = await sync.run();
+  assert.equal(reads, 4);
+  assert.equal(submitted.length, 0);
+  assert.match(first.errors.at(-1), /512MB/);
+  assert.ok(first.sources[0].lastScan);
+  const next = await sync.run();
+  assert.equal(reads, 5);
+  assert.equal(submitted.length, 1);
+  assert.equal(next.errors.length, 4);
+  assert.doesNotMatch(next.errors.join("\n"), /512MB/);
+});
+
+test("new logs are read first and transient read or submit failures retry", async (t) => {
+  // The scanner resolves real paths, including Windows temporary-directory aliases.
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "tasken-log-order-")));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const source = path.join(root, "logs");
+  await fs.mkdir(source);
+  const raw = await fs.readFile(
+    new URL("../fixtures/agent-work-logs/codex-rollout.jsonl", import.meta.url),
+    "utf8",
+  );
+  const oldFile = path.join(source, "a-old.jsonl");
+  const newFile = path.join(source, "z-new.jsonl");
+  await fs.writeFile(oldFile, raw.replaceAll("synthetic-rollout", "old-session"));
+  await fs.writeFile(newFile, raw.replaceAll("synthetic-rollout", "new-session"));
+  await fs.utimes(oldFile, new Date("2026-08-22T00:00:00Z"), new Date("2026-08-22T00:00:00Z"));
+  await fs.utimes(newFile, new Date("2026-10-07T00:00:00Z"), new Date("2026-10-07T00:00:00Z"));
+  const seen = [];
+  let failSubmit = true;
+  let failRead = true;
+  const original = nativeFs.createReadStream;
+  t.mock.method(nativeFs, "createReadStream", (...args) => {
+    if (args[0] === oldFile && failRead) {
+      failRead = false;
+      const error = new Error("synthetic denied");
+      error.code = "EACCES";
+      throw error;
+    }
+    return original(...args);
+  });
+  const sync = new AgentLogSync(path.join(root, "state"), async (log) => {
+    seen.push(log.source_session);
+    if (failSubmit) {
+      failSubmit = false;
+      throw new Error("synthetic database conflict");
+    }
+    return "queued";
+  });
+  await sync.configure(
+    { service: "codex", path: source, consent: true, destination: "local" },
+    "local",
+  );
+  assert.equal((await sync.run()).state, "error");
+  assert.deepEqual(seen, ["new-session"]);
+  assert.equal(failRead, false, "the transient read failure was injected at the resolved path");
+  assert.equal((await sync.run()).state, "idle");
+  assert.deepEqual(seen, ["new-session", "new-session", "old-session"]);
+});
+
+test("repeated metadata is collected once and genuinely mixed Codex sessions remain an error", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-log-meta-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const source = path.join(root, "sessions");
+  await fs.mkdir(source);
+  const raw = await fs.readFile(
+    new URL("../fixtures/agent-work-logs/codex-rollout.jsonl", import.meta.url),
+    "utf8",
+  );
+  const metadata = JSON.parse(raw.split("\n")[0]);
+  metadata.timestamp = "2026-10-03T00:01:00Z";
+  const file = path.join(source, "rollout.jsonl");
+  await fs.writeFile(file, raw + JSON.stringify(metadata) + "\n");
+  const submitted = [];
+  const sync = new AgentLogSync(path.join(root, "state"), async (log) => {
+    submitted.push(log);
+    return "queued";
+  });
+  await sync.configure(
+    { service: "codex", path: source, consent: true, destination: "local" },
+    "local",
+  );
+  assert.equal((await sync.run()).state, "idle");
+  assert.equal(submitted.length, 1);
+  assert.equal(submitted[0].source_session, "synthetic-rollout");
+  assert.equal(submitted[0].started_at, "2026-10-03T00:00:00.000Z");
+  await sync.run();
+  assert.equal(submitted.length, 1);
+  metadata.payload.timestamp = metadata.timestamp;
+  await fs.appendFile(file, JSON.stringify(metadata) + "\n");
+  assert.equal((await sync.run()).state, "error");
+  assert.match(sync.status().errors[0], /開始時刻/);
+  assert.equal(submitted.length, 1);
+  metadata.payload.id = "another-session";
+  await fs.writeFile(file, raw + JSON.stringify(metadata) + "\n");
+  assert.equal((await sync.run()).state, "error");
+  assert.match(sync.status().errors[0], /複数Session/);
+  assert.equal(submitted.length, 1);
+});
 
 test("renaming a completed Codex thread updates its title without modifying its rollout", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-log-rename-"));

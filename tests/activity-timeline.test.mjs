@@ -223,6 +223,39 @@ test("Activity Markdown appends the AI work visible in the daily review", () => 
   assert.match(markdown, /残作業: 実描画確認/);
 });
 
+test("Task AI work joins its recorded source Session without consuming unrelated task periods", () => {
+  const row = {
+    session: {
+      id: "session-a",
+      source_session_id: "source-a",
+      started_at: "2026-08-28T00:00:00Z",
+      ended_at: "2026-08-28T02:00:00Z",
+      client_kind: "codex",
+      intent: { summary: "Taskの作業" },
+    },
+    themes: [],
+    repositories: [],
+  };
+  const taskPeriod = {
+    id: "task-work-a",
+    event_kind: "task_ai_work",
+    entity_ref: { type: "task", id: "task-a" },
+    origin: { kind: "task_work_report" },
+    metadata: { source_session: "source-a" },
+    theme_ref: { kind: "theme", id: "theme-a" },
+  };
+  const unrelated = { ...taskPeriod, id: "task-work-b", metadata: { source_session: "missing" } };
+  const contexts = buildDailyAgentSessionContexts([row], "2026-08-28", [taskPeriod, unrelated]);
+  assert.deepEqual(contexts[0].events, [taskPeriod]);
+  assert.deepEqual(contexts[0].themeIds, ["theme-a"]);
+  assert.deepEqual(
+    [taskPeriod, unrelated].filter(
+      (event) => !contexts.some((context) => context.events.includes(event)),
+    ),
+    [unrelated],
+  );
+});
+
 test("Activity Theme chips include canonical and related Theme references once", () => {
   assert.deepEqual(
     activityThemeIds({
