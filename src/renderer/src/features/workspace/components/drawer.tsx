@@ -1903,7 +1903,7 @@ function EditDrawer({
         >
           {type === "task" && entityId && (
             <button
-              className="secondary-button"
+              className="secondary-button compact drawer-lead-action"
               type="button"
               onClick={() => startFocusSession?.(entityId)}
             >

@@ -444,6 +444,14 @@ test("Notes defaults to Note and keeps deterministic date ordering", () => {
   assert.equal(notes.DEFAULT_NOTES_PREFS.scope, "note");
   assert.equal(notes.compactNotesBodyPreview("a\n\nb", 10), "a b");
   assert.equal(notes.compactNotesBodyPreview("123456789012345", 10), "1234567890…");
+  // カードの書き出しにMarkdown記号を出さない。
+  assert.equal(
+    notes.compactNotesBodyPreview(
+      "---\ntitle: x\n---\n# 結果\n**0.18** decade、`MAE`を[確認](https://x)。\n\n| split | MAE |\n|---|---:|\n| A | 1 |\n---\n- [x] 済み\n> 引用",
+    ),
+    "結果 0.18 decade、MAEを確認。 split MAE A 1 済み 引用",
+  );
+  assert.equal(notes.compactNotesBodyPreview("a*b*c と 2 * 3 * 4"), "a*b*c と 2 * 3 * 4");
   const records = [
     { id: "same-b", created_at: "2026-07-01", updated_at: "2026-07-10" },
     { id: "same-a", created_at: "2026-07-01", updated_at: "2026-07-10" },

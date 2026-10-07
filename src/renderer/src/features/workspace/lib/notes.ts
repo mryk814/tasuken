@@ -12,29 +12,65 @@ export type NotesPreferences = NotesPreferenceValue;
 
 export const DEFAULT_NOTES_PREFS: NotesPreferences = defaultViewPreference("notes.preferences");
 
+/** カードの書き出し用に、Markdownの記号を落として読める文だけにする。 */
+function markdownToPreviewText(source: string): string {
+  return source
+    .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
+    .split(/\r?\n/)
+    .filter(
+      (line) =>
+        !/^\s*(```|~~~|\$\$|([-*_]\s*){3,}$|\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$)/.test(
+          line,
+        ),
+    )
+    .map((line) =>
+      line
+        .replace(/^\s{0,3}#{1,6}\s+/, "")
+        .replace(/^\s*>\s?/, "")
+        .replace(/^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/, "")
+        .replace(/^\s*\|\s*|\s*\|\s*$/g, "")
+        .replace(/\s*\|\s*/g, "  "),
+    )
+    .join(" ")
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/(\*\*|__|~~)(.+?)\1/g, "$2")
+    .replace(/(^|[^\w*])\*(?!\s)([^*]+?)\*(?!\w)/g, "$1$2")
+    .replace(/`([^`]+)`/g, "$1");
+}
+
 export function compactNotesBodyPreview(value: unknown, limit = 180): string {
-  const compact = String(value || "").slice(0, limit + 40).replace(/\s+/g, " ").trim();
+  const compact = markdownToPreviewText(String(value || "").slice(0, limit * 3 + 120))
+    .replace(/\s+/g, " ")
+    .trim();
   return compact.length > limit ? `${compact.slice(0, limit).trimEnd()}…` : compact;
 }
 
-function recordDate<T extends { created_at?: string; updated_at?: string }>(record: T, field: "created" | "updated"): string {
-  return String(field === "created" ? record.created_at || "" : record.updated_at || record.created_at || "");
+function recordDate<T extends { created_at?: string; updated_at?: string }>(
+  record: T,
+  field: "created" | "updated",
+): string {
+  return String(
+    field === "created" ? record.created_at || "" : record.updated_at || record.created_at || "",
+  );
 }
 
-export function compareNotesRecords<T extends { id: string; created_at?: string; updated_at?: string }>(
-  left: T,
-  right: T,
-  order: NotesSortOrder,
-): number {
+export function compareNotesRecords<
+  T extends { id: string; created_at?: string; updated_at?: string },
+>(left: T, right: T, order: NotesSortOrder): number {
   const field = order.startsWith("created") ? "created" : "updated";
   const direction = order.endsWith("asc") ? 1 : -1;
-  return direction * (recordDate(left, field).localeCompare(recordDate(right, field)) || left.id.localeCompare(right.id));
+  return (
+    direction *
+    (recordDate(left, field).localeCompare(recordDate(right, field)) ||
+      left.id.localeCompare(right.id))
+  );
 }
 
-export function sortNotesRecords<T extends { id: string; created_at?: string; updated_at?: string }>(
-  records: T[],
-  order: NotesSortOrder,
-): T[] {
+export function sortNotesRecords<
+  T extends { id: string; created_at?: string; updated_at?: string },
+>(records: T[], order: NotesSortOrder): T[] {
   return [...records].sort((left, right) => compareNotesRecords(left, right, order));
 }
 import { defaultViewPreference } from "../../../../../shared/viewPreferenceRegistry.mjs";

@@ -1386,8 +1386,9 @@ export function SettingsPage({
                 <IntegrationStatus label={mcpSummary.label} tone={mcpSummary.tone} />
               </div>
               <p className="field-help">
-                外部AIはTaskenを読み取り、追加・編集はPending
-                Proposalとして送ります。正式データはTaskenで採用するまで変わりません。
+                外部AIはTaskenを読み取り、追加・編集は提案（Pending
+                Proposal）として送ります。正式データは採用するまで変わりません。例外はAI
+                Readyにしたタスクの作業開始と、この接続で許可した個人業務のTask・Noteの新規作成で、どちらもAIによる操作として記録されます。
               </p>
               <dl className="settings-meta-list">
                 <div>
