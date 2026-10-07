@@ -2373,6 +2373,56 @@ textarea:hover {
   display: grid;
 }
 
+/* Settingsの外枠の中に、余白のないパネル枠を重ねない。 */
+.settings-form:has(> .habit-panel),
+.settings-form:has(> .maintenance-panel) {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+.settings-form > .habit-panel,
+.settings-form > .maintenance-panel {
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.settings-form > .habit-panel .section-heading,
+.settings-form > .maintenance-panel .section-heading {
+  padding: 0 0 var(--space-3);
+}
+.settings-form > .habit-panel .habit-row,
+.settings-form > .maintenance-panel .maintenance-row {
+  gap: var(--space-2);
+  padding: var(--space-4) 0;
+}
+.settings-form > .habit-panel .habit-row:last-child,
+.settings-form > .maintenance-panel .maintenance-row:last-child {
+  border-bottom: 0;
+}
+.settings-form > .habit-panel .habit-row-head,
+.settings-form > .maintenance-panel .maintenance-row-head {
+  flex-wrap: wrap;
+}
+.settings-form > .habit-panel .habit-state,
+.settings-form > .maintenance-panel .maintenance-due {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+.settings-form > .habit-panel .habit-actions,
+.settings-form > .maintenance-panel .maintenance-actions {
+  gap: var(--space-2) var(--space-3);
+}
+.settings-form > .maintenance-panel .maintenance-actions label {
+  min-width: 0;
+}
+.settings-form > .maintenance-panel .maintenance-note-field {
+  flex: 1 1 180px;
+}
+.settings-form > .maintenance-panel input {
+  max-width: 100%;
+}
+
 /* #454後半: Maintenanceの最小実験。目安は提案で、遅れを赤い違反表示にしない。 */
 .maintenance-panel .maintenance-create {
   display: flex;

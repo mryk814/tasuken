@@ -165,7 +165,7 @@ export function AgentLogSyncPanel() {
                   Tasken 起動中に5分ごとに同期
                 </label>
               </div>
-              <p role="status">
+              <p role="status" className="agent-log-sync-status">
                 {setup.state === "running"
                   ? "収集中"
                   : setup.state === "cancelled"
@@ -195,22 +195,26 @@ export function AgentLogSyncPanel() {
                         <summary>保存先の場所</summary>
                         <code>{source.path}</code>
                       </details>
-                      <Button
-                        disabled={busy || setup.state === "running"}
-                        onClick={() => {
-                          setService(source.service);
-                          selectPath(source.path);
-                          if (sourceSetup.current) sourceSetup.current.open = true;
-                        }}
-                      >
-                        保存先を再確認
-                      </Button>
-                      <Button
-                        disabled={busy || setup.state === "running"}
-                        onClick={() => void act(() => workspaceApi.removeAgentLogSource(source.id))}
-                      >
-                        登録を解除
-                      </Button>
+                      <div className="agent-log-sync-actions">
+                        <Button
+                          disabled={busy || setup.state === "running"}
+                          onClick={() => {
+                            setService(source.service);
+                            selectPath(source.path);
+                            if (sourceSetup.current) sourceSetup.current.open = true;
+                          }}
+                        >
+                          保存先を再確認
+                        </Button>
+                        <Button
+                          disabled={busy || setup.state === "running"}
+                          onClick={() =>
+                            void act(() => workspaceApi.removeAgentLogSource(source.id))
+                          }
+                        >
+                          登録を解除
+                        </Button>
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -353,11 +357,23 @@ export function AgentLogSyncPanel() {
                 </Button>
               </details>
               {setup.errors.length > 0 && (
-                <ul role="alert">
-                  {setup.errors.map((issue, index) => (
-                    <li key={index}>{issue}</li>
-                  ))}
-                </ul>
+                <section className="agent-log-sync-issues" aria-label="読み込めなかったログ">
+                  <strong role="status">
+                    読み込めなかったログ {setup.errors.length}件
+                    {setup.errors.length >= 20 ? "以上" : ""}
+                  </strong>
+                  <p>
+                    取り込めた記録はActivityに保存されています。下の詳細でファイル名と理由を確認できます。内容が変わったログは次の同期で読み直します。同じ内容で再試行するには「保存先を再確認」から登録してください。
+                  </p>
+                  <details>
+                    <summary>ファイル名と理由を確認</summary>
+                    <ul>
+                      {setup.errors.map((issue, index) => (
+                        <li key={index}>{issue}</li>
+                      ))}
+                    </ul>
+                  </details>
+                </section>
               )}
             </>
           )}

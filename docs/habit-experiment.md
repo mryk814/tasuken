@@ -51,6 +51,7 @@ habit-entry:<habit_id>:<performed_on>:<sequence>
 | Settings | 「Habits」の節。追加（名前・毎日1回／週N回）、履歴（実施日を修正・取消）、一時停止と再開、削除と元に戻す    |
 
 実装は `components/HabitPanel.tsx`（`manage` で Settings の管理面、`variant="rows"` でTodayの行を出す）。
+Settingsの管理面は外側の設定パネルだけで囲み、内側の見出し・一覧は余白と区切り線でまとめる。一時停止の状態は枠なしの補助テキストにする。
 Androidでも同じ導出をTodayに出し、1回記録できる（`GET /v1/routines` / `POST /v1/routine-actions`）。
 
 `projectWorkspaceData` は `WORKSPACE_ARRAY_KEYS` に載っているcollectionだけを画面へ渡す。

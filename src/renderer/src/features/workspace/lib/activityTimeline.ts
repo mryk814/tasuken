@@ -60,6 +60,7 @@ export type ActivitySessionEvent = ActivityThemeSource & {
   entity_ref?: { type?: string };
   entity_type?: string;
   origin?: { session_id?: string };
+  metadata?: Record<string, unknown>;
 };
 
 export type DailyAgentSessionContext<
@@ -290,7 +291,10 @@ export function buildDailyAgentSessionContexts<
   }
   const eventsBySessionId = new Map<string, TEvent[]>();
   for (const event of events) {
-    const context = sessionByOriginId.get(event.origin?.session_id || "");
+    const originId =
+      event.origin?.session_id ||
+      (event.event_kind === "task_ai_work" ? text(event.metadata?.source_session) : "");
+    const context = sessionByOriginId.get(originId);
     if (!context) continue;
     const sessionId = context.sessionRow.session.id;
     eventsBySessionId.set(sessionId, [...(eventsBySessionId.get(sessionId) || []), event]);

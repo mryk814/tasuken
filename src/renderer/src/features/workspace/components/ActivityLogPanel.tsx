@@ -579,13 +579,7 @@ export function ActivityLogPanel({
     allEvents,
     dailySessionInterval,
   );
-  const sessionOriginIds = new Set(
-    sessionContexts.flatMap(({ sessionRow }) =>
-      [sessionRow.session.id, sessionRow.session.source_session_id].filter(
-        (value): value is string => Boolean(value),
-      ),
-    ),
-  );
+  const sessionEvents = new Set(sessionContexts.flatMap((context) => context.events));
   // 同じTaskの作業は区間(task_ai_work)へ集約し、開始/報告/採用/完了の細かなイベントは重ねない。
   const taskLifecycleEventKinds = new Set([
     "task_work_recorded",
@@ -595,7 +589,7 @@ export function ActivityLogPanel({
   ]);
   const events = allEvents.filter(
     (event) =>
-      !sessionOriginIds.has(event.origin?.session_id || "") &&
+      !sessionEvents.has(event) &&
       !(
         event.entity_ref?.type === "task" &&
         workPeriodTaskIds.has(String(event.entity_ref.id)) &&

@@ -41,6 +41,10 @@ const digest = (value: string) => createHash("sha256").update(value).digest("hex
 const serviceValid = (value: unknown): value is AgentLogService =>
   value === "codex" || value === "claude_code";
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
+/** 内容が変わるまで同じ結果になる解析失敗。IO・採用失敗は含めない。 */
+class AgentLogFormatError extends Error {}
+const errorPrefix = (source: Pick<AgentLogSourceConfig, "service" | "path">) =>
+  `${digest(source.service + "\0" + source.path)}:error:`;
 const locationMessage = (error: unknown) => {
   const code = (error as NodeJS.ErrnoException).code;
   return code === "ENOENT"
@@ -193,6 +197,12 @@ export class AgentLogSync {
     );
     if (existing) {
       existing.destination = destination;
+      const prefix = errorPrefix(existing);
+      for (const key of Object.keys(this.fingerprints)) {
+        if (!key.startsWith(prefix)) continue;
+        delete this.fingerprints[key.slice(prefix.length)];
+        delete this.fingerprints[key];
+      }
       await this.persist();
       return this.status();
     }
@@ -265,7 +275,7 @@ export class AgentLogSync {
       }
     };
     await walk(actual, 0);
-    return files;
+    return files.sort((a, b) => b.mtime - a.mtime || a.file.localeCompare(b.file));
   }
   async probe(service: AgentLogService, root: string): Promise<AgentLogProbe> {
     if (!serviceValid(service) || typeof root !== "string" || !path.isAbsolute(root))
@@ -311,6 +321,13 @@ export class AgentLogSync {
     titles: Map<string, string>,
   ) {
     const accumulator = createNativeAgentLogAccumulator(service);
+    const add = (value: unknown) => {
+      try {
+        accumulator.add(value);
+      } catch (error) {
+        throw new AgentLogFormatError(message(error));
+      }
+    };
     const stream = fs.createReadStream(file, {
       encoding: "utf8",
       highWaterMark: 64 * 1024,
@@ -329,18 +346,22 @@ export class AgentLogSync {
         while ((newline = buffer.indexOf("\n")) >= 0) {
           const line = buffer.slice(0, newline);
           buffer = buffer.slice(newline + 1);
-          if (Buffer.byteLength(line) > 8 * 1024 * 1024) throw new Error("1行8MBの上限です。");
+          if (Buffer.byteLength(line) > 8 * 1024 * 1024)
+            throw new AgentLogFormatError("1行8MBの上限です。");
           if (line.trim()) {
             let decoded;
             try {
               decoded = JSON.parse(line);
             } catch {
-              throw new Error("JSONL に壊れた行があります。保存中か形式を確認してください。");
+              throw new AgentLogFormatError(
+                "JSONL に壊れた行があります。保存中か形式を確認してください。",
+              );
             }
-            accumulator.add(decoded);
+            add(decoded);
           }
         }
-        if (Buffer.byteLength(buffer) > 8 * 1024 * 1024) throw new Error("1行8MBの上限です。");
+        if (Buffer.byteLength(buffer) > 8 * 1024 * 1024)
+          throw new AgentLogFormatError("1行8MBの上限です。");
       }
       if (buffer.trim()) {
         let value;
@@ -349,12 +370,22 @@ export class AgentLogSync {
         } catch {
           incomplete = true;
         }
-        if (!incomplete) accumulator.add(value);
+        if (!incomplete) add(value);
       }
       if (accumulator.skipReason())
         return { log: null, skipped: accumulator.sourceSession(), incomplete };
       const source = accumulator.sourceSession();
-      return { log: accumulator.finish({ title: titles.get(source) }), skipped: null, incomplete };
+      try {
+        return {
+          log: accumulator.finish({ title: titles.get(source) }),
+          skipped: null,
+          incomplete,
+        };
+      } catch (error) {
+        // 末尾の書込途中は次回に続くため、形式失敗として固定しない。
+        if (incomplete) throw error;
+        throw new AgentLogFormatError(message(error));
+      }
     } finally {
       stream.destroy();
     }
@@ -392,6 +423,7 @@ export class AgentLogSync {
           for (const file of files) {
             signal.throwIfAborted();
             const key = digest(source.service + "\0" + file.file);
+            const errorKey = errorPrefix(source) + key;
             const sessionKey = `${key}:session`;
             const titleFingerprint = (session: string) => digest(titles.get(session) ?? "");
             // parserの版を含める。正規化を変えた版では、変更のないファイルも一度だけ読み直す。
@@ -402,6 +434,15 @@ export class AgentLogSync {
             this.value.scanned++;
             if (this.fingerprints[key] === statKey) {
               this.value.unchanged++;
+              const priorError = this.fingerprints[errorKey];
+              if (priorError) {
+                issues++;
+                source.message = `読込できないログ: ${priorError}`;
+                if (this.value.errors.length < 20)
+                  this.value.errors.push(
+                    `${source.service} · ${path.basename(file.file)}: ${priorError}`,
+                  );
+              }
               continue;
             }
             if (file.size > 128 * 1024 * 1024) {
@@ -413,9 +454,9 @@ export class AgentLogSync {
                 );
               continue;
             }
-            bytes += file.size;
-            if (bytes > 512 * 1024 * 1024)
+            if (bytes + file.size > 512 * 1024 * 1024)
               throw new Error("1回512MBの上限です。次回同期で残りを読みます。");
+            bytes += file.size;
             try {
               const { log, skipped, incomplete } = await this.read(
                 file.file,
@@ -423,6 +464,7 @@ export class AgentLogSync {
                 signal,
                 titles,
               );
+              delete this.fingerprints[errorKey];
               if (!log) {
                 // subagent・レビュー用threadは親の会話の一部。単独では並べず、旧版の採用待ちを取り下げる。
                 if (skipped) this.retract?.(source.service, skipped);
@@ -461,6 +503,10 @@ export class AgentLogSync {
               if (this.value.scanned % 100 === 0) await this.persist();
             } catch (error) {
               signal.throwIfAborted();
+              if (error instanceof AgentLogFormatError) {
+                this.fingerprints[key] = statKey;
+                this.fingerprints[errorKey] = message(error);
+              }
               issues++;
               source.message = `読込できないログ: ${message(error)}`;
               if (this.value.errors.length < 20)
@@ -473,12 +519,13 @@ export class AgentLogSync {
             source.message = files.length
               ? "同期済み（新規・変更だけを収集）"
               : "JSONL がありません。";
-          source.lastScan = new Date().toISOString();
         } catch (error) {
           signal.throwIfAborted();
           source.message = locationMessage(error);
           if (this.value.errors.length < 20)
             this.value.errors.push(`${source.service}: ${locationMessage(error)}`);
+        } finally {
+          source.lastScan = new Date().toISOString();
         }
       }
       this.value.state = this.value.errors.length ? "error" : "idle";

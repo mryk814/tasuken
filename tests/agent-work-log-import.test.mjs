@@ -25,7 +25,10 @@ test("selected Codex rollout JSONL imports visible messages without hooks or inf
   assert.doesNotMatch(JSON.stringify(result), /DO-NOT-IMPORT|reasoning|cwd|base_instructions/);
   assert.deepEqual(parseAgentWorkLog(raw + raw.split("\n")[2] + "\n"), result);
   assert.throws(() => parseAgentWorkLog(raw + "{broken"), /JSONL/);
-  assert.throws(() => parseAgentWorkLog(raw.replace("2026-10-03T00:01:00Z", "2026-10-03 00:01:00")), /時刻/);
+  assert.throws(
+    () => parseAgentWorkLog(raw.replace("2026-10-03T00:01:00Z", "2026-10-03 00:01:00")),
+    /時刻/,
+  );
 });
 
 test("selected Claude transcript keeps text only and rejects mixed sessions", () => {
@@ -42,6 +45,23 @@ test("selected Claude transcript keeps text only and rejects mixed sessions", ()
   assert.doesNotMatch(JSON.stringify(result), /DO-NOT-IMPORT|thinking|tool_result/);
   const mixed = raw.replace('"sessionId":"synthetic-claude"', '"sessionId":"another-session"');
   assert.throws(() => parseAgentWorkLog(mixed), /Session/);
+});
+
+test("repeated Codex metadata for the same session is not a mixed-session export", () => {
+  const raw = fs.readFileSync(
+    new URL("../fixtures/agent-work-logs/codex-rollout.jsonl", import.meta.url),
+    "utf8",
+  );
+  const metadata = JSON.parse(raw.split("\n")[0]);
+  metadata.timestamp = "2026-10-03T00:01:00Z";
+  assert.deepEqual(
+    parseAgentWorkLog(raw + JSON.stringify(metadata) + "\n"),
+    parseAgentWorkLog(raw),
+  );
+  metadata.payload.timestamp = metadata.timestamp;
+  assert.throws(() => parseAgentWorkLog(raw + JSON.stringify(metadata) + "\n"), /開始時刻/);
+  metadata.payload.id = "another-session";
+  assert.throws(() => parseAgentWorkLog(raw + JSON.stringify(metadata) + "\n"), /複数Session/);
 });
 
 test("five versioned adapters emit the existing Session contract without raw or hidden fields", () => {

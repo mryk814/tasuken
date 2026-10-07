@@ -38,6 +38,7 @@
 | Settings | 「Maintenance」の節。追加（対象・すること・推奨間隔）、次の目安、実施の記録、履歴、削除と元に戻す                                                                                                   |
 
 実装は `components/MaintenancePanel.tsx`（`manage` で Settings の管理面、`variant="rows"` でTodayの行を出す）。
+Settingsの管理面は外側の設定パネルだけで囲み、内側の見出し・一覧は余白と区切り線でまとめる。目安の状態は枠なしの補助テキストにし、入力・操作は折り返して表示する。
 `projectWorkspaceData` の `WORKSPACE_ARRAY_KEYS` へ `maintenances` / `maintenance_entrys` を入れてある
 （入れ忘れると保存はできるのに画面へ出ない。`tests/workspace-projection-keys.test.mjs` が固定する）。
 
