@@ -8,7 +8,7 @@
  *   npm run build && npm run audit:habit
  *
  * 出力先は output/playwright/habit-audit。失敗時は終了コード1。
- * 正本は `docs/habit-experiment.md` と `docs/issue-design-plan-2026-09-20.md` の「Habitの最小実験」。
+ * 正本は `docs/habit-experiment.md`。
  */
 import { _electron as electron } from "playwright";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";

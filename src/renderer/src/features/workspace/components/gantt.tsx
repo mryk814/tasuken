@@ -757,7 +757,6 @@ export function DependencyOverlay({
         const d = `M ${line.sourceX} ${line.sourceY} H ${line.bendX} V ${line.targetY} H ${line.targetX}`;
         return (
           <g key={line.id}>
-            {/* 太めの透明ヒットエリア */}
             <path
               d={d}
               className="dep-hit-area"

@@ -1,8 +1,6 @@
 # Google Calendar 実接続の確認（#273）
 
-Calendar連携は adapter・OAuth・IPC・Today/Activityの表示まで実装済みで、mockとfixtureでは検証している。
-**実アカウントでの接続だけが未検証**であり、この手順で確かめる。
-設計と表示の規則は [issue-design-plan-2026-09-20.md](./issue-design-plan-2026-09-20.md) の「Calendarの残作業」。
+表示の規則は本書の「表示の状態（実装）」と `src/renderer/src/features/workspace/lib/calendarState.ts` を参照。
 
 ## 前提
 

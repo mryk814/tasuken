@@ -34,7 +34,6 @@ function hasCycle(adjacency: Map<string, string[]>): { hasCycle: boolean; path: 
 export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[] {
   const violations: InvariantViolation[] = [];
 
-  // Schedule の owner が存在する
   const ownerSets: Record<string, Set<string>> = {
     task: new Set(domain.tasks.map((t) => t.id)),
     waiting: new Set(domain.waitings.map((w) => w.id)),
@@ -52,7 +51,6 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
     }
   }
 
-  // TaskDependency に循環がない
   const taskAdj = new Map<string, string[]>();
   for (const dep of domain.task_dependencies) {
     const list = taskAdj.get(dep.depends_on_task_id) || [];
@@ -69,7 +67,6 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
     });
   }
 
-  // PlanDependency に循環がない
   const planAdj = new Map<string, string[]>();
   for (const dep of domain.plan_dependencies) {
     const list = planAdj.get(dep.depends_on_plan_node_id) || [];
@@ -86,7 +83,6 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
     });
   }
 
-  // CaptureEntry.triaged_to_* の参照先が存在する
   const allEntityIds: Record<string, Set<string>> = {
     project: new Set(domain.projects.map((p) => p.id)),
     capture_entry: new Set(domain.capture_entries.map((c) => c.id)),
@@ -112,7 +108,6 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
     }
   }
 
-  // project_id が存在する
   const projectIds = allEntityIds.project;
   for (const task of domain.tasks) {
     if (task.project_id && !projectIds.has(task.project_id)) {
@@ -135,7 +130,6 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
     }
   }
 
-  // parent_task_id が存在し循環しない
   const taskIds = ownerSets.task;
   const planNodeIds = ownerSets.plan_node;
   for (const task of domain.tasks) {
@@ -149,21 +143,18 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
     }
   }
 
-  // parent_plan_node_id が存在する
   for (const node of domain.plan_nodes) {
     if (node.parent_plan_node_id && !planNodeIds.has(node.parent_plan_node_id)) {
       violations.push({ rule: "parent_plan_node_exists", entity_type: "plan_node", entity_id: node.id, message: `PlanNode ${node.id} references parent_plan_node ${node.parent_plan_node_id} which does not exist.` });
     }
   }
 
-  // Task.task_id in Waiting が存在する
   for (const waiting of domain.waitings) {
     if (waiting.task_id && !taskIds.has(waiting.task_id)) {
       violations.push({ rule: "waiting_task_ref_exists", entity_type: "waiting", entity_id: waiting.id, message: `Waiting ${waiting.id} references task ${waiting.task_id} which does not exist.` });
     }
   }
 
-  // Reference の source/target が存在する
   for (const ref of domain.references) {
     const sourceSet = allEntityIds[ref.source_type];
     if (sourceSet && !sourceSet.has(ref.source_id)) {
@@ -175,7 +166,6 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
     }
   }
 
-  // TaskDependency の task_id/depends_on_task_id が存在する
   for (const dep of domain.task_dependencies) {
     if (!taskIds.has(dep.task_id)) {
       violations.push({ rule: "task_dep_ref_exists", entity_type: "task_dependency", entity_id: dep.id, message: `TaskDependency ${dep.id} references task ${dep.task_id} which does not exist.` });
@@ -185,7 +175,6 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
     }
   }
 
-  // PlanDependency の plan_node_id/depends_on_plan_node_id が存在する
   for (const dep of domain.plan_dependencies) {
     if (!planNodeIds.has(dep.plan_node_id)) {
       violations.push({ rule: "plan_dep_ref_exists", entity_type: "plan_dependency", entity_id: dep.id, message: `PlanDependency ${dep.id} references plan_node ${dep.plan_node_id} which does not exist.` });
@@ -195,7 +184,6 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
     }
   }
 
-  // parent_task_id 循環チェック
   const taskParentAdj = new Map<string, string[]>();
   for (const task of domain.tasks) {
     if (task.parent_task_id) {
@@ -209,7 +197,6 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
     violations.push({ rule: "task_parent_acyclic", entity_type: "task", entity_id: taskParentCycle.path.join(" → "), message: `Task parent cycle detected: ${taskParentCycle.path.join(" → ")}.` });
   }
 
-  // parent_plan_node_id 循環チェック
   const planParentAdj = new Map<string, string[]>();
   for (const node of domain.plan_nodes) {
     if (node.parent_plan_node_id) {
@@ -223,7 +210,6 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
     violations.push({ rule: "plan_node_parent_acyclic", entity_type: "plan_node", entity_id: planParentCycle.path.join(" → "), message: `PlanNode parent cycle detected: ${planParentCycle.path.join(" → ")}.` });
   }
 
-  // legacy_item_id 由来の重複がない
   function checkLegacyDuplicates<T extends { id: string; legacy_item_id?: string | null }>(
     entities: T[],
     typeName: string,
@@ -249,7 +235,6 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
   checkLegacyDuplicates(domain.plan_nodes, "plan_node");
   checkLegacyDuplicates(domain.capture_entries, "capture_entry");
 
-  // Task.state=waiting と Waiting の関係が破綻していない
   const waitingTaskIds = new Set(
     domain.waitings
       .filter((w) => w.state === "waiting" && w.task_id)

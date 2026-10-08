@@ -1,7 +1,7 @@
 /**
  * Maintenanceの最小実験の契約（#454後半 / O単位）。
  *
- * 正本は `docs/issue-design-plan-2026-09-20.md` の「Maintenanceの最小実験」。
+ * 正本は `docs/maintenance-experiment.md`。
  * 扱うのは「対象」「すること」「前回実施日」「次の目安」。
  *
  * - 次の目安は**推奨間隔から提案する目安**であり、必ず守る締切ではない。

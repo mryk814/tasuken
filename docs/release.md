@@ -77,6 +77,14 @@ GitHub Releaseには通常、以下が添付される。
 
 Windows runnerの生成先は`release/`だが、このディレクトリはGit管理しない。
 
+## 更新と復旧
+
+更新前に未保存入力・Androidの未送信操作を保全し、writerと同期を止める。Desktopの保存状態、NASの`state`、共有syncの状態、旧配布物を一組でバックアップする。NASは[backup・restore手順](../deploy/synology/README.md)を使い、稼働中のSQLiteファイルだけをコピーしない。
+
+同じリリースcommitからDesktop／Core／MCP／Androidを用意し、保存先・mount・UID/GID・署名・既存の権限を保持する。新しいログ形式を採用する前に同じworkspaceのPC/Core/MCPを対応版へ揃える。Androidの更新は同じpackageへの署名互換の`install -r`で行い、アプリ削除やデータ消去をしない。
+
+復旧時もwriterを止め、更新前の端末保存状態・共有sync状態・componentを一組で戻す。更新後の新しい記録は保全してから復旧を判断する。コードだけを旧版へ戻したり、新しいRoom schemaを旧APKで開いたりしない。
+
 ## 失敗時
 
 - tag名と`package.json`のversionが違う場合はworkflowが止まる。tagを作り直す前に、どちらが正しいversionか確認する。

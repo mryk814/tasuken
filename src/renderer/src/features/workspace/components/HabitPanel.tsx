@@ -17,7 +17,7 @@ import { Button } from "./common";
 /**
  * Habitの最小実験（#454後半 / O単位）。
  *
- * 正本は `docs/issue-design-plan-2026-09-20.md` の「Habitの最小実験」と `docs/habit-experiment.md`。
+ * 正本は `docs/habit-experiment.md`。
  * - 手動記録だけを扱い、**日付ごとのTaskを自動生成しない**。
  * - 主表示は「今日1回」「今週2/3回」。連続日数・達成率・失敗を強調する赤い表示は置かない。
  * - 実施記録のIDは組み立てで決まるので、連打と再送では増えず、同じ日の2回目は別の記録になる。

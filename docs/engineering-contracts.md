@@ -19,6 +19,8 @@
 - 大きな移行は既存データ、Import/Export形式、API、主要操作、配布結果の互換条件を先に固定する。段階ごとに変更の影響を受ける条件を検証し、ビルド・起動可能な状態へ戻す。
 - 文書には現在の正本、互換条件、未完了事項を残す。完了した旧entryや移行TODOは撤去し、意図的に見送る機能には導入条件を記録する。
 
+Note編集はTheme変更も含めてDocument保存へ通す。本文由来のReferenceと、そのNoteを参照する未削除のNote/Report ArtifactのThemeは同じDB transactionで更新する。外部Markdownの書き込み失敗は既存の同期状態と再試行で扱い、DBとファイルの同時commitとはみなさない。
+
 ## データモデルと永続化の標準
 
 プラットフォームに依存しないデータ設計の規約。SQLite・JSONファイル・localStorageのいずれでも従う。
