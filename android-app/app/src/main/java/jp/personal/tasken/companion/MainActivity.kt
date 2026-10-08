@@ -58,6 +58,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.rememberTimePickerState
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -3327,9 +3330,11 @@ internal fun TodayDetailPane(
                     TaskDetailChip(text = theme.title, icon = R.drawable.ic_tabler_target)
                 }
                 task.schedule?.let { schedule ->
-                    schedule.startDate?.let { start ->
+                    val start = schedule.startDate?.let(LocalDate::parse)
+                    val end = schedule.endDate?.let(LocalDate::parse)
+                    if (start != null || end != null) {
                         TaskDetailChip(
-                            text = listOfNotNull(start, schedule.endDate?.takeIf { it != start }).joinToString("〜"),
+                            text = scheduleSummaryText(start, end, null, null, today),
                             icon = R.drawable.ic_tabler_clock,
                         )
                     }
@@ -4242,7 +4247,9 @@ private fun TaskScheduleEditor(
     val startDate = startDraft.toLocalDateOrNull()
     val endDate = endDraft.toLocalDateOrNull()
     val datesValid = startDate == null || endDate == null || !endDate.isBefore(startDate)
-    val timeValid = timeDraft.isBlank() || isPlannedStartTime(timeDraft)
+    // 「930」「9時30分」などの書き方も受け付け、保存はHH:mmへ揃える。入力欄の文字はそのまま残す。
+    val normalizedTime = normalizePlannedTimeInput(timeDraft)?.takeIf(::isPlannedStartTime)
+    val timeValid = timeDraft.isBlank() || normalizedTime != null
     val durationValid = durationDraft.isBlank() || durationDraft.toIntOrNull()?.let(::isPlannedDurationMinutes) == true
     val isValid = datesValid && timeValid && durationValid
     val isTrueRange = isTrueScheduleRange(startDate, endDate)
@@ -4250,9 +4257,10 @@ private fun TaskScheduleEditor(
         startDate = startDate?.toString(),
         endDate = endDate?.toString(),
         rangeSemantics = rangeSemanticsDraft.takeIf { isTrueRange && it.isNotEmpty() },
-        plannedStartTime = timeDraft.takeIf { it.isNotBlank() },
+        plannedStartTime = normalizedTime,
         plannedDurationMinutes = durationDraft.toIntOrNull(),
     )
+    var timePickerOpen by rememberSaveable(task.id) { mutableStateOf(false) }
     val original = MobileTaskScheduleDraft(
         startDate = schedule?.startDate,
         endDate = schedule?.endDate,
@@ -4306,14 +4314,15 @@ private fun TaskScheduleEditor(
         }
         if (!editing) {
             Text(
-                listOfNotNull(startDraft.takeIf { it.isNotEmpty() }?.let { "開始 $it" },
-                    endDraft.takeIf { it.isNotEmpty() }?.let { "期限 $it" },
-                    timeDraft.takeIf { it.isNotEmpty() }?.let { "時刻 $it" },
-                    durationDraft.takeIf { it.isNotEmpty() }?.let { "所要 ${it}分" }).joinToString(" / ")
-                    .ifEmpty { "予定なし" },
+                scheduleSummaryText(
+                    startDate = startDate,
+                    endDate = endDate,
+                    plannedStartTime = normalizedTime,
+                    plannedDurationMinutes = durationDraft.toIntOrNull()?.takeIf { durationValid },
+                ),
                 modifier = Modifier.testTag("schedule-summary")
                     .clickable(enabled = enabled, onClickLabel = "予定を編集") { editing = true },
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyLarge,
             )
             if (hasChanges) Text("未保存の予定があります", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -4327,6 +4336,7 @@ private fun TaskScheduleEditor(
             clearTag = "schedule-start-clear",
             onOpen = { dateTarget = ScheduleDateTarget.Start },
             onClear = { updateDates(null, endDate) },
+            onPick = { updateDates(it, endDate) },
         )
         ScheduleDateField(
             label = "期限",
@@ -4337,6 +4347,7 @@ private fun TaskScheduleEditor(
             clearTag = "schedule-end-clear",
             onOpen = { dateTarget = ScheduleDateTarget.End },
             onClear = { updateDates(startDate, null) },
+            onPick = { updateDates(startDate, it) },
         )
         if (!datesValid) {
             Text(
@@ -4345,17 +4356,50 @@ private fun TaskScheduleEditor(
                 color = MaterialTheme.colorScheme.error,
             )
         }
-        OutlinedTextField(
-            value = timeDraft, onValueChange = { timeDraft = it }, enabled = enabled,
-            label = { Text("予定開始時刻 (HH:mm)") }, singleLine = true, isError = !timeValid,
-            modifier = Modifier.fillMaxWidth().testTag("schedule-start-time"),
-        )
-        OutlinedTextField(
-            value = durationDraft, onValueChange = { durationDraft = it }, enabled = enabled,
-            label = { Text("所要時間（分）") }, singleLine = true, isError = !durationValid,
-            modifier = Modifier.fillMaxWidth().testTag("schedule-duration"),
-        )
-        if (!timeValid || !durationValid) Text("時刻は HH:mm、所要時間は1〜10080分で入力してください。", color = MaterialTheme.colorScheme.error)
+        // 時刻と所要時間は1行に並べる。時刻は時計から選べ、「930」のような打ち方も受け付ける。
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            OutlinedTextField(
+                value = timeDraft, onValueChange = { timeDraft = it }, enabled = enabled,
+                label = { Text("開始時刻") }, placeholder = { Text("9:30") },
+                singleLine = true, isError = !timeValid,
+                trailingIcon = {
+                    IconButton(
+                        onClick = { timePickerOpen = true },
+                        enabled = enabled,
+                        modifier = Modifier.testTag("schedule-time-picker-open"),
+                    ) {
+                        Icon(painterResource(R.drawable.ic_tabler_clock), contentDescription = "時計から開始時刻を選ぶ")
+                    }
+                },
+                modifier = Modifier.weight(1f).testTag("schedule-start-time"),
+            )
+            OutlinedTextField(
+                value = durationDraft, onValueChange = { durationDraft = it.filter(Char::isDigit) }, enabled = enabled,
+                label = { Text("所要時間") }, suffix = { Text("分") },
+                singleLine = true, isError = !durationValid,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.weight(1f).testTag("schedule-duration"),
+            )
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.testTag("schedule-duration-quick"),
+        ) {
+            quickDurations.forEach { minutes ->
+                FilterChip(
+                    selected = durationDraft == minutes.toString(),
+                    onClick = { durationDraft = if (durationDraft == minutes.toString()) "" else minutes.toString() },
+                    enabled = enabled,
+                    label = { Text(durationLabel(minutes)) },
+                )
+            }
+        }
+        if (!timeValid) Text("開始時刻は 9:30 のように入力してください。", color = MaterialTheme.colorScheme.error)
+        if (!durationValid) Text("所要時間は1〜10080分で入力してください。", color = MaterialTheme.colorScheme.error)
         if (isTrueRange) {
             Text("この期間の意味", fontWeight = FontWeight.SemiBold)
             if (rangeSemanticsDraft.isEmpty()) {
@@ -4441,6 +4485,27 @@ private fun TaskScheduleEditor(
             )
         }
     }
+
+    if (timePickerOpen) {
+        val initial = normalizedTime?.split(":")?.map(String::toInt)
+        val timeState = rememberTimePickerState(
+            initialHour = initial?.get(0) ?: 9,
+            initialMinute = initial?.get(1) ?: 0,
+            is24Hour = true,
+        )
+        AlertDialog(
+            onDismissRequest = { timePickerOpen = false },
+            title = { Text("開始時刻を選択") },
+            text = { TimePicker(state = timeState, modifier = Modifier.testTag("schedule-time-picker")) },
+            confirmButton = {
+                TextButton(onClick = {
+                    timeDraft = "%02d:%02d".format(timeState.hour, timeState.minute)
+                    timePickerOpen = false
+                }) { Text("決定") }
+            },
+            dismissButton = { TextButton(onClick = { timePickerOpen = false }) { Text("キャンセル") } },
+        )
+    }
 }
 
 @Composable
@@ -4453,29 +4518,61 @@ private fun ScheduleDateField(
     clearTag: String,
     onOpen: () -> Unit,
     onClear: () -> Unit,
+    onPick: (LocalDate) -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        OutlinedButton(
+    val valueText = value?.let { scheduleDateLabel(it) } ?: "未設定"
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // 押せる欄であることを、枠・カレンダーの絵・右端の解除で示す。日付は読みやすい形で出す。
+        Surface(
             onClick = onOpen,
             enabled = enabled,
+            shape = MaterialTheme.shapes.medium,
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier
-                .weight(1f)
+                .fillMaxWidth()
+                .heightIn(min = 56.dp)
                 .testTag(fieldTag)
                 .semantics {
-                    this.stateDescription = stateDescription ?: "$label: ${value ?: "未設定"}"
+                    this.stateDescription = stateDescription ?: "$label: $valueText"
                 },
         ) {
-            Text("$label  ${value ?: "未設定"}")
+            Row(
+                modifier = Modifier.padding(start = 16.dp, end = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_tabler_calendar),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
+                Text(
+                    valueText,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (value == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                )
+                IconButton(
+                    onClick = onClear,
+                    enabled = enabled && value != null,
+                    modifier = Modifier.testTag(clearTag),
+                ) {
+                    if (value != null) Icon(painterResource(R.drawable.ic_tabler_x), contentDescription = "${label}を解除")
+                }
+            }
         }
-        TextButton(
-            onClick = onClear,
-            enabled = enabled && value != null,
-            modifier = Modifier.testTag(clearTag),
-        ) { Text("解除") }
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            quickScheduleDates().forEach { (name, date) ->
+                FilterChip(
+                    selected = value == date,
+                    onClick = { onPick(date) },
+                    enabled = enabled,
+                    label = { Text(name) },
+                    modifier = Modifier.testTag("$fieldTag-quick-$name"),
+                )
+            }
+        }
     }
 }
 

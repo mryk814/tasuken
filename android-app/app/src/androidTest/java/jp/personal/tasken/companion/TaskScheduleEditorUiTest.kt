@@ -1,5 +1,7 @@
 package jp.personal.tasken.companion
 
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.test.assertIsEnabled
@@ -33,7 +35,7 @@ class TaskScheduleEditorUiTest {
         )
 
         composeRule.onNodeWithTag("schedule-kind").assertTextEquals("実施日")
-        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("2026-08-24", substring = true)
+        composeRule.onNodeWithTag("schedule-start-date").assertTextContains("8月24日（月）", substring = true)
         composeRule.onNodeWithTag("schedule-end-date").assertTextContains("未設定", substring = true)
         composeRule.onNodeWithTag("schedule-range-semantics").assertDoesNotExist()
         composeRule.onNodeWithTag("schedule-save").assertIsNotEnabled()
@@ -51,7 +53,7 @@ class TaskScheduleEditorUiTest {
 
         composeRule.onNodeWithTag("schedule-kind").assertTextEquals("期限")
         composeRule.onNodeWithTag("schedule-start-date").assertTextContains("未設定", substring = true)
-        composeRule.onNodeWithTag("schedule-end-date").assertTextContains("2026-08-30", substring = true)
+        composeRule.onNodeWithTag("schedule-end-date").assertTextContains("8月30日（日）", substring = true)
         composeRule.onNodeWithTag("schedule-range-semantics").assertDoesNotExist()
     }
 
@@ -83,6 +85,8 @@ class TaskScheduleEditorUiTest {
         composeRule.onNodeWithTag("schedule-range-once").assertIsSelected()
         composeRule.onNodeWithTag("schedule-range-ongoing").performScrollTo().performClick()
         composeRule.onNodeWithTag("schedule-range-ongoing").assertIsSelected()
+        composeRule.onNodeWithTag("schedule-save").performScrollTo()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("schedule-save").assertIsEnabled().performClick()
 
         composeRule.runOnIdle {
@@ -253,6 +257,46 @@ class TaskScheduleEditorUiTest {
         composeRule.onNodeWithText(
             "この端末  予定 開始 2026-09-01 / 期限 2026-09-05 / 期間中継続",
         ).assertExists()
+    }
+
+    /** 予定欄の見た目を画像に残す（閉じた要約と、開いた編集欄）。 */
+    @Test
+    fun captureScheduleSummaryAndEditor() {
+        val task = sampleTask(
+            schedule(startDate = "2026-08-24", endDate = "2026-08-30", dateKind = "range", rangeSemantics = "once_within_window"),
+        ).copy(plannedStartTime = "09:30", plannedDurationMinutes = 45)
+        composeRule.setContent {
+            TaskenTheme {
+                androidx.compose.material3.Surface(
+                    androidx.compose.ui.Modifier.fillMaxSize().safeDrawingPadding(),
+                ) {
+                    TodayDetailPane(task = task, actionState = TaskActionUiState.Idle, onStateAction = {})
+                }
+            }
+        }
+        composeRule.onNodeWithTag("schedule-summary").performScrollTo()
+        capture("01-schedule-summary")
+        openScheduleEditor()
+        composeRule.onNodeWithTag("schedule-start-date").performScrollTo()
+        capture("02-schedule-editor-dates")
+        composeRule.onNodeWithTag("schedule-save").performScrollTo()
+        capture("03-schedule-editor-time")
+        composeRule.onNodeWithTag("schedule-time-picker-open").performClick()
+        composeRule.onNodeWithTag("schedule-time-picker").assertExists()
+        capture("04-schedule-time-picker")
+        composeRule.onNodeWithText("決定").performClick()
+        composeRule.onNodeWithTag("schedule-start-time").assertTextContains("09:30")
+    }
+
+    private fun capture(name: String) {
+        composeRule.waitForIdle()
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val directory = java.io.File(instrumentation.targetContext.getExternalFilesDir(null), "schedule-editor").apply { mkdirs() }
+        val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+        java.io.File(directory, "$name.png").outputStream().use {
+            check(screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it))
+        }
+        screenshot.recycle()
     }
 
     private fun setDetail(schedule: MobileTaskSchedule?) {
