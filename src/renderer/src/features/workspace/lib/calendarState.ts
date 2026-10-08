@@ -3,7 +3,7 @@ import type { CalendarErrorCode, CalendarEventsResult } from "../../../../../sha
 /**
  * Todayのカレンダー欄が示す状態（#273）。
  *
- * 正本は `docs/issue-design-plan-2026-09-20.md` の「Calendarの残作業」にある5状態。
+ * 正本は `docs/calendar-live-connection.md` の「表示の状態（実装）」にある5状態。
  * **「取得できていない」と「0件」を混同しない**ことを型で固定する。
  *
  * | 状態 | 見せ方 |

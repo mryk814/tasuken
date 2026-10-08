@@ -3,7 +3,6 @@
 同じ「あとで」という語で、三つの保存先を動かさない。
 Taskenの日付操作は**対象ごとに別の操作**とし、表示名でも保存先でも区別する。
 
-- 全体の設計: [issue-design-plan-2026-09-20.md](./issue-design-plan-2026-09-20.md)「Todayの具体設計」
 - 用語: [glossary.md](./glossary.md)
 - 実装: `src/renderer/src/features/workspace/pages/TodayPage.tsx`
 

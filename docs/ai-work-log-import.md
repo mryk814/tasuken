@@ -56,9 +56,7 @@ Debriefで日・週の観測区間を並べ、ClientとRepositoryで絞り込む
 
 既存`GET /v1/today`に`includeAgentSessions=true`を明示したときだけ、採用済みSessionの詳細を最大20件追加する。`mobile:read`と既存`mobile:context-read`の両scopeを要求する。フラグなしの応答形は保持し、古い厳密JSON consumerへ新fieldを送らない。本文は既存Coreのvisibility projectionを通す。SessionをAndroid DBへ複製せず、取得失敗はTodayタスクを残して再読込を示す。
 
-PCの暦とCoreの日付選択はPCのlocal timezone、Androidの時刻表示は端末のlocal timezoneに従う。端末とPCの日付境界が違う環境での統一timezone設定は追加していない。
-
-ボード/AI作成/#628印には触れていない。合流時の接点は`ResearchDeskApi`/Preload/IPC、Mobile Today contract、`ApplicationCommandService`、Core composition、Debriefである。専用branchでの確認が必要。CI定義は変更していない。architectureのaggregate API利用4件は#629の期限付きdebtとして記録し、main windowの新capabilityのみ契約inventoryへ加えた。
+日次ActivityとDebriefの時刻表示はJST（Asia/Tokyo）へ統一する。現行の時間表示と保存先の差分同期は[設計・データ契約](engineering-contracts.md#ai作業ログの時間表示)を参照。
 
 ## 検証と隔離試用
 

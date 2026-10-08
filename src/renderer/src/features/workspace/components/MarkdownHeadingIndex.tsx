@@ -136,7 +136,6 @@ export const MarkdownHeadingIndex = memo(function MarkdownHeadingIndex({
     setOpen(false);
   }, [headingsKey]);
 
-  // スクロール位置 → アクティブな線 / 見出し
   useEffect(() => {
     if (hidden || headings.length < HEADING_INDEX_MIN_COUNT) return;
 
@@ -209,7 +208,6 @@ export const MarkdownHeadingIndex = memo(function MarkdownHeadingIndex({
     // 監視対象はEdit/Preview本体の差し替えだけ。本文内部の毎キーDOM更新では再接続しない。
     observer?.observe(surface!, { childList: true });
 
-    // 初回レイアウト後にもう一度
     const boot = window.setTimeout(attach, 80);
 
     return () => {

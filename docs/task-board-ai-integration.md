@@ -30,4 +30,11 @@ ToDoは最初に一覧／ボードを切り替える。今日・未完了・完�
 CLI起動だけでは着手済みとせず、AIからの開始報告を待つ。
 
 `scripts/task-handoff-audit.mjs --task-board --integrated` は実Core作成、一覧/ボードの同じID、既読保存、競合時の返答保持、報告採用後のTask継続、2つの隔離DB間の共有folder同期、Electron再起動を確認する。
-ソースからの再生成と隔離previewは [task-board-ci-integration.md](task-board-ci-integration.md) を参照。
+隔離previewは、[開発環境](development-environment.md)に従って依存・buildを用意し、次を実行する。
+
+```powershell
+rtk node scripts/run-electron-node.mjs scripts/task-handoff-audit.mjs --task-board --integrated --all-features
+pwsh -NoProfile -File scripts/preview-task-board.ps1
+```
+
+監査とpreviewは架空データを持つ一時profileだけを使う。通常DB・同期先・個人履歴を指定しない。

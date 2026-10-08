@@ -3,7 +3,7 @@
 Synology上でElectronなしのTasken Coreを常時稼働させ、既存の共有フォルダ同期へ**read-only replica**として参加させる手順です。
 Desktopが停止していても、NASのローカルSQLiteが最新の同期差分を持ち、MCP（read-only）からContextを読める状態を目指します。
 
-実装済みなのはheadless Coreとreplica参加（`docs/headless-core.md`）までです。MCP transport / Secure MCP Tunnelの常時稼働とwrite有効化（`proposals`配備）は2026-09-27に実機NASへ配置済みで、観測は[deploy/synology/DEPLOYED.md](../../deploy/synology/DEPLOYED.md)にあります。ChatGPT実クライアントからの往復とtransport再接続は未検証です。
+実装済みなのはheadless Coreとreplica参加（`docs/headless-core.md`）までです。MCP transport / Secure MCP Tunnelの常時稼働とwrite有効化（`proposals`配備）は2026-09-27に実機NASへ配置済みで、観測は[deploy/synology/DEPLOYED.md](../deploy/synology/DEPLOYED.md)にあります。ChatGPT実クライアントからの往復とtransport再接続は未検証です。
 
 ```text
 [データ端末 Tasken]
@@ -194,7 +194,7 @@ sudo docker logs --tail=30 tasken-tunnel
 補足:
 
 - tunnel-clientのimageは`--build-arg TUNNEL_CLIENT_IMAGE=ghcr.io/openai/tunnel-client:vX.Y.Z`で固定できます（既定`latest`。本番は固定を推奨）。
-- 2026-09-12時点の実機観測: NAS側のdaemonは`healthy`・metadata取得済みだが、**ChatGPT Plus + Personal workspaceでは`Connection: Tunnel`の一覧にtunnelが出ない**（OpenAI側の既知問題。`tunnel_principal_association_unverified`）。Business/Enterprise workspaceかOpenAI側の修正待ち。経緯は[deploy/synology/DEPLOYED.md](../../deploy/synology/DEPLOYED.md)。
+- 2026-09-12時点の実機観測: NAS側のdaemonは`healthy`・metadata取得済みだが、**ChatGPT Plus + Personal workspaceでは`Connection: Tunnel`の一覧にtunnelが出ない**（OpenAI側の既知問題。`tunnel_principal_association_unverified`）。Business/Enterprise workspaceかOpenAI側の修正待ち。経緯は[deploy/synology/DEPLOYED.md](../deploy/synology/DEPLOYED.md)。
 - その後、利用者からChatGPTから接続できたとの報告があり、現在の利用状況として扱う（2026-09-27時点）。上の09-12観測は履歴として残す。
 - 未検証: ChatGPT実クライアントからの書き込み往復（読み取りは利用中）、transport切断・再接続、NAS再起動後の自動復帰。
 
@@ -298,7 +298,7 @@ Get-ChildItem T:\sync\devices\<replicaのdevice id> -Force |
 
 ### 2026-09-12 実機NAS（DS723+ / DSM 7.2 / amd64）
 
-開発機のDocker Desktopで`linux/amd64`を作り、SMB共有フォルダ経由で搬入して配置した。詳細な観測値は[deploy/synology/DEPLOYED.md](../../deploy/synology/DEPLOYED.md)。
+開発機のDocker Desktopで`linux/amd64`を作り、SMB共有フォルダ経由で搬入して配置した。詳細な観測値は[deploy/synology/DEPLOYED.md](../deploy/synology/DEPLOYED.md)。
 
 - `nas-install.sh`で`WRITE_OK` → `TASKEN_HEADLESS_CORE_READY ... "capability_count":31,"sync_directory":"/sync"`、health `healthy`。
 - replica SQLite: `workspace_id`がPC側と一致、`tasks=19`、pending差分0、ホスト端末のcursorが196まで進行。
@@ -322,7 +322,7 @@ Get-ChildItem T:\sync\devices\<replicaのdevice id> -Force |
 - arm64 / armv7のNASは未検証（実機確認はamd64のDS723+）。
 - Synology Drive / Cloud Sync経由の同期（実機確認はSMB共有フォルダ直結）。
 - `backup.sh`のNAS上での一連実行（compose検出・排他lock・再起動を含む）は未実施。
-- MCP transport / Secure MCP Tunnelの再接続と、ChatGPT実クライアントからの投稿・作業報告の往復。常時稼働と`proposals`配備（`TASKEN_CORE_WRITE_MODE=proposals` + `TASKEN_MCP_READ_ONLY=0`）は2026-09-27に実機へ配置し、Core capability 31と`write_mode":"proposals"`まで確認済み（[DEPLOYED.md](../../deploy/synology/DEPLOYED.md)）。
+- MCP transport / Secure MCP Tunnelの再接続と、ChatGPT実クライアントからの投稿・作業報告の往復。常時稼働と`proposals`配備（`TASKEN_CORE_WRITE_MODE=proposals` + `TASKEN_MCP_READ_ONLY=0`）は2026-09-27に実機へ配置し、Core capability 31と`write_mode":"proposals"`まで確認済み（[DEPLOYED.md](../deploy/synology/DEPLOYED.md)）。
 - bootstrap / compaction / revoke / schema upgradeのowner決定はPhase 2の残り。Note Markdown画像の扱いと、コンテナ上での画像MCP再実行は未検証。
 - イメージbuild/runにはDocker daemonが必要。
 

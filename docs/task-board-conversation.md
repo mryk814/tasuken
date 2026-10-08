@@ -17,4 +17,4 @@ Task詳細には依頼、質問への返答、報告採用、修正依頼、作�
 通常コメントはTask参照を持つFeed投稿とFeed返信へ保存する。コメントでTask状態やAIの要対応は変わらない。
 保存失敗時は途中入力を保持し、実行中は二重操作を抑止する。
 
-AI作成由来・未確認表示との統合は [task-board-ai-integration.md](task-board-ai-integration.md)、clean checkoutからの隔離検証・previewは [task-board-ci-integration.md](task-board-ci-integration.md) を参照。
+AI作成由来・未確認表示と隔離previewは [task-board-ai-integration.md](task-board-ai-integration.md) を参照。

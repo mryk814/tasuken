@@ -120,7 +120,7 @@ Coding Agentは`tasken.get_task_context`へTask IDと現在のworkspace情報を
 
 Themeには、人間が書く比較的安定した`Theme Charter`と、現在の方向・問いを持つ`Theme State`を保存できます。MCPのテーマ背景は`tasken.get_theme_context`に一本化しています。`tasken://themes/{themeId}/intent` ResourceはThemeの意図だけを参照し、`daily-report` Promptは利用者が明示起動する作業テンプレートです。正本と投影の境界は [`docs/tasken-context-architecture.md`](./docs/tasken-context-architecture.md) を参照してください。
 
-人がAI ReadyにしたTaskを外部AIが選び、`get_task_context`で確認してから`start_task_work`で開始します。開始後の最新versionを使って`append_work_receipt`、`report_task_done`、`report_task_blocked`を送ります。報告はAgent Deskで採用し、完了報告の採用後もTaskの完了は利用者が明示します。AIは完了したチェック項目のIDを報告に添えられ、採用時に該当項目へ反映されます。Taskの完了後も追加報告を履歴へ残せます。各Task writeには`expected_version`、`idempotency_key`、`caller`が必要です。同じ要求の再送ではkeyと内容を維持してください。RepositoryContext snapshotにはローカルパスやremote URLを保存しません。読み取り専用の運用では`TASKEN_MCP_READ_ONLY=1`を設定してください。
+人がAI ReadyにしたTaskを外部AIが選び、`get_task_context`で確認してから`start_task_work`で開始します。開始後の最新versionを使って`append_work_receipt`、`report_task_done`、`report_task_blocked`を送ります。報告はFeedで採用し、完了報告の採用後もTaskの完了は利用者が明示します。AIは完了したチェック項目のIDを報告に添えられ、採用時に該当項目へ反映されます。Taskの完了後も追加報告を履歴へ残せます。各Task writeには`expected_version`、`idempotency_key`、`caller`が必要です。同じ要求の再送ではkeyと内容を維持してください。RepositoryContext snapshotにはローカルパスやremote URLを保存しません。読み取り専用の運用では`TASKEN_MCP_READ_ONLY=1`を設定してください。
 
 AI Readyは事前許可であり、自動実行の予約ではありません。外部AIを普段どおり開き、依頼文を貼り付けるかAI Readyの確認を頼みます。TaskenからCLIを直接起動する機能はありません。実stdioと一時DBを通す検証は [AI collaboration E2E](./docs/ai-collaboration-e2e.md) を参照してください。
 
@@ -160,8 +160,6 @@ SQLiteファイルそのものは共有せず、端末別の変更差分だけ�
 
 NASの開始専用権限は`task.start_work`です。本人の個人業務のAI Ready Taskだけを対象にし、`create-only`とは独立して有効化します。開始にはUUIDの`work_attempt_id`も必須です。同じ要求の再送はversionを含む内容を保持し、返却されたTaskが現在も同じ作業単位・実行者のin_progressであることを確認してください。設定・撤回と報告採用の境界は[開始専用権限](docs/ai-task-start.md)を参照してください。
 
-この候補を別のPCで確認する場合は、[開始専用候補の取得・再生成・隔離preview](docs/ai-task-start-delivery.md)を参照してください。同一条件の成功済み検証は再利用し、再生成は必要なときだけ行います。
-
 ## 主な画面
 
 - 今日: テーマの現在地、近いマイルストーン、次のタスク、最近のメモ
@@ -183,6 +181,6 @@ NASの開始専用権限は`task.start_work`です。本人の個人業務のAI 
 6. 週次レビューやAIへの相談時は `AI Import / Export` で範囲と形式を選んでコピーします。
 7. `Settings` の「詳細」で自動バックアップの保存先と最新結果を確認します。節目では手動Snapshotも書き出します。
 
-詳細な実装状況は [`PLAN.md`](./docs/PLAN.md) を参照してください。
+開発時の作業・検証は [AGENTS.md](./AGENTS.md)、設計・保存の境界は [設計・データ契約](./docs/engineering-contracts.md)、未完了の作業は [GitHub Issues](https://github.com/mryk814/tasuken/issues) を参照してください。
 Knowledge ModelとAI/MCP連携の次期方針は [`knowledge-mcp-policy.md`](./docs/knowledge-mcp-policy.md) を参照してください。
 AIへ渡す概要・鮮度・根拠・公開範囲の共通契約は [`ai-metadata-contract.md`](./docs/ai-metadata-contract.md) を参照してください。

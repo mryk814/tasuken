@@ -6,7 +6,7 @@ Issue #594 の成果物。Agent Desk（#593 Epic、#595–#602）と Feed（#604
 
 調査対象は `main@acc65ab1`、アプリ版 `0.1.65`。外部事例の確認日は 2026-09-20。
 
-関連: [Product Atlas](./product-atlas.md)（製品像）／[AI collaboration E2E contract](./ai-collaboration-e2e.md)（検証の正本）／[外部AI連携](./external-ai-integration.md)（利用者向け手順）／[用語辞書](./glossary.md)／[設計計画](./issue-design-plan-2026-09-20.md)（実装順序）／[6製品の画面比較](./research/feed-six-product-comparison.md)（§2の証拠）／[Agent work実装契約](./agent-work-contract.md)（§6の実装）。
+関連: [Product Atlas](./product-atlas.md)（製品像）／[AI collaboration E2E contract](./ai-collaboration-e2e.md)（検証の正本）／[外部AI連携](./external-ai-integration.md)（利用者向け手順）／[用語辞書](./glossary.md)／[6製品の画面比較](./research/feed-six-product-comparison.md)（§2の証拠）／[Agent work実装契約](./agent-work-contract.md)（§6の実装）。
 
 ---
 

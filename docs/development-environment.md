@@ -120,6 +120,12 @@ Sourceまたはruntimeに未commit変更があれば停止する。
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "...\run-windows-runtime.ps1" -SkipInstall
 ```
 
+## Androidの開発
+
+`android-app/`は独立したKotlin / ComposeのGradle project。Java 17とAndroid SDKを用意し、SDKは`ANDROID_HOME`またはgitignoredの`android-app/local.properties`で指定する。版はGradle設定・wrapperを正本とする。minSdk 26は対象の現行端末をカバーし、旧端末向けの互換コードを増やさないための選択。
+
+Mobile契約はDesktopのTypeScriptを直接importせず、`contracts/mobile/v1/`の同じschema・golden JSONをTypeScript/Kotlinから検証する。Debugの生成・隔離検証は[Androidの日常操作](android-daily-voice-ui.md#検証用アプリ)、データを保持する署名・更新は[Android release signing](android-release-signing.md)を参照。
+
 ## 検証の分担
 
 - `rtk npm run ci`: merge前の品質ゲート。

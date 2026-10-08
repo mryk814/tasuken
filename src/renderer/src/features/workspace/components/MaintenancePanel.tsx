@@ -16,7 +16,7 @@ import { Button } from "./common";
 /**
  * Maintenanceの最小実験（#454後半 / O単位）。
  *
- * 正本は `docs/issue-design-plan-2026-09-20.md` の「Maintenanceの最小実験」。
+ * 正本は `docs/maintenance-experiment.md`。
  * 扱うのは「対象」「すること」「前回実施日」「次の目安」だけ。
  *
  * - 次の目安は**推奨間隔からの提案**で、必ず守る締切ではない。Taskの期限違反として数えない。
