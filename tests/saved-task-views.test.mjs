@@ -21,6 +21,32 @@ async function importBundled(relativePath) {
 
 const savedViews = await importBundled("src/renderer/src/features/workspace/lib/savedTaskViews.ts");
 
+test("board filters preserve Theme and schedule while ignoring saved list tabs, state and priority", () => {
+  const states = ["todo", "doing", "review", "waiting", "done", "cancelled"];
+  const rows = [
+    ...states.map((state) =>
+      row(state, { state, project_id: "theme-a" }, { end_date: "2026-07-08" }),
+    ),
+    row("other-theme", { project_id: "theme-b" }, { end_date: "2026-07-08" }),
+    row("no-schedule", { project_id: "theme-a" }),
+  ];
+  for (const tab of ["open", "done", "today", "overdue", "no-schedule"]) {
+    const filters = {
+      tab,
+      state: "doing",
+      priority: "high",
+      themeId: "theme-a",
+      schedule: "scheduled",
+    };
+    const original = { ...filters };
+    assert.deepEqual(
+      savedViews.filterTaskBoardRows(rows, filters, "2026-07-08").map(({ task }) => task.id),
+      states,
+    );
+    assert.deepEqual(filters, original, "一覧へ戻ったときの設定を変更しない");
+  }
+});
+
 function row(id, overrides = {}, schedule = undefined) {
   return {
     task: {

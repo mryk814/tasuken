@@ -6,6 +6,35 @@ import type { Schedule, Task } from "../domain-model/types";
 
 export type BoardRow = { task: Task; schedule?: Schedule };
 
+export const BOARD_STATES: Task["state"][] = [
+  "todo",
+  "doing",
+  "review",
+  "waiting",
+  "done",
+  "cancelled",
+];
+
+export function boardKeyboardState(task: Task, direction: -1 | 1): Task["state"] | undefined {
+  const allowed = BOARD_STATES.filter(
+    (state) =>
+      state !== "done" ||
+      task.state === "done" ||
+      task.intended_executor !== "ai_agent" ||
+      task.work_state === "accepted",
+  );
+  return allowed[allowed.indexOf(task.state) + direction];
+}
+
+export function boardDropBeforeId(
+  rows: readonly BoardRow[],
+  targetId: string,
+  after: boolean,
+): string | undefined {
+  const index = rows.findIndex(({ task }) => task.id === targetId);
+  return rows[index + (after ? 1 : 0)]?.task.id;
+}
+
 /** 手動順序のない既存Taskも、一覧のソート設定に左右されない安定順で扱う。 */
 export function sortBoardRows(rows: readonly BoardRow[]): BoardRow[] {
   return [...rows].sort(({ task: left }, { task: right }) => {

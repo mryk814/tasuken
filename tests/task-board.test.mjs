@@ -6,6 +6,8 @@ import {
   taskWorkModel,
   sortBoardRows,
   moveBoardTask,
+  boardDropBeforeId,
+  boardKeyboardState,
 } from "../src/renderer/src/features/workspace/components/TaskBoardModel.ts";
 import {
   makeTask,
@@ -77,6 +79,25 @@ const boardRow = (id, state = "todo", board_order) => ({
     intended_executor: "self",
     created_at: "2026-10-08T00:00:00Z",
   }),
+});
+
+test("カード上半分は直前、下半分は直後へ挿入し、末尾は列の末尾になる", () => {
+  const rows = [boardRow("a"), boardRow("b"), boardRow("c")];
+  assert.equal(boardDropBeforeId(rows, "b", false), "b");
+  assert.equal(boardDropBeforeId(rows, "b", true), "c");
+  assert.equal(boardDropBeforeId(rows, "c", true), undefined);
+});
+
+test("未採用AI Taskのキーボード移動は完了を飛ばして中止・再開できる", () => {
+  const task = {
+    ...boardRow("ai", "waiting").task,
+    intended_executor: "ai_agent",
+    work_state: "ready_for_agent",
+  };
+  assert.equal(boardKeyboardState(task, 1), "cancelled");
+  assert.equal(boardKeyboardState({ ...task, state: "cancelled" }, -1), "waiting");
+  assert.equal(boardKeyboardState({ ...task, work_state: "accepted" }, 1), "done");
+  assert.equal(boardKeyboardState({ ...task, state: "todo" }, -1), undefined);
 });
 
 test("列の手動順序を優先し、未設定Taskは安定順で後ろに表示する", () => {

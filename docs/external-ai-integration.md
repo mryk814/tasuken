@@ -73,7 +73,7 @@ WSL・別PC・Web版AIからの接続はこのWindows用設定では検証して
 
 ## 日常の一周
 
-Windowsのカンバンではカードの「AIに渡す」からClaude Code／Codexと作業フォルダを選び、対話CLIへ依頼できます。選んだ組み合わせはこの端末に記憶します。CLIとNode.jsのWindows版が必要です。Tasken MCPの接続設定は起動するセッションにだけ渡します。
+Windowsのカンバンではカードの「AIに渡す」からClaude Code／Codexと作業先を選び、対話CLIへ依頼できます。登録済みの作業先をTheme別に並べ、関連Themeを先頭に表示します。リポジトリ名とこのPCのパスを確認して選んでください。削除・アーカイブ・無効な登録は表示せず、Windows用パスのない作業先には理由を表示します。必要な場合は「別のフォルダを選ぶ」から補えます（登録情報は変更しません）。選んだ組み合わせはこの端末に記憶し、別Themeのタスクではその関連作業先を優先します。CLIとNode.jsのWindows版が必要です。Tasken MCPの接続設定は起動するセッションにだけ渡します。
 以後の質問・回答・権限確認はCLI側で行い、成果報告だけを既存MCPでTaskenへ戻します。起動成功は着手の証拠ではなく、`start_task_work`を受けるまでは開始待ちです。起動失敗時もAI Readyと選択内容を保ち、再試行できます。
 
 対話起動の引数は[Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference)と[Codex CLI reference](https://developers.openai.com/codex/cli/reference)に従います（2026-10-08確認）。実CLIの認証・権限・作業完遂は端末ごとの確認が必要です。
