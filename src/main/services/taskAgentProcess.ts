@@ -112,6 +112,9 @@ export function buildTaskAgentArguments(
     `work_attempt_id: ${workAttemptId}`,
     "このwork_attempt_idはTaskenに保存済みの作業単位です。同じIDをstart_task_workと全報告に指定してください。別のIDを生成しないでください。",
     "以後の質問・回答・権限確認はこのCLIで行ってください。成果は tasken.report_task_done で結果・検証・残作業とreported_atを報告してください。人間の採用やTask完了を代行しないでください。",
+    "依頼された作業中に実際に検証した再利用可能な発見（意外な制約、落とし穴、原因と対策、比較・トレードオフ）があれば、書き込み可能な接続では追加の依頼を待たず tasken.propose_feed_post で残してください。利用者が記録を望まない場合は従ってください。",
+    "投稿前に tasken.get_feed_context で既出内容を確認し、同じ発見はまとめてください。ノルマや毎ターン投稿は不要で、新しい発見がなければ投稿しないでください。観測した事実と推測、根拠と検証の限界を区別してください。秘密情報を含めず、記事のために依頼外の調査を増やさないでください。",
+    "仕組み・再現手順・設計判断を説明すると役立つ場合は投稿の article に技術記事草稿を添え、独立した記事は tasken.propose_note を使ってください。記事は人の採用まで正式Noteではありません。Feed投稿はTaskの成果・中断報告を置き換えず、外部サイトへの公開もしないでください。",
   ].join("\n");
   if (clientId === "claude_code") return ["--mcp-config", mcpConfigJson, "--", prompt];
   return ["-c", `mcp_servers.tasken={${codexMcpServerConfig(mcpConfigJson)}}`, prompt];

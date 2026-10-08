@@ -42,6 +42,9 @@ export function buildTaskAiRequest(tasks: RequestTask[], handoff?: HandoffReques
     "2. AI Readyを確認し、取得したversionをexpected_versionに指定して tasken.start_task_work を明示的に呼んでから着手してください。開始に失敗したら再取得して状態を確認してください。",
     "3. start_task_workが返した最新のTask versionを以後のexpected_versionに使ってください。通常は完了時に tasken.report_task_done を一度だけ送り、結果・検証・残作業とAI作業終了時刻reported_atを報告してください。完了直前の tasken.append_work_receipt は不要です。長期作業で残す必要がある途中経過だけappend_work_receipt、人の対応が必要な中断だけ tasken.report_task_blocked を使ってください。同じ報告を再送するときは同じidempotency_key・日時・内容を維持してください。完了報告の後で追報告が必要になったら、新しいidempotency_keyで送ると同じTaskに積まれ、Agent Deskでまとめて確認できます。",
     "4. 検証できたチェック項目はget_task_contextで取得したIDをcompleted_checklist_item_idsに含めてください。チェック反映には最新expected_versionが必要です。報告はProposalとして人がAgent Deskで採用して正式保存されます。Taskの完了は人が別途判断します。採用後やTask完了後もContextを再取得し、append_work_receiptで追加報告できます。",
+    "5. 依頼された作業中に実際に検証した再利用可能な発見（意外な制約、落とし穴、原因と対策、比較・トレードオフ）があれば、書き込み可能な接続では追加の依頼を待たず tasken.propose_feed_post で残してください。利用者が記録を望まない場合は従ってください。",
+    "投稿前に tasken.get_feed_context で既出内容を確認し、同じ発見はまとめてください。ノルマや毎ターン投稿は不要で、新しい発見がなければ投稿しないでください。観測した事実と推測、根拠と検証の限界を区別してください。秘密情報を含めず、記事のために依頼外の調査を増やさないでください。",
+    "仕組み・再現手順・設計判断を説明すると役立つ場合は投稿の article に技術記事草稿を添え、独立した記事は tasken.propose_note を使ってください。記事は人の採用まで正式Noteではありません。Feed投稿はTaskの成果・中断報告を置き換えず、外部サイトへの公開もしないでください。",
   ].join("\n");
 }
 

@@ -35,6 +35,12 @@ test("新規AI Readyの正式保存後に共通依頼文をコピーする", asy
     "tasken.report_task_done",
     "tasken.report_task_blocked",
     "人がAgent Deskで採用",
+    "実際に検証した再利用可能な発見",
+    "tasken.propose_feed_post",
+    "技術記事草稿",
+    "新しい発見がなければ投稿しない",
+    "秘密情報",
+    "依頼外",
   ]) {
     assert.ok(copied[0].includes(text), text);
   }

@@ -77,6 +77,12 @@ test("対話CLIへ対象IDとMCPを渡し、承認を迂回せず着手はAIに�
     assert.ok(args.at(-1).includes(`work_attempt_id: ${workAttemptId}`));
     assert.match(args.at(-1), /start_task_work/);
     assert.match(args.at(-1), /質問.*CLI/);
+    assert.match(args.at(-1), /実際に検証した再利用可能な発見/);
+    assert.match(args.at(-1), /tasken.propose_feed_post/);
+    assert.match(args.at(-1), /article.*技術記事草稿/);
+    assert.match(args.at(-1), /新しい発見がなければ投稿しない/);
+    assert.match(args.at(-1), /観測.*推測/);
+    assert.match(args.at(-1), /秘密情報.*依頼外/);
     assert.doesNotMatch(
       args.join(" "),
       /skip-permissions|dangerously|--full-auto|--yolo|開始は記録済み/,
