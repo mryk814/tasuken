@@ -35,13 +35,18 @@ function duplicateSchedule(schedule: Schedule | undefined, taskId: string): Sche
   };
 }
 
-export function duplicateTask(task: Task, schedule?: Schedule, now = new Date().toISOString()): DuplicatedTaskBundle {
+export function duplicateTask(
+  task: Task,
+  schedule?: Schedule,
+  now = new Date().toISOString(),
+): DuplicatedTaskBundle {
   const taskId = crypto.randomUUID();
   return {
     task: {
       ...task,
       id: taskId,
       state: "todo",
+      board_order: undefined,
       completed_at: null,
       // 完了時のひとことは元のTaskの記録なので複製へは引き継がない（#308）。
       completion_note: null,

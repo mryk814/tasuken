@@ -248,6 +248,12 @@ test("投稿は「採用が必要なProposal」と混同させず、再送の防
     assert.match(instructions, /NOT pending decisions/u);
     assert.match(instructions, /accepting them is not required/u);
     assert.match(instructions, /queues a Proposal/u);
+    assert.match(instructions, /proactively/u);
+    assert.match(instructions, /verified.*reusable technical findings/u);
+    assert.match(instructions, /no posting quota/u);
+    assert.match(instructions, /observations from hypotheses/u);
+    assert.match(instructions, /Do not expose secrets or expand the task/u);
+    assert.match(instructions, /do not replace Task work reports/u);
     // AIに見える画面名は現行の表示名へ揃える（旧称を使わない）。
     assert.doesNotMatch(instructions, /AI Inbox/u);
 
@@ -264,6 +270,8 @@ test("投稿は「採用が必要なProposal」と混同させず、再送の防
     assert.ok(feedTool, "tasken.propose_feed_post が公開されている");
     assert.match(feedTool.description, /appears in Feed as soon as this call succeeds/u);
     assert.match(feedTool.description, /does not need to accept it/u);
+    assert.match(feedTool.description, /Proactively/u);
+    assert.match(feedTool.description, /trade-offs/u);
     assert.doesNotMatch(feedTool.description, /recent post ids in/u);
 
     const properties = feedTool.inputSchema.properties;

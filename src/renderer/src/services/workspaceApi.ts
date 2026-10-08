@@ -40,6 +40,12 @@ function desktopApi() {
 }
 
 export const workspaceApi = {
+  agentLaunchClients() {
+    return desktopApi().agentLauncher.clients();
+  },
+  launchAgent(request: import("../../../shared/agentLaunch").AgentLaunchRequest) {
+    return desktopApi().agentLauncher.launch(request);
+  },
   markAiItemSeen(type: "task" | "note", id: string) {
     return desktopApi().entities.markAiItemSeen(type, id);
   },

@@ -22,6 +22,7 @@ import { formatDate } from "../lib/format";
 import { compareTodoRows, isTodayRow, scheduledDate } from "../lib/todoRows.js";
 import {
   filterTodoRows,
+  filterTaskBoardRows,
   normalizeTaskViewFilters,
   type TaskViewFilters,
   type TaskViewTab,
@@ -198,6 +199,7 @@ export function TodoPage({
     [currentFilters, filter, sortDirection, sortMode, taskRows, themes, today],
   );
   const visibleTaskCount = visible.length;
+  const boardRows = filterTaskBoardRows(taskRows, currentFilters, today);
   const [renderedTaskCount, setRenderedTaskCount] = useState(INITIAL_RENDERED_TASKS);
   useEffect(() => {
     if (visibleTaskCount <= INITIAL_RENDERED_TASKS) return undefined;
@@ -399,7 +401,7 @@ export function TodoPage({
 
   function copyRows() {
     const header = "タスク\t状態\tテーマ\t今日\t予定終了\t完了日\tリマインダー\t繰り返し";
-    const rows = visible.map(
+    const rows = (layout === "board" ? boardRows : visible).map(
       ({ task, schedule }) =>
         `${task.title}\t${TASK_STATE_LABELS[task.state]}\t${themes.find((theme) => theme.id === task.project_id)?.name || "個人業務"}\t${isTodayRow({ task, schedule }, today) ? "今日" : ""}\t${scheduledDate(schedule) || "予定なし"}\t${task.completed_at ? task.completed_at.slice(0, 10) : ""}\t${reminderTimeLabel(task.reminder_at, today)}\t${repeatRuleLabel(task.repeat_rule)}`,
     );
@@ -644,6 +646,25 @@ export function TodoPage({
         </Button>
       </PageHeader>
 
+      <div role="group" aria-label="Task表示" className="task-view-switch">
+        <button
+          type="button"
+          className="secondary-button"
+          aria-pressed={layout === "list"}
+          onClick={() => setLayout("list")}
+        >
+          一覧
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          aria-pressed={layout === "board"}
+          onClick={() => setLayout("board")}
+        >
+          ボード
+        </button>
+      </div>
+
       <ReminderDueBanner
         tasks={domain.tasks}
         waitings={domain.waitings}
@@ -691,46 +712,30 @@ export function TodoPage({
           }
         />
       )}
-      <div className="todo-filter-tabs">
-        {(
-          [
-            ["today", "今日", counters.today],
-            ["open", "未完了", counters.open],
-            ["overdue", "予定超過", counters.overdue],
-            ["no-schedule", "予定なし", counters.noSchedule],
-            ["done", "完了", counters.done],
-          ] as const
-        ).map(([id, label, count]) => (
-          <button
-            key={id}
-            className={filter === id ? "is-active" : ""}
-            onClick={() => selectFilterTab(id)}
-          >
-            {label}
-            <span className="tab-count">{count}</span>
-          </button>
-        ))}
-      </div>
+      {layout === "list" && (
+        <div className="todo-filter-tabs">
+          {(
+            [
+              ["today", "今日", counters.today],
+              ["open", "未完了", counters.open],
+              ["overdue", "予定超過", counters.overdue],
+              ["no-schedule", "予定なし", counters.noSchedule],
+              ["done", "完了", counters.done],
+            ] as const
+          ).map(([id, label, count]) => (
+            <button
+              key={id}
+              className={filter === id ? "is-active" : ""}
+              onClick={() => selectFilterTab(id)}
+            >
+              {label}
+              <span className="tab-count">{count}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <section className="panel list-page task-board-surface">
         <div className="todo-table-toolbar">
-          <div role="group" aria-label="Task表示" className="task-view-switch">
-            <button
-              type="button"
-              className="secondary-button"
-              aria-pressed={layout === "list"}
-              onClick={() => setLayout("list")}
-            >
-              一覧
-            </button>
-            <button
-              type="button"
-              className="secondary-button"
-              aria-pressed={layout === "board"}
-              onClick={() => setLayout("board")}
-            >
-              ボード
-            </button>
-          </div>
           <ThemePickerSelect
             themes={themes}
             value={taskFilters.themeId}
@@ -740,18 +745,20 @@ export function TodoPage({
             allLabel="すべてのTheme"
             ariaLabel="Themeで絞り込み"
           />
-          <select
-            value={taskFilters.state}
-            onChange={(event) => patchTaskFilters({ state: event.target.value })}
-            aria-label="状態で絞り込み"
-          >
-            <option value="">すべての状態</option>
-            {Object.entries(TASK_STATE_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+          {layout === "list" && (
+            <select
+              value={taskFilters.state}
+              onChange={(event) => patchTaskFilters({ state: event.target.value })}
+              aria-label="状態で絞り込み"
+            >
+              <option value="">すべての状態</option>
+              {Object.entries(TASK_STATE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          )}
           <select
             value={taskFilters.schedule}
             onChange={(event) =>
@@ -780,34 +787,40 @@ export function TodoPage({
             <option value="ongoing_period">期間中継続</option>
             <option value="unspecified_range">期間未分類</option>
           </select>
-          <select
-            value={sortMode}
-            onChange={(event) => setSortMode(event.target.value as TodoSortMode)}
-            aria-label="並び替え"
-          >
-            <option value="default">並び替え: {filter === "done" ? "完了日" : "予定終了日"}</option>
-            <option value="theme">並び替え: Theme順</option>
-            <option value="title">並び替え: 名前順</option>
-          </select>
-          <select
-            value={sortDirection}
-            onChange={(event) => setSortDirection(event.target.value as TodoSortDirection)}
-            aria-label="並び順の向き"
-          >
-            <option value="desc">降順（新しい順）</option>
-            <option value="asc">昇順（古い順）</option>
-          </select>
-          <select
-            value={groupMode}
-            onChange={(event) => setGroupMode(event.target.value as TodoGroupMode)}
-            aria-label="グループ"
-          >
-            <option value="none">グループなし</option>
-            <option value="schedule">予定でグループ</option>
-            <option value="theme">Themeでグループ</option>
-          </select>
+          {layout === "list" && (
+            <>
+              <select
+                value={sortMode}
+                onChange={(event) => setSortMode(event.target.value as TodoSortMode)}
+                aria-label="並び替え"
+              >
+                <option value="default">
+                  並び替え: {filter === "done" ? "完了日" : "予定終了日"}
+                </option>
+                <option value="theme">並び替え: Theme順</option>
+                <option value="title">並び替え: 名前順</option>
+              </select>
+              <select
+                value={sortDirection}
+                onChange={(event) => setSortDirection(event.target.value as TodoSortDirection)}
+                aria-label="並び順の向き"
+              >
+                <option value="desc">降順（新しい順）</option>
+                <option value="asc">昇順（古い順）</option>
+              </select>
+              <select
+                value={groupMode}
+                onChange={(event) => setGroupMode(event.target.value as TodoGroupMode)}
+                aria-label="グループ"
+              >
+                <option value="none">グループなし</option>
+                <option value="schedule">予定でグループ</option>
+                <option value="theme">Themeでグループ</option>
+              </select>
+            </>
+          )}
         </div>
-        {selectedVisibleRows.length > 0 && (
+        {layout === "list" && selectedVisibleRows.length > 0 && (
           <div className="todo-bulk-bar" aria-label="選択したタスクの一括操作">
             <strong>{selectedVisibleRows.length}件を選択</strong>
             <ThemePickerSelect
@@ -831,7 +844,15 @@ export function TodoPage({
         )}
         {layout === "board" ? (
           <TaskBoard
-            rows={visible}
+            rows={boardRows}
+            allRows={taskRows}
+            themes={themes}
+            defaultThemeId={
+              taskFilters.themeId === "all"
+                ? PERSONAL_DEFAULT_THEME_ID
+                : canonicalThemeId(taskFilters.themeId, { defaultPersonal: true })!
+            }
+            repositoryContexts={data.repository_contexts || []}
             proposals={domain.ai_proposals}
             receipts={data.work_receipts}
             saveEntities={saveEntities}
@@ -876,7 +897,7 @@ export function TodoPage({
             ))}
           </div>
         )}
-        {!visible.length && (
+        {layout === "list" && !visible.length && (
           <EmptyState
             title="該当するタスクはありません"
             action="タスクを追加"

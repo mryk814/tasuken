@@ -498,6 +498,12 @@ export function validateEntity(type, input) {
   if (type === "task") {
     if (!taskStates.has(input.state)) throw new Error("task.stateが不正です。");
     if (
+      input.board_order !== undefined &&
+      (!Number.isSafeInteger(input.board_order) || input.board_order < 0)
+    ) {
+      throw new Error("task.board_orderは0以上の安全な整数で指定してください。");
+    }
+    if (
       input.priority != null &&
       input.priority !== "" &&
       !["normal", "high"].includes(input.priority)

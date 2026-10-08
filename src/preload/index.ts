@@ -7,6 +7,10 @@ import { createTaskPreloadCapability } from "./capabilities/task";
 type Unsubscribe = () => void;
 
 const api: ResearchDeskApi = {
+  agentLauncher: {
+    clients: () => ipcRenderer.invoke(IPC.agentLaunchClients),
+    launch: (request) => ipcRenderer.invoke(IPC.agentLaunch, request),
+  },
   openTaskCapture: (mode) => ipcRenderer.invoke(IPC.quickCaptureOpenTask, mode),
   captureOrganizer: {
     openSaved: (captureId, version) =>
@@ -359,7 +363,7 @@ const api: ResearchDeskApi = {
   },
 };
 
-const { mobileGateway: _mobileGateway, ...legacyResearchDesk } = api;
+const { mobileGateway: _mobileGateway, agentLauncher: _agentLauncher, ...legacyResearchDesk } = api;
 
 contextBridge.exposeInMainWorld("api", api);
 contextBridge.exposeInMainWorld("researchDesk", legacyResearchDesk);

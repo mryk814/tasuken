@@ -6,7 +6,8 @@ import { getScheduleKind, type ScheduleKind } from "../domain-model/scheduleSema
 export type TaskViewTab = "open" | "today" | "overdue" | "no-schedule" | "done";
 export type TaskViewSchedule = "" | "scheduled" | "no-schedule" | "overdue" | "this-week" | "today";
 export type TaskViewPriority = "" | "high" | "normal";
-export type TaskViewRangeSemantics = "" | Extract<ScheduleKind, "execution_window" | "ongoing_period" | "unspecified_range">;
+export type TaskViewRangeSemantics =
+  "" | Extract<ScheduleKind, "execution_window" | "ongoing_period" | "unspecified_range">;
 
 export interface TodoRow {
   task: Task;
@@ -29,9 +30,21 @@ export interface SavedTaskView {
 }
 
 const TASK_VIEW_TABS = new Set(["open", "today", "overdue", "no-schedule", "done"]);
-const TASK_VIEW_SCHEDULES = new Set(["", "scheduled", "no-schedule", "overdue", "this-week", "today"]);
+const TASK_VIEW_SCHEDULES = new Set([
+  "",
+  "scheduled",
+  "no-schedule",
+  "overdue",
+  "this-week",
+  "today",
+]);
 const TASK_VIEW_PRIORITIES = new Set(["", "high", "normal"]);
-const TASK_VIEW_RANGE_SEMANTICS = new Set(["", "execution_window", "ongoing_period", "unspecified_range"]);
+const TASK_VIEW_RANGE_SEMANTICS = new Set([
+  "",
+  "execution_window",
+  "ongoing_period",
+  "unspecified_range",
+]);
 const TASK_STATES = new Set(["", "todo", "doing", "waiting", "review", "done", "cancelled"]);
 
 export const DEFAULT_TASK_VIEW_FILTERS: TaskViewFilters = {
@@ -52,7 +65,10 @@ function isDoneRow(row: TodoRow): boolean {
 }
 
 export function normalizeTaskViewFilters(value: unknown): TaskViewFilters {
-  const raw = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const raw =
+    value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
   const tab = text(raw.tab);
   const priority = text(raw.priority);
   const schedule = text(raw.schedule);
@@ -65,7 +81,9 @@ export function normalizeTaskViewFilters(value: unknown): TaskViewFilters {
     state: TASK_STATES.has(state) ? state : "",
     priority: (TASK_VIEW_PRIORITIES.has(priority) ? priority : "") as TaskViewPriority,
     schedule: (TASK_VIEW_SCHEDULES.has(schedule) ? schedule : "") as TaskViewSchedule,
-    rangeSemantics: (TASK_VIEW_RANGE_SEMANTICS.has(rangeSemantics) ? rangeSemantics : "") as TaskViewRangeSemantics,
+    rangeSemantics: (TASK_VIEW_RANGE_SEMANTICS.has(rangeSemantics)
+      ? rangeSemantics
+      : "") as TaskViewRangeSemantics,
   };
 }
 
@@ -82,7 +100,11 @@ export function isTaskSavedView(record: Record<string, unknown>): boolean {
   return text(record.view_type) === "task" || text(record.scope) === "task";
 }
 
-export function filterTodoRows(rows: TodoRow[], filters: Partial<TaskViewFilters>, today: string): TodoRow[] {
+export function filterTodoRows(
+  rows: TodoRow[],
+  filters: Partial<TaskViewFilters>,
+  today: string,
+): TodoRow[] {
   const normalized = normalizeTaskViewFilters(filters);
   const weekEnd = addDays(today, 6);
   return rows.filter((row) => {
@@ -101,13 +123,28 @@ export function filterTodoRows(rows: TodoRow[], filters: Partial<TaskViewFilters
     if (normalized.schedule === "scheduled" && !date) return false;
     if (normalized.schedule === "no-schedule" && date) return false;
     if (normalized.schedule === "overdue" && (!date || date >= today)) return false;
-    if (normalized.schedule === "this-week" && (!date || date < today || date > weekEnd)) return false;
+    if (normalized.schedule === "this-week" && (!date || date < today || date > weekEnd))
+      return false;
     if (normalized.schedule === "today" && !isTodayRow(row, today)) return false;
-    if (normalized.rangeSemantics && getScheduleKind(row.schedule) !== normalized.rangeSemantics) return false;
+    if (normalized.rangeSemantics && getScheduleKind(row.schedule) !== normalized.rangeSemantics)
+      return false;
     return true;
   });
 }
 
 export function countTodoRowsForView(view: SavedTaskView, rows: TodoRow[], today: string): number {
   return filterTodoRows(rows, view.filters, today).length;
+}
+
+/** ボードの工程列は一覧のタブ・状態条件から独立させる。保存済みの一覧条件は変更しない。 */
+export function filterTaskBoardRows(
+  rows: TodoRow[],
+  filters: Partial<TaskViewFilters>,
+  today: string,
+): TodoRow[] {
+  const sharedFilters = { ...filters, state: "", priority: "" as const };
+  return [
+    ...filterTodoRows(rows, { ...sharedFilters, tab: "open" }, today),
+    ...filterTodoRows(rows, { ...sharedFilters, tab: "done" }, today),
+  ];
 }

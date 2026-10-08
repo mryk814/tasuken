@@ -42,6 +42,7 @@
       "classification": "platform",
       "owner": "platform-architecture",
       "files": [
+        "src/shared/agentLaunch.ts",
         "src/shared/ai.ts",
         "src/shared/attachments.ts",
         "src/shared/batchTranscriptionIpc.ts",

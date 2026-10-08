@@ -1,4 +1,6 @@
-import { BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { getTaskAgentClients } from "../services/taskAgentProcess";
+import { launchAgent } from "../services/agentLaunchService";
 
 import { IPC } from "../../shared/ipc/contracts";
 import { entityTypes, type Entity, type EntityType } from "../../shared/types/workspace";
@@ -427,6 +429,13 @@ export function registerIpc(
     service.readFilePreview(requireText(filePath, "プレビューするファイル")),
   );
   ipcMain.handle(IPC.dialogChooseDirectory, (_event, title) => service.chooseDirectory(title));
+  ipcMain.handle(IPC.agentLaunchClients, () => getTaskAgentClients());
+  ipcMain.handle(IPC.agentLaunch, async (_event, request) => {
+    const bridge = await service.getMcpBridgeInfo();
+    if (bridge.coreStatus === "unavailable")
+      throw new Error("Tasken MCPへ接続できません。接続設定を確認してください。");
+    await launchAgent(request, repository, bridge.configJson, app.getPath("userData"));
+  });
   ipcMain.handle(IPC.dialogChooseFiles, (_event, title) => service.chooseFiles(title));
   ipcMain.handle(IPC.markdownImageSave, (_event, request) =>
     service.saveMarkdownImageAttachment(request),

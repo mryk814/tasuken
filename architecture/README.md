@@ -20,6 +20,12 @@ findings remain report-only.
   limits.
 - `capability-baseline.json`: exact properties exposed to each Preload global,
   so a satellite window cannot silently inherit another surface.
+  The reviewed `api.agentLauncher` capability exposes Windows CLI discovery and
+  explicit Task handoff from the main desktop renderer. Main validates the Task
+  version, AI visibility, ready state, canonical work-attempt UUID, and selected
+  directory before starting a process. It does not expose an arbitrary command,
+  change CLI permissions, or mark work as started. This capability is excluded
+  from the legacy `researchDesk` global and satellite preloads.
 - `violations-baseline.json`: fingerprints of Phase 0 findings, used to label
   later findings as baseline or new candidates.
 - `generated-sources.json`: generated/vendor provenance and regeneration

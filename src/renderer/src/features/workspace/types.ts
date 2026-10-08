@@ -374,6 +374,7 @@ export type SaveEntities = (
   operations: SaveOperation[],
   successMessage?: string,
   source?: ApplicationCommandSource,
+  options?: { copyAiRequest?: boolean },
 ) => Promise<Entity[]>;
 
 export type RemoveEntity = (type: EntityType, entity: DrawerEntity) => Promise<void>;

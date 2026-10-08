@@ -25,6 +25,7 @@
       "global": "api",
       "properties": [
         "activity",
+        "agentLauncher",
         "agentWorkLogs",
         "ai",
         "aiContext",

@@ -35,6 +35,12 @@ test("新規AI Readyの正式保存後に共通依頼文をコピーする", asy
     "tasken.report_task_done",
     "tasken.report_task_blocked",
     "人がAgent Deskで採用",
+    "実際に検証した再利用可能な発見",
+    "tasken.propose_feed_post",
+    "技術記事草稿",
+    "新しい発見がなければ投稿しない",
+    "秘密情報",
+    "依頼外",
   ]) {
     assert.ok(copied[0].includes(text), text);
   }
@@ -84,7 +90,7 @@ test("保存経路はcommand成功後にコピーし、失敗した保存から�
     save.indexOf("await workspaceApi.executeCommands(envelopes)") <
       save.indexOf("await copyNewAiReadyRequests("),
   );
-  assert.match(save, /receipt\.changes\.filter\(\(change\) => change\.type === "task"\)/);
+  assert.match(save, /receipt\.changes\s*\.filter\(\(change\) => change\.type === "task"\)/);
   assert.match(
     save,
     /setToast\(aiRequestCopy\?\.message \|\| successMessage, aiRequestCopy\?\.tone \|\| "success"\)/,
