@@ -1,9 +1,15 @@
+import { getScheduleKind, isScheduleDueOn } from "../../../../../shared/scheduleSemantics.mjs";
+
 export function scheduledDate(schedule) {
   return String(schedule?.end_date || schedule?.start_date || "");
 }
 
 export function isTodayRow(row, today) {
-  return row.task?.today_date === today || row.schedule?.start_date === today || row.schedule?.end_date === today;
+  return (
+    row.task?.state !== "cancelled" &&
+    (row.task?.today_date === today ||
+      (getScheduleKind(row.schedule) !== "ongoing_period" && isScheduleDueOn(row.schedule, today)))
+  );
 }
 
 export function compareTodoRows(today) {

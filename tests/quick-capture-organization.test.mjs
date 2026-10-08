@@ -7,6 +7,32 @@ import {
   createQuickCaptureOrganizationFixture as fixture,
 } from "./helpers/quick-capture-organization.mjs";
 
+test("Memo shortcut defaults to a direct Feed post without an untriaged Capture", () => {
+  const f = fixture();
+  f.controller.show();
+  assert.equal(f.messages.at(-1)[1], "feed");
+  f.call("save", "  # 実験の気づき\n条件を確認した  ", undefined, "research");
+  assert.equal(f.saves.length, 1);
+  const [type, post, metadata] = f.saves[0];
+  assert.equal(type, "feed_post");
+  assert.equal(post.title, "実験の気づき");
+  assert.equal(post.body_markdown, "# 実験の気づき\n条件を確認した");
+  assert.equal(post.project_id, "research");
+  assert.equal(post.origin_note_id, null);
+  assert.equal(metadata.source, "quick-capture");
+  assert.equal(f.commands.length, 0);
+});
+
+test("Feed capture command opens the same posting window and rejects other senders", () => {
+  const f = fixture(undefined, undefined, { isMainSender: (id) => id === 19 });
+  f.call("open-task", "feed");
+  assert.equal(f.messages.at(-1)[1], "feed");
+  assert.throws(() => f.handlers.get("quick-capture:open-task")({ sender: { id: 99 } }, "feed"));
+  assert.throws(() => f.call("open-task", "inbox"));
+  f.call("open-task");
+  assert.equal(f.messages.at(-1)[1], "today-task");
+});
+
 test("Desktop hiding signals pending organization cancellation without saving", () => {
   const f = fixture();
   f.call("hide");
@@ -123,9 +149,9 @@ test("Desktop preview keeps transcript-wide date warnings", async () => {
   assert.deepEqual(result.warnings, ["日付と曜日が一致しません"]);
 });
 
-test("Desktop plain Inbox stays a raw Capture and a dateless organized Task stays unscheduled", () => {
+test("Desktop sticky memo stays a raw Capture and a dateless organized Task stays unscheduled", () => {
   const f = fixture();
-  f.call("save", "メモをそのまま残す", "inbox");
+  f.call("save", "メモをそのまま残す", "micro-memo");
   assert.equal(f.commands.length, 0);
   assert.equal(f.saves[0][0], "capture_entry");
   f.call(

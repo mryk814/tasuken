@@ -373,24 +373,12 @@ export function TodoPage({
     );
   }
 
-  async function toggleToday(task: Task, schedule: Schedule | undefined) {
+  async function toggleToday(task: Task) {
     if (task.today_date === today) {
       await saveEntities(
         buildSaveTaskOperations({ ...task, today_date: null }),
         "今日の予定から外しました。",
       );
-    } else if (!schedule) {
-      await saveEntities(
-        buildSaveTaskOperations({ ...task, today_date: today }),
-        "今日の予定に追加しました。",
-      );
-    } else if (schedule.start_date === today || schedule.end_date === today) {
-      const next: Schedule = {
-        ...schedule,
-        start_date: schedule.start_date === today ? null : schedule.start_date,
-        end_date: schedule.end_date === today ? null : schedule.end_date,
-      };
-      await saveEntities(buildSaveScheduleOperations(next), "今日の予定から外しました。");
     } else {
       await saveEntities(
         buildSaveTaskOperations({ ...task, today_date: today }),
@@ -460,6 +448,7 @@ export function TodoPage({
     );
     const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
     const done = task.state === "done" || task.state === "cancelled";
+    const selectedToday = task.today_date === today;
     const workState =
       task.work_state ||
       (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
@@ -539,23 +528,15 @@ export function TodoPage({
             {aiWorking ? <IconLoader2 size={16} /> : <AI_ICON size={16} />}
           </button>
           <button
-            className={`today-plan-button ${isTodayRow({ task, schedule }, today) ? "is-active" : ""}`}
+            className={`today-plan-button ${selectedToday ? "is-active" : ""}`}
             onClick={(event) => {
               event.stopPropagation();
-              toggleToday(task, schedule);
+              toggleToday(task);
             }}
-            aria-label={
-              isTodayRow({ task, schedule }, today) ? "今日の予定から外す" : "今日の予定に追加"
-            }
-            title={
-              isTodayRow({ task, schedule }, today) ? "今日の予定から外す" : "今日の予定に追加"
-            }
+            aria-label={selectedToday ? "今日の予定から外す" : "今日の予定に追加"}
+            title={selectedToday ? "今日の予定から外す" : "今日の予定に追加"}
           >
-            {isTodayRow({ task, schedule }, today) ? (
-              <IconCalendarCheck size={16} />
-            ) : (
-              <IconCalendarPlus size={16} />
-            )}
+            {selectedToday ? <IconCalendarCheck size={16} /> : <IconCalendarPlus size={16} />}
           </button>
           <button
             className="todo-copy-button"
