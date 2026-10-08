@@ -6,7 +6,7 @@ import {
 } from "../src/main/services/taskAgentProcess.ts";
 import { validateAgentLaunchTask } from "../src/shared/agentLaunch.ts";
 import { launchAgent } from "../src/main/services/agentLaunchService.ts";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
@@ -58,7 +58,8 @@ test(
         .split("\n")
         .slice(0, -1)
         .map((value) => Buffer.from(value, "base64").toString("utf8"));
-      assert.deepEqual(actual, [cwd, ...args]);
+      // Windows expands a TEMP path such as RUNNER~1 to its long directory name.
+      assert.deepEqual(actual, [await realpath(cwd), ...args]);
     } finally {
       // The benign fixture is the only child created here; let it finish before cleanup.
       await new Promise((resolve) => setTimeout(resolve, 1100));
