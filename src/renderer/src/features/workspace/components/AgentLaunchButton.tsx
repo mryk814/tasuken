@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { IconRobot } from "@tabler/icons-react";
+import { AI_ICON } from "../../../pages/semanticIcons";
 import type { AgentLaunchClient, TaskAgentClientId } from "../../../../../shared/agentLaunch";
 import { normalizeLocalRepositoryPath } from "../../../../../shared/repositoryContext.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
@@ -172,7 +172,7 @@ export function AgentLaunchButton({
           setOpen(true);
         }}
       >
-        <IconRobot size={16} aria-hidden="true" />
+        <AI_ICON size={16} aria-hidden="true" />
         AIに渡す
       </Button>
       {open

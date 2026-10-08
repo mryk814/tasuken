@@ -12,10 +12,10 @@ import {
   IconFlag,
   IconGripVertical,
   IconPlus,
-  IconRobot,
   IconUser,
   IconX,
 } from "@tabler/icons-react";
+import { AI_ICON } from "../../../pages/semanticIcons";
 import type { Task, Schedule } from "../domain-model/types";
 import type { BaseRecord, SaveEntities, Theme } from "../types";
 import { TASK_STATE_LABELS } from "../domain-model/labels";
@@ -414,7 +414,7 @@ export function TaskBoard({
                               title={nextTurn}
                             >
                               {ai ? (
-                                <IconRobot size={14} aria-hidden="true" />
+                                <AI_ICON size={14} aria-hidden="true" />
                               ) : (
                                 <IconUser size={14} aria-hidden="true" />
                               )}
