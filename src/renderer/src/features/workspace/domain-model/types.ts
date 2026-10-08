@@ -208,6 +208,8 @@ export interface Task extends AiMetadata {
   handoff_context_ref?: string | null;
   handoff_requested_at?: string | null;
   priority: "normal" | "high";
+  /** カンバン列内の手動順序。未設定のTaskは作成日時・IDの安定順で末尾に表示する。 */
+  board_order?: number;
   /** ユーザーが今日やると選んだ日。Scheduleの期限とは別に保持する。 */
   today_date?: string | null;
   planning_shelf?: TaskShelf | null;

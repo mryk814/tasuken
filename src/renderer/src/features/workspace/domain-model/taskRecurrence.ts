@@ -128,6 +128,7 @@ export function buildCompleteTaskOperations(
     ...task,
     id: nextTaskId,
     state: "todo",
+    board_order: undefined,
     completed_at: null,
     // 前回の完了時のひとことは次回へ持ち越さない（#308）。
     completion_note: null,

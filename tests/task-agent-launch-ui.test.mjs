@@ -38,7 +38,7 @@ test("TodayとToDoはAI作業中を回転アイコンで表示する", () => {
   assert.match(styles, /\.priority-flag-button\.is-working svg[\s\S]*animation: spin/);
 });
 
-test("Desktopは依頼文コピーを残し、直接AIを起動する導線を持たない", () => {
+test("Taskドロワーは既存の依頼文コピーを残し、起動操作をカンバンへ分ける", () => {
   assert.match(drawer, /依頼文をコピー/);
   assert.match(drawer, /workspaceApi\.copyText\(buildTaskAiRequest\(\[task\]\)\)/);
   assert.doesNotMatch(drawer, /AIを起動して渡す/);

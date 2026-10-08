@@ -35,6 +35,9 @@ const electronMockPlugin = {
           getAllDisplays: () => [{ workArea: { x: 0, y: 0, width: 800, height: 600 } }],
         };
         export const ipcMain = { handle: () => {} };
+        export const app = {
+          getPath: () => { throw new Error("Satellite state tests must not launch an external CLI."); },
+        };
         export const dialog = { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) };
         export class BrowserWindow {
           constructor(options = {}) {

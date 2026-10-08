@@ -166,6 +166,8 @@ export const IPC = {
   filePathExists: "file:path-exists",
   fileReadPreview: "file:read-preview",
   dialogChooseDirectory: "dialog:choose-directory",
+  agentLaunchClients: "agent-launch:clients",
+  agentLaunch: "agent-launch:launch",
   dialogChooseFiles: "dialog:choose-files",
   markdownImageSave: "markdown-image:save",
   artifactFilesImport: "artifact:files-import",
@@ -765,6 +767,10 @@ export type FeedLinkPreviewResult =
   { ok: true; preview: FeedLinkPreview } | { ok: false; reason: string };
 
 export interface ResearchDeskApi {
+  agentLauncher: {
+    clients(): Promise<import("../agentLaunch").AgentLaunchClient[]>;
+    launch(request: import("../agentLaunch").AgentLaunchRequest): Promise<void>;
+  };
   openTaskCapture(mode?: "today-task" | "feed"): Promise<void>;
   captureOrganizer: {
     openSaved(captureId: string, version: number): Promise<void>;

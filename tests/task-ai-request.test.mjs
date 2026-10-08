@@ -84,7 +84,7 @@ test("保存経路はcommand成功後にコピーし、失敗した保存から�
     save.indexOf("await workspaceApi.executeCommands(envelopes)") <
       save.indexOf("await copyNewAiReadyRequests("),
   );
-  assert.match(save, /receipt\.changes\.filter\(\(change\) => change\.type === "task"\)/);
+  assert.match(save, /receipt\.changes\s*\.filter\(\(change\) => change\.type === "task"\)/);
   assert.match(
     save,
     /setToast\(aiRequestCopy\?\.message \|\| successMessage, aiRequestCopy\?\.tone \|\| "success"\)/,

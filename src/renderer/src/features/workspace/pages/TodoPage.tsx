@@ -198,6 +198,10 @@ export function TodoPage({
     [currentFilters, filter, sortDirection, sortMode, taskRows, themes, today],
   );
   const visibleTaskCount = visible.length;
+  const boardRows =
+    filter === "open"
+      ? [...visible, ...filterTodoRows(taskRows, { ...currentFilters, tab: "done" }, today)]
+      : visible;
   const [renderedTaskCount, setRenderedTaskCount] = useState(INITIAL_RENDERED_TASKS);
   useEffect(() => {
     if (visibleTaskCount <= INITIAL_RENDERED_TASKS) return undefined;
@@ -780,32 +784,38 @@ export function TodoPage({
             <option value="ongoing_period">期間中継続</option>
             <option value="unspecified_range">期間未分類</option>
           </select>
-          <select
-            value={sortMode}
-            onChange={(event) => setSortMode(event.target.value as TodoSortMode)}
-            aria-label="並び替え"
-          >
-            <option value="default">並び替え: {filter === "done" ? "完了日" : "予定終了日"}</option>
-            <option value="theme">並び替え: Theme順</option>
-            <option value="title">並び替え: 名前順</option>
-          </select>
-          <select
-            value={sortDirection}
-            onChange={(event) => setSortDirection(event.target.value as TodoSortDirection)}
-            aria-label="並び順の向き"
-          >
-            <option value="desc">降順（新しい順）</option>
-            <option value="asc">昇順（古い順）</option>
-          </select>
-          <select
-            value={groupMode}
-            onChange={(event) => setGroupMode(event.target.value as TodoGroupMode)}
-            aria-label="グループ"
-          >
-            <option value="none">グループなし</option>
-            <option value="schedule">予定でグループ</option>
-            <option value="theme">Themeでグループ</option>
-          </select>
+          {layout === "list" && (
+            <>
+              <select
+                value={sortMode}
+                onChange={(event) => setSortMode(event.target.value as TodoSortMode)}
+                aria-label="並び替え"
+              >
+                <option value="default">
+                  並び替え: {filter === "done" ? "完了日" : "予定終了日"}
+                </option>
+                <option value="theme">並び替え: Theme順</option>
+                <option value="title">並び替え: 名前順</option>
+              </select>
+              <select
+                value={sortDirection}
+                onChange={(event) => setSortDirection(event.target.value as TodoSortDirection)}
+                aria-label="並び順の向き"
+              >
+                <option value="desc">降順（新しい順）</option>
+                <option value="asc">昇順（古い順）</option>
+              </select>
+              <select
+                value={groupMode}
+                onChange={(event) => setGroupMode(event.target.value as TodoGroupMode)}
+                aria-label="グループ"
+              >
+                <option value="none">グループなし</option>
+                <option value="schedule">予定でグループ</option>
+                <option value="theme">Themeでグループ</option>
+              </select>
+            </>
+          )}
         </div>
         {selectedVisibleRows.length > 0 && (
           <div className="todo-bulk-bar" aria-label="選択したタスクの一括操作">
@@ -831,7 +841,15 @@ export function TodoPage({
         )}
         {layout === "board" ? (
           <TaskBoard
-            rows={visible}
+            rows={boardRows}
+            allRows={taskRows}
+            themes={themes}
+            defaultThemeId={
+              taskFilters.themeId === "all"
+                ? PERSONAL_DEFAULT_THEME_ID
+                : canonicalThemeId(taskFilters.themeId, { defaultPersonal: true })!
+            }
+            showTerminal={filter === "done"}
             proposals={domain.ai_proposals}
             receipts={data.work_receipts}
             saveEntities={saveEntities}

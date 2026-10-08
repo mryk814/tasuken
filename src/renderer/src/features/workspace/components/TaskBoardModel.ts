@@ -2,7 +2,62 @@ import {
   deriveAgentWorkState,
   type AgentWorkReadModel,
 } from "../../../../../shared/contracts/task/public.ts";
-import type { Task } from "../domain-model/types";
+import type { Schedule, Task } from "../domain-model/types";
+
+export type BoardRow = { task: Task; schedule?: Schedule };
+
+/** 手動順序のない既存Taskも、一覧のソート設定に左右されない安定順で扱う。 */
+export function sortBoardRows(rows: readonly BoardRow[]): BoardRow[] {
+  return [...rows].sort(({ task: left }, { task: right }) => {
+    const rank = (task: Task) => task.board_order ?? Number.MAX_SAFE_INTEGER;
+    return (
+      rank(left) - rank(right) ||
+      String(left.created_at || "").localeCompare(String(right.created_at || "")) ||
+      left.id.localeCompare(right.id)
+    );
+  });
+}
+
+/** 全Taskから移動先を求める。絞り込みで隠れたTaskの相対順を失わない。 */
+export function moveBoardTask(
+  rows: readonly BoardRow[],
+  taskId: string,
+  state: Task["state"],
+  beforeId?: string,
+): Task[] {
+  const task = rows.find((row) => row.task.id === taskId)?.task;
+  if (!task) throw new Error("移動するタスクが見つかりません。");
+  if (
+    state === "done" &&
+    task.state !== "done" &&
+    task.intended_executor === "ai_agent" &&
+    task.work_state !== "accepted"
+  ) {
+    throw new Error("AIの報告を採用してから完了にしてください。");
+  }
+  if (beforeId === taskId) return [];
+  const column = sortBoardRows(rows.filter((row) => row.task.state === state)).map(
+    (row) => row.task,
+  );
+  const destination = column.filter((item) => item.id !== taskId);
+  const index = beforeId
+    ? destination.findIndex((item) => item.id === beforeId)
+    : destination.length;
+  if (index < 0) throw new Error("移動先が変わりました。もう一度操作してください。");
+  destination.splice(
+    index,
+    0,
+    task.state === state ? task : { ...task, state, completed_at: null },
+  );
+  if (
+    column.length === destination.length &&
+    column.every((item, index) => item.id === destination[index].id)
+  )
+    return [];
+  return destination.flatMap((item, board_order) =>
+    item.board_order === board_order && item.id !== taskId ? [] : [{ ...item, board_order }],
+  );
+}
 
 export const AGENT_TURN_LABELS: Record<AgentWorkReadModel["state"], string> = {
   not_delegated: "次: 自分",

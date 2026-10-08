@@ -1259,6 +1259,7 @@ export function WorkspaceApp() {
     operations,
     successMessage = "変更を保存しました。",
     source: ApplicationCommandSource = drawer?.commandSource || "main_ui",
+    options = {},
   ) => {
     try {
       // Taskの書き込みは、画面・Today・Inbox・補助windowを問わず同じ
@@ -1593,13 +1594,18 @@ export function WorkspaceApp() {
       }
       if (!taskOperations.length && remaining.length)
         saved = [...saved, ...(await saveWorkspaceEntities(remaining))];
-      const aiRequestCopy = await copyNewAiReadyRequests(
-        fullDomain.tasks,
-        receipts.flatMap((receipt) =>
-          receipt.changes.filter((change) => change.type === "task").map(({ entity }) => entity),
-        ),
-        (text) => workspaceApi.copyText(text),
-      );
+      const aiRequestCopy =
+        options.copyAiRequest === false
+          ? null
+          : await copyNewAiReadyRequests(
+              fullDomain.tasks,
+              receipts.flatMap((receipt) =>
+                receipt.changes
+                  .filter((change) => change.type === "task")
+                  .map(({ entity }) => entity),
+              ),
+              (text) => workspaceApi.copyText(text),
+            );
       setToast(aiRequestCopy?.message || successMessage, aiRequestCopy?.tone || "success");
       return saved;
     } catch (error) {

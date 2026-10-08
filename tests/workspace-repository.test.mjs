@@ -8,6 +8,7 @@ import test from "node:test";
 import { build } from "esbuild";
 
 import { createSnapshot, readSnapshot } from "../src/main/services/snapshotService.mjs";
+import { SharedFolderSyncService } from "../src/main/services/sharedFolderSync.mjs";
 import { validateEntity } from "../src/main/repositories/domain.mjs";
 import {
   WorkspaceDatabase,
@@ -41,6 +42,53 @@ function item(overrides = {}) {
     ...overrides,
   };
 }
+
+test("board order persists through SQLite restart, snapshot import/export, delete/restore and shared-folder sync", async () => {
+  const task = (extra = {}) => ({
+    id: "board-task",
+    title: "Ordered task",
+    state: "todo",
+    priority: "normal",
+    ...extra,
+  });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-board-order-"));
+  const filename = path.join(root, "first.sqlite");
+  let first = new WorkspaceDatabase(filename);
+  const second = new WorkspaceDatabase(path.join(root, "second.sqlite"));
+  const imported = new WorkspaceDatabase(path.join(root, "imported.sqlite"));
+  try {
+    first.save("task", task({ board_order: 3 }));
+    first.save("task", task({ id: "old-task" }));
+    first.db.close();
+    first = new WorkspaceDatabase(filename);
+    assert.equal(first.get("task", "board-task").board_order, 3);
+    assert.equal(first.get("task", "old-task").board_order, undefined);
+    const snapshotPath = path.join(root, "snapshot.zip");
+    createSnapshot(first.loadWorkspace()).writeZip(snapshotPath);
+    const { workspace } = readSnapshot(snapshotPath);
+    imported.previewSnapshot(workspace);
+    imported.applySnapshot(workspace);
+    assert.equal(imported.get("task", "board-task").board_order, 3);
+    imported.remove("task", "board-task");
+    imported.restore("task", "board-task");
+    assert.equal(imported.get("task", "board-task").board_order, 3);
+
+    const firstSync = new SharedFolderSyncService(first, () => {}, path.join(root, "a-images"));
+    const secondSync = new SharedFolderSyncService(second, () => {}, path.join(root, "b-images"));
+    const shared = path.join(root, "shared");
+    await firstSync.configure(shared);
+    await secondSync.configure(shared);
+    assert.equal(second.get("task", "board-task").board_order, 3);
+    second.save("task", { ...second.get("task", "board-task"), board_order: 0, state: "doing" });
+    await secondSync.syncNow();
+    await firstSync.syncNow();
+    assert.equal(first.get("task", "board-task").board_order, 0);
+    assert.equal(first.get("task", "board-task").state, "doing");
+  } finally {
+    for (const database of [first, second, imported]) if (database.db.open) database.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("WorkingCopy and AgentSession survive canonical SQLite save and reload", () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-agent-session-"));

@@ -1,0 +1,39 @@
+.agent-launch-dialog {
+  margin: auto;
+  width: min(30rem, calc(100vw - var(--space-6)));
+  max-height: calc(100vh - var(--space-6));
+  overflow: auto;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+.agent-launch-dialog::backdrop {
+  background: color-mix(in srgb, var(--color-text) 35%, transparent);
+}
+.agent-launch-dialog h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.agent-launch-dialog label {
+  display: grid;
+  gap: var(--space-2);
+  margin-block: var(--space-3);
+}
+.agent-launch-title {
+  overflow-wrap: anywhere;
+}
+.agent-launch-note {
+  color: var(--color-text-secondary);
+}
+.agent-launch-error {
+  color: var(--color-danger);
+  overflow-wrap: anywhere;
+}
+.agent-launch-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}

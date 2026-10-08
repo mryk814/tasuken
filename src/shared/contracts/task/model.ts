@@ -232,6 +232,7 @@ const taskFields = {
   handoff_context_ref: optionalText(2000),
   handoff_requested_at: optionalTimestamp,
   priority: taskPrioritySchema,
+  board_order: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   today_date: localDateSchema.nullable().optional(),
   planning_shelf: taskShelfSchema.nullable().optional(),
   planned_start_time: z
