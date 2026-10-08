@@ -475,7 +475,7 @@ export function SketchPage({
           <span className="sketch-mode-badge">
             {canvasMode === "infinite" ? "Infinite" : "Page"}
           </span>
-          <span>{selectedTheme?.name || "Theme未設定"}</span>
+          <span className="sketch-header-theme">{selectedTheme?.name || "Theme未設定"}</span>
         </div>
         <div className="sketch-header-meta">
           {selected.origin_capture_id && <span>Ink Captureから</span>}

@@ -52,6 +52,7 @@ import {
   StatusBadge,
 } from "../components/common";
 import type { Schedule, Task } from "../domain-model/types";
+import { TASK_STATE_LABELS } from "../domain-model/labels";
 
 const REPORT_TYPE_LABELS: Record<string, string> = {
   weekly: "週報",
@@ -215,8 +216,14 @@ function TaskSectionBoard({
                       onClick={() => onOpenTask(task)}
                     >
                       <strong>{task.title}</strong>
-                      <span>
-                        {formatDate(schedulesMap.get(`task:${task.id}`)?.end_date)} / {task.state}
+                      <span className="task-section-row-meta">
+                        <span>
+                          {formatDate(schedulesMap.get(`task:${task.id}`)?.end_date) || "予定なし"}
+                        </span>
+                        <StatusBadge
+                          value={task.state}
+                          label={TASK_STATE_LABELS[task.state] || task.state}
+                        />
                       </span>
                     </button>
                   ))
@@ -1052,23 +1059,30 @@ export function ThemePage({
                 追加
               </Button>
             </div>
-            <TaskSectionBoard
-              groups={taskSectionGroups}
-              schedulesMap={schedulesMap}
-              collapsedSections={collapsedSections}
-              onToggleCollapse={toggleTaskSection}
-              onOpenTask={(task) =>
-                openDrawer({
-                  type: "task",
-                  entity: { ...task, _schedule: schedulesMap.get(`task:${task.id}`) } as Record<
-                    string,
-                    unknown
-                  >,
-                })
-              }
-              onRename={renameTaskSection}
-              onDelete={deleteTaskSection}
-            />
+            {/* 見出しが無いうちは上の一覧と同じ並びになるだけなので、二重に出さない。 */}
+            {taskSections.length === 0 ? (
+              <p className="field-help task-sections-hint">
+                見出しを作ると、このThemeのタスクを工程ごとに分けて並べられます。
+              </p>
+            ) : (
+              <TaskSectionBoard
+                groups={taskSectionGroups}
+                schedulesMap={schedulesMap}
+                collapsedSections={collapsedSections}
+                onToggleCollapse={toggleTaskSection}
+                onOpenTask={(task) =>
+                  openDrawer({
+                    type: "task",
+                    entity: { ...task, _schedule: schedulesMap.get(`task:${task.id}`) } as Record<
+                      string,
+                      unknown
+                    >,
+                  })
+                }
+                onRename={renameTaskSection}
+                onDelete={deleteTaskSection}
+              />
+            )}
           </section>
         </div>
       ) : null}
@@ -1129,7 +1143,11 @@ export function ThemePage({
                 })}
               </ul>
             ) : (
-              <EmptyState title="このThemeの投稿はまだありません。" />
+              <EmptyState
+                title="このThemeの投稿はまだありません。"
+                action="Feedで書く"
+                onAction={() => navigate("feed")}
+              />
             )}
           </section>
         </div>

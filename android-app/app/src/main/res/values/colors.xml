@@ -5,6 +5,8 @@
     <color name="tasken_widget_on_surface">#26201E</color>
     <color name="tasken_widget_on_surface_variant">#7C746E</color>
     <color name="tasken_widget_primary">#8A2F3B</color>
-    <color name="tasken_widget_primary_container">#FBF3F4</color>
+    <color name="tasken_widget_primary_container">#F5E3E5</color>
+    <color name="tasken_widget_on_primary">#FFFFFF</color>
+    <color name="tasken_widget_on_primary_container">#6E2530</color>
     <color name="tasken_launcher_background">#FFFFFF</color>
 </resources>

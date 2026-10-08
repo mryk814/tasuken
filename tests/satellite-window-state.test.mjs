@@ -624,9 +624,10 @@ test("Note編集ウィンドウはEditorを二重に実装せず本体と同じr
   assert.match(workspaceAppSource, /\{!detachedNoteId && \(\s*\n\s*<Sidebar/);
   // 中央のContextPaneは、幅を専有する面（Sketch編集とFeed）と切り離しウィンドウでは出さない。
   // Feedは投稿列と右スレッドで幅を使うため、右ペインを重ねない。
+  // Settingsは業務の文脈と無関係なので、右列を設定本文へ返す。
   assert.match(
     workspaceAppSource,
-    /route !== "sketch-editor" && route !== "feed" && !detachedNoteId \? \(/,
+    /route !== "sketch-editor" &&\s+route !== "feed" &&\s+route !== "settings" &&\s+!detachedNoteId \? \(/,
   );
   // 狭幅でも高さの制約を失わないよう、Sidebarを積む760px以下のblockフォールバックへ落とさない（#329）。
   assert.match(

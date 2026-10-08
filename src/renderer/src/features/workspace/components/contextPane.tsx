@@ -5,6 +5,7 @@ import type { WorkspaceDomain } from "../domain-model/types";
 import { THEME_STATUS_LABELS } from "../lib/domain";
 import { buildGlance, recordDate } from "../lib/glance";
 import { formatDate, str } from "../lib/format";
+import { compactNotesBodyPreview } from "../lib/notes";
 import { EmptyState, StatusBadge } from "./common";
 import { WAITING_STATE_LABELS } from "../domain-model/labels";
 
@@ -124,8 +125,10 @@ export function ContextPane({
                   value={entry.status}
                   label={THEME_STATUS_LABELS[entry.status ?? ""] || entry.status}
                 />
-                <strong>{entry.summary}</strong>
-                <small>{formatDate(entry.date)}</small>
+                <span>
+                  <strong>{entry.summary}</strong>
+                  <small>{formatDate(entry.date)}</small>
+                </span>
               </button>
             ))}
             {!recentUpdates.length && (
@@ -194,7 +197,8 @@ export function ContextPane({
                 <span>
                   <strong>{note.title}</strong>
                   <small>
-                    {str(note.body_markdown).slice(0, 84) || formatDate(recordDate(note))}
+                    {compactNotesBodyPreview(note.body_markdown, 84) ||
+                      formatDate(recordDate(note))}
                   </small>
                 </span>
               </button>

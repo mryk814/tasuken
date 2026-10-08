@@ -1,56 +1,64 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Todayウィジェット本体（中・大・横長で共通の形）。
+  見出しは「残り件数」を主役にし、件数と同期状態は1行の補足へまとめる。
+  追加だけを塗りの円にして、ホーム画面で最初に押す操作を1つに絞る。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/tasken_widget_background"
+    android:clipToOutline="true"
     android:orientation="vertical"
-    android:padding="4dp">
+    android:paddingStart="14dp"
+    android:paddingTop="10dp"
+    android:paddingEnd="10dp"
+    android:paddingBottom="4dp">
 
     <LinearLayout
         android:id="@+id/widget_header"
         android:layout_width="match_parent"
-        android:layout_height="44dp"
+        android:layout_height="wrap_content"
         android:gravity="center_vertical"
+        android:minHeight="44dp"
         android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/widget_open_today"
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:fontFamily="sans-serif-medium"
-            android:gravity="center_vertical"
-            android:includeFontPadding="false"
-            android:text="Today"
-            android:textColor="@color/tasken_widget_on_surface"
-            android:textSize="17sp" />
-
-        <TextView
-            android:id="@+id/widget_count"
+        <LinearLayout
             android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_marginStart="8dp"
+            android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:gravity="center_vertical"
-            android:includeFontPadding="false"
-            android:textColor="@color/tasken_widget_on_surface_variant"
-            android:textSize="11sp" />
+            android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/widget_status"
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:ellipsize="end"
-            android:gravity="center_vertical|end"
-            android:includeFontPadding="false"
-            android:maxLines="1"
-            android:text="読込中"
-            android:textColor="@color/tasken_widget_on_surface_variant"
-            android:textSize="11sp" />
+            <TextView
+                android:id="@+id/widget_open_today"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:fontFamily="sans-serif-medium"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="Today"
+                android:textColor="@color/tasken_widget_on_surface"
+                android:textSize="18sp" />
+
+            <TextView
+                android:id="@+id/widget_status"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:ellipsize="end"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:text="読込中"
+                android:textColor="@color/tasken_widget_on_surface_variant"
+                android:textSize="11sp" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/widget_ai"
             android:layout_width="wrap_content"
-            android:layout_height="32dp"
+            android:layout_height="28dp"
             android:layout_marginStart="6dp"
             android:background="@drawable/tasken_widget_ai_badge"
             android:fontFamily="sans-serif-medium"
@@ -60,41 +68,43 @@
             android:paddingStart="10dp"
             android:paddingEnd="10dp"
             android:text="AI"
-            android:textColor="@color/tasken_widget_surface"
+            android:textColor="@color/tasken_widget_on_primary_container"
             android:textSize="12sp"
             android:visibility="gone" />
 
         <ImageView
             android:id="@+id/widget_voice"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:layout_marginStart="6dp"
             android:background="@drawable/tasken_widget_action_background"
             android:contentDescription="音声で追加"
             android:padding="10dp"
             android:scaleType="centerInside"
             android:src="@drawable/ic_tabler_microphone"
-            android:tint="@color/tasken_widget_primary" />
+            android:tint="@color/tasken_widget_on_primary_container" />
 
         <ImageView
             android:id="@+id/widget_add"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:layout_marginStart="6dp"
-            android:background="@drawable/tasken_widget_action_background"
+            android:background="@drawable/tasken_widget_primary_action_background"
             android:contentDescription="Taskを追加"
-            android:padding="10dp"
+            android:padding="9dp"
             android:scaleType="centerInside"
             android:src="@drawable/ic_tabler_plus"
-            android:tint="@color/tasken_widget_primary" />
+            android:tint="@color/tasken_widget_on_primary" />
     </LinearLayout>
 
     <ProgressBar
         android:id="@+id/widget_progress"
         style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
-        android:layout_height="6dp"
-        android:layout_marginBottom="6dp"
+        android:layout_height="4dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="4dp"
+        android:layout_marginBottom="2dp"
         android:contentDescription="今日やることの進み具合"
         android:max="1"
         android:progress="0"
@@ -104,20 +114,24 @@
     <TextView
         android:id="@+id/widget_empty"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:gravity="center"
         android:includeFontPadding="false"
-        android:text="今日のタスクはありません"
+        android:lineSpacingExtra="4dp"
+        android:paddingBottom="6dp"
+        android:text="今日のタスクはありません\n＋から追加できます"
         android:textColor="@color/tasken_widget_on_surface_variant"
-        android:textSize="13sp"
-        android:visibility="gone" />
+        android:textSize="13sp" />
 
     <ListView
         android:id="@+id/widget_list"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:layout_marginTop="2dp"
         android:divider="@null"
         android:dividerHeight="0dp"
+        android:scrollbarStyle="outsideOverlay"
         android:scrollbars="vertical" />
 </LinearLayout>

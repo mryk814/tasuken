@@ -268,21 +268,6 @@ export function TaskFields({
           <textarea readOnly rows={3} value={str(entity._scheduleInstruction)} />
         </Field>
       )}
-      {onScheduleProposal && (
-        <div>
-          <button
-            type="button"
-            className="text-button"
-            disabled={scheduleProposalDisabled}
-            onClick={onScheduleProposal}
-          >
-            文章から日程を変更
-          </button>
-          {scheduleProposalDisabled && (
-            <p className="field-help">編集中の内容を保存してから日程変更案を確認できます。</p>
-          )}
-        </div>
-      )}
       <div className="form-grid">
         <Field label="予定時刻">
           <input
@@ -342,6 +327,22 @@ export function TaskFields({
             </label>
           ))}
         </fieldset>
+      )}
+      {/* 日程欄の直後に置き、何を変える操作かを位置で伝える。 */}
+      {onScheduleProposal && (
+        <div className="schedule-proposal-trigger">
+          <button
+            type="button"
+            className="text-button compact"
+            disabled={scheduleProposalDisabled}
+            onClick={onScheduleProposal}
+          >
+            文章から日程を変更
+          </button>
+          {scheduleProposalDisabled && (
+            <p className="field-help">編集中の内容を保存してから日程変更案を確認できます。</p>
+          )}
+        </div>
       )}
       <Field label="ひとこと / Context">
         <textarea

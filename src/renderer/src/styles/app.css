@@ -368,20 +368,27 @@ button:active {
   grid-template-columns: 64px minmax(0, 1fr) clamp(390px, 30vw, 460px);
 }
 
-/* Feedは内部に会話スロットを持つため、全体Context Paneを重ねない。 */
-.app-shell.is-feed-route {
+/*
+  Feedは内部に会話スロットを持つため、全体Context Paneを重ねない。
+  Settingsは業務の文脈と無関係なので、右列を設定本文へ返す。
+*/
+.app-shell.is-feed-route,
+.app-shell.is-settings-route {
   grid-template-columns: var(--sidebar-width, 220px) minmax(0, 1fr);
 }
 
-.app-shell.is-sidebar-collapsed.is-feed-route {
+.app-shell.is-sidebar-collapsed.is-feed-route,
+.app-shell.is-sidebar-collapsed.is-settings-route {
   grid-template-columns: 64px minmax(0, 1fr);
 }
 
-.app-shell.is-feed-route.has-drawer {
+.app-shell.is-feed-route.has-drawer,
+.app-shell.is-settings-route.has-drawer {
   grid-template-columns: var(--sidebar-width, 220px) minmax(0, 1fr) clamp(390px, 30vw, 460px);
 }
 
-.app-shell.is-sidebar-collapsed.is-feed-route.has-drawer {
+.app-shell.is-sidebar-collapsed.is-feed-route.has-drawer,
+.app-shell.is-sidebar-collapsed.is-settings-route.has-drawer {
   grid-template-columns: 64px minmax(0, 1fr) clamp(390px, 30vw, 460px);
 }
 .sidebar {
@@ -478,9 +485,15 @@ button:active {
   background: transparent;
   font-size: var(--text-xs);
 }
+/* 長いTheme名が2行になっても、点は1行目の高さに置く。 */
 .theme-nav > button {
+  align-items: flex-start;
   justify-content: flex-start;
+  padding-block: 6px;
   font-size: var(--text-sm);
+}
+.theme-nav > button .theme-dot {
+  margin-top: calc((1lh - 7px) / 2);
 }
 .theme-dot {
   width: 7px;
@@ -586,11 +599,13 @@ button:active {
 }
 .app-shell.is-sidebar-collapsed .theme-nav > button {
   justify-content: center;
+  align-items: center;
   padding-inline: var(--space-1);
 }
 .app-shell.is-sidebar-collapsed .theme-dot {
   width: 12px;
   height: 12px;
+  margin-top: 0;
 }
 .secondary-nav {
   margin-bottom: auto;
@@ -1059,12 +1074,14 @@ textarea:hover {
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  flex-shrink: 0;
   width: fit-content;
   padding: 2px var(--space-2);
   border: 1px solid;
   border-radius: var(--radius-pill);
   font-size: var(--text-xs);
   line-height: var(--lh-tight);
+  white-space: nowrap;
 }
 .status-badge-mark {
   font-weight: var(--weight-bold);
@@ -2310,17 +2327,17 @@ textarea:hover {
   background: var(--color-surface-muted);
 }
 .today-waiting-row.is-due-today {
-  background: color-mix(in srgb, var(--color-warning) 9%, var(--color-warning-bg));
+  background: color-mix(in srgb, var(--color-warning-bg) 50%, var(--color-surface));
 }
 .today-waiting-row.is-due-today:hover {
-  background: color-mix(in srgb, var(--color-warning) 13%, var(--color-warning-bg));
+  background: var(--color-warning-bg);
 }
 .today-waiting-row.is-overdue {
-  background: color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg));
+  background: color-mix(in srgb, var(--color-danger-bg) 50%, var(--color-surface));
   box-shadow: inset 3px 0 0 var(--color-danger);
 }
 .today-waiting-row.is-overdue:hover {
-  background: color-mix(in srgb, var(--color-danger) 14%, var(--color-danger-bg));
+  background: var(--color-danger-bg);
 }
 .today-waiting-theme-bar {
   align-self: stretch;
@@ -2657,23 +2674,18 @@ textarea:hover {
     color-mix(
         in srgb,
         var(--chip-color, var(--color-danger-bg)) 12%,
-        color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg))
+        color-mix(in srgb, var(--color-danger-bg) 50%, var(--color-surface))
       )
       0%,
-    color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg)) 42%
+    color-mix(in srgb, var(--color-danger-bg) 50%, var(--color-surface)) 42%
   );
   box-shadow: inset 3px 0 0 var(--color-danger);
 }
 .today-task-row.period-task-row.is-past-end:hover {
   background: linear-gradient(
     90deg,
-    color-mix(
-        in srgb,
-        var(--chip-color, var(--color-danger-bg)) 16%,
-        color-mix(in srgb, var(--color-danger) 14%, var(--color-danger-bg))
-      )
-      0%,
-    color-mix(in srgb, var(--color-danger) 14%, var(--color-danger-bg)) 42%
+    color-mix(in srgb, var(--chip-color, var(--color-danger-bg)) 16%, var(--color-danger-bg)) 0%,
+    var(--color-danger-bg) 42%
   );
 }
 /* 日付範囲の意味を選ぶラジオ（#309）。選択肢ごとに一行の補助説明を添える。 */
@@ -2712,22 +2724,17 @@ textarea:hover {
     color-mix(
         in srgb,
         var(--chip-color, var(--color-warning-bg)) 12%,
-        color-mix(in srgb, var(--color-warning) 9%, var(--color-warning-bg))
+        color-mix(in srgb, var(--color-warning-bg) 50%, var(--color-surface))
       )
       0%,
-    color-mix(in srgb, var(--color-warning) 9%, var(--color-warning-bg)) 42%
+    color-mix(in srgb, var(--color-warning-bg) 50%, var(--color-surface)) 42%
   );
 }
 .today-task-row.is-due-today:hover {
   background: linear-gradient(
     90deg,
-    color-mix(
-        in srgb,
-        var(--chip-color, var(--color-warning-bg)) 16%,
-        color-mix(in srgb, var(--color-warning) 13%, var(--color-warning-bg))
-      )
-      0%,
-    color-mix(in srgb, var(--color-warning) 13%, var(--color-warning-bg)) 42%
+    color-mix(in srgb, var(--chip-color, var(--color-warning-bg)) 16%, var(--color-warning-bg)) 0%,
+    var(--color-warning-bg) 42%
   );
 }
 .today-task-row.is-overdue {
@@ -2736,23 +2743,18 @@ textarea:hover {
     color-mix(
         in srgb,
         var(--chip-color, var(--color-danger-bg)) 12%,
-        color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg))
+        color-mix(in srgb, var(--color-danger-bg) 50%, var(--color-surface))
       )
       0%,
-    color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg)) 42%
+    color-mix(in srgb, var(--color-danger-bg) 50%, var(--color-surface)) 42%
   );
   box-shadow: inset 3px 0 0 var(--color-danger);
 }
 .today-task-row.is-overdue:hover {
   background: linear-gradient(
     90deg,
-    color-mix(
-        in srgb,
-        var(--chip-color, var(--color-danger-bg)) 16%,
-        color-mix(in srgb, var(--color-danger) 14%, var(--color-danger-bg))
-      )
-      0%,
-    color-mix(in srgb, var(--color-danger) 14%, var(--color-danger-bg)) 42%
+    color-mix(in srgb, var(--chip-color, var(--color-danger-bg)) 16%, var(--color-danger-bg)) 0%,
+    var(--color-danger-bg) 42%
   );
 }
 .execution-window-row.urgency-due_today {
@@ -2761,23 +2763,18 @@ textarea:hover {
     color-mix(
         in srgb,
         var(--chip-color, var(--color-warning-bg)) 12%,
-        color-mix(in srgb, var(--color-warning) 9%, var(--color-warning-bg))
+        color-mix(in srgb, var(--color-warning-bg) 50%, var(--color-surface))
       )
       0%,
-    color-mix(in srgb, var(--color-warning) 9%, var(--color-warning-bg)) 42%
+    color-mix(in srgb, var(--color-warning-bg) 50%, var(--color-surface)) 42%
   );
   box-shadow: inset 3px 0 0 var(--color-warning);
 }
 .execution-window-row.urgency-due_today:hover {
   background: linear-gradient(
     90deg,
-    color-mix(
-        in srgb,
-        var(--chip-color, var(--color-warning-bg)) 16%,
-        color-mix(in srgb, var(--color-warning) 13%, var(--color-warning-bg))
-      )
-      0%,
-    color-mix(in srgb, var(--color-warning) 13%, var(--color-warning-bg)) 42%
+    color-mix(in srgb, var(--chip-color, var(--color-warning-bg)) 16%, var(--color-warning-bg)) 0%,
+    var(--color-warning-bg) 42%
   );
 }
 .execution-window-row.urgency-overdue {
@@ -2786,23 +2783,18 @@ textarea:hover {
     color-mix(
         in srgb,
         var(--chip-color, var(--color-danger-bg)) 12%,
-        color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg))
+        color-mix(in srgb, var(--color-danger-bg) 50%, var(--color-surface))
       )
       0%,
-    color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg)) 42%
+    color-mix(in srgb, var(--color-danger-bg) 50%, var(--color-surface)) 42%
   );
   box-shadow: inset 3px 0 0 var(--color-danger);
 }
 .execution-window-row.urgency-overdue:hover {
   background: linear-gradient(
     90deg,
-    color-mix(
-        in srgb,
-        var(--chip-color, var(--color-danger-bg)) 16%,
-        color-mix(in srgb, var(--color-danger) 14%, var(--color-danger-bg))
-      )
-      0%,
-    color-mix(in srgb, var(--color-danger) 14%, var(--color-danger-bg)) 42%
+    color-mix(in srgb, var(--chip-color, var(--color-danger-bg)) 16%, var(--color-danger-bg)) 0%,
+    var(--color-danger-bg) 42%
   );
 }
 .today-task-row:last-child {
@@ -6614,7 +6606,7 @@ textarea:hover {
 }
 .settings-summary-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(124px, 1fr));
   gap: var(--space-2);
   margin: 0;
 }
@@ -6689,6 +6681,15 @@ textarea:hover {
 .settings-category-content {
   min-width: 0;
 }
+/* 作業領域が狭いと説明付きの区分が縦に長くなり、本文が初期表示から押し出される。説明は選択中だけ残す。 */
+@container page (max-width: 1100px) {
+  .settings-category-nav button {
+    padding: 6px var(--space-2);
+  }
+  .settings-category-nav button:not(.is-active) small {
+    display: none;
+  }
+}
 .settings-category-heading {
   display: grid;
   gap: var(--space-1);
@@ -6706,17 +6707,37 @@ textarea:hover {
   display: grid;
   gap: var(--space-3);
 }
+/* inline-flexにすると既定の開閉マーカーが消え、ただの文に見える。山形を自前で描いて押せることを示す。 */
 .settings-detail > summary {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
   width: fit-content;
-  color: var(--color-text-secondary);
+  padding: 2px var(--space-1) 2px 0;
+  color: var(--color-accent-strong);
   font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   cursor: pointer;
+  list-style: none;
+}
+.settings-detail > summary::-webkit-details-marker {
+  display: none;
+}
+.settings-detail > summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-left: 2px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--duration-fast) var(--ease);
+}
+.settings-detail[open] > summary::before {
+  transform: rotate(45deg);
 }
 .settings-detail > summary:hover {
-  color: var(--color-text);
+  color: var(--color-accent-hover);
 }
 .settings-detail > summary:focus-visible {
   outline: none;
@@ -6872,6 +6893,22 @@ textarea:hover {
   color: var(--color-text);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
+}
+.sketch-drawer-meta {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: var(--space-1) var(--space-2);
+  align-items: baseline;
+  margin: 0;
+}
+.sketch-drawer-meta dt {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+.sketch-drawer-meta dd {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
 }
 .settings-action-row {
   display: flex;
@@ -7059,6 +7096,17 @@ textarea:hover {
 .drawer-form textarea {
   min-height: 92px;
   resize: vertical;
+}
+/* 編集の主役はタイトルから下。先頭の補助操作は幅いっぱいの帯にせず、小さく左へ寄せる。 */
+.drawer-form > .drawer-lead-action {
+  align-self: flex-start;
+  width: auto;
+}
+.schedule-proposal-trigger {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-1);
+  margin-top: calc(var(--space-1) * -1);
 }
 .drawer-form .large-textarea {
   min-height: 280px;
@@ -9321,6 +9369,7 @@ kbd {
     var(--color-surface-muted) 46%
   );
 }
+/* 密な一覧では期限切れが並ぶと面全体が警告色に染まる。行は淡い面に留め、左バーと日付の色で知らせる。 */
 .todo-table .table-row.is-due-today,
 .waiting-table .table-row.is-due-today {
   background: linear-gradient(
@@ -9328,23 +9377,18 @@ kbd {
     color-mix(
         in srgb,
         var(--chip-color, var(--color-warning-bg)) 12%,
-        color-mix(in srgb, var(--color-warning) 9%, var(--color-warning-bg))
+        color-mix(in srgb, var(--color-warning-bg) 50%, var(--color-surface))
       )
       0%,
-    color-mix(in srgb, var(--color-warning) 9%, var(--color-warning-bg)) 42%
+    color-mix(in srgb, var(--color-warning-bg) 50%, var(--color-surface)) 42%
   );
 }
 .todo-table .table-row.is-due-today:hover,
 .waiting-table .table-row.is-due-today:hover {
   background: linear-gradient(
     90deg,
-    color-mix(
-        in srgb,
-        var(--chip-color, var(--color-warning-bg)) 16%,
-        color-mix(in srgb, var(--color-warning) 13%, var(--color-warning-bg))
-      )
-      0%,
-    color-mix(in srgb, var(--color-warning) 13%, var(--color-warning-bg)) 42%
+    color-mix(in srgb, var(--chip-color, var(--color-warning-bg)) 16%, var(--color-warning-bg)) 0%,
+    var(--color-warning-bg) 42%
   );
 }
 .todo-table .table-row.is-overdue,
@@ -9354,10 +9398,10 @@ kbd {
     color-mix(
         in srgb,
         var(--chip-color, var(--color-danger-bg)) 12%,
-        color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg))
+        color-mix(in srgb, var(--color-danger-bg) 50%, var(--color-surface))
       )
       0%,
-    color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg)) 42%
+    color-mix(in srgb, var(--color-danger-bg) 50%, var(--color-surface)) 42%
   );
   box-shadow: inset 3px 0 0 var(--color-danger);
 }
@@ -9365,13 +9409,8 @@ kbd {
 .waiting-table .table-row.is-overdue:hover {
   background: linear-gradient(
     90deg,
-    color-mix(
-        in srgb,
-        var(--chip-color, var(--color-danger-bg)) 16%,
-        color-mix(in srgb, var(--color-danger) 14%, var(--color-danger-bg))
-      )
-      0%,
-    color-mix(in srgb, var(--color-danger) 14%, var(--color-danger-bg)) 42%
+    color-mix(in srgb, var(--chip-color, var(--color-danger-bg)) 16%, var(--color-danger-bg)) 0%,
+    var(--color-danger-bg) 42%
   );
 }
 .todo-table .table-row .num.is-due-today,
@@ -9466,12 +9505,12 @@ kbd {
 }
 .shelf-task-row.is-overdue {
   border-color: var(--color-danger-bd);
-  background: color-mix(in srgb, var(--color-danger) 10%, var(--color-danger-bg));
+  background: color-mix(in srgb, var(--color-danger-bg) 50%, var(--color-surface));
   box-shadow: inset 3px 0 0 var(--color-danger);
 }
 .shelf-task-row.is-due-today {
   border-color: var(--color-warning-bd);
-  background: color-mix(in srgb, var(--color-warning) 9%, var(--color-warning-bg));
+  background: color-mix(in srgb, var(--color-warning-bg) 50%, var(--color-surface));
 }
 .shelf-task-row.is-overdue .shelf-task-title span {
   color: var(--color-danger-strong);
@@ -9648,6 +9687,18 @@ kbd {
 }
 .task-section-list {
   display: grid;
+}
+.task-section-row-meta {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+}
+.task-section-row-meta .status-badge {
+  font-family: var(--font-base);
+}
+.task-sections-hint {
+  padding: 0 var(--pad-card) var(--space-2);
 }
 .danger-text {
   color: var(--color-danger);
@@ -11910,6 +11961,13 @@ kbd {
 .settings-grid > [hidden] {
   display: none;
 }
+/* 区分見出し（h2・xl）を起点に、カード見出しは一段下げて階層を逆転させない。 */
+.settings-grid h2 {
+  font-size: var(--text-lg);
+}
+.settings-grid > .panel {
+  min-width: 0;
+}
 @container page (max-width: 960px) {
   .settings-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -12547,10 +12605,12 @@ kbd {
 }
 
 @media (max-width: 1680px) {
-  .app-shell.is-feed-route.has-drawer {
+  .app-shell.is-feed-route.has-drawer,
+  .app-shell.is-settings-route.has-drawer {
     grid-template-columns: var(--sidebar-width, 200px) minmax(0, 1fr);
   }
-  .app-shell.is-sidebar-collapsed.is-feed-route.has-drawer {
+  .app-shell.is-sidebar-collapsed.is-feed-route.has-drawer,
+  .app-shell.is-sidebar-collapsed.is-settings-route.has-drawer {
     grid-template-columns: 64px minmax(0, 1fr);
   }
 }
@@ -14032,6 +14092,15 @@ kbd {
 .app-shell.is-sidebar-collapsed.is-canvas-route.has-drawer {
   grid-template-columns: 72px minmax(0, 1fr) clamp(390px, 30vw, 460px);
 }
+/* 狭い窓では編集パネルをキャンバスへ重ねる。上の3列指定より後ろに置いて、共通のdrawer重ね表示を効かせる。 */
+@media (max-width: 1680px) {
+  .app-shell.is-canvas-route.has-drawer {
+    grid-template-columns: var(--sidebar-width, 200px) minmax(0, 1fr);
+  }
+  .app-shell.is-sidebar-collapsed.is-canvas-route.has-drawer {
+    grid-template-columns: 72px minmax(0, 1fr);
+  }
+}
 .app-shell.is-canvas-route .main-area {
   min-width: 0;
   height: 100%;
@@ -14332,9 +14401,36 @@ kbd {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 幅が足りないときは題名とThemeを省略して縮め、1文字ずつの縦折れにしない。 */
+.sketch-title-group > * {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.sketch-title-group > .sketch-editor-title,
+.sketch-title-group > .sketch-header-theme {
+  flex-shrink: 1;
+  min-width: 3em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .sketch-header-meta {
   flex: 0 0 auto;
   gap: var(--space-2);
+}
+.sketch-header-meta > span {
+  white-space: nowrap;
+}
+@media (max-width: 1280px) {
+  /* 狭い窓では由来と保存済みの表示を省き、操作ボタンを優先する。保存失敗だけは残す。 */
+  /* 保存状態はrole="status"なので、読み上げには残すよう視覚的にだけ隠す。 */
+  .sketch-header-meta > span:not(.is-error) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
 }
 .sketch-header-meta > span {
   color: var(--color-text-tertiary);
@@ -15724,18 +15820,45 @@ kbd {
   margin: 0;
   padding-left: var(--space-4);
 }
+/* 他のドロワー内開閉（.drawer-disclosure）と同じ形に揃える。塗りの箱にすると無効欄に見える。 */
 .ai-context-fields {
   display: grid;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-muted);
+  border-top: 1px solid var(--color-border-subtle);
 }
-.ai-context-fields summary {
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
+.ai-context-fields[open] {
+  padding-bottom: var(--space-2);
+}
+.ai-context-fields > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
   cursor: pointer;
+  list-style: none;
+}
+.ai-context-fields > summary::-webkit-details-marker {
+  display: none;
+}
+.ai-context-fields > summary::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-right: 1.5px solid var(--color-text-secondary);
+  border-bottom: 1.5px solid var(--color-text-secondary);
+  transform: rotate(-45deg);
+  transition: transform var(--duration-fast) var(--ease);
+}
+.ai-context-fields[open] > summary::before {
+  transform: rotate(45deg);
+}
+.ai-context-fields > summary:hover {
+  background: var(--color-surface-muted);
 }
 .ai-context-fields summary:focus-visible {
   outline: 2px solid var(--color-focus);

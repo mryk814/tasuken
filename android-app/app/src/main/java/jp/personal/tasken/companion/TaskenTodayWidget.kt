@@ -286,7 +286,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
         @TargetApi(Build.VERSION_CODES.S)
         private fun responsiveViews(context: Context, widgetId: Int, snapshot: TaskenWidgetSnapshot): RemoteViews = RemoteViews(
             linkedMapOf(
-                SizeF(SMALL_WIDTH_DP, SMALL_HEIGHT_DP) to smallViews(context, widgetId),
+                SizeF(SMALL_WIDTH_DP, SMALL_HEIGHT_DP) to smallViews(context, widgetId, snapshot),
                 SizeF(MEDIUM_WIDTH_DP, MEDIUM_HEIGHT_DP) to taskViews(
                     context,
                     widgetId,
@@ -338,15 +338,18 @@ class TaskenTodayWidget : AppWidgetProvider() {
             snapshot: TaskenWidgetSnapshot,
             mode: TaskenWidgetMode,
         ): RemoteViews = when (mode) {
-            TaskenWidgetMode.Small -> smallViews(context, widgetId)
+            TaskenWidgetMode.Small -> smallViews(context, widgetId, snapshot)
             TaskenWidgetMode.Medium -> taskViews(context, widgetId, snapshot, mode, R.layout.tasken_today_widget)
             TaskenWidgetMode.Large -> taskViews(context, widgetId, snapshot, mode, R.layout.tasken_today_widget_large)
             TaskenWidgetMode.Tall -> taskViews(context, widgetId, snapshot, mode, R.layout.tasken_today_widget_large)
             TaskenWidgetMode.Wide -> taskViews(context, widgetId, snapshot, mode, R.layout.tasken_today_widget_wide)
         }
 
-        private fun smallViews(context: Context, widgetId: Int): RemoteViews =
+        /** 小さい形でも残り件数を読める。文字を押すとTodayを開き、円は追加。 */
+        private fun smallViews(context: Context, widgetId: Int, snapshot: TaskenWidgetSnapshot): RemoteViews =
             RemoteViews(context.packageName, R.layout.tasken_today_widget_small).apply {
+                setTextViewText(R.id.widget_open_today, progressTitle(snapshot))
+                setOnClickPendingIntent(R.id.widget_open_today, openAppIntent(context, widgetId, "tasken://today?source=widget"))
                 bindAddAction(context, widgetId)
             }
 
@@ -363,12 +366,11 @@ class TaskenTodayWidget : AppWidgetProvider() {
             setTextViewText(R.id.widget_open_today, progressTitle(snapshot))
             setViewVisibility(R.id.widget_progress, if (snapshot.todayTotalCount > 0) View.VISIBLE else View.GONE)
             setProgressBar(R.id.widget_progress, snapshot.todayTotalCount.coerceAtLeast(1), snapshot.todayDoneCount, false)
-            setTextViewText(R.id.widget_status, statusText(snapshot))
+            val statusLine = headerStatusLine(snapshot)
+            setTextViewText(R.id.widget_status, statusLine)
+            setViewVisibility(R.id.widget_status, if (statusLine.isEmpty()) View.GONE else View.VISIBLE)
             setOnClickPendingIntent(R.id.widget_status, openAppIntent(context, widgetId + 30_000, "tasken://today?source=widget"))
             bindAiBadge(context, widgetId, snapshot)
-            if (hasLayoutElement(layoutId, "widget_count")) {
-                setTextViewText(R.id.widget_count, taskCountText(snapshot))
-            }
             val hasItems = snapshot.tasks.isNotEmpty()
             setViewVisibility(R.id.widget_empty, if (hasItems) View.GONE else View.VISIBLE)
             setViewVisibility(R.id.widget_list, if (hasItems) View.VISIBLE else View.GONE)
@@ -383,10 +385,6 @@ class TaskenTodayWidget : AppWidgetProvider() {
             )
         }
 
-        private fun hasLayoutElement(layoutId: Int, name: String): Boolean = when (layoutId) {
-            R.layout.tasken_today_widget_large, R.layout.tasken_today_widget_wide -> name == "widget_count"
-            else -> false
-        }
 
         /** AIが待っている時だけ出す。押すとその質問・判断を開く。 */
         private fun RemoteViews.bindAiBadge(context: Context, widgetId: Int, snapshot: TaskenWidgetSnapshot) {
@@ -490,6 +488,12 @@ class TaskenTodayWidget : AppWidgetProvider() {
 
         internal fun taskCountText(snapshot: TaskenWidgetSnapshot): String =
             snapshot.totalTaskCount.takeIf { it > 0 }?.let { "${it}件" }.orEmpty()
+
+        /** 見出し下の補足1行。未完了の件数と同期の状態を並べ、無いものは出さない。 */
+        internal fun headerStatusLine(snapshot: TaskenWidgetSnapshot): String =
+            listOf(taskCountText(snapshot).let { if (it.isEmpty()) it else "未完了 $it" }, statusText(snapshot))
+                .filter { it.isNotEmpty() }
+                .joinToString(" ・ ")
 
         /** 見出し。今日の予定があれば残り件数、全部終えたらそれを伝える。 */
         internal fun progressTitle(snapshot: TaskenWidgetSnapshot): String = when {

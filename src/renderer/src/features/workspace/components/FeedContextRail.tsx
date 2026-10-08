@@ -18,6 +18,7 @@ import {
 } from "../lib/agentActivity";
 import { buildGlance, recordDate } from "../lib/glance";
 import { formatDate, str } from "../lib/format";
+import { compactNotesBodyPreview } from "../lib/notes";
 import { THEME_STATUS_LABELS } from "../lib/domain";
 import type { FeedItem } from "../lib/feedFixtures";
 import { EmptyState, StatusBadge } from "./common";
@@ -263,8 +264,10 @@ export function FeedContextRail({
                   value={entry.status}
                   label={THEME_STATUS_LABELS[entry.status ?? ""] || entry.status}
                 />
-                <strong>{entry.summary}</strong>
-                <small>{formatDate(entry.date)}</small>
+                <span>
+                  <strong>{entry.summary}</strong>
+                  <small>{formatDate(entry.date)}</small>
+                </span>
               </button>
             ))}
           </div>
@@ -290,7 +293,8 @@ export function FeedContextRail({
                 <span>
                   <strong>{note.title}</strong>
                   <small>
-                    {str(note.body_markdown).slice(0, 84) || formatDate(recordDate(note))}
+                    {compactNotesBodyPreview(note.body_markdown, 84) ||
+                      formatDate(recordDate(note))}
                   </small>
                 </span>
               </button>

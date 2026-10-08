@@ -6,4 +6,6 @@
     <color name="tasken_widget_on_surface_variant">#B7ABA6</color>
     <color name="tasken_widget_primary">#BD4F5D</color>
     <color name="tasken_widget_primary_container">#2F1E21</color>
+    <color name="tasken_widget_on_primary">#2A1215</color>
+    <color name="tasken_widget_on_primary_container">#F4D9DC</color>
 </resources>
