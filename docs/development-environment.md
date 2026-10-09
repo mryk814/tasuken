@@ -129,6 +129,7 @@ Mobile契約はDesktopのTypeScriptを直接importせず、`contracts/mobile/v1/
 ## 検証の分担
 
 - `rtk npm run ci`: merge前の品質ゲート。
+  Architecture auditは一度読んだソースからreport-onlyとTask/Core-MCPのenforcement profileを判定する。`artifacts/architecture/report.*`にinventory、各profileのサブフォルダに判定結果を保存する。再実行時はソース・設定・baseline・suppressionを読み直し、前回の成果物を再利用しない。単独確認の`npm run audit:architecture -- --enforce task` / `--enforce core-mcp`も引き続き使える。
 - Windowsの`rtk npm run dev`: 隔離userDataで日常のレイアウト・入力・導線とWindows固有機能を確認。
 - Windows runtime clone: commit済みSHAでtray、global shortcut、clipboard、screen recording、Windows file dialogなどを独立して確認する場合に使う。
 - WSLgの`npm run dev:wsl`: WSL固有の表示・入力に変更がある場合の補助検証。

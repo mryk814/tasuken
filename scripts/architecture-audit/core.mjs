@@ -988,6 +988,32 @@ function classifyEnforcement(findingEntry, enforcement, modules) {
   return { severity: inScope ? "blocking" : "report-only", enforced: inScope };
 }
 
+// Profiles classify the same inventory; they do not change source discovery or scanning.
+// Keep reuse inside one invocation so the next audit always reads current inputs.
+export function applyArchitectureEnforcement(report, enforcement = null, policy = null) {
+  const modules = (policy?.modules || report.modules).map((module) => ({
+    ...module,
+    root: normalizePath(module.root),
+  }));
+  const mode = enforcement ? `enforced:${enforcement.id || "profile"}` : "report-only";
+  const findings = report.findings.map((entry) => ({
+    ...entry,
+    ...classifyEnforcement(entry, enforcement, modules),
+    rollout: mode,
+  }));
+  return {
+    ...report,
+    mode,
+    findings,
+    summary: {
+      ...report.summary,
+      blockingFindings: findings.filter(
+        (entry) => entry.severity === "blocking" && !entry.suppressed,
+      ).length,
+    },
+  };
+}
+
 export function analyzeArchitecture({
   root,
   policy,
@@ -1173,13 +1199,10 @@ export function analyzeArchitecture({
     .sort((left, right) => fingerprint(left).localeCompare(fingerprint(right)))
     .map((entry) => {
       const withSuppression = applySuppression(entry, suppressions, today);
-      const enforcementResult = classifyEnforcement(entry, enforcement, modules);
       return {
         ...withSuppression,
-        ...enforcementResult,
         fingerprint: fingerprint(entry),
         baseline: baselineKeys.has(fingerprint(entry)),
-        rollout: enforcement ? `enforced:${enforcement.id || "profile"}` : "report-only",
       };
     });
   const moduleInventory = modules
@@ -1218,9 +1241,8 @@ export function analyzeArchitecture({
         .join("|")
         .localeCompare([right.source, right.line, right.target].join("|")),
     );
-  return {
+  const report = {
     schemaVersion: 1,
-    mode: enforcement ? `enforced:${enforcement.id || "profile"}` : "report-only",
     modules: moduleInventory,
     dependencies,
     compatibility,
@@ -1237,9 +1259,6 @@ export function analyzeArchitecture({
       baselineFindings: uniqueFindings.filter((entry) => entry.baseline).length,
       newFindings: uniqueFindings.filter((entry) => !entry.baseline).length,
       suppressedFindings: uniqueFindings.filter((entry) => entry.suppressed).length,
-      blockingFindings: uniqueFindings.filter(
-        (entry) => entry.severity === "blocking" && !entry.suppressed,
-      ).length,
       compatibilityConsumers: compatibility.reduce(
         (total, entry) => total + entry.currentPaths.length,
         0,
@@ -1259,6 +1278,7 @@ export function analyzeArchitecture({
       ).length,
     },
   };
+  return applyArchitectureEnforcement(report, enforcement, policy);
 }
 
 export function loadArchitectureConfig(root) {
