@@ -275,9 +275,10 @@ function todayRow(
     actions: [OPEN_TASK, { id: "change_today_date", label: "扱う日を変更", role: "secondary" }],
     detail: {
       title,
+      // 締切が無いときは出さない。「設定なし」を期限切れと取り違えない。
       rows: [
         { label: "扱う日", value: formatDate(text(task.today_date)) || "今日" },
-        { label: "締切", value: formatDate(dueAt) || "設定なし" },
+        ...(dueAt ? [{ label: "締切", value: formatDate(dueAt) }] : []),
         { label: "チェック項目", value: `${checklistCount}件` },
       ],
     },

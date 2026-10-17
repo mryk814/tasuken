@@ -1496,6 +1496,7 @@ internal fun CaptureTaskSheet(
             }
         }
         // キーボードのすぐ上に固定する道具と確定。親指の届く1段に集める。
+        val voiceListening = speechState is ShortSpeechUiState.Listening || speechState is ShortSpeechUiState.Partial
         val submitRow: @Composable () -> Unit = {
             Row(
                 modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("capture-submit-row"),
@@ -1503,19 +1504,21 @@ internal fun CaptureTaskSheet(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (draft.organization == null) {
-                    VoiceToolButton(
-                        speechState = speechState,
-                        hasText = draft.text.isNotBlank(),
-                        enabled = state !is CaptureUiState.Saving && speechState !is ShortSpeechUiState.Processing,
-                        onClick = {
-                            keyboardController?.hide()
-                            if (speechBusy) onStopVoice() else onStartVoice()
-                        },
-                        modifier = Modifier.testTag("capture-voice-action"),
-                    )
+                    if (!voiceListening) {
+                        VoiceToolButton(
+                            speechState = speechState,
+                            hasText = draft.text.isNotBlank(),
+                            enabled = state !is CaptureUiState.Saving && speechState !is ShortSpeechUiState.Processing,
+                            onClick = {
+                                keyboardController?.hide()
+                                onStartVoice()
+                            },
+                            modifier = Modifier.testTag("capture-voice-action"),
+                        )
+                    }
                     CapturePhotoButton(
                         photoCount = draft.photos.size,
-                        enabled = sheetEnabled,
+                        enabled = sheetEnabled && !voiceListening,
                         onTakePhoto = onTakePhoto,
                     )
                     if (onOrganize != null) {
@@ -1531,7 +1534,7 @@ internal fun CaptureTaskSheet(
                                     startOrganize()
                                 }
                             },
-                            enabled = sheetEnabled && (draft.originalText ?: draft.text).isNotBlank(),
+                            enabled = sheetEnabled && !voiceListening && (draft.originalText ?: draft.text).isNotBlank(),
                             modifier = Modifier.size(48.dp).testTag("capture-organize"),
                         ) {
                             if (organizeBusy) {
@@ -1543,25 +1546,45 @@ internal fun CaptureTaskSheet(
                     }
                 }
                 Spacer(Modifier.weight(1f))
-                TextButton(
-                    onClick = { submit(CaptureCompletionBehavior.Continue) },
-                    enabled = canSubmit,
-                    modifier = Modifier.testTag("capture-submit-continue"),
-                ) {
-                    Text("追加して次へ", maxLines = 1)
-                }
-                Button(
-                    onClick = { submit(CaptureCompletionBehavior.Close) },
-                    enabled = canSubmit,
-                    contentPadding = PaddingValues(start = 14.dp, end = 16.dp),
-                    modifier = Modifier.heightIn(min = 48.dp).testTag("capture-submit-close"),
-                ) {
-                    Icon(painterResource(R.drawable.ic_tabler_send), contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text(
-                        if (state is CaptureUiState.Saving) "保存中" else "追加",
-                        modifier = Modifier.padding(start = 6.dp),
-                        maxLines = 1,
-                    )
+                if (voiceListening) {
+                    // 録音中は親指の届く右寄りに大きな確定を置く。左端の小さな停止だけにしない。
+                    Button(
+                        onClick = {
+                            keyboardController?.hide()
+                            onStopVoice()
+                        },
+                        enabled = state !is CaptureUiState.Saving,
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        modifier = Modifier.heightIn(min = 48.dp).testTag("capture-voice-action"),
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.ic_tabler_player_stop),
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text("音声を確定", modifier = Modifier.padding(start = 6.dp), maxLines = 1)
+                    }
+                } else {
+                    TextButton(
+                        onClick = { submit(CaptureCompletionBehavior.Continue) },
+                        enabled = canSubmit,
+                        modifier = Modifier.testTag("capture-submit-continue"),
+                    ) {
+                        Text("追加して次へ", maxLines = 1)
+                    }
+                    Button(
+                        onClick = { submit(CaptureCompletionBehavior.Close) },
+                        enabled = canSubmit,
+                        contentPadding = PaddingValues(start = 14.dp, end = 16.dp),
+                        modifier = Modifier.heightIn(min = 48.dp).testTag("capture-submit-close"),
+                    ) {
+                        Icon(painterResource(R.drawable.ic_tabler_send), contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text(
+                            if (state is CaptureUiState.Saving) "保存中" else "追加",
+                            modifier = Modifier.padding(start = 6.dp),
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
         }
@@ -1768,6 +1791,9 @@ internal fun TodayListPane(
         is TodayUiState.Cached -> uiState.tasks
         TodayUiState.Empty -> emptyList()
         else -> null
+    }?.filter { task ->
+        // 今日やることは人が手を動かす面。AI作業中はFeed側で追う。
+        task.workState !in setOf("in_progress", "working")
     }
     if (tasks != null) {
         val cached = uiState as? TodayUiState.Cached
@@ -2867,11 +2893,7 @@ internal fun TodayTaskList(
         contentPadding = PaddingValues(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        if (agentSessions.isNotEmpty() || agentSessionsUnavailable) {
-            item(key = "agent-session-timeline") {
-                AgentSessionTimeline(agentSessions, agentSessionsUnavailable, onAgentSessionRetry)
-            }
-        }
+        // 今日やることは人が手を動かす一覧を先に置く。AIの作業履歴は下へ。
         itemsIndexed(tasks, key = { _, task -> task.id }) { index, task ->
             val requiresWorkReceipt = task.workState in setOf("needs_human_review", "reported_done", "blocked")
             val stateActionEnabled = (!task.pending || task.canChangePendingState) &&
@@ -3092,6 +3114,11 @@ internal fun TodayTaskList(
                 TodayRoutinesSection(routines, routineSavingId, onRecordHabit, onRecordMaintenance)
             }
         }
+        if (agentSessions.isNotEmpty() || agentSessionsUnavailable) {
+            item(key = "agent-session-timeline") {
+                AgentSessionTimeline(agentSessions, agentSessionsUnavailable, onAgentSessionRetry)
+            }
+        }
     }
 }
 
@@ -3213,7 +3240,6 @@ internal fun TodayDetailPane(
         if (titleEditing) titleFocusRequester.requestFocus()
     }
     var descriptionExpanded by rememberSaveable(task.id) { mutableStateOf(false) }
-    var aiOptionsOpen by rememberSaveable(task.id) { mutableStateOf(false) }
     var themePickerOpenRequest by rememberSaveable(task.id) { mutableStateOf(0) }
     val canReselectTheme = themes.isNotEmpty() &&
         (themeCatalogState is MobileThemeCatalogState.Available ||
@@ -3341,13 +3367,14 @@ internal fun TodayDetailPane(
                 }
             }
             val aiOptionsAvailable = task.workState in setOf("not_delegated", "ready_for_agent")
-            val needsAiVisibility = aiOptionsAvailable && (task.workState == "ready_for_agent" || when (aiReadyState) {
+            val isAiReady = task.workState == "ready_for_agent"
+            val aiReadyBusy = when (aiReadyState) {
                 is AiReadyUiState.Updating -> aiReadyState.taskId == task.id
                 is AiReadyUiState.Conflict -> aiReadyState.taskId == task.id
                 is AiReadyUiState.Rejected -> aiReadyState.taskId == task.id
                 is AiReadyUiState.Unavailable -> aiReadyState.taskId == task.id
                 else -> false
-            })
+            }
             // よく使う操作は同じ大きさのボタンで横に並べる。文で説明せず、絵と短い語で示す。
             Row(
                 modifier = Modifier.fillMaxWidth().testTag("task-quick-actions"),
@@ -3362,17 +3389,24 @@ internal fun TodayDetailPane(
                 if (task.themeId != null && onReadThemeContext != null) {
                     TaskQuickAction(R.drawable.ic_tabler_target, "Theme", { onReadThemeContext(task.themeId) }, Modifier.weight(1f).testTag("task-theme-context"))
                 }
-                if (aiOptionsAvailable && !needsAiVisibility) {
+                if (aiOptionsAvailable) {
+                    // 押すたびに Ready ⇔ 解除。パネルを開く一手は要らない。
                     TaskQuickAction(
                         R.drawable.ic_tabler_sparkles,
-                        if (aiOptionsOpen) "AIを閉じる" else "AIに任せる",
-                        { aiOptionsOpen = !aiOptionsOpen },
+                        if (isAiReady) "解除" else "AI Ready",
+                        {
+                            if (!aiReadyBusy && !task.pending && task.conflict == null &&
+                                task.state !in setOf("done", "cancelled")
+                            ) {
+                                onTaskAiReady(task, !isAiReady)
+                            }
+                        },
                         Modifier.weight(1f).testTag("task-ai-options-toggle"),
-                        selected = aiOptionsOpen,
+                        selected = isAiReady,
                     )
                 }
             }
-            if (aiOptionsOpen || needsAiVisibility) {
+            if (aiReadyBusy) {
                 TaskAiReadyToggle(
                     task = task,
                     state = aiReadyState,
@@ -4269,6 +4303,7 @@ private fun TaskScheduleEditor(
         plannedDurationMinutes = task.plannedDurationMinutes,
     )
     val hasChanges = draft != original
+    val latestOnSave by rememberUpdatedState(onSave)
 
     fun updateDates(newStart: LocalDate?, newEnd: LocalDate?) {
         val wasTrueRange = isTrueScheduleRange(startDate, endDate)
@@ -4280,6 +4315,14 @@ private fun TaskScheduleEditor(
             wasTrueRange -> rangeSemanticsDraft
             else -> "once_within_window"
         }
+    }
+
+    // 変更が揃ったらそのまま保存する。別ボタンで「確定」させない。
+    // 時刻・所要の打ち込みは短い待ちを置き、閉じた瞬間は待ちなく送る。
+    LaunchedEffect(draft, isValid, hasChanges, enabled, editing) {
+        if (!enabled || !isValid || !hasChanges) return@LaunchedEffect
+        if (editing) delay(350)
+        latestOnSave(draft)
     }
 
     Column(
@@ -4324,7 +4367,6 @@ private fun TaskScheduleEditor(
                     .clickable(enabled = enabled, onClickLabel = "予定を編集") { editing = true },
                 style = MaterialTheme.typography.bodyLarge,
             )
-            if (hasChanges) Text("未保存の予定があります", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (editing) {
         ScheduleDateField(
@@ -4439,11 +4481,6 @@ private fun TaskScheduleEditor(
                 enabled = enabled && (startDate != null || endDate != null || rangeSemanticsDraft.isNotEmpty() || timeDraft.isNotEmpty() || durationDraft.isNotEmpty()),
                 modifier = Modifier.testTag("schedule-clear"),
             ) { Text("予定をクリア") }
-            Button(
-                onClick = { onSave(draft) },
-                enabled = enabled && isValid && hasChanges,
-                modifier = Modifier.testTag("schedule-save"),
-            ) { Text("予定を保存") }
         }
         }
     }

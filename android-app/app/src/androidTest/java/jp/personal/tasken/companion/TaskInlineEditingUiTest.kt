@@ -47,7 +47,7 @@ class TaskInlineEditingUiTest {
         composeRule.onNodeWithTag("schedule-edit-toggle").performScrollTo().performClick()
         composeRule.onNodeWithTag("schedule-start-time").assertTextContains("09:30")
         composeRule.onNodeWithTag("schedule-duration").assertTextContains("45")
-        composeRule.onNodeWithTag("schedule-save").performScrollTo().assertIsEnabled().performClick()
+        composeRule.waitUntil(timeoutMillis = 2_000) { submitted != null }
         composeRule.runOnIdle {
             assertEquals(MobileTaskScheduleDraft(null, null, null, "09:30", 45), submitted)
             action.value = TaskActionUiState.Error("inline", "端末へ保存できませんでした")

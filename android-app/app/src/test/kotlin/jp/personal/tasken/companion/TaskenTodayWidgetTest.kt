@@ -48,7 +48,7 @@ class TaskenTodayWidgetTest {
 
     @Test
     fun widget_sections_split_overdue_today_and_upcoming() {
-        assertEquals("期限切れ", widgetSectionFor("2026-09-09", "2026-09-10"))
+        assertEquals("持ち越し", widgetSectionFor("2026-09-09", "2026-09-10"))
         assertEquals("今日", widgetSectionFor("2026-09-10", "2026-09-10"))
         assertEquals("今後", widgetSectionFor("2026-09-11", "2026-09-10"))
         assertEquals("日付なし", widgetSectionFor(null, "2026-09-10"))
@@ -56,7 +56,7 @@ class TaskenTodayWidgetTest {
         val tasks = listOf(
             TaskenWidgetTask("future", "今後", false),
             TaskenWidgetTask("today", "今日", false),
-            TaskenWidgetTask("overdue", "期限切れ", false),
+            TaskenWidgetTask("overdue", "持ち越し", false),
         )
         val dates = mapOf("future" to "2026-09-11", "today" to "2026-09-10", "overdue" to "2026-09-09")
         val ordered = orderWidgetTasks(tasks, "2026-09-10", dates)

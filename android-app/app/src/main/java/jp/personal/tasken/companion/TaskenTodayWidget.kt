@@ -79,7 +79,8 @@ internal fun widgetThemeColorInt(token: String?): Int = when (token?.trim()) {
 
 internal fun widgetSectionFor(todayDate: String?, today: String): String = when {
     todayDate == null -> "日付なし"
-    todayDate < today -> "期限切れ"
+    // today_date は「扱う日」であり締切ではない。過ぎた分は持ち越しと呼ぶ。
+    todayDate < today -> "持ち越し"
     todayDate == today -> "今日"
     else -> "今後"
 }
@@ -89,7 +90,7 @@ internal fun orderWidgetTasks(
     today: String,
     todayDates: Map<String, String?>,
 ): List<TaskenWidgetTask> {
-    val rank = mapOf("期限切れ" to 0, "今日" to 1, "今後" to 2, "日付なし" to 3)
+    val rank = mapOf("持ち越し" to 0, "今日" to 1, "今後" to 2, "日付なし" to 3)
     return tasks.sortedWith(
         compareBy({ rank[widgetSectionFor(todayDates[it.id], today)] ?: 9 }, { it.title }),
     )
