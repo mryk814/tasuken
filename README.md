@@ -122,6 +122,8 @@ Themeには、人間が書く比較的安定した`Theme Charter`と、現在の
 
 人がAI ReadyにしたTaskを外部AIが選び、`get_task_context`で確認してから`start_task_work`で開始します。開始後の最新versionを使って`append_work_receipt`、`report_task_done`、`report_task_blocked`を送ります。報告はFeedで採用し、完了報告の採用後もTaskの完了は利用者が明示します。AIは完了したチェック項目のIDを報告に添えられ、採用時に該当項目へ反映されます。Taskの完了後も追加報告を履歴へ残せます。各Task writeには`expected_version`、`idempotency_key`、`caller`が必要です。同じ要求の再送ではkeyと内容を維持してください。RepositoryContext snapshotにはローカルパスやremote URLを保存しません。読み取り専用の運用では`TASKEN_MCP_READ_ONLY=1`を設定してください。
 
+MCPを経由しないローカルの道具には、Coreの全権tokenではなくクライアント別の読み取り専用tokenを発行できます（[外部AI連携ガイド](./docs/external-ai-integration.md#読み取り専用のローカルクライアント)）。
+
 AI Readyは事前許可であり、自動実行の予約ではありません。外部AIを普段どおり開き、依頼文を貼り付けるかAI Readyの確認を頼みます。TaskenからCLIを直接起動する機能はありません。実stdioと一時DBを通す検証は [AI collaboration E2E](./docs/ai-collaboration-e2e.md) を参照してください。
 
 書き込みtoolに`dry_run: true`を付けると、保存せずに検証だけを行い、本送信した場合の結果と対象の版の食い違いを返します。受領IDを失った場合は`tasken.list_proposals`で自分の`source_session`などから探し直せます。

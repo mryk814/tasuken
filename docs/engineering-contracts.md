@@ -61,6 +61,8 @@ Note編集はTheme変更も含めてDocument保存へ通す。本文由来のRef
 
 開始専用の`task.start_work`は新規作成と独立した明示opt-inとする。本人の個人業務で、人がAI Readyにした未着手Taskに限り、開始状態・時刻・実行者・作業単位・監査を直接保存する。actor/sourceはCoreで固定し、本文・完了・削除・採用・委任の権限を増やさない。報告はProposalのまま、人の採用とTask完了を別操作に保つ。撤回後も履歴を保持する。詳細は[開始専用権限](ai-task-start.md)。
 
+Coreの全権tokenはdiscoveryで共有するMCP bridge用に限る。MCPを経由しないローカルの読み取りクライアントには、名前つきの読み取り専用tokenを発行する。保存はSHA-256だけで、取り消しは即時に効く。読み取り専用tokenはquery routeだけを通し、Proposal状態・Proposal作成・書き込みを拒否する。接続先はtokenを含まないendpoint fileで公開する。詳細は[外部AI連携](external-ai-integration.md#読み取り専用のローカルクライアント)。
+
 ## セキュリティと秘密情報
 
 1. 秘密情報（APIキー・トークン・パスワード）をソースコード・設定ファイルに直書きしない。リポジトリにコミットしない。
