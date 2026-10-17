@@ -11,7 +11,6 @@ import {
   IconNotebook,
   IconPlus,
   IconRefresh,
-  IconLoader2,
 } from "@tabler/icons-react";
 
 import type {
@@ -19,7 +18,6 @@ import type {
   CalendarEvent,
   CalendarEventsResult,
 } from "../../../../../shared/calendar";
-import { AI_ICON } from "../../../pages/semanticIcons";
 import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { captureOrganizerApi } from "../../../services/captureOrganizerApi";
@@ -275,7 +273,6 @@ function TodayRows({
   today,
   onToggleComplete,
   onToggleToday,
-  onToggleAiReady,
   onChangeTodayDate,
   onOpenDetail,
   onStartFocus,
@@ -291,7 +288,6 @@ function TodayRows({
   today: string;
   onToggleComplete: (row: TodayRow) => void;
   onToggleToday: (row: TodayRow) => void;
-  onToggleAiReady: (row: TodayRow) => void;
   onChangeTodayDate: (row: TodayRow, target: string | null) => void;
   onOpenDetail: (row: TodayRow) => void;
   onStartFocus?: (row: TodayRow) => void;
@@ -332,14 +328,6 @@ function TodayRows({
         const reminderDue =
           !done && row.v2?.type === "task" && isReminderDue(row.v2.task.reminder_at, reminderNow);
         const task = row.v2?.type === "task" ? row.v2.task : null;
-        const taskWorkState =
-          task?.work_state ||
-          (task?.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
-        const aiReady =
-          task?.intended_executor === "ai_agent" && taskWorkState === "ready_for_agent";
-        const aiWorking = task?.intended_executor === "ai_agent" && taskWorkState === "in_progress";
-        const canToggleAiReady =
-          Boolean(task) && !done && ["not_delegated", "ready_for_agent"].includes(taskWorkState);
         return (
           <div
             className={`today-task-row is-clickable-row${urgency ? ` is-${urgency}` : ""}`}
@@ -372,22 +360,6 @@ function TodayRows({
               >
                 {isToday ? <IconCalendarCheck size={16} /> : <IconCalendarPlus size={16} />}
               </button>
-              {task && (
-                <button
-                  className={`priority-flag-button ${aiReady ? "is-active" : ""}${aiWorking ? " is-working" : ""}`}
-                  disabled={!canToggleAiReady}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onToggleAiReady(row);
-                  }}
-                  aria-label={
-                    aiWorking ? "AIが作業中" : aiReady ? "AI Readyを解除" : "AI Readyにする"
-                  }
-                  title={aiWorking ? "AIが作業中" : aiReady ? "AI Readyを解除" : "AI Readyにする"}
-                >
-                  {aiWorking ? <IconLoader2 size={16} /> : <AI_ICON size={16} />}
-                </button>
-              )}
               <div className="row-title-main">
                 <button
                   className="today-task-title"
@@ -1078,7 +1050,13 @@ export function TodayPage({
     return end !== null && end !== "" && end <= today;
   };
   const allTodayRows = buildTodayView(v2, today).map((entry) => todayEntryToRow(entry));
-  const todayRows = allTodayRows.filter((row) => !isDeadlineReviewRow(row));
+  // 今日やることは人が手を動かす面。AI作業中のTaskはFeed側で追う。
+  const todayRows = allTodayRows.filter((row) => {
+    if (isDeadlineReviewRow(row)) return false;
+    if (row.v2?.type !== "task") return true;
+    const task = row.v2.task;
+    return !(task.intended_executor === "ai_agent" && task.work_state === "in_progress");
+  });
   const periodRows = buildOngoingPeriodTaskView(v2, today);
   const executionWindowRows = buildExecutionWindowTaskView(v2, today);
   const dailyTaskRows: DailyPlanningRow[] = v2.tasks.map((task) => ({
@@ -1256,23 +1234,6 @@ export function TodayPage({
       }
       return;
     }
-  }
-
-  async function handleToggleAiReady(row: TodayRow) {
-    if (row.v2?.type !== "task") return;
-    const task = row.v2.task;
-    const workState =
-      task.work_state ||
-      (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
-    const aiReady = task.intended_executor === "ai_agent" && workState === "ready_for_agent";
-    await saveEntities(
-      buildSaveTaskOperations({
-        ...task,
-        intended_executor: aiReady ? "self" : "ai_agent",
-        work_state: aiReady ? "not_delegated" : "ready_for_agent",
-      }),
-      aiReady ? "AI Readyを解除しました。" : "AI Readyにしました。",
-    );
   }
 
   async function handleCreateTodayTask(row: OngoingPeriodTaskRow) {
@@ -1501,7 +1462,6 @@ export function TodayPage({
   const rowHandlers = {
     onToggleComplete: handleToggleComplete,
     onToggleToday: handleToggleToday,
-    onToggleAiReady: handleToggleAiReady,
     onChangeTodayDate: handleChangeTodayDate,
     onOpenDetail: handleOpenDetail,
     onStartFocus: (row: TodayRow) => {

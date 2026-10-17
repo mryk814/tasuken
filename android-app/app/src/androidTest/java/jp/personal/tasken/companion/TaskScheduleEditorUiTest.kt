@@ -38,7 +38,7 @@ class TaskScheduleEditorUiTest {
         composeRule.onNodeWithTag("schedule-start-date").assertTextContains("8月24日（月）", substring = true)
         composeRule.onNodeWithTag("schedule-end-date").assertTextContains("未設定", substring = true)
         composeRule.onNodeWithTag("schedule-range-semantics").assertDoesNotExist()
-        composeRule.onNodeWithTag("schedule-save").assertIsNotEnabled()
+        composeRule.onNodeWithTag("schedule-clear").assertIsNotEnabled()
     }
 
     @Test
@@ -85,9 +85,7 @@ class TaskScheduleEditorUiTest {
         composeRule.onNodeWithTag("schedule-range-once").assertIsSelected()
         composeRule.onNodeWithTag("schedule-range-ongoing").performScrollTo().performClick()
         composeRule.onNodeWithTag("schedule-range-ongoing").assertIsSelected()
-        composeRule.onNodeWithTag("schedule-save").performScrollTo()
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("schedule-save").assertIsEnabled().performClick()
+        composeRule.waitUntil(timeoutMillis = 2_000) { submitted != null }
 
         composeRule.runOnIdle {
             assertEquals(
@@ -124,7 +122,8 @@ class TaskScheduleEditorUiTest {
         composeRule.onNodeWithTag("schedule-range-unspecified").assertTextEquals("期間未分類")
         composeRule.onNodeWithTag("schedule-range-once").assertIsNotSelected()
         composeRule.onNodeWithTag("schedule-range-ongoing").assertIsNotSelected()
-        composeRule.onNodeWithTag("schedule-save").assertIsNotEnabled()
+        composeRule.mainClock.advanceTimeBy(500)
+        composeRule.waitForIdle()
         composeRule.runOnIdle { assertEquals(null, submitted) }
     }
 
@@ -151,12 +150,12 @@ class TaskScheduleEditorUiTest {
         openScheduleEditor()
         composeRule.onNodeWithTag("schedule-start-clear").performScrollTo().performClick()
         composeRule.onNodeWithTag("schedule-start-date").assertTextContains("未設定", substring = true)
-        composeRule.onNodeWithTag("schedule-save").assertIsEnabled()
+        composeRule.onNodeWithTag("schedule-clear").assertIsNotEnabled()
 
         restorationTester.emulateSavedInstanceStateRestore()
 
         composeRule.onNodeWithTag("schedule-start-date").assertTextContains("未設定", substring = true)
-        composeRule.onNodeWithTag("schedule-save").assertIsEnabled()
+        composeRule.onNodeWithTag("schedule-clear").assertIsNotEnabled()
     }
 
     @Test
@@ -279,7 +278,7 @@ class TaskScheduleEditorUiTest {
         openScheduleEditor()
         composeRule.onNodeWithTag("schedule-start-date").performScrollTo()
         capture("02-schedule-editor-dates")
-        composeRule.onNodeWithTag("schedule-save").performScrollTo()
+        composeRule.onNodeWithTag("schedule-start-time").performScrollTo()
         capture("03-schedule-editor-time")
         composeRule.onNodeWithTag("schedule-time-picker-open").performClick()
         composeRule.onNodeWithTag("schedule-time-picker").assertExists()
@@ -319,7 +318,7 @@ class TaskScheduleEditorUiTest {
     private fun assertScheduleEditorClosed() {
         composeRule.onNodeWithTag("schedule-edit-toggle").assertIsNotEnabled()
         composeRule.onNodeWithTag("schedule-start-date").assertDoesNotExist()
-        composeRule.onNodeWithTag("schedule-save").assertDoesNotExist()
+        composeRule.onNodeWithTag("schedule-clear").assertDoesNotExist()
     }
 
     private fun sampleTask(schedule: MobileTaskSchedule?) = MobileTask(

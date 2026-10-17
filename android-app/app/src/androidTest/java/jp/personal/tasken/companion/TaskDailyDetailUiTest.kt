@@ -98,14 +98,11 @@ class TaskDailyDetailUiTest {
         composeRule.onNodeWithTag("schedule-start-date").assertDoesNotExist()
         composeRule.onNodeWithTag("schedule-edit-toggle").performScrollTo().performClick()
         composeRule.onNodeWithTag("schedule-start-clear").performScrollTo().performClick()
+        composeRule.waitUntil(timeoutMillis = 2_000) { saved != null }
+        composeRule.runOnIdle { assertEquals(MobileTaskScheduleDraft(null, null, null), saved) }
         composeRule.onNodeWithTag("schedule-edit-toggle").performScrollTo().performClick()
         composeRule.onNodeWithTag("schedule-start-date").assertDoesNotExist()
         composeRule.onNodeWithTag("schedule-summary").assertTextEquals("予定なし")
-        composeRule.onNodeWithText("未保存の予定があります").assertExists()
-        composeRule.runOnIdle { assertEquals(null, saved) }
-        composeRule.onNodeWithTag("schedule-edit-toggle").performScrollTo().performClick()
-        composeRule.onNodeWithTag("schedule-save").performScrollTo().assertIsEnabled().performClick()
-        composeRule.runOnIdle { assertEquals(MobileTaskScheduleDraft(null, null, null), saved) }
     }
 
     @Test
@@ -161,13 +158,10 @@ class TaskDailyDetailUiTest {
                 )
             }
         }
-        composeRule.onNodeWithTag("task-ai-ready-toggle-daily").assertDoesNotExist()
-        composeRule.onNodeWithTag("task-ai-options-toggle").performScrollTo().performClick()
-        composeRule.onNodeWithTag("task-ai-ready-toggle-daily").performScrollTo().assertIsEnabled()
-        composeRule.onNodeWithTag("task-ai-options-toggle").performScrollTo().performClick()
-        composeRule.onNodeWithTag("task-ai-ready-toggle-daily").assertDoesNotExist()
+        composeRule.onNodeWithTag("task-ai-options-toggle").performScrollTo().assertExists()
+        composeRule.onNodeWithText("AI Ready").assertExists()
         composeRule.runOnIdle { current.value = current.value.copy(workState = "ready_for_agent") }
-        composeRule.onNodeWithText("AI Readyを解除").assertExists()
+        composeRule.onNodeWithText("解除").assertExists()
         composeRule.runOnIdle {
             current.value = current.value.copy(workState = "not_delegated")
             aiState.value = AiReadyUiState.Unavailable("daily", "接続を確認して再試行してください。")

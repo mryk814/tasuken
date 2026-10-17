@@ -24,17 +24,19 @@ test("AI Readyだけを人間側のAI作業許可として表示する", () => {
 
   assert.match(todo, /async function toggleAiReady/);
   assert.match(todo, /AI_ICON/);
-  assert.match(today, /onToggleAiReady/);
-  assert.match(today, /async function handleToggleAiReady/);
+  // 今日やることは人が手を動かす面。AI Readyの切替はToDo / Drawerへ寄せる。
+  assert.doesNotMatch(today, /onToggleAiReady/);
+  assert.doesNotMatch(today, /async function handleToggleAiReady/);
+  assert.match(today, /AI作業中のTaskはFeed側で追う/);
 });
 
-test("TodayとToDoはAI作業中を回転アイコンで表示する", () => {
-  for (const source of [today, todo]) {
-    assert.match(source, /in_progress/);
-    assert.match(source, /IconLoader2/);
-    assert.match(source, /is-working/);
-    assert.match(source, /AIが作業中/);
-  }
+test("ToDoはAI作業中を回転アイコンで表示し、Today一覧からは外す", () => {
+  assert.match(todo, /in_progress/);
+  assert.match(todo, /IconLoader2/);
+  assert.match(todo, /is-working/);
+  assert.match(todo, /AIが作業中/);
+  assert.doesNotMatch(today, /IconLoader2/);
+  assert.doesNotMatch(today, /AIが作業中/);
   assert.match(styles, /\.priority-flag-button\.is-working svg[\s\S]*animation: spin/);
 });
 

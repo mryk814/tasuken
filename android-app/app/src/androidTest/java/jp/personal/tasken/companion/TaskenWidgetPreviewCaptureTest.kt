@@ -33,7 +33,7 @@ class TaskenWidgetPreviewCaptureTest {
     private var host: FrameLayout? = null
 
     private val tasks = listOf(
-        TaskenWidgetTask("p1", "実験室安全点検チェックシートを提出", false, "個人業務", widgetThemeColorInt("chart-1"), "期限切れ"),
+        TaskenWidgetTask("p1", "実験室安全点検チェックシートを提出", false, "個人業務", widgetThemeColorInt("chart-1"), "持ち越し"),
         TaskenWidgetTask("p2", "試料Bを準備", false, "触媒探索", widgetThemeColorInt("chart-2"), "今日"),
         TaskenWidgetTask("p3", "考察メモを見直す", false, "触媒探索", widgetThemeColorInt("chart-2"), "今日"),
         TaskenWidgetTask("p4", "温度条件の違いを記録", false, "試料評価", widgetThemeColorInt("chart-3"), "今日", requiresWorkReceipt = true),

@@ -42,7 +42,7 @@ class TaskenWidgetBindingUiTest {
                     ThemeCacheEntity("widget-verify-green", "検証Green", color = "chart-3"),
                 ),
             )
-            dao.upsertTask(widgetTask("widget-verify-1", "期限切れの件", "widget-verify-blue", "todo", overdue, null))
+            dao.upsertTask(widgetTask("widget-verify-1", "持ち越しの件", "widget-verify-blue", "todo", overdue, null))
             dao.upsertTask(widgetTask("widget-verify-2", "今日の件", "widget-verify-green", "todo", todayText, null))
             dao.upsertTask(widgetTask("widget-verify-3", "完了済みの件", null, "done", todayText, null))
             dao.upsertTask(widgetTask("widget-verify-4", "今後の件", "widget-verify-blue", "todo", future, "cmd-missing"))
@@ -63,8 +63,8 @@ class TaskenWidgetBindingUiTest {
             }
         assertEquals(
             listOf(
-                "H:期限切れ",
-                "R:widget-verify-1:期限切れの件",
+                "H:持ち越し",
+                "R:widget-verify-1:持ち越しの件",
                 "H:今日",
                 "R:widget-verify-2:今日の件",
                 "H:今後",
@@ -143,7 +143,7 @@ class TaskenWidgetBindingUiTest {
             }
         }
         // 実RemoteViewsの適用結果が画面階層に存在すること（ドット・タイトル・右チェックの行）。
-        listOf("期限切れ", "期限切れの件", "今日", "今日の件", "今後", "今後の件").forEach { expected ->
+        listOf("持ち越し", "持ち越しの件", "今日", "今日の件", "今後", "今後の件").forEach { expected ->
             assertTrue("missing in view hierarchy: $expected", shownTexts.any { it.contains(expected) })
         }
         assertEquals(null, shownTexts.firstOrNull { it.contains("完了済みの件") || it.contains("取消済みの件") })
