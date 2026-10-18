@@ -242,7 +242,9 @@ export function groupFocusSessionActivity<T extends FocusActivityEvent>(
         theme_ref: session.project_id
           ? { kind: "theme", id: text(session.project_id) }
           : { kind: "none" },
-        summary: text(properties.summary) || (active ? "フォーカス中" : "フォーカスを終了"),
+        summary:
+          text(properties.summary) ||
+          (active ? (properties.paused_at ? "一時停止中" : "フォーカス中") : "フォーカスを終了"),
         origin: { kind: "manual" },
         metadata: {
           end_at: interval.end_at,

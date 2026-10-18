@@ -6,6 +6,8 @@ import {
   IconFile,
   IconFileText,
   IconLink,
+  IconPlayerPause,
+  IconPlayerPlay,
   IconPlayerStop,
   IconX,
 } from "@tabler/icons-react";
@@ -14,8 +16,11 @@ import {
   FOCUS_SESSION_ROLE,
   focusDocumentDraftKey,
   focusSessionDraftKey,
+  focusSessionElapsedMs,
   focusSessionProperties,
   isFocusSession,
+  pauseFocusSessionProperties,
+  resumeFocusSessionProperties,
 } from "../../../../../shared/focusSession.mjs";
 import { todayIso } from "../../../utils/dataFormat.js";
 import {
@@ -54,10 +59,8 @@ function properties(record: BaseRecord | null): Record<string, unknown> {
     : {};
 }
 
-function elapsedLabel(startedAt: unknown, now: number): string {
-  const started = new Date(text(startedAt)).getTime();
-  if (!Number.isFinite(started)) return "0分";
-  const minutes = Math.max(0, Math.floor((now - started) / 60000));
+function elapsedLabel(elapsedMs: number): string {
+  const minutes = Math.max(0, Math.floor(elapsedMs / 60000));
   if (minutes < 60) return `${minutes}分`;
   return `${Math.floor(minutes / 60)}時間${minutes % 60}分`;
 }
@@ -155,6 +158,9 @@ export function FocusSessionDialog({
     target.type === "note" ? data.notes.find((note) => note.id === target.id) || null : null;
   const sessionId = session?.id || `task:${task.id}`;
   const sessionProps = focusSessionProperties(session);
+  const paused = Boolean(sessionProps.paused_at);
+  const elapsed = elapsedLabel(focusSessionElapsedMs(session, now));
+  const [pausing, setPausing] = useState(false);
   const recentActivity = data.status_updates
     .filter((entry) => !task.project_id || entry.theme_id === task.project_id)
     .sort((left, right) =>
@@ -371,6 +377,31 @@ export function FocusSessionDialog({
     await saveEntities(result.operations, `${kind === "task" ? "Task" : "Note"}へ切り出しました。`);
   }
 
+  async function togglePause() {
+    if (!session) return;
+    setPausing(true);
+    const at = new Date().toISOString();
+    try {
+      await saveEntity(
+        "note",
+        {
+          ...session,
+          body_markdown: scratchpad,
+          content_format: "markdown",
+          properties_json: paused
+            ? resumeFocusSessionProperties(sessionProps, at)
+            : pauseFocusSessionProperties(sessionProps, at),
+        },
+        { reason: paused ? "focus_session_resumed" : "focus_session_paused", quiet: true },
+      );
+      setNow(Date.now());
+    } catch {
+      setToast(paused ? "再開できませんでした。" : "一時停止できませんでした。", "danger");
+    } finally {
+      setPausing(false);
+    }
+  }
+
   async function endSession() {
     if (!session) return;
     creating.current = true;
@@ -385,7 +416,8 @@ export function FocusSessionDialog({
             body_markdown: keepScratchpad ? scratchpad : "",
             content_format: "markdown",
             properties_json: {
-              ...sessionProps,
+              // 停止中に終えたら、停止していた時間を作業時間から除いてから閉じる。
+              ...resumeFocusSessionProperties(sessionProps, endedAt),
               document_role: FOCUS_SESSION_ROLE,
               session_state: "ended",
               task_id: task.id,
@@ -549,14 +581,17 @@ export function FocusSessionDialog({
       >
         <header>
           <div className="focus-session-heading">
-            <span>{session ? "フォーカス中" : "フォーカスを開始しています…"}</span>
+            <span>
+              {!session ? "フォーカスを開始しています…" : paused ? "一時停止中" : "フォーカス中"}
+            </span>
             <h2 id="focus-session-title">{task.title}</h2>
           </div>
           <div className="focus-session-meta">
             {workspaceOpen && (
               <span>
                 <IconClock size={15} />
-                {elapsedLabel(sessionProps.started_at, now)}
+                {elapsed}
+                {paused && "（一時停止中）"}
               </span>
             )}
             {(workspaceOpen || saveState === "error") && (
@@ -564,6 +599,16 @@ export function FocusSessionDialog({
                 {saveState === "saved" && <IconCheck size={14} />}
                 {statusLabel}
               </span>
+            )}
+            {workspaceOpen && (
+              <button
+                className="secondary-button compact"
+                disabled={!session || pausing}
+                onClick={() => void togglePause()}
+              >
+                {paused ? <IconPlayerPlay size={15} /> : <IconPlayerPause size={15} />}
+                {paused ? "再開する" : "一時停止"}
+              </button>
             )}
             {workspaceOpen && (
               <button
@@ -584,16 +629,32 @@ export function FocusSessionDialog({
           <div className="focus-session-overview">
             <div className="focus-session-elapsed">
               <IconClock size={22} aria-hidden="true" />
-              <strong>{elapsedLabel(sessionProps.started_at, now)}</strong>
-              <span>作業時間</span>
+              <strong>{elapsed}</strong>
+              <span>{paused ? "一時停止中" : "作業時間"}</span>
             </div>
             {task.description && (
               <p className="focus-session-task-description">{task.description}</p>
             )}
-            <p className="focus-session-hint">この画面を閉じても、作業時間の記録は続きます。</p>
+            <p className="focus-session-hint">
+              {paused
+                ? "一時停止中の時間は作業時間に含めません。"
+                : "この画面を閉じても、作業時間の記録は続きます。"}
+            </p>
             <div className="focus-session-main-actions">
               <button className="secondary-button" onClick={close}>
                 画面を閉じて作業する
+              </button>
+              <button
+                className="secondary-button"
+                disabled={!session || pausing}
+                onClick={() => void togglePause()}
+              >
+                {paused ? (
+                  <IconPlayerPlay size={16} aria-hidden="true" />
+                ) : (
+                  <IconPlayerPause size={16} aria-hidden="true" />
+                )}
+                {paused ? "再開する" : "一時停止"}
               </button>
               <button
                 className="primary-button"

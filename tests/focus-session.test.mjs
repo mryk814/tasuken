@@ -6,9 +6,14 @@ import {
   findActiveFocusSession,
   focusDocumentDraftKey,
   focusSessionDraftKey,
+  focusSessionElapsedMs,
+  focusSessionProperties,
   focusSessionTaskId,
   isActiveFocusSession,
   isFocusSession,
+  isPausedFocusSession,
+  pauseFocusSessionProperties,
+  resumeFocusSessionProperties,
 } from "../src/shared/focusSession.mjs";
 
 function session(id, taskId, state = "active", updatedAt = "2026-08-02T00:00:00.000Z") {
@@ -75,4 +80,48 @@ test("Task詳細・Command Palette・再開・終了整理が同じFocus実装�
   assert.match(focus, /buildSaveTaskOperations/);
   assert.match(focus, /buildSelectionExtractionOperations/);
   assert.match(notes, /!isFocusSession/);
+});
+
+test("一時停止していた時間を作業時間から除き、停止中は経過を止める", () => {
+  const minute = 60_000;
+  const at = (minutes) =>
+    new Date(Date.parse("2026-10-18T09:00:00.000Z") + minutes * minute).toISOString();
+  const record = (properties) => ({
+    id: "s1",
+    properties_json: {
+      document_role: "focus_session",
+      session_state: "active",
+      started_at: at(0),
+      ...properties,
+    },
+  });
+  const started = focusSessionProperties(record({}));
+  assert.equal(focusSessionElapsedMs(record({}), Date.parse(at(10))), 10 * minute);
+
+  const paused = pauseFocusSessionProperties(started, at(10));
+  assert.equal(isPausedFocusSession({ properties_json: paused }), true);
+  assert.equal(
+    pauseFocusSessionProperties(paused, at(12)),
+    paused,
+    "停止中の二重停止で停止時刻を動かさない",
+  );
+  assert.equal(focusSessionElapsedMs({ properties_json: paused }, Date.parse(at(25))), 10 * minute);
+
+  const resumed = resumeFocusSessionProperties(paused, at(25));
+  assert.equal(resumed.paused_at, null);
+  assert.equal(resumed.paused_ms, 15 * minute);
+  assert.equal(isPausedFocusSession({ properties_json: resumed }), false);
+  assert.equal(
+    focusSessionElapsedMs({ properties_json: resumed }, Date.parse(at(40))),
+    25 * minute,
+  );
+
+  const pausedAgain = pauseFocusSessionProperties(resumed, at(40));
+  const ended = {
+    ...resumeFocusSessionProperties(pausedAgain, at(50)),
+    session_state: "ended",
+    ended_at: at(50),
+  };
+  assert.equal(ended.paused_ms, 25 * minute);
+  assert.equal(focusSessionElapsedMs({ properties_json: ended }, Date.parse(at(90))), 25 * minute);
 });

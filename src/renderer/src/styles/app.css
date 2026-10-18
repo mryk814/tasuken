@@ -16098,6 +16098,10 @@ kbd {
   background: var(--color-accent);
   animation: sidebar-focus-pulse 2.4s ease-in-out infinite;
 }
+.sidebar-focus.is-paused .sidebar-focus-dot {
+  background: var(--color-text-secondary);
+  animation: none;
+}
 .sidebar-focus-title {
   grid-column: 1 / -1;
   min-width: 0;

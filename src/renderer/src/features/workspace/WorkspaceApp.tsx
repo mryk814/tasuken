@@ -86,11 +86,7 @@ import {
   type CommandPaletteEntry,
   type CommandPaletteExecutionContext,
 } from "./components/CommandPalette";
-import {
-  findActiveFocusSession,
-  focusSessionProperties,
-  focusSessionTaskId,
-} from "../../../../shared/focusSession.mjs";
+import { findActiveFocusSession, focusSessionTaskId } from "../../../../shared/focusSession.mjs";
 import { canonicalThemeId } from "../../../../shared/themeRef.mjs";
 import type {
   ApplicationCommandSource,
@@ -2489,10 +2485,8 @@ export function WorkspaceApp() {
                 activeFocusTask && activeFocusSession
                   ? {
                       taskTitle: activeFocusTask.title,
-                      // 開始時刻は properties_json 側が正本。共有helperを通す。
-                      startedAt:
-                        str(focusSessionProperties(activeFocusSession).started_at) ||
-                        str(activeFocusSession.created_at),
+                      // 開始・一時停止の時刻は properties_json 側が正本。経過は共有helperで出す。
+                      session: activeFocusSession as unknown as Record<string, unknown>,
                     }
                   : null
               }
