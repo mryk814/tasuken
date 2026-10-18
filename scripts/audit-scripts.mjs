@@ -32,6 +32,8 @@ const manualAllowlist = {
     "Internal isolated-workspace seeder spawned by today-arrivals-audit; not a CLI entry point.",
   "seed-inbox-feed-audit-workspace.mjs":
     "Internal isolated-workspace seeder spawned by inbox-feed-post-audit; not a CLI entry point.",
+  "tasken-core-client.mjs":
+    "Manual owner CLI that issues, lists and revokes read-only Core client tokens; prints a new token to stdout only.",
   "task-board-audit.mjs":
     "Internal isolated Task board UI audit imported by task-handoff-audit --task-board; not a CLI entry point.",
   "task-board-integration-audit.mjs":

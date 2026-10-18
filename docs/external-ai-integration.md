@@ -142,6 +142,21 @@ AIへ渡す依頼文の例:
 
 ChatGPTのWeb版は、MCPコネクタの対応状況がアカウントとワークスペースに依存します。接続できる場合も、どの入口が許可されているかは接続先の`tools/list`で確認してください。読み取り専用の接続では書き込みtoolが公開されません。
 
+## 読み取り専用のローカルクライアント
+
+MCPを経由しない同じPC上の道具（個人のコンテキスト・ハブなど）は、Coreの全権tokenを持たずに、クライアント別の読み取り専用tokenで検索できます。
+
+```bash
+node scripts/tasken-core-client.mjs issue awai > ~/AppData/Roaming/awai/tasken-token   # tokenは標準出力に一度だけ出る
+node scripts/tasken-core-client.mjs list                                                # 名前・作成日時・取り消し状態だけ
+node scripts/tasken-core-client.mjs revoke awai                                         # 次の要求から401
+```
+
+- 通るのは`/v1/queries/*`と`/v1/task/query`の読み取りだけです。Proposalの状態（`get-proposal-status`、`list-proposals`）と、書き込み・Proposal作成の`/v1/commands/*`・`/v1/task/command`は`403 READ_ONLY_CLIENT`になります。
+- Coreのポートは起動ごとに変わります。接続先は、tokenを含まない`<userData>/tasken-core-endpoint.json`の`origin`から読みます。全権tokenを含む`tasken-core.json`は読まないでください。
+- tokenはuserDataの`tasken-core-clients.json`にSHA-256だけが保存されます。取り消しはCoreの再起動なしで反映されます。再発行は取り消してから行います。
+- Windows PowerShell 5の`>`はUTF-16で書くため、Git BashかPowerShell 7で実行してください。
+
 ## その他の入口
 
 | 目的                     | 入口                                                  | 返り先                     |

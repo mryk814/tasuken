@@ -152,8 +152,16 @@ import {
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
   taskenCorePublicError,
 } from "../../../shared/contracts/core/public.mjs";
+import { findCoreClient } from "./coreClientTokens.mjs";
 
 const LOOPBACK_HOST = "127.0.0.1";
+// Token-free origin for read-only clients; the full token stays in discovery only.
+const TASKEN_CORE_ENDPOINT_FILE = "tasken-core-endpoint.json";
+// Read-only clients may call query routes, but not proposal state.
+const READ_CLIENT_DENIED_QUERY_PATHS = new Set([
+  "/v1/queries/get-proposal-status",
+  "/v1/queries/list-proposals",
+]);
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_NOTE_PROPOSAL_WITH_IMAGES_BODY_BYTES = 34 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 5_000;
@@ -221,6 +229,14 @@ interface DiscoveryDocument {
   origin: string;
   token: string;
   capabilities: string[];
+  pid: number;
+  started_at: string;
+}
+
+interface EndpointDocument {
+  schema_version: 1;
+  api_version: string;
+  origin: string;
   pid: number;
   started_at: string;
 }
@@ -465,7 +481,10 @@ async function requestBody(request: IncomingMessage, maxBytes = MAX_BODY_BYTES):
   }
 }
 
-async function atomicWriteDiscovery(filePath: string, document: DiscoveryDocument) {
+async function atomicWriteDiscovery(
+  filePath: string,
+  document: DiscoveryDocument | EndpointDocument,
+) {
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   const temporary = `${filePath}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
   try {
@@ -509,11 +528,13 @@ export class TaskenCoreHost {
   private readonly options: TaskenCoreHostOptions;
   private readonly token = randomBytes(32).toString("base64url");
   private readonly discoveryPath: string;
+  private readonly endpointPath: string;
   private server: http.Server | null = null;
 
   constructor(options: TaskenCoreHostOptions) {
     this.options = options;
     this.discoveryPath = path.join(options.userDataPath, TASKEN_CORE_DISCOVERY_FILE);
+    this.endpointPath = path.join(options.userDataPath, TASKEN_CORE_ENDPOINT_FILE);
   }
 
   enableAiItemCreation(provider: QueryProvider<AiItemCreationRequest, AiItemCreationResponse>) {
@@ -603,12 +624,25 @@ export class TaskenCoreHost {
       await this.closeServer();
       throw error;
     }
+    try {
+      await atomicWriteDiscovery(this.endpointPath, {
+        schema_version: TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
+        api_version: discovery.api_version,
+        origin: discovery.origin,
+        pid: discovery.pid,
+        started_at: discovery.started_at,
+      });
+    } catch (error) {
+      await this.stop();
+      throw error;
+    }
     return { origin: discovery.origin, discoveryPath: this.discoveryPath };
   }
 
   async stop() {
     await this.closeServer();
     await fs.rm(this.discoveryPath, { force: true });
+    await fs.rm(this.endpointPath, { force: true });
   }
 
   private async closeServer() {
@@ -627,7 +661,15 @@ export class TaskenCoreHost {
 
   private async handle(request: IncomingMessage, response: ServerResponse) {
     try {
-      if (!bearerMatches(request.headers.authorization, this.token)) {
+      const authorization = request.headers.authorization;
+      const fullAccess = bearerMatches(authorization, this.token);
+      const readClient = fullAccess
+        ? null
+        : await findCoreClient(
+            this.options.userDataPath,
+            authorization?.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "",
+          );
+      if (!fullAccess && !readClient) {
         json(response, 401, errorResponse("UNAUTHORIZED", "認証できません。"));
         return;
       }
@@ -681,6 +723,19 @@ export class TaskenCoreHost {
       ) {
         response.setHeader("allow", operationPaths.has(request.url || "") ? "POST" : "GET");
         json(response, 405, errorResponse("METHOD_NOT_ALLOWED", "methodが許可されていません。"));
+        return;
+      }
+      const url = request.url || "";
+      if (
+        readClient &&
+        operationPaths.has(url) &&
+        (!queryPaths.has(url) || READ_CLIENT_DENIED_QUERY_PATHS.has(url))
+      ) {
+        json(
+          response,
+          403,
+          errorResponse("READ_ONLY_CLIENT", "このclient tokenは読み取り専用です。"),
+        );
         return;
       }
       if (request.method === "GET" && request.url === "/health") {
