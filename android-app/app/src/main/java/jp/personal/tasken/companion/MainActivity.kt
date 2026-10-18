@@ -144,6 +144,7 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -171,6 +172,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
@@ -1358,13 +1360,15 @@ internal fun CaptureTaskSheet(
             (included.isNotEmpty() && included.all { runCatching { it.validate() }.isSuccess })
         val canSubmit = state !is CaptureUiState.Saving && !speechBusy && !organizeBusy &&
             (draft.organization != null || (draft.text.isNotBlank() && !overLimit)) && organizationValid
-        LaunchedEffect(draft.draftId, requestInputFocus, sheetState.isVisible) {
-            // Request focus in the sheet's window after its opening transition.
-            if (requestInputFocus && sheetState.isVisible && draft.organization == null) {
-                focusRequester.requestFocus()
-                keyboardController?.show()
-                onInputFocusHandled()
-            }
+        val sheetWindow = LocalWindowInfo.current
+        LaunchedEffect(draft.draftId, requestInputFocus) {
+            if (!requestInputFocus || draft.organization != null) return@LaunchedEffect
+            // シートのウィンドウがフォーカスを得たら、開くアニメーションの完了を待たずに入力欄へ移す。
+            // 完了（isVisible）まで待つと、シートが開き切ってからキーボードが出始めて遅く見える。
+            snapshotFlow { sheetWindow.isWindowFocused }.first { it }
+            focusRequester.requestFocus()
+            keyboardController?.show()
+            onInputFocusHandled()
         }
         val sheetEnabled = state !is CaptureUiState.Saving && !speechBusy
         val body: @Composable () -> Unit = {

@@ -24,7 +24,7 @@ This phase connects launcher shortcuts, widget navigation, app deep links, and t
 
 ### Input-first Task flow (2026-08-31)
 
-- Ordinary in-app Add focuses the title after the sheet opens and shows the keyboard. Continued entry focuses the new draft; voice and Share Target entry do not request keyboard focus.
+- Ordinary in-app Add focuses the title as soon as the sheet's window gains focus and shows the keyboard, without waiting for the opening animation to settle (2026-10-18; waiting for `isVisible` made the keyboard start only after the sheet was fully open). Continued entry focuses the new draft; voice and Share Target entry do not request keyboard focus.
 - Add / Add next appear directly after the input, before optional Theme and voice controls, so the keyboard does not hide the frequent action on a compact phone.
 - Task detail presents state and Complete / Reopen before editing sections. Existing pending, conflict, saving, and human-review restrictions remain unchanged.
 - This is a presentation change: draft provenance, Room schema, outbox commands, and canonical Desktop writes are unchanged.
