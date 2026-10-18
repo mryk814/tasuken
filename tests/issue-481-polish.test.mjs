@@ -104,7 +104,7 @@ test("Focus Session stays named at the top of the Sidebar", () => {
   const shell = source("src/renderer/src/features/workspace/components/shell.tsx");
   const styles = source("src/renderer/src/styles/app.css");
   assert.match(shell, /<aside className="sidebar">\s*\{activeFocus && openActiveFocus/);
-  assert.match(shell, /!collapsed && "フォーカス中"/);
+  assert.match(shell, /!collapsed && \(paused \? "一時停止中" : "フォーカス中"\)/);
   assert.match(styles, /\.sidebar-focus[\s\S]*position: sticky[\s\S]*top: var\(--space-2\)/);
   assert.doesNotMatch(styles, /\.sidebar-focus\s*\{[\s\S]*margin-top:\s*auto/);
 });
