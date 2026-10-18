@@ -33,6 +33,10 @@ Quick Captureは分類を要求しない独立ウィンドウである。`Ctrl+S
   一つの保存操作で作る。元ファイルを勝手にコピーしない。
 - Ink Captureは `CaptureEntry` と編集可能なSketchを一つの保存操作で作る。
 - Task / Note / Resourceへ整理すると、Captureに付いていたArtifactも整理先へ移す。
+- 「やったことを記録」（`Ctrl+Shift+,`）では、成果物のファイル・URLをドロップするか、コピーしたファイルを貼り付けて添えられる。
+  保存すると完了Taskと、`source_type=task` のlinked Artifactを作る。ファイルはコピーせず元の場所を参照する。
+  見つからないファイルや http(s) 以外のURLがあればTaskを作らずに止め、入力と添付を残す。
+  外からドラッグしてくる間に閉じないよう、このモードはTask追加と同じくフォーカスが外れても開いたままにする。
 - 整理は元Captureを物理削除せず、`triaged_to_type` / `triaged_to_id` を残す。
 - アーカイブは削除ではない。整理済み画面から未整理へ戻せる。
 - CaptureEntryを削除した場合、そのCaptureだけを参照する未整理Artifactは論理削除する。

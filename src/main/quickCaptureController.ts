@@ -1,4 +1,5 @@
 import { BrowserWindow, clipboard, ipcMain } from "electron";
+import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -15,6 +16,10 @@ import {
   splitQuickCaptureInput,
 } from "../shared/quickCapture.mjs";
 import { canonicalThemeId } from "../shared/themeRef.mjs";
+import {
+  buildDoneTaskArtifacts,
+  normalizeDoneTaskAttachments,
+} from "../shared/doneTaskAttachments";
 import type { CommandEnvelope, CommandReceipt } from "../shared/applicationCommand";
 import { IPC } from "../shared/ipc/contracts";
 import {
@@ -119,7 +124,12 @@ export function createQuickCaptureController(
 
     win.on("blur", () => {
       // Windows voice typing and clipboard round trips move focus outside this window.
-      if (win.isVisible() && (win !== captureWindow || visibleMode !== "today-task")) win.hide();
+      // 完了Taskは成果物をエクスプローラー等からドラッグしてくるので、同じく開いたままにする。
+      if (
+        win.isVisible() &&
+        (win !== captureWindow || (visibleMode !== "today-task" && visibleMode !== "done-task"))
+      )
+        win.hide();
     });
     win.on("hide", () => win.webContents.send(IPC.quickCaptureHidden));
     return win;
@@ -356,7 +366,13 @@ export function createQuickCaptureController(
       if (event.sender === captureWindow?.webContents)
         captureWindow.setSize(
           420,
-          expanded === true ? 680 : visibleMode === "today-task" ? 440 : 284,
+          expanded === true
+            ? 680
+            : visibleMode === "today-task"
+              ? 440
+              : visibleMode === "done-task"
+                ? 372
+                : 284,
         );
     });
     ipcMain.handle(
@@ -368,6 +384,7 @@ export function createQuickCaptureController(
         themeId?: string,
         selectedRangeSemantics?: "once_within_window" | "ongoing",
         organization?: unknown,
+        attachmentsValue?: unknown,
       ) => {
         if (event.sender === savedCaptureWindow?.webContents) {
           if (mode !== "saved-capture" || organization === undefined)
@@ -418,6 +435,19 @@ export function createQuickCaptureController(
           // 「本体｜補足」の補足はmodeごとに意味が違う（#308）。
           const { main, extra } = splitQuickCaptureInput(trimmed);
           if (!main) throw new Error("タスク名を入力してください。");
+          const attachments = isDoneTask ? normalizeDoneTaskAttachments(attachmentsValue) : [];
+          if (!isDoneTask && attachmentsValue !== undefined && attachmentsValue !== null)
+            throw new Error("成果物は完了Taskの記録でだけ添えられます。");
+          const taskThemeId = canonicalThemeId(themeId, { defaultPersonal: true });
+          // 成果物のファイルはQuick Captureと同じく元の場所を参照し、勝手にコピーしない。
+          // 見つからないファイルはTaskを作る前に止め、入力を残して直せるようにする。
+          const attachedFiles = attachments.flatMap((item) =>
+            item.kind === "file" ? [{ path: item.path, name: item.name }] : [],
+          );
+          for (const file of attachedFiles) {
+            if (!fs.existsSync(file.path) || !fs.statSync(file.path).isFile())
+              throw new Error(`成果物のファイルが見つかりません（${file.name}）。`);
+          }
           const due = mode === "today-task" && extra ? parseSchedule(extra, today) : null;
           if (due && !due.ok) throw new Error(due.message);
           const parsedDue = due?.ok ? due : null;
@@ -447,7 +477,7 @@ export function createQuickCaptureController(
                 description: null,
                 // やったことのひとことは本文と混ぜず、完了の記録として分けて保存する。
                 completion_note: isDoneTask && extra ? extra : null,
-                project_id: canonicalThemeId(themeId, { defaultPersonal: true }),
+                project_id: taskThemeId,
                 state: isDoneTask ? "done" : "todo",
                 priority: "normal",
                 today_date: mode === "today-task" && !parsedDue ? today : null,
@@ -475,7 +505,28 @@ export function createQuickCaptureController(
             issuedAt: new Date().toISOString(),
           });
           options.notifyCommandApplied(receipt, event.sender.id);
-          return receipt.changes.find((change) => change.type === "task")?.entity;
+          const task = receipt.changes.find((change) => change.type === "task")?.entity;
+          if (attachments.length) {
+            const artifacts = buildDoneTaskArtifacts({
+              taskId,
+              themeId: taskThemeId,
+              files: attachedFiles,
+              urls: attachments.flatMap((item) => (item.kind === "url" ? [item.url] : [])),
+              newId: randomUUID,
+            });
+            const saved = options.repository.saveMany(
+              artifacts.map((entity) => ({
+                action: "save" as const,
+                type: "artifact",
+                entity,
+                options: { source: "quick-capture" },
+              })),
+            ) as Entity[];
+            options.notifyWorkspaceChanged({
+              entities: saved.map((entity) => ({ type: "artifact" as EntityType, entity })),
+            });
+          }
+          return task;
         }
         if (mode !== "micro-memo") throw new Error("この入力モードでは保存できません。");
         const contentType = quickCaptureContentType(trimmed);

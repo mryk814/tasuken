@@ -87,6 +87,41 @@
       }
       .range-choice button:hover,
       .range-choice button.is-selected { border-color: var(--color-accent); background: var(--color-accent-subtle-bg); color: var(--color-accent-strong); }
+      .attachments {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+        padding: 6px 8px;
+        border: 1px dashed var(--color-border);
+        border-radius: var(--radius-md);
+      }
+      .attachments[hidden] { display: none; }
+      .attachments.is-dragging { border-color: var(--color-accent); background: var(--color-accent-subtle-bg); }
+      .attachment-list { display: flex; flex-wrap: wrap; gap: 4px; max-height: 56px; overflow: auto; list-style: none; }
+      .attachment-list:empty { display: none; }
+      .attachment-list li {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        max-width: 100%;
+        min-width: 0;
+        padding: 1px 2px 1px 8px;
+        border: 1px solid var(--color-border);
+        border-radius: 999px;
+        background: var(--color-surface);
+        font-size: 11px;
+      }
+      .attachment-list li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .attachment-list li > button {
+        min-height: 20px;
+        padding: 0 6px;
+        border: 0;
+        background: transparent;
+        color: var(--color-text-secondary);
+        font-size: 11px;
+      }
+      .attachment-list li > button:hover { color: var(--color-danger); }
       .range-choice > span { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .mode-pill {
         display: inline-flex;
@@ -246,6 +281,10 @@
       <p id="voice-help" class="input-help" hidden>この入力欄で <kbd>Win + H</kbd> を押すとWindowsの音声入力を使えます。話し終えたら「AIで整理」へ進みます。</p>
       <span id="due-preview" class="due-preview" role="status" aria-live="polite"></span>
       <div id="range-choice" class="range-choice" hidden aria-label="日付範囲の意味"></div>
+      <section id="attachments" class="attachments" hidden aria-label="成果物">
+        <span class="capture-hint">成果物: ファイル・URLをドロップ、またはコピーしたファイルを貼り付け</span>
+        <ul id="attachment-list" class="attachment-list"></ul>
+      </section>
       <section id="organization" class="organization" hidden aria-label="整理案を確認">
         <div class="organization-dates">
           <label>開始日<input id="organization-start" type="date"></label>
@@ -293,6 +332,11 @@
       const externalPreview = document.getElementById("external-preview");
       const duePreview = document.getElementById("due-preview");
       const rangeChoice = document.getElementById("range-choice");
+      const attachmentsSection = document.getElementById("attachments");
+      const attachmentList = document.getElementById("attachment-list");
+      // 完了Taskに添える成果物。{ kind: "file", path, name } か { kind: "url", url }。
+      let attachments = [];
+      const ATTACHMENT_LIMIT = 20;
       let mode = "feed";
       let lastThemeId = localStorage.getItem("tasken:quick-capture:last-theme-id") || "";
       let selectedRangeSemantics = "";
@@ -545,9 +589,96 @@
             ? "この原文・入力日時・タイムゾーンと、公開を許可した所属Theme名だけを設定済みAIへ送ります。"
             : "CaptureのAI公開範囲で「外部AI」を許可すると整理できます。";
         }
+        attachmentsSection.hidden = !isDoneTask;
+        if (!isDoneTask) setAttachments([]);
         externalInput.hidden = !isTodayTask || organization !== null;
         voiceHelp.hidden = !isTodayTask || organization !== null || window.captureApi.platform !== "win32";
       }
+
+      function attachmentKey(item) {
+        return item.kind === "file" ? `file:${item.path}` : `url:${item.url}`;
+      }
+
+      function setAttachments(next) {
+        attachments = next;
+        attachmentList.replaceChildren(
+          ...attachments.map((item) => {
+            const row = document.createElement("li");
+            const label = document.createElement("span");
+            label.textContent = item.kind === "file" ? item.name : item.url;
+            label.title = item.kind === "file" ? item.path : item.url;
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.textContent = "✕";
+            remove.setAttribute("aria-label", `${label.textContent}を外す`);
+            remove.addEventListener("click", () => {
+              setAttachments(attachments.filter((candidate) => attachmentKey(candidate) !== attachmentKey(item)));
+              input.focus();
+            });
+            row.append(label, remove);
+            return row;
+          }),
+        );
+      }
+
+      function addAttachments(items) {
+        const known = new Set(attachments.map(attachmentKey));
+        const added = items.filter((item) => {
+          const key = attachmentKey(item);
+          if (known.has(key)) return false;
+          known.add(key);
+          return true;
+        });
+        const next = [...attachments, ...added];
+        if (next.length > ATTACHMENT_LIMIT) {
+          feedback.textContent = `成果物は${ATTACHMENT_LIMIT}件までです。`;
+          feedback.classList.add("error");
+          feedback.style.display = "";
+        }
+        setAttachments(next.slice(0, ATTACHMENT_LIMIT));
+      }
+
+      function fileAttachments(files) {
+        return [...files].flatMap((file) => {
+          const filePath = window.captureApi.pathForFile(file);
+          return filePath ? [{ kind: "file", path: filePath, name: file.name }] : [];
+        });
+      }
+
+      function urlAttachments(dataTransfer) {
+        const lines = [dataTransfer.getData("text/uri-list") || "", dataTransfer.getData("text/plain") || ""].join("\n");
+        const urls = lines
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line && !line.startsWith("#") && /^https?:\/\/\S+$/i.test(line));
+        return [...new Set(urls)].map((url) => ({ kind: "url", url }));
+      }
+
+      // 成果物はウィンドウのどこへドロップしてもよい。入力欄へ文字として入れない。
+      document.addEventListener("dragover", (event) => {
+        if (mode !== "done-task") return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy";
+        attachmentsSection.classList.add("is-dragging");
+      }, true);
+      document.addEventListener("dragleave", (event) => {
+        if (!event.relatedTarget) attachmentsSection.classList.remove("is-dragging");
+      }, true);
+      document.addEventListener("drop", (event) => {
+        attachmentsSection.classList.remove("is-dragging");
+        if (mode !== "done-task") return;
+        event.preventDefault();
+        const files = fileAttachments(event.dataTransfer.files);
+        addAttachments(files.length ? files : urlAttachments(event.dataTransfer));
+        input.focus();
+      }, true);
+      input.addEventListener("paste", (event) => {
+        if (mode !== "done-task" || !event.clipboardData?.files.length) return;
+        const files = fileAttachments(event.clipboardData.files);
+        if (!files.length) return;
+        event.preventDefault();
+        addAttachments(files);
+      });
 
       function renderRangeChoice(result) {
         rangeChoice.replaceChildren();
@@ -625,7 +756,8 @@
         try {
           const usesTheme = mode !== "micro-memo";
           const themeId = usesTheme ? themeSelect.value : "";
-          const result = await window.captureApi.save(originalInput?.text ?? text, mode, themeId, selectedRangeSemantics || undefined, submission ?? undefined);
+          const attached = mode === "done-task" && attachments.length ? attachments : undefined;
+          const result = await window.captureApi.save(originalInput?.text ?? text, mode, themeId, selectedRangeSemantics || undefined, submission ?? undefined, attached);
           if (organization && result?.status === "not_saved") {
             submission = null;
             organizationStatus.textContent = result.message || "内容を確認して再試行してください。入力は残っています。";
@@ -642,6 +774,10 @@
           externalResult.value = "";
           externalInput.open = false;
           if (savedCount) feedback.textContent = `${savedCount}件のタスクを追加しました`;
+          if (mode === "done-task") {
+            feedback.textContent = attached ? `やったことを記録しました（成果物${attached.length}件）` : "やったことを記録しました";
+            setAttachments([]);
+          }
           feedback.classList.remove("error");
           feedback.style.display = "";
           feedback.style.animation = "none";
