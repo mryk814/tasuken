@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { IPC } from "../shared/ipc/contracts";
 
 contextBridge.exposeInMainWorld("captureApi", {
@@ -9,7 +9,18 @@ contextBridge.exposeInMainWorld("captureApi", {
     themeId?: string,
     rangeSemantics?: "once_within_window" | "ongoing",
     organization?: unknown,
-  ) => ipcRenderer.invoke(IPC.quickCaptureSave, text, mode, themeId, rangeSemantics, organization),
+    attachments?: unknown,
+  ) =>
+    ipcRenderer.invoke(
+      IPC.quickCaptureSave,
+      text,
+      mode,
+      themeId,
+      rangeSemantics,
+      organization,
+      attachments,
+    ),
+  pathForFile: (file: File) => webUtils.getPathForFile(file),
   organize: (input: unknown) => ipcRenderer.invoke(IPC.quickCaptureOrganize, input),
   copyExternalPrompt: (input: unknown) => ipcRenderer.invoke(IPC.quickCaptureExternalPrompt, input),
   importExternalResult: (text: string) => ipcRenderer.invoke(IPC.quickCaptureExternalImport, text),
