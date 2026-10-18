@@ -35,6 +35,10 @@ import { themeColor } from "../lib/domain";
 import { buildDailyDebriefEvidence, findDailyDebriefNote } from "../lib/taskenDebrief";
 import { preloadWorkspacePage } from "../workspacePageLoaders";
 import { useReminderNow } from "./common";
+import {
+  focusSessionElapsedMs,
+  isPausedFocusSession,
+} from "../../../../../shared/focusSession.mjs";
 import { dueItemReminders } from "../lib/reminders";
 
 const taskenIconUrl = new URL("../../../../../../resources/icon.png", import.meta.url).href;
@@ -351,13 +355,12 @@ interface SidebarProps {
   domain: WorkspaceDomain;
   openDrawer: OpenDrawer;
   /** 実行中のFocus Session（#316）。右下floatingではなくSidebar下部で見せる。 */
-  activeFocus?: { taskTitle: string; startedAt: string } | null;
+  activeFocus?: { taskTitle: string; session: Record<string, unknown> } | null;
   openActiveFocus?: () => void;
 }
 
-function elapsedFocusLabel(startedAt: string, now: number): string {
-  const started = new Date(startedAt).getTime();
-  const seconds = Number.isNaN(started) ? 0 : Math.max(0, Math.floor((now - started) / 1000));
+function elapsedFocusLabel(elapsedMs: number): string {
+  const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${pad(Math.floor(seconds / 3600))}:${pad(Math.floor(seconds / 60) % 60)}:${pad(seconds % 60)}`;
 }
@@ -372,7 +375,7 @@ function SidebarFocus({
   collapsed,
   onOpen,
 }: {
-  focus: { taskTitle: string; startedAt: string };
+  focus: { taskTitle: string; session: Record<string, unknown> };
   collapsed: boolean;
   onOpen: () => void;
 }) {
@@ -381,18 +384,20 @@ function SidebarFocus({
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
-  const elapsed = elapsedFocusLabel(focus.startedAt, now);
+  const elapsed = elapsedFocusLabel(focusSessionElapsedMs(focus.session, now));
+  const paused = isPausedFocusSession(focus.session);
+  const state = paused ? "一時停止中" : "集中して作業中";
   return (
     <button
       type="button"
-      className="sidebar-focus"
+      className={paused ? "sidebar-focus is-paused" : "sidebar-focus"}
       onClick={onOpen}
-      title={`集中して作業中: ${focus.taskTitle}（${elapsed}）`}
-      aria-label={`集中して作業中: ${focus.taskTitle}。経過${elapsed}。開く`}
+      title={`${state}: ${focus.taskTitle}（${elapsed}）`}
+      aria-label={`${state}: ${focus.taskTitle}。経過${elapsed}。開く`}
     >
       <span className="sidebar-focus-label">
         <span className="sidebar-focus-dot" aria-hidden="true" />
-        {!collapsed && "フォーカス中"}
+        {!collapsed && (paused ? "一時停止中" : "フォーカス中")}
       </span>
       {!collapsed && (
         <>
