@@ -3,7 +3,7 @@
 Synology上でElectronなしのTasken Coreを常時稼働させ、既存の共有フォルダ同期へ**read-only replica**として参加させる手順です。
 Desktopが停止していても、NASのローカルSQLiteが最新の同期差分を持ち、MCP（read-only）からContextを読める状態を目指します。
 
-実装済みなのはheadless Coreとreplica参加（`docs/headless-core.md`）までです。MCP transport / Secure MCP Tunnelの常時稼働とwrite有効化（`proposals`配備）は2026-09-27に実機NASへ配置済みで、観測は[deploy/synology/DEPLOYED.md](../deploy/synology/DEPLOYED.md)にあります。ChatGPT実クライアントからの往復とtransport再接続は未検証です。
+headless Coreとreplica参加（`docs/headless-core.md`）、Secure MCP Tunnelを利用できます。トンネルの常時稼働とwrite有効化（`proposals`配備）は2026-09-27に実機NASへ配置済みで、ChatGPT実クライアントからの往復を含む観測は[deploy/synology/DEPLOYED.md](../deploy/synology/DEPLOYED.md)にあります。別クライアント向けのStreamable HTTP MCPは下記の任意構成です。HTTPの実機配備とtransport再接続は未検証です。
 
 ```text
 [データ端末 Tasken]
@@ -197,6 +197,90 @@ sudo docker logs --tail=30 tasken-tunnel
 - 2026-09-12時点の実機観測: NAS側のdaemonは`healthy`・metadata取得済みだが、**ChatGPT Plus + Personal workspaceでは`Connection: Tunnel`の一覧にtunnelが出ない**（OpenAI側の既知問題。`tunnel_principal_association_unverified`）。Business/Enterprise workspaceかOpenAI側の修正待ち。経緯は[deploy/synology/DEPLOYED.md](../deploy/synology/DEPLOYED.md)。
 - その後、利用者からChatGPTから接続できたとの報告があり、現在の利用状況として扱う（2026-09-27時点）。上の09-12観測は履歴として残す。
 - 未検証: ChatGPT実クライアントからの書き込み往復（読み取りは利用中）、transport切断・再接続、NAS再起動後の自動復帰。
+
+## Tailnet内のStreamable HTTP MCP（#673）
+
+ChatGPT以外のMCPクライアントは、`mcp-dist/http-server.mjs`の`/mcp`へStreamable HTTPで接続できます。
+既存stdio bridgeと同じCoreを使うため、Secure MCP Tunnelを動かしたまま追加できます。
+HTTP MCPの既定は読み取り専用です。`/health`は起動確認だけを返し、Core情報やデータを返しません。
+Streamable HTTPはセッションを持たないPOSTとJSON応答を使います。SSE常時接続やブラウザからの接続を前提とせず、Originヘッダー付き要求は拒否します。
+要求本文はstdioと同じ35MiBを上限とし、超過はJSON解析前に413で拒否します。
+
+### 事前確認と承認範囲
+
+この節は配備手順であり、稼働確認ではありません。現在の観測は[DEPLOYED.md](../deploy/synology/DEPLOYED.md)を参照します。
+固定commitのimageを用意し、前述のsnapshot・checksum・復旧点の確認を終えてから適用します。
+`nas-install.sh`はHTTP overlayを自動選択しません。既存配備の更新に初期配置手順をそのまま再実行しないでください。
+
+1. NASで実際のCompose project・使用ファイル・image・UID/GID・mount・Coreとtunnelのhealthを確認し、設定とsecretを非公開に保全する。
+2. `tailscale serve status`と`tailscale funnel status`を確認し、既存route、使用HTTPSポート、Funnel設定を記録する。NASの`18181`の待受所有者も確認し、競合時は停止・置換せず別の空きポートを選ぶ。
+3. 対象はTasken HTTP MCP、backendはNASの`127.0.0.1:18181`、公開候補は空いているHTTPSポート（例`8444`）の`/mcp`、範囲は許可されたtailnet端末、`--bg`でNAS上に継続設定することを具体的に示し、適用承認を得る。既存kokokanaの443 routeは保持し、Funnel・firewall・ACLをこの手順で変更しない。
+
+HTTP overlayは`tasken-headless`を`network_mode: host`へ変更し、HTTP/tunnelはその名前空間を共有します。
+Core・HTTP・tunnel管理用endpointはいずれも既存のloopback待受を維持します。
+Dockerの`ports: 127.0.0.1:...`ではコンテナ内部の`127.0.0.1`へ届かないため、ポート転送や`0.0.0.0` bindでは代替しません。
+初回はCoreと併用中のtunnelを再作成する変更になります。host networkへの切替も上記の承認対象です。
+
+### クライアント別Bearer token
+
+NASの`deploy/synology/secrets/mcp_http_clients`へ次の形のJSONを保存します。値は例示用で、実tokenは共有しません。
+
+```json
+{
+  "grokbot": {
+    "token": "<32 byte random base64url token (43 characters)>",
+    "readOnly": true
+  }
+}
+```
+
+- tokenはクライアントごとに32byteの暗号学的乱数からbase64urlで生成し、クライアント側のsecret管理へ安全な経路で渡す。JSONはgit管理外とし、コンテナ実行UID所有、mode 600にする。ログ・チャット・`.env`・Exportに値を出さない。
+- これはHTTP bridge専用のtokenであり、Core discoveryの全権token、既存Core読み取り専用クライアントtokenとは別。`grokbot`という表示名は到達端末の検証を代替しない。
+- `readOnly`省略時はtrue。`TASKEN_MCP_READ_ONLY=1`なら`readOnly:false`でも書き込みを許可しない。
+- 書き込みを明示的に許す場合だけ、Coreの`proposals`または`create-only`、`TASKEN_MCP_READ_ONLY=0`、該当クライアントの`readOnly:false`を揃える。汎用編集・削除・完了・直接開始はHTTP側へ公開しない。
+- tokenの追加・ローテーション・取り消しはsecretを更新して`mcp-http`を再作成する。再作成まで古い設定が有効なため、取り消し時も再作成の成功を確認する。
+
+### 起動・Serve route追加
+
+NASの配備ディレクトリで、既存の`.env`を保持したまま`TASKEN_MCP_HTTP_PORT=18181`を設定します。
+固定tagの候補imageを使うときはCore・HTTP・併用中のtunnelを同じ検証済みimageへ揃えます。
+以下はトンネルを併用する例です。HTTPだけなら`-f docker-compose.tunnel.yml`を外します。
+
+```bash
+sudo /var/packages/ContainerManager/target/usr/bin/docker-compose \
+  --env-file .env -f docker-compose.yml -f docker-compose.tunnel.yml \
+  -f docker-compose.http.yml up -d --no-build --force-recreate
+```
+
+Core・HTTP・tunnelのhealth、実際のnetwork modeとmount、NASホストの`127.0.0.1:18181`からの応答を確認します。
+`/health`の成功だけではCore接続やMCP動作の確認になりません。
+NASホストでMCP認証と読み取りを確認後、承認された未使用のHTTPSポートだけにServe routeを追加します。
+次の`8444`は選定例です。現在のrouteと合意したポートに置き換えます。
+
+```bash
+sudo tailscale serve --bg --https=8444 http://127.0.0.1:18181
+tailscale serve status
+tailscale funnel status
+```
+
+[Tailscale Serveの公式手順](https://tailscale.com/docs/reference/tailscale-cli/serve)に従い、実際の表示からURLを採ります。
+接続先は`https://<NASのtailnet名>:<合意したHTTPSポート>/mcp`、ヘッダーは`Authorization: Bearer <そのクライアントのtoken>`です。
+PC側localhostへのforwardではなく、Serveを実行するNASホストのlocalhostへ到達することを確認します。
+Serveはtailnet内向けです。Funnelは有効にせず、既存のFunnel設定でこのポートが公開されている場合は設定追加を止めて確認します。
+
+### 受け入れ・トンネルからの切替
+
+NASとGrok Botなどの別端末が同じtailnetへ接続し、アクセス許可がある状態で、別端末から以下を確認します。
+
+1. 認証なし・不正tokenで`POST /mcp`が401になる。
+2. 正しいtokenを指定したStreamable HTTP MCPクライアントで`initialize`、`tools/list`、`tasken.get_capabilities`が成功する。
+3. 読み取り専用クライアントにwrite toolsが出ず、`get_capabilities`も読み取り専用を示す。権限を許可した場合もCoreとクライアント設定の範囲を越えない。
+4. NASの待受がloopbackだけであること、対象ポートがServeにだけ設定されFunnelにないことを確認する。さらにtailnetを切った別ネットワークの端末から対象URLへ届かないことを確認する。設定の読取だけでtailnet外の到達拒否を実測済みとしない。
+5. 併用中のChatGPTトンネルのhealthと読み取りを確認する。固定commit/image・token値を含めないクライアント名・到達元・応答結果・未検証範囲を`DEPLOYED.md`へ記録する。
+
+HTTPを確認後、トンネル停止を承認された場合は同じComposeファイル構成で`tunnel-client`だけを`stop`します。
+以降の起動はbase+HTTPだけを指定し、`nas-install.sh`が既存tunnel設定から自動起動する点にも注意します。
+再開する場合はbase+tunnel+HTTPで`tunnel-client`を起動します。secretや既存設定を削除せず、`down`・`--remove-orphans`・Serve全体の`reset`は使いません。
 
 ## コンテナ設定（堅牢化）
 

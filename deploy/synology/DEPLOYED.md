@@ -51,6 +51,9 @@ PC側から共有フォルダを確認しただけでは、コンテナやSQLite
 
 ## 未確認
 
+- #673のStreamable HTTP MCPは配備準備のみ。`docker-compose.http.yml`によるhost networkへの変更、Bearer secret配置、Tailscale Serveの公開変更はこの記録では実施・観測していない。
+- HTTP配備時は[正本手順](../../docs/synology-headless-node.md#tailnet内のstreamable-http-mcp673)に従い、既存Compose/env/secret・Serve/Funnel route・port所有者を観測してから、承認された範囲だけを変更する。Core/tunnelを含む再作成後、固定commit/image、snapshot照合、health、`127.0.0.1`だけの待受、既存tunnelの保持を記録する。
+- HTTPの実機受け入れは、tailnetの別端末からの`initialize`・`tools/list`・`tasken.get_capabilities`、tokenなし/不正tokenの401、tailnet外からの到達拒否を個別に確認して追記する。Grok Bot実クライアント、NAS再起動後の復帰、トンネル停止後の継続利用も未確認。
 - amd64以外のSynology、Synology Drive / Cloud Sync経由の同期。
 - `backup.sh` のNAS上での一連実行。
 - Desktop停止・NAS再起動・transport再接続を含めた一連の復旧。

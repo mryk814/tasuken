@@ -24,6 +24,8 @@ const manualAllowlist = {
     "Internal packaged MCP process readiness and diagnostic helper; imported by mcp-package-smoke.",
   "notes-performance.mjs": "Manual long-Notes performance benchmark; not a merge gate.",
   "mcp-server.mjs": "Manual MCP stdio entry point; launched by the mcp package script.",
+  "mcp-http-server.mjs":
+    "HTTP MCP entry point bundled by build-mcp-bridge and launched by the Synology HTTP sidecar.",
   "seed-feed-audit-workspace.mjs":
     "Internal isolated-workspace seeder spawned by feed-surface-audit; not a CLI entry point.",
   "seed-theme-audit-workspace.mjs":

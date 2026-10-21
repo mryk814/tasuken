@@ -63,6 +63,8 @@ Note編集はTheme変更も含めてDocument保存へ通す。本文由来のRef
 
 Coreの全権tokenはdiscoveryで共有するMCP bridge用に限る。MCPを経由しないローカルの読み取りクライアントには、名前つきの読み取り専用tokenを発行する。保存はSHA-256だけで、取り消しは即時に効く。読み取り専用tokenはquery routeだけを通し、Proposal状態・Proposal作成・書き込みを拒否する。接続先はtokenを含まないendpoint fileで公開する。詳細は[外部AI連携](external-ai-integration.md#読み取り専用のローカルクライアント)。
 
+NASのStreamable HTTP MCPは`127.0.0.1`の`/mcp`だけで受け、Tailscale Serveのtailnet内HTTPSから接続する。Core discoveryの全権tokenを外部クライアントへ配らず、bridge専用のクライアント別Bearer tokenを使う。tokenなし・不一致は401とし、クライアントの`readOnly`は既定true、`TASKEN_MCP_READ_ONLY=1`を越えて書き込みを許可しない。HTTP側は汎用編集・削除・完了・直接開始を公開せず、明示されたCoreの`proposals` / `create-only`の範囲を上限にする。stdioとHTTPは同じCoreを使い、HTTPがSQLiteを直接開く経路を作らない。配備とtoken管理は[Synology手順](synology-headless-node.md#tailnet内のstreamable-http-mcp673)に従う。
+
 ## セキュリティと秘密情報
 
 1. 秘密情報（APIキー・トークン・パスワード）をソースコード・設定ファイルに直書きしない。リポジトリにコミットしない。
