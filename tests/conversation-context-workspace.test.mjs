@@ -32,6 +32,7 @@ async function importWorkspaceService() {
         contents: `
           export const app = { getPath: () => "" };
           export class BrowserWindow {}
+          export class ClipboardItem {}
           export const clipboard = {};
           export const dialog = {};
           export const nativeImage = {};

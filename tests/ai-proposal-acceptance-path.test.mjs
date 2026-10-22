@@ -44,7 +44,7 @@ async function importWorkspaceService() {
       }));
       buildApi.onLoad({ filter: /^electron-mock$/, namespace: "acceptance-mock" }, () => ({
         contents:
-          'export const app={getPath:()=>""}; export class BrowserWindow{}; export const clipboard={}; export const dialog={}; export const nativeImage={}; export const shell={};',
+          'export const app={getPath:()=>""}; export class BrowserWindow{}; export class ClipboardItem{}; export const clipboard={}; export const dialog={}; export const nativeImage={}; export const shell={};',
         loader: "js",
       }));
       buildApi.onResolve({ filter: /^adm-zip$/ }, () => ({

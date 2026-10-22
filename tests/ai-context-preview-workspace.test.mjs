@@ -30,7 +30,7 @@ async function importWorkspaceService() {
           }));
           buildApi.onLoad({ filter: /.*/, namespace: "electron-mock" }, () => ({
             contents:
-              'export const app={getPath:()=>""}; export class BrowserWindow{}; export const clipboard={}; export const dialog={}; export const nativeImage={}; export const shell={openPath:async()=>""};',
+              'export const app={getPath:()=>""}; export class BrowserWindow{}; export class ClipboardItem{}; export const clipboard={}; export const dialog={}; export const nativeImage={}; export const shell={openPath:async()=>""};',
             loader: "js",
           }));
           buildApi.onResolve({ filter: /^adm-zip$/ }, () => ({
