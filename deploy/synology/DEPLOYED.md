@@ -40,6 +40,16 @@ PC側から共有フォルダを確認しただけでは、コンテナやSQLite
 - `nas-read-check.mjs`（`TASKEN_MCP_READ_ONLY=0`）で `TOOL_COUNT 21`（read 16 + write 5）。`get_capabilities`・`list_proposals`・`search_notes` が一覧に出て、この配備で使えない `start_task_work`・`propose_note_edit`・`answer_feed_question` は一覧に出ないことを確認。`search_items` の読み取りも成功。
 - 未確認: ChatGPT側でのConnector再読み込み後のtool一覧と `get_capabilities` の応答。
 
+### 2026-10-22 Streamable HTTP MCP追加（#673）
+
+- HTTP用imageは固定commit `475748c3e8dd1005890dafb1157dd7b1591487e0`から作成。搬入archiveのSHA-256を送り側とNASで照合し、一致を確認した。
+- 稼働中のCoreとtunnelは`0.1.78`の同じimageを保持した。Coreの`create-only`・直接開始のopt-in、既存tunnelの書き込み設定、UID/GID・mount・node identityを変更せず、HTTPだけを読み取り専用で追加した。
+- 本人がNASのsudoで適用スクリプトを実行し、現行Coreへの候補HTTP互換接続、停止中snapshotのchecksum・隔離SQLite整合性、元Core/tunnel復帰を確認してから反映した。Windowsから搬入した`backup.sh`のCRLFで最初の実行が起動直後に停止したため、搬入コピーだけをUTF-8/LFへ直して再実行した。実データや旧receiptは変更していない。
+- 適用スクリプトの検査結果として、3サービスのhealthy、Core/tunnelのimage・設定保持、node identity保持、同じhost network namespace、HTTPとtunnel管理endpointのloopback待受、既存stdio MCPの読み取りと権限保持を確認した。実機内部の確認は本人実行の成功markerと、生成された結果ファイルを証拠とする。
+- Tailscale ServeへHTTPS `8444` → NASの`127.0.0.1:18181`を継続設定した。既存HTTPS `443`の転送先は保持し、Funnelは変更していない。変更後のServe設定もこちらから読み取り確認した。
+- 別のtailnet端末であるWindows PCから、実HTTPSで`initialize`・`tools/list`・`tasken.get_capabilities`が成功。読み取り専用16 toolsと、認証なし・不正tokenの401を確認した。tokenはHTTP bridge専用のクライアント別secretに保存し、値を記録・出力していない。
+- tailnet外からの接続拒否は、本人がスマートフォンをモバイル回線・Tailscale OFFにして接続できないことを確認したとの報告による。Grok Bot本体の設定・操作、NAS再起動後の復帰、ChatGPT実クライアントの再接続は未確認。
+
 ## ローカル隔離検証（NASではない）
 
 2026-09-27にNASデータのコピーを一時環境へ置き、Proposalの受付、共有フォルダへの公開、Desktop相当の採用経路を確認。本番NASと実データには書き込んでいません。
@@ -51,10 +61,7 @@ PC側から共有フォルダを確認しただけでは、コンテナやSQLite
 
 ## 未確認
 
-- #673のStreamable HTTP MCPは配備準備のみ。`docker-compose.http.yml`によるhost networkへの変更、Bearer secret配置、Tailscale Serveの公開変更はこの記録では実施・観測していない。
-- HTTP配備時は[正本手順](../../docs/synology-headless-node.md#tailnet内のstreamable-http-mcp673)に従い、既存Compose/env/secret・Serve/Funnel route・port所有者を観測してから、承認された範囲だけを変更する。Core/tunnelを含む再作成後、固定commit/image、snapshot照合、health、`127.0.0.1`だけの待受、既存tunnelの保持を記録する。
-- HTTPの実機受け入れは、tailnetの別端末からの`initialize`・`tools/list`・`tasken.get_capabilities`、tokenなし/不正tokenの401、tailnet外からの到達拒否を個別に確認して追記する。Grok Bot実クライアント、NAS再起動後の復帰、トンネル停止後の継続利用も未確認。
+- Grok Bot本体の接続設定と操作、NAS再起動後のHTTP復帰、ChatGPT実クライアントの再接続、トンネル停止後の継続利用。今回のHTTP追加ではトンネルを併用したままにしている。
 - amd64以外のSynology、Synology Drive / Cloud Sync経由の同期。
-- `backup.sh` のNAS上での一連実行。
 - Desktop停止・NAS再起動・transport再接続を含めた一連の復旧。
 - リリース候補 `v0.1.71` のNASへの配備。この記録はその配備を示しません。

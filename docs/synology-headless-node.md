@@ -3,7 +3,7 @@
 Synology上でElectronなしのTasken Coreを常時稼働させ、既存の共有フォルダ同期へ**read-only replica**として参加させる手順です。
 Desktopが停止していても、NASのローカルSQLiteが最新の同期差分を持ち、MCP（read-only）からContextを読める状態を目指します。
 
-headless Coreとreplica参加（`docs/headless-core.md`）、Secure MCP Tunnelを利用できます。トンネルの常時稼働とwrite有効化（`proposals`配備）は2026-09-27に実機NASへ配置済みで、ChatGPT実クライアントからの往復を含む観測は[deploy/synology/DEPLOYED.md](../deploy/synology/DEPLOYED.md)にあります。別クライアント向けのStreamable HTTP MCPは下記の任意構成です。HTTPの実機配備とtransport再接続は未検証です。
+headless Coreとreplica参加（`docs/headless-core.md`）、Secure MCP Tunnelを利用できます。トンネルの常時稼働とwrite有効化（`proposals`配備）は2026-09-27、別クライアント向けのStreamable HTTP MCPは2026-10-22に実機NASへ配置しました。配置版・確認範囲・本人報告と独立観測の区別は[deploy/synology/DEPLOYED.md](../deploy/synology/DEPLOYED.md)を参照してください。Grok Bot本体とChatGPT実クライアントの再接続、NAS再起動後の復帰は未検証です。
 
 ```text
 [データ端末 Tasken]
@@ -210,6 +210,7 @@ Streamable HTTPはセッションを持たないPOSTとJSON応答を使います
 
 この節は配備手順であり、稼働確認ではありません。現在の観測は[DEPLOYED.md](../deploy/synology/DEPLOYED.md)を参照します。
 固定commitのimageを用意し、前述のsnapshot・checksum・復旧点の確認を終えてから適用します。
+Windowsからシェルスクリプトを搬入する場合は、搬入コピーをBOMなしUTF-8・LFにし、NAS上でもCRが混入していないことを確認します。`bash -n`だけでは`set -euo pipefail`のCRLFによる起動失敗を検出できません。
 `nas-install.sh`はHTTP overlayを自動選択しません。既存配備の更新に初期配置手順をそのまま再実行しないでください。
 
 1. NASで実際のCompose project・使用ファイル・image・UID/GID・mount・Coreとtunnelのhealthを確認し、設定とsecretを非公開に保全する。
@@ -238,12 +239,14 @@ NASの`deploy/synology/secrets/mcp_http_clients`へ次の形のJSONを保存し�
 - これはHTTP bridge専用のtokenであり、Core discoveryの全権token、既存Core読み取り専用クライアントtokenとは別。`grokbot`という表示名は到達端末の検証を代替しない。
 - `readOnly`省略時はtrue。`TASKEN_MCP_READ_ONLY=1`なら`readOnly:false`でも書き込みを許可しない。
 - 書き込みを明示的に許す場合だけ、Coreの`proposals`または`create-only`、`TASKEN_MCP_READ_ONLY=0`、該当クライアントの`readOnly:false`を揃える。汎用編集・削除・完了・直接開始はHTTP側へ公開しない。
+- Coreが直接開始も許可するprofile、`full`や不明なprofileの場合、HTTPの書き込み接続は503で拒否する。読み取り専用接続は利用できるため、既存tunnelの開始権限を保つ配備ではHTTP側を読み取り専用にする。
 - tokenの追加・ローテーション・取り消しはsecretを更新して`mcp-http`を再作成する。再作成まで古い設定が有効なため、取り消し時も再作成の成功を確認する。
 
 ### 起動・Serve route追加
 
 NASの配備ディレクトリで、既存の`.env`を保持したまま`TASKEN_MCP_HTTP_PORT=18181`を設定します。
-固定tagの候補imageを使うときはCore・HTTP・併用中のtunnelを同じ検証済みimageへ揃えます。
+通常はCore・HTTP・併用中のtunnelを同じ検証済みimageへ揃えます。稼働中のCoreとtunnelのimageを保持してHTTPだけを追加する場合は、変更前に候補HTTPを現行Coreと同じnetwork namespace・同じUID・`/data:ro`で隔離起動し、`initialize`・`tools/list`・`get_capabilities`と読み取りを確認します。各serviceのimageを固定し、既存Coreのwrite mode・開始権限・mount・envは変更しません。
+既存tunnelが書き込みを受け付けていても、新しいHTTPを読み取り専用にする場合はHTTP serviceの`TASKEN_MCP_READ_ONLY`だけを`1`へ固定します。共有`.env`の変更で既存tunnelの権限を変えないでください。
 以下はトンネルを併用する例です。HTTPだけなら`-f docker-compose.tunnel.yml`を外します。
 
 ```bash
@@ -405,7 +408,7 @@ Get-ChildItem T:\sync\devices\<replicaのdevice id> -Force |
 
 - arm64 / armv7のNASは未検証（実機確認はamd64のDS723+）。
 - Synology Drive / Cloud Sync経由の同期（実機確認はSMB共有フォルダ直結）。
-- `backup.sh`のNAS上での一連実行（compose検出・排他lock・再起動を含む）は未実施。
+- `backup.sh`のComposeによる稼働コンテナの自動検出は未確認。2026-10-22の実機確認では`TASKEN_CONTAINER`を明示し、snapshot・排他lock・隔離SQLite検証・元Core再起動まで通した。
 - MCP transport / Secure MCP Tunnelの再接続と、ChatGPT実クライアントからの投稿・作業報告の往復。常時稼働と`proposals`配備（`TASKEN_CORE_WRITE_MODE=proposals` + `TASKEN_MCP_READ_ONLY=0`）は2026-09-27に実機へ配置し、Core capability 31と`write_mode":"proposals"`まで確認済み（[DEPLOYED.md](../deploy/synology/DEPLOYED.md)）。
 - bootstrap / compaction / revoke / schema upgradeのowner決定はPhase 2の残り。Note Markdown画像の扱いと、コンテナ上での画像MCP再実行は未検証。
 - イメージbuild/runにはDocker daemonが必要。
