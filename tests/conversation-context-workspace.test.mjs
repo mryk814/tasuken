@@ -17,12 +17,17 @@ import {
 import { markdownSignature } from "../src/shared/canonicalMarkdown.mjs";
 
 async function importWorkspaceService() {
-  const outputDirectory = mkdtempSync(path.join(os.tmpdir(), "tasken-conversation-context-service-bundle-"));
+  const outputDirectory = mkdtempSync(
+    path.join(os.tmpdir(), "tasken-conversation-context-service-bundle-"),
+  );
   const outputFile = path.join(outputDirectory, "workspaceService.mjs");
   const electronMock = {
     name: "electron-mock",
     setup(buildApi) {
-      buildApi.onResolve({ filter: /^electron$/ }, () => ({ path: "electron-mock", namespace: "electron-mock" }));
+      buildApi.onResolve({ filter: /^electron$/ }, () => ({
+        path: "electron-mock",
+        namespace: "electron-mock",
+      }));
       buildApi.onLoad({ filter: /.*/, namespace: "electron-mock" }, () => ({
         contents: `
           export const app = { getPath: () => "" };
@@ -34,19 +39,31 @@ async function importWorkspaceService() {
         `,
         loader: "js",
       }));
-      buildApi.onResolve({ filter: /^adm-zip$/ }, () => ({ path: "adm-zip-mock", namespace: "adm-zip-mock" }));
+      buildApi.onResolve({ filter: /^adm-zip$/ }, () => ({
+        path: "adm-zip-mock",
+        namespace: "adm-zip-mock",
+      }));
       buildApi.onLoad({ filter: /.*/, namespace: "adm-zip-mock" }, () => ({
-        contents: "export default class AdmZip { constructor() { throw new Error('adm-zip is not used by Conversation Context tests'); } }",
+        contents:
+          "export default class AdmZip { constructor() { throw new Error('adm-zip is not used by Conversation Context tests'); } }",
         loader: "js",
       }));
-      buildApi.onResolve({ filter: /^better-sqlite3$/ }, () => ({ path: "better-sqlite3-mock", namespace: "better-sqlite3-mock" }));
+      buildApi.onResolve({ filter: /^better-sqlite3$/ }, () => ({
+        path: "better-sqlite3-mock",
+        namespace: "better-sqlite3-mock",
+      }));
       buildApi.onLoad({ filter: /.*/, namespace: "better-sqlite3-mock" }, () => ({
-        contents: "export default class Database { constructor() { throw new Error('database path is not used by in-memory Context Preview'); } }",
+        contents:
+          "export default class Database { constructor() { throw new Error('database path is not used by in-memory Context Preview'); } }",
         loader: "js",
       }));
-      buildApi.onResolve({ filter: /workspaceRepository\.mjs$/ }, () => ({ path: "workspace-repository-mock", namespace: "workspace-repository-mock" }));
+      buildApi.onResolve({ filter: /workspaceRepository\.mjs$/ }, () => ({
+        path: "workspace-repository-mock",
+        namespace: "workspace-repository-mock",
+      }));
       buildApi.onLoad({ filter: /.*/, namespace: "workspace-repository-mock" }, () => ({
-        contents: "export const workspaceEntityTypes = []; export const workspaceSchemaVersion = 1;",
+        contents:
+          "export const workspaceEntityTypes = []; export const workspaceSchemaVersion = 1;",
         loader: "js",
       }));
     },
@@ -115,7 +132,9 @@ function createFixture(prefix) {
     databasePath,
     database,
     close() {
-      try { database.db.close(); } catch {}
+      try {
+        database.db.close();
+      } catch {}
       fs.rmSync(userDataPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     },
   };
@@ -137,14 +156,22 @@ test("Viewer previewから明示公開し、stable path・selected turns・AI Pa
     const now = "2026-08-09T03:00:00.000Z";
     const service = new WorkspaceService(item.database, item.userDataPath, () => now);
     const before = item.database.get("resource", "conversation-context");
-    const preview = service.getConversationContextPreview({ conversationId: "conversation-context", scope: "selected_turns", selectedMessageIndexes: [0, 4] });
+    const preview = service.getConversationContextPreview({
+      conversationId: "conversation-context",
+      scope: "selected_turns",
+      selectedMessageIndexes: [0, 4],
+    });
     assert.equal(preview.publicationState, "not_published");
     assert.equal(preview.allowed, true);
     assert.match(preview.relativePath, /^AI Context\/Conversations\//);
     assert.doesNotMatch(preview.content, /Answer one|Question two|raw output/);
     assert.match(preview.content, /Question one/);
     assert.match(preview.content, /Answer two/);
-    assert.equal(fs.existsSync(path.join(item.syncRoot, "Themes")), false, "preview must not publish");
+    assert.equal(
+      fs.existsSync(path.join(item.syncRoot, "Themes")),
+      false,
+      "preview must not publish",
+    );
 
     const published = service.publishConversationContext(publishRequest(preview));
     assert.equal(published.publicationState, "published");
@@ -154,7 +181,12 @@ test("Viewer previewから明示公開し、stable path・selected turns・AI Pa
     assert.equal(saved.body_markdown, before.body_markdown, "Conversation body is not rewritten");
     assert.equal(item.database.list("artifact").length, 0, "raw Artifact collection is untouched");
     assert.equal(publication.published_at, now);
-    const filePath = path.join(item.syncRoot, "Themes", "CONV", ...publication.relative_path.split("/"));
+    const filePath = path.join(
+      item.syncRoot,
+      "Themes",
+      "CONV",
+      ...publication.relative_path.split("/"),
+    );
     assert.equal(fs.existsSync(filePath), true);
     const fileBody = fs.readFileSync(filePath, "utf8");
     assert.match(fileBody, /schema: tasken-conversation-context\/v1/);
@@ -166,13 +198,19 @@ test("Viewer previewから明示公開し、stable path・selected turns・AI Pa
     assert.doesNotMatch(meetings, /Question one|Answer two|raw output/);
 
     const mtime = fs.statSync(filePath).mtimeMs;
-    const current = service.getConversationContextPreview({ conversationId: "conversation-context" });
+    const current = service.getConversationContextPreview({
+      conversationId: "conversation-context",
+    });
     assert.equal(current.publicationState, "published");
     assert.equal(current.dirty, false);
     const skipped = service.publishConversationContext(publishRequest(current));
     assert.equal(skipped.written, false);
     assert.equal(fs.statSync(filePath).mtimeMs, mtime);
-    assert.equal(item.database.get("resource", "conversation-context").conversation_context_publication.published_at, now);
+    assert.equal(
+      item.database.get("resource", "conversation-context").conversation_context_publication
+        .published_at,
+      now,
+    );
   } finally {
     item.close();
   }
@@ -181,21 +219,40 @@ test("Viewer previewから明示公開し、stable path・selected turns・AI Pa
 test("title変更でbindingを動かさず更新し、visibility解除後はhard blockしてPack参照を外す", () => {
   const item = createFixture("tasken-conversation-context-dirty");
   try {
-    const service = new WorkspaceService(item.database, item.userDataPath, () => "2026-08-09T03:00:00.000Z");
-    const initial = service.getConversationContextPreview({ conversationId: "conversation-context" });
+    const service = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-09T03:00:00.000Z",
+    );
+    const initial = service.getConversationContextPreview({
+      conversationId: "conversation-context",
+    });
     service.publishConversationContext(publishRequest(initial));
-    const firstPublication = item.database.get("resource", "conversation-context").conversation_context_publication;
+    const firstPublication = item.database.get(
+      "resource",
+      "conversation-context",
+    ).conversation_context_publication;
     const current = item.database.get("resource", "conversation-context");
-    item.database.save("resource", { ...current, title: "Renamed title", body_markdown: `${current.body_markdown}\n\nMore detail` });
+    item.database.save("resource", {
+      ...current,
+      title: "Renamed title",
+      body_markdown: `${current.body_markdown}\n\nMore detail`,
+    });
     const dirty = service.getConversationContextPreview({ conversationId: "conversation-context" });
     assert.equal(dirty.publicationState, "dirty");
     assert.equal(dirty.relativePath, firstPublication.relative_path);
     service.publishConversationContext(publishRequest(dirty));
-    assert.equal(item.database.get("resource", "conversation-context").conversation_context_publication.relative_path, firstPublication.relative_path);
+    assert.equal(
+      item.database.get("resource", "conversation-context").conversation_context_publication
+        .relative_path,
+      firstPublication.relative_path,
+    );
 
     const visible = item.database.get("resource", "conversation-context");
     item.database.save("resource", { ...visible, ai_visibility: ["coding_agent"] });
-    const blocked = service.getConversationContextPreview({ conversationId: "conversation-context" });
+    const blocked = service.getConversationContextPreview({
+      conversationId: "conversation-context",
+    });
     assert.equal(blocked.publicationState, "published_but_blocked");
     assert.equal(blocked.allowed, false);
     assert.throws(() => service.publishConversationContext(publishRequest(blocked)), /公開|M365/);
@@ -228,8 +285,14 @@ test("通常Resource保存は公開bindingを保持し、Theme変更後は旧公
       ai_summary: "Next theme",
       ai_summary_authority: "user_confirmed",
     });
-    const service = new WorkspaceService(item.database, item.userDataPath, () => "2026-08-09T03:00:00.000Z");
-    const initial = service.getConversationContextPreview({ conversationId: "conversation-context" });
+    const service = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-09T03:00:00.000Z",
+    );
+    const initial = service.getConversationContextPreview({
+      conversationId: "conversation-context",
+    });
     service.publishConversationContext(publishRequest(initial));
     const published = item.database.get("resource", "conversation-context");
     const binding = structuredClone(published.conversation_context_publication);
@@ -251,17 +314,30 @@ test("通常Resource保存は公開bindingを保持し、Theme変更後は旧公
     });
     const moved = item.database.get("resource", "conversation-context");
     assert.equal(moved.theme_id, "theme-next");
-    assert.deepEqual(moved.conversation_context_publication, binding, "ordinary Resource save cannot mutate publication binding");
+    assert.deepEqual(
+      moved.conversation_context_publication,
+      binding,
+      "ordinary Resource save cannot mutate publication binding",
+    );
 
     const dirty = service.getConversationContextPreview({ conversationId: "conversation-context" });
     assert.equal(dirty.publicationState, "dirty");
     assert.equal(dirty.allowed, false);
     assert.equal(dirty.storageRootId, "theme:theme-context");
     assert.match(dirty.blockingReasons.join("\n"), /先にAI Contextから外して/);
-    assert.throws(() => service.publishConversationContext(publishRequest(dirty)), /先にAI Contextから外して/);
-    assert.equal(fs.existsSync(oldFile), true, "theme reassignment must not orphan the old publication");
+    assert.throws(
+      () => service.publishConversationContext(publishRequest(dirty)),
+      /先にAI Contextから外して/,
+    );
+    assert.equal(
+      fs.existsSync(oldFile),
+      true,
+      "theme reassignment must not orphan the old publication",
+    );
     for (const themeId of ["theme-context", "theme-next"]) {
-      const meetings = service.getThemeAiPackPreview(themeId).files.find((file) => file.name === "03 Meetings.md").content;
+      const meetings = service
+        .getThemeAiPackPreview(themeId)
+        .files.find((file) => file.name === "03 Meetings.md").content;
       assert.doesNotMatch(meetings, /theme:theme-context:AI Context\/Conversations/);
       assert.doesNotMatch(meetings, /theme:theme-next:AI Context\/Conversations/);
     }
@@ -272,12 +348,17 @@ test("通常Resource保存は公開bindingを保持し、Theme変更後は旧公
     assert.equal(fs.existsSync(oldFile), false);
     assert.equal(item.database.get("resource", "conversation-context").theme_id, "theme-next");
 
-    const nextPreview = service.getConversationContextPreview({ conversationId: "conversation-context" });
+    const nextPreview = service.getConversationContextPreview({
+      conversationId: "conversation-context",
+    });
     assert.equal(nextPreview.allowed, true);
     assert.equal(nextPreview.storageRootId, "theme:theme-next");
     const republished = service.publishConversationContext(publishRequest(nextPreview));
     assert.equal(republished.themeId, "theme-next");
-    const rebound = item.database.get("resource", "conversation-context").conversation_context_publication;
+    const rebound = item.database.get(
+      "resource",
+      "conversation-context",
+    ).conversation_context_publication;
     assert.equal(rebound.theme_id, "theme-next");
     assert.equal(rebound.storage_root_id, "theme:theme-next");
   } finally {
@@ -288,11 +369,25 @@ test("通常Resource保存は公開bindingを保持し、Theme変更後は旧公
 test("公開先Themeを削除した後もbindingから旧AI Contextファイルを解除できる", () => {
   const item = createFixture("tasken-conversation-context-deleted-theme");
   try {
-    const service = new WorkspaceService(item.database, item.userDataPath, () => "2026-08-09T03:30:00.000Z");
-    const preview = service.getConversationContextPreview({ conversationId: "conversation-context" });
+    const service = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-09T03:30:00.000Z",
+    );
+    const preview = service.getConversationContextPreview({
+      conversationId: "conversation-context",
+    });
     service.publishConversationContext(publishRequest(preview));
-    const publication = item.database.get("resource", "conversation-context").conversation_context_publication;
-    const publishedFile = path.join(item.syncRoot, "Themes", "CONV", ...publication.relative_path.split("/"));
+    const publication = item.database.get(
+      "resource",
+      "conversation-context",
+    ).conversation_context_publication;
+    const publishedFile = path.join(
+      item.syncRoot,
+      "Themes",
+      "CONV",
+      ...publication.relative_path.split("/"),
+    );
     assert.equal(fs.existsSync(publishedFile), true);
 
     item.database.remove("theme", "theme-context");
@@ -314,8 +409,14 @@ test("公開先Themeを削除した後もbindingから旧AI Contextファイル�
 test("Theme folder rename後もID markerで再発見し、AI Context bindingを保つ", () => {
   const item = createFixture("tasken-conversation-context-theme-rename");
   try {
-    const service = new WorkspaceService(item.database, item.userDataPath, () => "2026-08-09T03:00:00.000Z");
-    const initial = service.getConversationContextPreview({ conversationId: "conversation-context" });
+    const service = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-09T03:00:00.000Z",
+    );
+    const initial = service.getConversationContextPreview({
+      conversationId: "conversation-context",
+    });
     service.publishConversationContext(publishRequest(initial));
     const originalFolder = path.join(item.syncRoot, "Themes", "CONV");
     const renamedFolder = path.join(item.syncRoot, "Themes", "RENAMED");
@@ -323,9 +424,19 @@ test("Theme folder rename後もID markerで再発見し、AI Context bindingを�
     const theme = item.database.get("theme", "theme-context");
     item.database.save("theme", { ...theme, code: "NEW", name: "Renamed Theme" });
 
-    const restarted = new WorkspaceService(item.database, item.userDataPath, () => "2026-08-09T04:00:00.000Z");
-    const current = restarted.getConversationContextPreview({ conversationId: "conversation-context" });
-    assert.equal(current.publicationState, "dirty", "Theme display metadata changed but the same file is rediscovered");
+    const restarted = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-09T04:00:00.000Z",
+    );
+    const current = restarted.getConversationContextPreview({
+      conversationId: "conversation-context",
+    });
+    assert.equal(
+      current.publicationState,
+      "dirty",
+      "Theme display metadata changed but the same file is rediscovered",
+    );
     assert.equal(current.relativePath, initial.relativePath);
     restarted.publishConversationContext(publishRequest(current));
     assert.equal(fs.existsSync(path.join(renamedFolder, ...current.relativePath.split("/"))), true);
@@ -338,24 +449,41 @@ test("Theme folder rename後もID markerで再発見し、AI Context bindingを�
 test("AI Context child junctionを拒否し、raw pathを返さずreceiptを残さない", () => {
   const item = createFixture("tasken-conversation-context-junction");
   try {
-    const service = new WorkspaceService(item.database, item.userDataPath, () => "2026-08-09T03:00:00.000Z");
+    const service = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-09T03:00:00.000Z",
+    );
     const packPreview = service.getThemeAiPackPreview("theme-context");
-    service.publishThemeAiPack({ themeId: "theme-context", expectedContentHash: packPreview.contentHash });
+    service.publishThemeAiPack({
+      themeId: "theme-context",
+      expectedContentHash: packPreview.contentHash,
+    });
     const themeFolder = path.join(item.syncRoot, "Themes", "CONV");
     const outside = path.join(item.userDataPath, "outside");
     fs.mkdirSync(outside);
     fs.symlinkSync(outside, path.join(themeFolder, "AI Context"), "junction");
-    const preview = service.getConversationContextPreview({ conversationId: "conversation-context" });
+    const preview = service.getConversationContextPreview({
+      conversationId: "conversation-context",
+    });
     assert.throws(
       () => service.publishConversationContext(publishRequest(preview)),
-      (error) => /AI Contextファイルを更新できませんでした/.test(error.message) && !error.message.includes(item.userDataPath),
+      (error) =>
+        /AI Contextファイルを更新できませんでした/.test(error.message) &&
+        !error.message.includes(item.userDataPath),
     );
     assert.deepEqual(fs.readdirSync(outside), []);
-    const failed = item.database.get("resource", "conversation-context").conversation_context_publication;
+    const failed = item.database.get(
+      "resource",
+      "conversation-context",
+    ).conversation_context_publication;
     assert.equal(failed.status, "publish_failed");
     assert.equal(failed.operation_id, null);
     const recoveryDirectory = path.join(item.userDataPath, "conversation-context-recovery");
-    assert.equal(fs.existsSync(recoveryDirectory) ? fs.readdirSync(recoveryDirectory).length : 0, 0);
+    assert.equal(
+      fs.existsSync(recoveryDirectory) ? fs.readdirSync(recoveryDirectory).length : 0,
+      0,
+    );
   } finally {
     item.close();
   }
@@ -383,21 +511,41 @@ function failResourceFinalSave(database) {
 test("file成功・DB失敗はreceiptから再起動復旧しConversation本文を保つ", () => {
   const item = createFixture("tasken-conversation-context-publish-recovery");
   try {
-    const previewService = new WorkspaceService(item.database, item.userDataPath, () => "2026-08-09T03:00:00.000Z");
-    const preview = previewService.getConversationContextPreview({ conversationId: "conversation-context" });
-    const failing = new WorkspaceService(failResourceFinalSave(item.database), item.userDataPath, () => "2026-08-09T03:00:00.000Z");
-    assert.throws(() => failing.publishConversationContext(publishRequest(preview)), /AI Contextファイルを更新できませんでした/);
+    const previewService = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-09T03:00:00.000Z",
+    );
+    const preview = previewService.getConversationContextPreview({
+      conversationId: "conversation-context",
+    });
+    const failing = new WorkspaceService(
+      failResourceFinalSave(item.database),
+      item.userDataPath,
+      () => "2026-08-09T03:00:00.000Z",
+    );
+    assert.throws(
+      () => failing.publishConversationContext(publishRequest(preview)),
+      /AI Contextファイルを更新できませんでした/,
+    );
     const pending = item.database.get("resource", "conversation-context");
     assert.equal(pending.conversation_context_publication.status, "publishing");
     const body = pending.body_markdown;
     item.database.db.close();
 
     const restarted = new WorkspaceDatabase(item.databasePath);
-    new WorkspaceService(restarted, item.userDataPath, () => "2026-08-09T03:05:00.000Z").loadWorkspace();
+    new WorkspaceService(
+      restarted,
+      item.userDataPath,
+      () => "2026-08-09T03:05:00.000Z",
+    ).loadWorkspace();
     const recovered = restarted.get("resource", "conversation-context");
     assert.equal(recovered.conversation_context_publication.status, "published");
     assert.equal(recovered.body_markdown, body);
-    assert.equal(fs.readdirSync(path.join(item.userDataPath, "conversation-context-recovery")).length, 0);
+    assert.equal(
+      fs.readdirSync(path.join(item.userDataPath, "conversation-context-recovery")).length,
+      0,
+    );
     restarted.db.close();
   } finally {
     item.close();
@@ -407,17 +555,37 @@ test("file成功・DB失敗はreceiptから再起動復旧しConversation本文�
 test("削除成功・DB失敗はreceiptから再起動復旧しConversationを削除しない", () => {
   const item = createFixture("tasken-conversation-context-remove-recovery");
   try {
-    const service = new WorkspaceService(item.database, item.userDataPath, () => "2026-08-09T03:00:00.000Z");
-    const preview = service.getConversationContextPreview({ conversationId: "conversation-context" });
+    const service = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-09T03:00:00.000Z",
+    );
+    const preview = service.getConversationContextPreview({
+      conversationId: "conversation-context",
+    });
     service.publishConversationContext(publishRequest(preview));
     const body = item.database.get("resource", "conversation-context").body_markdown;
-    const failing = new WorkspaceService(failResourceFinalSave(item.database), item.userDataPath, () => "2026-08-09T04:00:00.000Z");
-    assert.throws(() => failing.removeConversationContext({ conversationId: "conversation-context" }), /AI Contextファイルを解除できませんでした/);
-    assert.equal(item.database.get("resource", "conversation-context").conversation_context_publication.status, "removing");
+    const failing = new WorkspaceService(
+      failResourceFinalSave(item.database),
+      item.userDataPath,
+      () => "2026-08-09T04:00:00.000Z",
+    );
+    assert.throws(
+      () => failing.removeConversationContext({ conversationId: "conversation-context" }),
+      /AI Contextファイルを解除できませんでした/,
+    );
+    assert.equal(
+      item.database.get("resource", "conversation-context").conversation_context_publication.status,
+      "removing",
+    );
     item.database.db.close();
 
     const restarted = new WorkspaceDatabase(item.databasePath);
-    new WorkspaceService(restarted, item.userDataPath, () => "2026-08-09T04:05:00.000Z").loadWorkspace();
+    new WorkspaceService(
+      restarted,
+      item.userDataPath,
+      () => "2026-08-09T04:05:00.000Z",
+    ).loadWorkspace();
     const recovered = restarted.get("resource", "conversation-context");
     assert.equal(recovered.conversation_context_publication.status, "removed");
     assert.equal(recovered.deleted_at, null);
@@ -431,37 +599,70 @@ test("削除成功・DB失敗はreceiptから再起動復旧しConversationを�
 test("planned receiptはfile未完了をfailedへ確定し、再起動ごとの永久retryを残さない", () => {
   const item = createFixture("tasken-conversation-context-planned-recovery");
   try {
-    const service = new WorkspaceService(item.database, item.userDataPath, () => "2026-08-09T03:00:00.000Z");
-    const preview = service.getConversationContextPreview({ conversationId: "conversation-context" });
+    const service = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-09T03:00:00.000Z",
+    );
+    const preview = service.getConversationContextPreview({
+      conversationId: "conversation-context",
+    });
     service.publishConversationContext(publishRequest(preview));
     const resource = item.database.get("resource", "conversation-context");
     const publication = resource.conversation_context_publication;
-    const filePath = path.join(item.syncRoot, "Themes", "CONV", ...publication.relative_path.split("/"));
+    const filePath = path.join(
+      item.syncRoot,
+      "Themes",
+      "CONV",
+      ...publication.relative_path.split("/"),
+    );
     fs.unlinkSync(filePath);
     const operationId = "planned-incomplete";
-    item.database.save("resource", {
-      ...resource,
-      conversation_context_publication: { ...publication, status: "publishing", operation_id: operationId },
-    }, { __conversationContextPublicationWrite: true });
+    item.database.save(
+      "resource",
+      {
+        ...resource,
+        conversation_context_publication: {
+          ...publication,
+          status: "publishing",
+          operation_id: operationId,
+        },
+      },
+      { __conversationContextPublicationWrite: true },
+    );
     const recovery = path.join(item.userDataPath, "conversation-context-recovery");
     fs.mkdirSync(recovery, { recursive: true });
-    fs.writeFileSync(path.join(recovery, `${operationId}.json`), `${JSON.stringify({
-      schema: "tasken-conversation-context-operation/v1",
-      operationId,
-      action: "publish",
-      phase: "planned",
-      conversationId: "conversation-context",
-      themeId: "theme-context",
-      relativePath: publication.relative_path,
-      contentHash: publication.content_hash,
-    })}\n`);
+    fs.writeFileSync(
+      path.join(recovery, `${operationId}.json`),
+      `${JSON.stringify({
+        schema: "tasken-conversation-context-operation/v1",
+        operationId,
+        action: "publish",
+        phase: "planned",
+        conversationId: "conversation-context",
+        themeId: "theme-context",
+        relativePath: publication.relative_path,
+        contentHash: publication.content_hash,
+      })}\n`,
+    );
 
-    new WorkspaceService(item.database, item.userDataPath, () => "2026-08-09T04:00:00.000Z").loadWorkspace();
-    const failed = item.database.get("resource", "conversation-context").conversation_context_publication;
+    new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-09T04:00:00.000Z",
+    ).loadWorkspace();
+    const failed = item.database.get(
+      "resource",
+      "conversation-context",
+    ).conversation_context_publication;
     assert.equal(failed.status, "publish_failed");
     assert.equal(failed.operation_id, null);
     assert.equal(fs.readdirSync(recovery).length, 0);
-    new WorkspaceService(item.database, item.userDataPath, () => "2026-08-09T05:00:00.000Z").loadWorkspace();
+    new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-09T05:00:00.000Z",
+    ).loadWorkspace();
     assert.equal(fs.readdirSync(recovery).length, 0);
   } finally {
     item.close();
@@ -493,49 +694,72 @@ test("recovery directory/receipt symlinkと不正identity/pathをfollowしない
         const value = targetFs[property];
         if (typeof value !== "function") return value;
         return (...args) => {
-          if (["writeFileSync", "renameSync", "mkdirSync"].includes(String(property))) mutations.writes += 1;
-          if (["unlinkSync", "rmSync", "rmdirSync"].includes(String(property))) mutations.deletes += 1;
+          if (["writeFileSync", "renameSync", "mkdirSync"].includes(String(property)))
+            mutations.writes += 1;
+          if (["unlinkSync", "rmSync", "rmdirSync"].includes(String(property)))
+            mutations.deletes += 1;
           return value.apply(targetFs, args);
         };
       },
     });
-    assert.throws(() => publishConversationContextFile({
-      themeFolder,
-      conversationId: "conversation",
-      themeId: "theme",
-      relativePath,
-      content,
-      contentHash,
-      operationId: "junction-publish",
-      recoveryDirectory: linkedRecovery,
-      fileSystem: guardedFs,
-    }), /recovery directory/);
-    assert.throws(() => removeConversationContextFile({
-      themeFolder,
-      conversationId: "conversation",
-      themeId: "theme",
-      relativePath,
-      operationId: "junction-remove",
-      recoveryDirectory: linkedRecovery,
-      fileSystem: guardedFs,
-    }), /recovery directory/);
-    assert.throws(() => completeConversationContextOperation(linkedRecovery, "junction-complete", { fileSystem: guardedFs }), /recovery directory/);
-    assert.deepEqual(mutations, { writes: 0, deletes: 0 }, "junction rejection occurs before every filesystem mutation");
+    assert.throws(
+      () =>
+        publishConversationContextFile({
+          themeFolder,
+          conversationId: "conversation",
+          themeId: "theme",
+          relativePath,
+          content,
+          contentHash,
+          operationId: "junction-publish",
+          recoveryDirectory: linkedRecovery,
+          fileSystem: guardedFs,
+        }),
+      /recovery directory/,
+    );
+    assert.throws(
+      () =>
+        removeConversationContextFile({
+          themeFolder,
+          conversationId: "conversation",
+          themeId: "theme",
+          relativePath,
+          operationId: "junction-remove",
+          recoveryDirectory: linkedRecovery,
+          fileSystem: guardedFs,
+        }),
+      /recovery directory/,
+    );
+    assert.throws(
+      () =>
+        completeConversationContextOperation(linkedRecovery, "junction-complete", {
+          fileSystem: guardedFs,
+        }),
+      /recovery directory/,
+    );
+    assert.deepEqual(
+      mutations,
+      { writes: 0, deletes: 0 },
+      "junction rejection occurs before every filesystem mutation",
+    );
     assert.equal(fs.readFileSync(target, "utf8"), "existing\n");
     assert.deepEqual(fs.readdirSync(outside), []);
 
     const recovery = path.join(root, "recovery");
     fs.mkdirSync(recovery);
-    fs.writeFileSync(path.join(recovery, "bad.json"), JSON.stringify({
-      schema: "tasken-conversation-context-operation/v1",
-      operationId: "bad",
-      action: "publish",
-      phase: "planned",
-      conversationId: "../conversation",
-      themeId: "theme",
-      relativePath: "../../outside.md",
-      contentHash: `sha256:1:${"0".repeat(64)}`,
-    }));
+    fs.writeFileSync(
+      path.join(recovery, "bad.json"),
+      JSON.stringify({
+        schema: "tasken-conversation-context-operation/v1",
+        operationId: "bad",
+        action: "publish",
+        phase: "planned",
+        conversationId: "../conversation",
+        themeId: "theme",
+        relativePath: "../../outside.md",
+        contentHash: `sha256:1:${"0".repeat(64)}`,
+      }),
+    );
     const invalid = listConversationContextOperations(recovery);
     assert.equal(invalid[0].receipt, null);
     assert.equal(fs.existsSync(path.join(outside, "outside.md")), false);
