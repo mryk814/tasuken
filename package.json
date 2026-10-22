@@ -81,7 +81,7 @@
     "audit:architecture": "node scripts/audit-architecture.mjs",
     "audit:scripts": "node scripts/audit-scripts.mjs",
     "ci": "node scripts/run-ci.mjs",
-    "package": "node scripts/assert-windows-build-host.mjs && npm run typecheck && npm run build && npm run build:mcp && npm run rebuild:electron && electron-builder --publish never --win nsis portable --config.electronDist=node_modules/electron/dist",
+    "package": "install-electron && node scripts/assert-windows-build-host.mjs && npm run typecheck && npm run build && npm run build:mcp && npm run rebuild:electron && electron-builder --publish never --win nsis portable --config.electronDist=node_modules/electron/dist",
     "release:verify-version": "node scripts/verify-release-version.mjs",
     "release:verify-artifacts": "node scripts/verify-release-artifacts.mjs",
     "release:checksum": "node scripts/write-release-checksums.mjs",
