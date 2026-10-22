@@ -1,0 +1,58 @@
+# Tailnet向けStreamable HTTP MCP（追加上書き用）。適用前にREADMEの承認・確認手順を読む。
+# CoreのloopbackとHTTPの127.0.0.1をNASホストで共有するためhost networkへ切り替える。
+# Dockerのports転送ではコンテナ内127.0.0.1へ到達しない。0.0.0.0へのbindで回避しない。
+# 既存Coreと併用中のtunnelは同じファイル構成で再作成する。--remove-orphansは使わない。
+services:
+  tasken-headless:
+    network_mode: host
+
+  mcp-http:
+    image: tasken-headless:local
+    container_name: tasken-mcp-http
+    network_mode: "service:tasken-headless"
+    user: "${TASKEN_UID:-1000}:${TASKEN_GID:-1000}"
+    group_add:
+      - "${TASKEN_ADMIN_GID:-101}"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    depends_on:
+      - tasken-headless
+    environment:
+      TASKEN_USER_DATA_DIR: /data
+      TASKEN_MCP_READ_ONLY: "${TASKEN_MCP_READ_ONLY:-1}"
+      TASKEN_MCP_HTTP_PORT: "${TASKEN_MCP_HTTP_PORT:-18181}"
+      TASKEN_MCP_HTTP_CLIENTS_FILE: /run/secrets/mcp_http_clients
+    entrypoint: ["node", "/app/mcp-dist/http-server.mjs"]
+    command: []
+    secrets:
+      - mcp_http_clients
+    volumes:
+      - ./state:/data:ro
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:'+process.env.TASKEN_MCP_HTTP_PORT+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+secrets:
+  mcp_http_clients:
+    file: ./secrets/mcp_http_clients

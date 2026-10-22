@@ -32,6 +32,26 @@ export async function buildMcpBridge({ outDir = path.resolve("mcp-dist") } = {})
       minify: false,
       outDir,
       rollupOptions: {
+        input: path.resolve("scripts/mcp-http-server.mjs"),
+        output: {
+          entryFileNames: "http-server.mjs",
+          format: "es",
+          inlineDynamicImports: true,
+        },
+      },
+      ssr: true,
+      target: "node20",
+    },
+    ssr: { noExternal: true },
+  });
+
+  await build({
+    configFile: false,
+    build: {
+      emptyOutDir: false,
+      minify: false,
+      outDir,
+      rollupOptions: {
         input: path.resolve("scripts/agent-session-hook.mjs"),
         output: {
           entryFileNames: "agent-session-hook.mjs",
