@@ -3,7 +3,7 @@
 Synology上でElectronなしのTasken Coreを常時稼働させ、既存の共有フォルダ同期へ**read-only replica**として参加させる手順です。
 Desktopが停止していても、NASのローカルSQLiteが最新の同期差分を持ち、MCP（read-only）からContextを読める状態を目指します。
 
-headless Coreとreplica参加（`docs/headless-core.md`）、Secure MCP Tunnelを利用できます。トンネルの常時稼働とwrite有効化（`proposals`配備）は2026-09-27、別クライアント向けのStreamable HTTP MCPは2026-10-22に実機NASへ配置しました。配置版・確認範囲・本人報告と独立観測の区別は[deploy/synology/DEPLOYED.md](../deploy/synology/DEPLOYED.md)を参照してください。Grok Bot本体とChatGPT実クライアントの再接続、NAS再起動後の復帰は未検証です。
+headless Coreとreplica参加（`docs/headless-core.md`）、Secure MCP Tunnelを利用できます。トンネルの常時稼働とwrite有効化（`proposals`配備）は2026-09-27、別クライアント向けのStreamable HTTP MCPは2026-10-22に実機NASへ配置しました。配置版・確認範囲・本人報告と独立観測の区別は[deploy/synology/DEPLOYED.md](../deploy/synology/DEPLOYED.md)を参照してください。Grok Botからの読み取り接続は本人の報告で確認済みですが、ChatGPT実クライアントの再接続とNAS再起動後の復帰は未検証です。
 
 ```text
 [データ端末 Tasken]
