@@ -48,7 +48,8 @@ PC側から共有フォルダを確認しただけでは、コンテナやSQLite
 - 適用スクリプトの検査結果として、3サービスのhealthy、Core/tunnelのimage・設定保持、node identity保持、同じhost network namespace、HTTPとtunnel管理endpointのloopback待受、既存stdio MCPの読み取りと権限保持を確認した。実機内部の確認は本人実行の成功markerと、生成された結果ファイルを証拠とする。
 - Tailscale ServeへHTTPS `8444` → NASの`127.0.0.1:18181`を継続設定した。既存HTTPS `443`の転送先は保持し、Funnelは変更していない。変更後のServe設定もこちらから読み取り確認した。
 - 別のtailnet端末であるWindows PCから、実HTTPSで`initialize`・`tools/list`・`tasken.get_capabilities`が成功。読み取り専用16 toolsと、認証なし・不正tokenの401を確認した。tokenはHTTP bridge専用のクライアント別secretに保存し、値を記録・出力していない。
-- tailnet外からの接続拒否は、本人がスマートフォンをモバイル回線・Tailscale OFFにして接続できないことを確認したとの報告による。Grok Bot本体の設定・操作、NAS再起動後の復帰、ChatGPT実クライアントの再接続は未確認。
+- tailnet外からの接続拒否は、本人がスマートフォンをモバイル回線・Tailscale OFFにして接続できないことを確認したとの報告による。NAS再起動後の復帰、ChatGPT実クライアントの再接続は未確認。
+- 2026-10-22 Grok Bot（端末名 `grokbot`）から実HTTPSで接続でき、読み取り専用16 toolsでTaskの確認ができたとの、本人のスクリーンショットによる報告を受けた。書き込み系は使えない設定のままで、こちらから独立には再現していない。
 
 ## ローカル隔離検証（NASではない）
 
@@ -61,7 +62,7 @@ PC側から共有フォルダを確認しただけでは、コンテナやSQLite
 
 ## 未確認
 
-- Grok Bot本体の接続設定と操作、NAS再起動後のHTTP復帰、ChatGPT実クライアントの再接続、トンネル停止後の継続利用。今回のHTTP追加ではトンネルを併用したままにしている。
+- NAS再起動後のHTTP復帰、ChatGPT実クライアントの再接続、トンネル停止後の継続利用。今回のHTTP追加ではトンネルを併用したままにしている。
 - amd64以外のSynology、Synology Drive / Cloud Sync経由の同期。
 - Desktop停止・NAS再起動・transport再接続を含めた一連の復旧。
 - リリース候補 `v0.1.71` のNASへの配備。この記録はその配備を示しません。
