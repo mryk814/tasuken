@@ -8,3 +8,4 @@ export const dialog = new Proxy({}, { get: unavailable });
 export const nativeImage = new Proxy({}, { get: unavailable });
 export const shell = new Proxy({}, { get: unavailable });
 export const BrowserWindow = unavailable;
+export const ClipboardItem = unavailable;

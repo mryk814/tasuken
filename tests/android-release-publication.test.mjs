@@ -103,7 +103,28 @@ test(
         "The local lightweight tag must remain untouched",
       );
     } finally {
-      fs.rmSync(directory, { recursive: true, force: true });
+      if (process.platform === "win32") {
+        const cleanup = spawnSync(
+          powershell,
+          [
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$path = [IO.Path]::GetFullPath($env:TASKEN_ANDROID_TEST_TEMP); " +
+              "$temp = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\\'); " +
+              "if (-not $path.StartsWith($temp + '\\', [StringComparison]::OrdinalIgnoreCase) -or -not (Split-Path -Leaf $path).StartsWith('tasken-android-tag-')) { throw 'Refusing to remove an unexpected test temp path' }; " +
+              "Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop",
+          ],
+          {
+            encoding: "utf8",
+            env: { ...process.env, TASKEN_ANDROID_TEST_TEMP: directory },
+            windowsHide: true,
+          },
+        );
+        assert.equal(cleanup.status, 0, cleanup.stdout + cleanup.stderr);
+      } else {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
     }
   },
 );

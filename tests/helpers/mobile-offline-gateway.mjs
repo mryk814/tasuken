@@ -30,7 +30,7 @@ const bundle = await build({
         const mocks = new Map([
           [
             "electron",
-            'export const app = { getPath: () => "" }; export class BrowserWindow {} export const clipboard = {}; export const dialog = {}; export const nativeImage = {}; export const shell = {};',
+            'export const app = { getPath: () => "" }; export class BrowserWindow {} export class ClipboardItem {} export const clipboard = {}; export const dialog = {}; export const nativeImage = {}; export const shell = {};',
           ],
           [
             "adm-zip",
