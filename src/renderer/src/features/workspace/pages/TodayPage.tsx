@@ -1038,21 +1038,11 @@ export function TodayPage({
   const today = todayIso();
   const soon = addDays(today, 14);
   const schedules = schedulesByOwner(v2);
-  /**
-   * 締切が今日以前で、今日扱うと明示していないTask（#454）。
-   * `buildTodayView` は期限超過を含まないため、全Task行から導出する。
-   */
-  const isDeadlineReviewRow = (row: TodayRow): boolean => {
-    if (row.v2?.type !== "task") return false;
-    if (row.status === "done" || row.status === "cancelled") return false;
-    if (row.v2.task.today_date === today) return false;
-    const end = row.v2.schedule?.end_date ?? null;
-    return end !== null && end !== "" && end <= today;
-  };
   const allTodayRows = buildTodayView(v2, today).map((entry) => todayEntryToRow(entry));
   // 今日やることは人が手を動かす面。AI作業中のTaskはFeed側で追う。
+  // 予定終了が当日のTaskはここに残す（#454の「期限の確認」撤去後、受け皿はここだけ）。
+  // 過去日の締切はbuildTodayViewの対象外で、候補棚「期限切れ」に集約する。
   const todayRows = allTodayRows.filter((row) => {
-    if (isDeadlineReviewRow(row)) return false;
     if (row.v2?.type !== "task") return true;
     const task = row.v2.task;
     return !(task.intended_executor === "ai_agent" && task.work_state === "in_progress");

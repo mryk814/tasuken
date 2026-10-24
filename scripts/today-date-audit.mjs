@@ -2,7 +2,9 @@
  * Today の日付操作の実動監査（#454）
  *
  * 一時userDataへ架空のTaskとScheduleを仕込んでからアプリを起動し、
- * 「扱う日を変更」が締切を動かさないこと、「期限の確認」が実行一覧と重複しないことを実測する。
+ * 「扱う日を変更」が締切を動かさないこと、締切当日のTaskが実行一覧に出ることを実測する。
+ * 「期限の確認」セクションの廃止後（2026-09-24）は、締切の受け皿は
+ * 実行一覧（締切当日）と候補棚「期限切れ」（締切過去）に分かれる。
  * スクリーンショットを撮るだけで終わらせず、保存後の値と表示を突き合わせる。
  *
  *   npm run build && npm run audit:today-dates
@@ -62,8 +64,11 @@ function seedTask(id, title, todayDate, deadline, state = "todo") {
   });
 }
 seedTask("today-a", "引張試験の結果を比較する", today, later);
-seedTask("today-b", "評価条件の回答をまとめる", null, yesterday);
+// 今日締切で今日扱うと明示していないTask。共通selectorのdueとして実行一覧に出る。
+seedTask("today-b", "評価条件の回答をまとめる", null, today);
+// 締切が過去のTask。実行一覧には出さず、候補棚「期限切れ」に出る。
 seedTask("today-c", "劣化試験の計画を立てる", tomorrow, yesterday);
+seedTask("today-d", "保全見積りの棚卸しをする", null, yesterday);
 seed.db.close();
 
 const app = await electron.launch({
@@ -86,118 +91,120 @@ try {
   await page.waitForTimeout(1200);
 
   const executionTitles = await page.locator(".today-task-list .today-task-row").allInnerTexts();
-  const deadlineTitles = await page.locator(".today-deadline-row").allInnerTexts();
-  const joined = (list) => list.join("\n");
+  const executionJoined = executionTitles.join("\n");
+  const overdueShelf = page.locator(".task-shelf-lane", { hasText: "期限切れ" }).first();
+  const shelfText = (await overdueShelf.innerText()).replace(/\s+/g, " ");
 
-  // 1. 今日扱うと明示したTaskだけが実行一覧に丸ごと出る。
-  if (!joined(executionTitles).includes("引張試験の結果を比較する")) {
-    failures.push("今日扱うTaskが実行一覧にありません。");
-  }
-  // 2. 締切が今日以前で、今日扱うと明示していないTaskは「期限の確認」へ出る。
-  for (const title of ["評価条件の回答をまとめる", "劣化試験の計画を立てる"]) {
-    if (!joined(deadlineTitles).includes(title)) {
-      failures.push(`「期限の確認」に ${title} がありません。`);
-    }
-    if (joined(executionTitles).includes(title)) {
-      failures.push(`${title} が実行一覧と期限の確認に重複しています。`);
+  // 1. 今日扱うと明示したTaskと、締切が当日のTask（明示なし）が実行一覧に出る。
+  for (const title of ["引張試験の結果を比較する", "評価条件の回答をまとめる"]) {
+    if (!executionJoined.includes(title)) {
+      failures.push(`締切が今日のTask ${title} が実行一覧にありません。`);
     }
   }
-  // 3. 期限の確認は締切と、扱う日が決まっていればその日を併記する。
-  if (!joined(deadlineTitles).includes(`締切 ${fmt(yesterday)}`)) {
-    failures.push(`「期限の確認」に締切の日付が出ていません: ${joined(deadlineTitles)}`);
+  // 2. 締切が過去のTaskは実行一覧に出さず、候補棚「期限切れ」に出る。
+  for (const title of ["劣化試験の計画を立てる", "保全見積りの棚卸しをする"]) {
+    if (executionJoined.includes(title)) {
+      failures.push(`締切が過去の ${title} が実行一覧に出ています。`);
+    }
+    if (!shelfText.includes(title)) {
+      failures.push(`候補棚「期限切れ」に ${title} がありません。`);
+    }
+  }
+  // 3. 候補棚に実行一覧のTaskを二重表示しない。
+  for (const title of ["引張試験の結果を比較する", "評価条件の回答をまとめる"]) {
+    if (shelfText.includes(title)) {
+      failures.push(`${title} が実行一覧と候補棚に重複しています。`);
+    }
+  }
+  // 4. 締切当日の行は当日の日付を持つ。
+  const dueTodayRow = page.locator(".today-task-row", { hasText: "評価条件の回答をまとめる" });
+  const dueTodayRowText = (await dueTodayRow.allInnerTexts()).join("\n");
+  if (!dueTodayRowText.includes(fmt(today))) {
+    failures.push(`締切当日の行に当日の日付が出ていません: ${dueTodayRowText}`);
   }
   await page.screenshot({ path: `${OUT_DIR}/today-list.png`, fullPage: true });
 
-  // 4. 実行一覧の「扱う日を変更」に5つの選択肢がある。
-  const targetRow = page.locator(".today-task-row", { hasText: "引張試験の結果を比較する" });
-  const menuButton = targetRow.locator(".today-date-button").first();
+  // 5. 「扱う日を変更」の選択肢。扱う日が未設定の行には「今日の選択を外す」を出さない。
+  const menu = page.locator(".today-date-menu");
+  const menuButton = dueTodayRow.locator(".today-date-button").first();
   if (!(await menuButton.count())) throw new Error("実行一覧から扱う日を変更できません。");
   await menuButton.click();
   await page.waitForTimeout(300);
-  const menu = page.locator(".today-date-menu");
   if (!(await menu.isVisible())) failures.push("扱う日のメニューが開きません。");
-  const menuLabels = (await menu.innerText()).replace(/\s+/g, " ");
-  for (const label of ["今日", "明日", "来週", "日付を選ぶ", "今日の選択を外す"]) {
-    if (!menuLabels.includes(label)) failures.push(`扱う日のメニューに「${label}」がありません。`);
+  const unselectedMenu = (await menu.innerText()).replace(/\s+/g, " ");
+  for (const label of ["今日", "明日", "来週", "日付を選ぶ"]) {
+    if (!unselectedMenu.includes(label))
+      failures.push(`扱う日のメニューに「${label}」がありません。`);
+  }
+  if (unselectedMenu.includes("今日の選択を外す")) {
+    failures.push("扱う日が未設定の行に「今日の選択を外す」が出ています。");
   }
   await page.screenshot({ path: `${OUT_DIR}/today-date-menu.png` });
   await page.keyboard.press("Escape");
   await page.waitForTimeout(300);
 
-  // 5. 「期限の確認」の「明日扱う」は today_date だけを変え、締切を動かさない。
-  const deadlineRow = page.locator(".today-deadline-row", {
-    hasText: "評価条件の回答をまとめる",
-  });
-  await deadlineRow.locator("button", { hasText: "明日扱う" }).first().click();
-  await page.waitForTimeout(1200);
+  // 5b. 扱う日が設定済みの行には「今日の選択を外す」もある。
+  const explicitRow = page.locator(".today-task-row", { hasText: "引張試験の結果を比較する" });
+  await explicitRow.locator(".today-date-button").first().click();
+  await page.waitForTimeout(300);
+  const selectedMenu = (await menu.innerText()).replace(/\s+/g, " ");
+  if (!selectedMenu.includes("今日の選択を外す")) {
+    failures.push("扱う日が設定済みの行に「今日の選択を外す」がありません。");
+  }
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(300);
 
-  // 「劣化試験」も明日扱いのため、行を限定して確かめる。
-  const afterJoined = joined(
-    await page
-      .locator(".today-deadline-row", { hasText: "評価条件の回答をまとめる" })
-      .allInnerTexts(),
-  );
-  if (!afterJoined.includes("評価条件の回答をまとめる")) {
-    failures.push("明日扱いへ変えたTaskが期限の確認から消えました。");
-  }
-  if (!afterJoined.includes(`${fmt(tomorrow)}扱う`)) {
-    failures.push(`扱う日の併記がありません: ${afterJoined}`);
-  }
-  if (!afterJoined.includes(`締切 ${fmt(yesterday)}`)) {
-    failures.push("扱う日の変更で締切が動きました。");
+  // 6. 「明日扱う」は today_date だけを変え、締切は動かさない。
+  //    締切が当日のTaskは改めて締切当日になり続けるため、実行一覧に残る。
+  await dueTodayRow.locator(".today-date-button").first().click();
+  await page.waitForTimeout(300);
+  await page.locator(".today-date-menu").locator("button", { hasText: "明日" }).first().click();
+  await page.waitForTimeout(1200);
+  const afterDeferJoined = (
+    await page.locator(".today-task-list .today-task-row").allInnerTexts()
+  ).join("\n");
+  if (!afterDeferJoined.includes("評価条件の回答をまとめる")) {
+    failures.push("締切当日のTaskが「明日扱う」で実行一覧から消えました。");
   }
 
   const toast = page.locator(".toast");
   const toastText = (await toast.count()) ? await toast.innerText() : "";
-  if (!toastText.includes("締切")) {
+  if (!toastText.includes("締切"))
     failures.push(`締切が変わっていないことを説明していません: ${toastText}`);
-  }
   if (!toastText.includes("元に戻す")) failures.push("Undoがトーストにありません。");
   await page.screenshot({ path: `${OUT_DIR}/today-after-change.png`, fullPage: true });
 
-  // 6. Undoで扱う日が元に戻る。締切は最初から動いていない。
+  // 7. Undoで扱う日が元に戻る。締切は最初から動いていない。
   await toast.locator("button", { hasText: "元に戻す" }).first().click();
   await page.waitForTimeout(1500);
-  const undoToast = (await page.locator(".toast").count())
-    ? await page.locator(".toast").innerText()
-    : "";
-  const undone = joined(
-    await page
-      .locator(".today-deadline-row", { hasText: "評価条件の回答をまとめる" })
-      .allInnerTexts(),
-  );
-  if (undone.includes(`${fmt(tomorrow)}扱う`)) {
-    failures.push(`Undoで扱う日が戻りません。トースト: ${undoToast} / 行: ${undone}`);
-  }
-  if (!undone.includes(`締切 ${fmt(yesterday)}`)) {
-    failures.push("Undoで締切が変わりました。");
+  const undoneJoined = (
+    await page.locator(".today-task-list .today-task-row").allInnerTexts()
+  ).join("\n");
+  if (!undoneJoined.includes("評価条件の回答をまとめる")) {
+    failures.push(`Undo後にTaskが実行一覧から消えました: ${undoneJoined}`);
   }
   await page.screenshot({ path: `${OUT_DIR}/today-after-undo.png`, fullPage: true });
 
-  // 7. 扱う日を明日へ変えると実行一覧から外れ、締切は動かない。
-  const executionRow = page.locator(".today-task-row", { hasText: "引張試験の結果を比較する" });
-  await executionRow.locator(".today-date-button").first().click();
+  // 8. 扱う日を明日へ変えると締切が未来のTaskは実行一覧から外れ、締切は動かない。
+  await explicitRow.locator(".today-date-button").first().click();
   await page.waitForTimeout(300);
   await page.locator(".today-date-menu").locator("button", { hasText: "明日" }).first().click();
   await page.waitForTimeout(1200);
-  const movedOut = joined(await page.locator(".today-task-list .today-task-row").allInnerTexts());
+  const movedOut = (await page.locator(".today-task-list .today-task-row").allInnerTexts()).join(
+    "\n",
+  );
   if (movedOut.includes("引張試験の結果を比較する")) {
     failures.push("明日へ回したTaskが実行一覧に残っています。");
   }
-  // 締切は未来のまま。期限超過ではないので「期限の確認」へは移らない。
-  const movedIn = joined(await page.locator(".today-deadline-row").allInnerTexts());
-  if (movedIn.includes("引張試験の結果を比較する")) {
-    failures.push("締切が未来のTaskが期限の確認に出ています。");
-  }
-  // 締切そのものは動いていない。9月25日相当のTaskが今週の候補棚に残る。
-  const movedDeadline = joined(
-    await page.locator(".task-shelf-lane", { hasText: "今週" }).allInnerTexts(),
-  );
-  if (!movedDeadline.includes("引張試験の結果を比較する")) {
-    failures.push(`扱う日の変更で締切の位置が動きました: ${movedDeadline}`);
+  // 締切そのものは動いていない。5日後のTaskが今週の候補棚に残る。
+  const movedWeek = (
+    await page.locator(".task-shelf-lane", { hasText: "今週" }).first().innerText()
+  ).replace(/\s+/g, " ");
+  if (!movedWeek.includes("引張試験の結果を比較する")) {
+    failures.push(`扱う日の変更で締切の位置が動きました: ${movedWeek}`);
   }
 
-  // 8. 狭幅でも横スクロールを出さない。
+  // 9. 狭幅でも横スクロールを出さない。
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(980, 680));
   await page.waitForTimeout(700);
   const overflowing = await page.evaluate(() => {

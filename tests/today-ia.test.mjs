@@ -58,9 +58,10 @@ test("扱う日のメニューは5つの選択肢とUndoを持つ（#454）", ()
   assert.match(todayPageSource, /label: "元に戻す"/);
 });
 
-test("Todayは期限の確認セクションを持たず、候補棚の4件へ集約する（#454）", () => {
+test("Todayは期限の確認セクションを持たず、予定終了が当日のTaskは今日やることに残る（#454）", () => {
   assert.doesNotMatch(todayPageSource, /<h2>期限の確認<\/h2>/);
-  assert.match(todayPageSource, /isDeadlineReviewRow/);
+  // 撤去済みセクションの残骸フィルタで今日締切の行を「今日やること」から消さない。
+  assert.doesNotMatch(todayPageSource, /isDeadlineReviewRow/);
   assert.match(todayPageSource, /shelfOverdueRows/);
   assert.doesNotMatch(todayPageSource, /rows=\{dailyCandidates\.overdue\.slice/);
 });
