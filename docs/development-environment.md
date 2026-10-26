@@ -22,6 +22,11 @@ Windows runtime cloneは編集場所ではない。
 初回は `rtk npm ci`、起動前診断は `rtk npm run doctor:desktop` を使う。
 Node/npm、Electron、native moduleはWindows用を同じcheckoutへ導入する。
 
+Electron 42以降はnpmの`postinstall`でElectron本体を取得しない。
+`npm run dev`は初回起動時にElectron CLIが取得し、テストランナーと`npm run package`は
+本体バイナリがない場合にElectron付属の`install-electron`を使う。
+これはElectronの配布チェックサムを検証する公式installerで、別の手動手順は要らない。
+
 対話的な検証では、PowerShellで専用の保存先を指定してから起動する。
 
 ```powershell

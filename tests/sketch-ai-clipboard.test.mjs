@@ -8,13 +8,43 @@ const page = read("src/renderer/src/features/workspace/pages/SketchPage.tsx");
 const shared = read("src/shared/sketchExport.ts");
 const smoke = read("src/main/index.ts");
 
-test("Sketch image clipboard uses an image-only Windows write with read-back verification", () => {
-  assert.match(service, /clipboard\.clear\(\)/);
-  assert.match(service, /clipboard\.writeImage\(image\)/);
-  assert.match(service, /clipboard\.readImage\(\)/);
+test("Sketch image clipboard uses an image-only ClipboardItem write with read-back verification", () => {
+  assert.match(service, /async writeClipboardImage\(payloadValue: unknown\): Promise<boolean>/);
+  assert.match(
+    service,
+    /await clipboard\.write\(\[\s*new ClipboardItem\(\{\s*"image\/png": new Blob\(/s,
+  );
+  assert.match(service, /const writtenItems = await clipboard\.read\(\)/);
+  assert.match(
+    service,
+    /const imageItem = writtenItems\.find\(\(item\) => item\.types\.includes\("image\/png"\)\)/,
+  );
+  assert.match(service, /await imageItem\.getType\("image\/png"\)/);
+  assert.match(service, /nativeImage\.createFromBuffer/);
   assert.match(service, /writtenSize\.width !== expectedSize\.width/);
-  assert.doesNotMatch(service, /clipboard\.write\(\{ text: payload\.text, image \}\)/);
+  assert.doesNotMatch(
+    service,
+    /clipboard\.(writeImage|readImage|writeBuffer|readBuffer|availableFormats)/,
+  );
   assert.doesNotMatch(shared, /text: string/);
+});
+
+test("rich text and SVG clipboard writes use atomic MIME-typed ClipboardItems", () => {
+  assert.match(service, /async writeClipboard\(text: unknown\): Promise<boolean>/);
+  assert.match(service, /await clipboard\.writeText\(String\(text\)\)/);
+  assert.match(service, /async writeClipboardHtml\(payload: unknown\): Promise<boolean>/);
+  assert.match(service, /new ClipboardItem\(\{\s*"text\/html": html,\s*"text\/plain": text/s);
+  assert.match(
+    service,
+    /async writeClipboardSvg\(payloadValue: unknown\): Promise<MermaidSvgClipboardResult>/,
+  );
+  assert.match(service, /"image\/svg\+xml": svg/);
+  assert.match(service, /const items = await clipboard\.read\(\)/);
+  assert.match(
+    service,
+    /const svgItem = items\.find\(\(item\) => item\.types\.includes\("image\/svg\+xml"\)\)/,
+  );
+  assert.match(service, /await \(await svgItem\.getType\("image\/svg\+xml"\)\)\.text\(\)/);
 });
 
 test("画像コピーはAI専用ではなく通常のclipboard操作にする（#320）", () => {

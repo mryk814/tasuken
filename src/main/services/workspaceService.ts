@@ -21,6 +21,7 @@ import { ApplicationCommandError } from "../../shared/applicationCommand.ts";
 import {
   app,
   BrowserWindow,
+  ClipboardItem,
   clipboard,
   dialog,
   nativeImage,
@@ -3522,12 +3523,12 @@ export class WorkspaceService {
     }
   }
 
-  writeClipboard(text: unknown): boolean {
-    clipboard.writeText(String(text));
+  async writeClipboard(text: unknown): Promise<boolean> {
+    await clipboard.writeText(String(text));
     return true;
   }
 
-  writeClipboardHtml(payload: unknown): boolean {
+  async writeClipboardHtml(payload: unknown): Promise<boolean> {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       throw new Error(
         "コピーするHTMLの形式が不正です。画面を再読み込みして、もう一度試してください。",
@@ -3539,11 +3540,16 @@ export class WorkspaceService {
     if (!html.trim() || !text.trim()) {
       throw new Error("コピーする本文がありません。");
     }
-    clipboard.write({ html, text });
+    await clipboard.write([
+      new ClipboardItem({
+        "text/html": html,
+        "text/plain": text,
+      }),
+    ]);
     return true;
   }
 
-  writeClipboardImage(payloadValue: unknown): boolean {
+  async writeClipboardImage(payloadValue: unknown): Promise<boolean> {
     if (!payloadValue || typeof payloadValue !== "object" || Array.isArray(payloadValue)) {
       throw new Error("コピーする画像の形式が不正です。画面を再読み込みしてください。");
     }
@@ -3562,9 +3568,17 @@ export class WorkspaceService {
         "コピーする画像を読み取れませんでした。画面を開き直して、もう一度試してください。",
       );
     }
-    clipboard.clear();
-    clipboard.writeImage(image);
-    const written = clipboard.readImage();
+    await clipboard.write([
+      new ClipboardItem({
+        "image/png": new Blob([new Uint8Array(image.toPNG())], { type: "image/png" }),
+      }),
+    ]);
+    const writtenItems = await clipboard.read();
+    const imageItem = writtenItems.find((item) => item.types.includes("image/png"));
+    const writtenBlob = imageItem ? await imageItem.getType("image/png") : null;
+    const written = writtenBlob
+      ? nativeImage.createFromBuffer(Buffer.from(await writtenBlob.arrayBuffer()))
+      : nativeImage.createEmpty();
     const expectedSize = image.getSize();
     const writtenSize = written.getSize();
     if (
@@ -3579,17 +3593,23 @@ export class WorkspaceService {
     return true;
   }
 
-  writeClipboardSvg(payloadValue: unknown): MermaidSvgClipboardResult {
+  async writeClipboardSvg(payloadValue: unknown): Promise<MermaidSvgClipboardResult> {
     if (!payloadValue || typeof payloadValue !== "object" || Array.isArray(payloadValue)) {
       throw new Error("コピーするSVGの形式が不正です。画面を再読み込みしてください。");
     }
     const payload = payloadValue as Partial<MermaidSvgClipboardRequest>;
     const svg = validateOfficeSvg(payload.svg);
-    clipboard.clear();
-    clipboard.write({ html: svg, text: "Tasken PowerPoint SVG" });
-    clipboard.writeBuffer("image/svg+xml", Buffer.from(svg, "utf8"));
-    const formats = clipboard.availableFormats();
-    const writtenSvg = clipboard.readBuffer("image/svg+xml").toString("utf8");
+    await clipboard.write([
+      new ClipboardItem({
+        "text/html": svg,
+        "text/plain": "Tasken PowerPoint SVG",
+        "image/svg+xml": svg,
+      }),
+    ]);
+    const items = await clipboard.read();
+    const svgItem = items.find((item) => item.types.includes("image/svg+xml"));
+    const writtenSvg = svgItem ? await (await svgItem.getType("image/svg+xml")).text() : "";
+    const formats = [...new Set(items.flatMap((item) => item.types))];
     return {
       verified: writtenSvg === svg && formats.some((format) => /svg/i.test(format)),
       formats,
