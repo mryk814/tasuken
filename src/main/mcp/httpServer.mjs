@@ -7,6 +7,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { coreWriteProfile } from "../../shared/contracts/core/public.mjs";
 import { createTaskenMcpServer } from "./server.mjs";
 import { TaskenCoreClient } from "./taskenCoreClient.mjs";
+import { parseMcpToolsets } from "./toolAvailability.mjs";
 
 const digest = (value) => createHash("sha256").update(value).digest();
 const MAX_BODY_BYTES = 35 * 1024 * 1024;
@@ -40,7 +41,7 @@ export function parseHttpClients(value) {
       !client ||
       typeof client !== "object" ||
       Array.isArray(client) ||
-      Object.keys(client).some((key) => !["token", "readOnly"].includes(key)) ||
+      Object.keys(client).some((key) => !["token", "readOnly", "toolsets"].includes(key)) ||
       typeof client.token !== "string" ||
       !/^[A-Za-z0-9_-]{43}$/.test(client.token) ||
       Buffer.from(client.token, "base64url").toString("base64url") !== client.token ||
@@ -48,8 +49,15 @@ export function parseHttpClients(value) {
       tokens.has(client.token)
     )
       invalid();
+    let toolsets;
+    try {
+      if (client.toolsets !== undefined && !Array.isArray(client.toolsets)) invalid();
+      if (client.toolsets !== undefined) toolsets = parseMcpToolsets(client.toolsets);
+    } catch {
+      invalid();
+    }
     tokens.add(client.token);
-    return { name, tokenHash: digest(client.token), readOnly: client.readOnly !== false };
+    return { name, tokenHash: digest(client.token), readOnly: client.readOnly !== false, toolsets };
   });
 }
 
@@ -78,6 +86,7 @@ export async function startTaskenMcpHttpServer(options = {}) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("MCP_HTTP_PORT_INVALID");
   // Only an explicit 0 relaxes the global read-only ceiling.
   const globalReadOnly = env.TASKEN_MCP_READ_ONLY !== "0";
+  const defaultToolsets = parseMcpToolsets(env.TASKEN_MCP_TOOLSETS);
   const coreClient = options.coreClient || new TaskenCoreClient({ env });
   const httpServer = createServer(async (request, response) => {
     response.setHeader("Cache-Control", "no-store");
@@ -125,7 +134,13 @@ export async function startTaskenMcpHttpServer(options = {}) {
       ) {
         return reply(503, { error: "core_profile_not_allowed" });
       }
-      server = createTaskenMcpServer({ coreClient, capabilities, readOnly });
+      server = createTaskenMcpServer({
+        coreClient,
+        capabilities,
+        readOnly,
+        toolsets: client.toolsets ?? defaultToolsets,
+        env,
+      });
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: undefined,
         enableJsonResponse: true,

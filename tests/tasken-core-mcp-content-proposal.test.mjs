@@ -164,14 +164,16 @@ test("two content tools persist exact canonical proposals over actual stdio/Core
     const listed = await client.listTools();
     const noteTool = listed.tools.find((tool) => tool.name === "tasken.propose_note");
     const noteEditTool = listed.tools.find((tool) => tool.name === "tasken.propose_note_edit");
-    assert.match(client.getInstructions() || "", /Proposal ID, not a Note ID/);
-    assert.match(client.getInstructions() || "", /Theme, not a Task or Reference relation/);
+    const guide = (await client.readResource({ uri: "tasken://guide/note_article" })).contents[0]
+      .text;
+    assert.match(guide, /Proposal ID, not a Note ID/);
+    assert.match(guide, /does not create a Task or Reference relation/);
     assert.ok(noteTool);
     assert.ok(noteEditTool);
-    assert.match(noteTool.description || "", /Note display type is `note`; Report is `report`/);
-    assert.match(noteTool.description || "", /does not create a Task or Reference relation/);
-    assert.match(noteTool.inputSchema.properties.body.description || "", /Markdown body/);
-    assert.match(noteEditTool.inputSchema.properties.body.description || "", /Markdown body/);
+    assert.match(guide, /Note display type is `note`; Report is `report`/);
+    assert.match(noteTool.description || "", /Theme is the only association/);
+    assert.match(noteTool.inputSchema.properties.body.description || "", /Markdown/);
+    assert.match(noteEditTool.inputSchema.properties.body.description || "", /Markdown/);
     const calls = [
       [
         "tasken.propose_note",
@@ -453,7 +455,9 @@ test("propose_note carries embedded image bytes through stdio/Core without persi
     const listed = await client.listTools();
     const noteTool = listed.tools.find((tool) => tool.name === "tasken.propose_note");
     assert.ok(noteTool?.inputSchema.properties.images);
-    assert.match(noteTool.description || "", /tasken-upload:\/\//);
+    const guide = (await client.readResource({ uri: "tasken://guide/note_article" })).contents[0]
+      .text;
+    assert.match(guide, /tasken-upload:\/\//);
 
     const largeInvalidImage = await client.callTool({
       name: "tasken.propose_note",

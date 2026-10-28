@@ -6,7 +6,10 @@ import { parseArgs } from "node:util";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { listAgentReadyTasksResponseSchema } from "../src/shared/contracts/task/public.ts";
+import {
+  listAgentReadyTasksResponseSchema,
+  listOpenItemsResponseSchema,
+} from "../src/shared/contracts/task/public.ts";
 
 import {
   TASKEN_MCP_REQUIRED_CORE_CAPABILITIES,
@@ -159,14 +162,34 @@ export async function inspectBridge({
     const tools = await client.listTools({}, requestOptions);
     const prompts = await client.listPrompts({}, requestOptions);
     const resources = await client.listResourceTemplates({}, requestOptions);
+    const hasAgentReady = tools.tools.some((tool) => tool.name === "tasken.list_agent_ready_tasks");
+    const hasOpenItems = tools.tools.some((tool) => tool.name === "tasken.list_open_items");
+    if (!hasAgentReady && !hasOpenItems) {
+      return {
+        status: "ok",
+        code: "MCP_STDIO_READY",
+        message:
+          "MCPの起動と一覧を確認しました。選択されたセットには診断用の読み取りtoolがありません。",
+        tool_count: tools.tools.length,
+        read_checked: false,
+        prompt_names: prompts.prompts.map((prompt) => prompt.name),
+        resource_templates: resources.resourceTemplates.map((resource) => resource.uriTemplate),
+        task_work_available: tools.tools.some((tool) => tool.name === "tasken.start_task_work"),
+      };
+    }
     const read = await client.callTool(
-      { name: "tasken.list_agent_ready_tasks", arguments: { limit: 1 } },
+      {
+        name: hasAgentReady ? "tasken.list_agent_ready_tasks" : "tasken.list_open_items",
+        arguments: { limit: 1 },
+      },
       undefined,
       requestOptions,
     );
     if (
       read.isError ||
-      !listAgentReadyTasksResponseSchema.safeParse(read.structuredContent).success
+      !(hasAgentReady ? listAgentReadyTasksResponseSchema : listOpenItemsResponseSchema).safeParse(
+        read.structuredContent,
+      ).success
     ) {
       return {
         ...check,
@@ -178,7 +201,8 @@ export async function inspectBridge({
     return {
       status: "ok",
       code: "MCP_STDIO_READY",
-      message: "MCPの起動・ツール一覧・AI Readyの読み取りに成功しました（着手・書き込みなし）。",
+      message: "MCPの起動・ツール一覧・読み取りに成功しました（着手・書き込みなし）。",
+      read_checked: true,
       tool_count: tools.tools.length,
       prompt_names: prompts.prompts.map((prompt) => prompt.name),
       resource_templates: resources.resourceTemplates.map((resource) => resource.uriTemplate),

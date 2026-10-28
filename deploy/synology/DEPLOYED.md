@@ -66,3 +66,11 @@ PC側から共有フォルダを確認しただけでは、コンテナやSQLite
 - amd64以外のSynology、Synology Drive / Cloud Sync経由の同期。
 - Desktop停止・NAS再起動・transport再接続を含めた一連の復旧。
 - リリース候補 `v0.1.71` のNASへの配備。この記録はその配備を示しません。
+
+## 未配備の変更（2026-10-28、#678–#680）
+
+MCP bridgeのツール選択・報告統合・公開schema軽量化をコードと文書で対応しました。この記載は実機への配備確認ではありません。NASの設定・image・稼働中クライアントは変更していません。
+
+- 新コードでは`TASKEN_MCP_TOOLSETS=core`、HTTPでは既存の各クライアント項目への`"toolsets": ["core"]`追加で6ツールを選択できます。未指定は`all`。旧報告3名が必要な接続は`all,legacy`を明示します。
+- 報告入口は`tasken.report_work(status=progress/done/blocked)`です。既定の読み取り16個は維持し、proposals配備はwrite 3個と合わせて19個になります。過去の`TOOL_COUNT 21`は当時の観測として保持します。
+- 次回の承認済みNAS更新時に、適用する固定commit・クライアント別toolsets・クライアントのツールキャッシュ再読み込みを確認してください。設定と互換条件は[ツール選択ガイド](../../docs/mcp-toolsets.md)を参照してください。

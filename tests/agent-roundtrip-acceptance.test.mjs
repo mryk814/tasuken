@@ -244,7 +244,8 @@ test("Task一件をDesktop・MCP・Androidで往復させ、同じTask IDのま�
     assert.equal(database.get("task", TASK_ID).work_attempt_id, ATTEMPT_ID);
 
     // 3. 判断できない点をMCPで質問として報告する（まだTaskは変わらない）。
-    const queued = await callTool(client, "tasken.report_task_blocked", {
+    const queued = await callTool(client, "tasken.report_work", {
+      status: "blocked",
       task_id: TASK_ID,
       expected_version: database.get("task", TASK_ID).version,
       idempotency_key: "roundtrip-question",
@@ -311,7 +312,8 @@ test("Task一件をDesktop・MCP・Androidで往復させ、同じTask IDのま�
     );
 
     // 8. agentが成果を報告し、Desktopの人が採用する。Taskは未完了のまま。
-    const done = await callTool(client, "tasken.report_task_done", {
+    const done = await callTool(client, "tasken.report_work", {
+      status: "done",
       task_id: TASK_ID,
       expected_version: database.get("task", TASK_ID).version,
       idempotency_key: "roundtrip-done",

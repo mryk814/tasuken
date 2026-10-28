@@ -697,8 +697,9 @@ test("actual MCP start syncs to Desktop; reports await human adoption and never 
       source_session: "test-conversation",
     };
     const progress = await mcp.callTool({
-      name: "tasken.append_work_receipt",
+      name: "tasken.report_work",
       arguments: {
+        status: "progress",
         ...reportArgs,
         idempotency_key: "progress",
         summary: "Comparison underway",
@@ -707,8 +708,9 @@ test("actual MCP start syncs to Desktop; reports await human adoption and never 
       },
     });
     const done = await mcp.callTool({
-      name: "tasken.report_task_done",
+      name: "tasken.report_work",
       arguments: {
+        status: "done",
         ...reportArgs,
         idempotency_key: "done",
         summary: "Research finished; purchase is outstanding",

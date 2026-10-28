@@ -80,7 +80,7 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 - 共有フォルダのmanifestが無い場合は `SYNC_FOLDER_NOT_READY` で失敗する。先にデータ端末で同期を設定しておく。
 - ホストの`workspaceId`を採用し、node自身の`deviceId`は固定のまま。同期カーソル・適用済みsequence・取り込んだentityはnodeのSQLiteに永続化されるため、再起動後も同じidentityとstateで復帰する。
 - 初回や途中の差分がOneDrive等で未到着でも、poll（10秒間隔）で再試行する。解消しない場合の「差分を再公開」はデータ端末側で行う（`docs/shared-folder-sync.md`）。
-- このnodeは読み取り専用の運用を既定とする。MCP clientは`TASKEN_MCP_READ_ONLY=1`で起動し、write tools（`start_task_work`・`report_task_done`・`propose_*`等）を公開しない。`--write-mode=proposals`を選んだ場合だけ、テキストのFeed投稿・Note案・Task案・Task作業報告を提案として受け付ける（前節）。proposals配備では、replicaが作ったProposalとDesktopの採否が変更差分として往復する。1つの`idempotency_key`は1つのnodeだけへ送る。
+- このnodeは読み取り専用の運用を既定とする。MCP clientは`TASKEN_MCP_READ_ONLY=1`で起動し、write tools（`start_task_work`・`report_work(status=done)`・`propose_*`等）を公開しない。`--write-mode=proposals`を選んだ場合だけ、テキストのFeed投稿・Note案・Task案・Task作業報告を提案として受け付ける（前節）。proposals配備では、replicaが作ったProposalとDesktopの採否が変更差分として往復する。1つの`idempotency_key`は1つのnodeだけへ送る。
 - 添付画像は共有フォルダ同期の対象で、受信後に`get_capture_image`・`get_task_image`で読める。`ContentDetailQueryService`がmanifestの`size`・`sha256`と照合するため、欠落・不一致はnot_foundになる。
 - Note Proposal画像のstage（`nativeImage`によるdecode）は含まないため、画像付きProposalの作成はできない。
 

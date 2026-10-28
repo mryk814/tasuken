@@ -243,6 +243,34 @@ test("doctor rejects a malformed read even when MCP returns no isError", async (
   assert.equal(report.code, "MCP_READ_FAILED");
 });
 
+test("doctor respects core-only and meta-only toolsets without probing hidden tools", async () => {
+  const serverUrl = pathToFileURL(path.resolve("src/main/mcp/server.mjs")).href;
+  const transportUrl = pathToFileURL(
+    path.resolve("node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js"),
+  ).href;
+  for (const toolsets of ["core", "meta"]) {
+    const code = `
+      import { createTaskenMcpServer } from ${JSON.stringify(serverUrl)};
+      import { StdioServerTransport } from ${JSON.stringify(transportUrl)};
+      const server = createTaskenMcpServer({ env: {}, readOnly: true, toolsets: ${JSON.stringify(toolsets)},
+        coreClient: { listOpenItems: async () => ({
+          items: [], limit: 1, ai_audience: "coding_agent", read_only: true,
+          excluded_count: 0, excluded_reasons: [], next_tools: [],
+          result_meta: { contract_version: 1, returned_count: 0, matched_visible_count: 0, truncated: false },
+        }) },
+      });
+      await server.connect(new StdioServerTransport());
+    `;
+    const report = await inspectBridge({
+      command: process.env.TASKEN_NODE_EXEC_PATH || "node",
+      args: ["--input-type=module", "-e", code],
+    });
+    assert.equal(report.status, "ok");
+    assert.equal(report.tool_count, toolsets === "core" ? 6 : 1);
+    assert.equal(report.read_checked, toolsets === "core");
+  }
+});
+
 test("doctor redacts failed process starts and times out a silent MCP process", async () => {
   for (const options of [
     { command: "tasken-doctor-no-such-executable" },

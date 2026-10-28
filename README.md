@@ -120,7 +120,7 @@ Coding Agentは`tasken.get_task_context`へTask IDと現在のworkspace情報を
 
 Themeには、人間が書く比較的安定した`Theme Charter`と、現在の方向・問いを持つ`Theme State`を保存できます。MCPのテーマ背景は`tasken.get_theme_context`に一本化しています。`tasken://themes/{themeId}/intent` ResourceはThemeの意図だけを参照し、`daily-report` Promptは利用者が明示起動する作業テンプレートです。正本と投影の境界は [`docs/tasken-context-architecture.md`](./docs/tasken-context-architecture.md) を参照してください。
 
-人がAI ReadyにしたTaskを外部AIが選び、`get_task_context`で確認してから`start_task_work`で開始します。開始後の最新versionを使って`append_work_receipt`、`report_task_done`、`report_task_blocked`を送ります。報告はFeedで採用し、完了報告の採用後もTaskの完了は利用者が明示します。AIは完了したチェック項目のIDを報告に添えられ、採用時に該当項目へ反映されます。Taskの完了後も追加報告を履歴へ残せます。各Task writeには`expected_version`、`idempotency_key`、`caller`が必要です。同じ要求の再送ではkeyと内容を維持してください。RepositoryContext snapshotにはローカルパスやremote URLを保存しません。読み取り専用の運用では`TASKEN_MCP_READ_ONLY=1`を設定してください。
+人がAI ReadyにしたTaskを外部AIが選び、`get_task_context`で確認してから`start_task_work`で開始します。開始後の最新versionを使って`report_work(status=progress)`、`report_work(status=done)`、`report_work(status=blocked)`を送ります。報告はFeedで採用し、完了報告の採用後もTaskの完了は利用者が明示します。AIは完了したチェック項目のIDを報告に添えられ、採用時に該当項目へ反映されます。Taskの完了後も追加報告を履歴へ残せます。各Task writeには`expected_version`、`idempotency_key`、`caller`が必要です。同じ要求の再送ではkeyと内容を維持してください。RepositoryContext snapshotにはローカルパスやremote URLを保存しません。読み取り専用の運用では`TASKEN_MCP_READ_ONLY=1`を設定してください。
 
 MCPを経由しないローカルの道具には、Coreの全権tokenではなくクライアント別の読み取り専用tokenを発行できます（[外部AI連携ガイド](./docs/external-ai-integration.md#読み取り専用のローカルクライアント)）。
 
@@ -186,3 +186,5 @@ NASの開始専用権限は`task.start_work`です。本人の個人業務のAI 
 開発時の作業・検証は [AGENTS.md](./AGENTS.md)、設計・保存の境界は [設計・データ契約](./docs/engineering-contracts.md)、未完了の作業は [GitHub Issues](https://github.com/mryk814/tasuken/issues) を参照してください。
 Knowledge ModelとAI/MCP連携の次期方針は [`knowledge-mcp-policy.md`](./docs/knowledge-mcp-policy.md) を参照してください。
 AIへ渡す概要・鮮度・根拠・公開範囲の共通契約は [`ai-metadata-contract.md`](./docs/ai-metadata-contract.md) を参照してください。
+
+接続ごとのツール選択と作業報告の移行方法は[MCPのツール選択と軽量化](docs/mcp-toolsets.md)を参照してください。汎用クライアントは`TASKEN_MCP_TOOLSETS=core`で6ツールに絞れます。

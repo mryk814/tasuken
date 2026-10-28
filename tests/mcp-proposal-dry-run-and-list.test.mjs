@@ -79,8 +79,12 @@ test("dry_run validates proposals without saving them and reports version drift"
       summary: "検証だけを行う。",
     };
     const preview = await client.callTool({
-      name: "tasken.report_task_done",
-      arguments: { ...report, dry_run: true },
+      name: "tasken.report_work",
+      arguments: {
+        status: "done",
+        ...report,
+        dry_run: true,
+      },
     });
     assert.equal(preview.isError, undefined, JSON.stringify(preview));
     assert.equal(preview.structuredContent.status, "validated");
@@ -97,14 +101,23 @@ test("dry_run validates proposals without saving them and reports version drift"
 
     // 本送信は同じkeyで同じProposal IDになり、その後のdry_runは重複と見積もる。
     const sent = await client.callTool({
-      name: "tasken.report_task_done",
-      arguments: { ...report, expected_version: taskVersion },
+      name: "tasken.report_work",
+      arguments: {
+        status: "done",
+        ...report,
+        expected_version: taskVersion,
+      },
     });
     assert.equal(sent.structuredContent.status, "queued");
     assert.equal(sent.structuredContent.proposal_id, preview.structuredContent.proposal_id);
     const again = await client.callTool({
-      name: "tasken.report_task_done",
-      arguments: { ...report, expected_version: taskVersion, dry_run: true },
+      name: "tasken.report_work",
+      arguments: {
+        status: "done",
+        ...report,
+        expected_version: taskVersion,
+        dry_run: true,
+      },
     });
     assert.equal(again.structuredContent.would_status, "duplicate");
     assert.equal(database.list("ai_proposal").length, 1);

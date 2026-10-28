@@ -79,7 +79,7 @@ MCP bridgeは、`error`オブジェクトを持つ応答（見つからない等
 
 ### Proposal 8 / MCP
 
-- Task work: `start_task_work`, `append_work_receipt`, `report_task_done`, `report_task_blocked`
+- Task work: `start_task_work`, `report_work`（status=progress/done/blocked）。互換セット`legacy`のみ`append_work_receipt`, `report_task_done`, `report_task_blocked`も公開する。
 - Content: `propose_note`, `propose_note_edit`
 - Reading: `propose_feed_post`, `answer_feed_question`
 

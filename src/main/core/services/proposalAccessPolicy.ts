@@ -62,7 +62,7 @@ function refusedContentMessage(request: ProposeContentRequest): string {
   ) {
     return "この接続では画像付きNoteを受け付けません。画像のないNote案を送ってください。";
   }
-  return `この接続では${request.kind}のProposalを受け付けません。この経路で送れるのは${[...RESTRICTED_CONTENT_KINDS].join("・")}（画像なし）だけです。Task作業報告は別の経路（append_work_receipt・report_task_done・report_task_blocked）で送れます。`;
+  return `この接続では${request.kind}のProposalを受け付けません。この経路で送れるのは${[...RESTRICTED_CONTENT_KINDS].join("・")}（画像なし）だけです。Task作業報告はtasken.report_workへstatus=progress・done・blockedを指定して送れます。`;
 }
 
 function refusedTaskMessage(request: ProposeRepositoryTaskRequest): string {

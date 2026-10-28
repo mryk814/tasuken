@@ -57,11 +57,41 @@ test("HTTP credentials fail closed and reject duplicate, weak, or malformed sett
     [],
     { a: { token: "weak" } },
     { a: { token, readOnly: "false" } },
+    { a: { token, toolsets: "core" } },
+    { a: { token, toolsets: [] } },
+    { a: { token, toolsets: ["unknown"] } },
     { a: { token }, b: { token } },
   ]) {
     assert.throws(() => parseHttpClients(invalid), /MCP_HTTP_CLIENTS_INVALID/);
   }
   assert.equal(parseHttpClients({ a: { token } })[0].readOnly, true);
+});
+
+test("HTTP clients have independent toolsets, with environment fallback and a read-only ceiling", async (t) => {
+  const { url } = await fixture(t, {
+    env: { TASKEN_MCP_TOOLSETS: "core,meta", TASKEN_MCP_READ_ONLY: "0" },
+    clients: {
+      grokbot: { token, toolsets: ["core"] },
+      writer: { token: otherToken, readOnly: false },
+    },
+  });
+  const reader = await connect(t, url);
+  const writer = await connect(t, url, otherToken);
+  assert.equal((await reader.listTools()).tools.length, 6);
+  assert.equal((await writer.listTools()).tools.length, 7);
+  const result = await writer.callTool({ name: "tasken.get_capabilities", arguments: {} });
+  assert.equal(result.structuredContent.writes.task_work_report, false);
+  assert.deepEqual(result.structuredContent.bridge.toolsets, ["core", "meta"]);
+  assert.equal(
+    result.structuredContent.unavailable_tools.find(({ name }) => name === "tasken.report_work")
+      .reason,
+    "toolset_not_enabled",
+  );
+  assert.equal(
+    (await reader.callTool({ name: "tasken.get_capabilities", arguments: {} })).isError,
+    true,
+  );
+  assert.equal((await reader.listTools()).tools.length, 6);
 });
 
 test("HTTP authenticates every MCP method before contacting Core; health is minimal", async (t) => {

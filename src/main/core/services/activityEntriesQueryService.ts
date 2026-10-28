@@ -14,14 +14,9 @@ const ACTIVITY_NEXT_TOOLS = [
   { tool: "tasken.get_task_assignment", description: "現在のassignmentとWork Receiptを確認する。" },
   { tool: "tasken.get_task_context", description: "Taskのbounded contextを再取得する。" },
   {
-    tool: "tasken.append_work_receipt",
+    tool: "tasken.report_work",
     description:
-      "進捗を残すなら、Proposal toolが利用可能な場合だけ利用者レビュー用Work Receiptをqueueする。",
-  },
-  {
-    tool: "tasken.report_task_done",
-    description:
-      "完了報告なら利用者レビュー用Proposalをqueueする。blocked時はtasken.report_task_blockedを使う。",
+      "利用可能な場合だけstatus=progress/done/blockedで利用者レビュー用Proposalをqueueする。",
   },
 ];
 
