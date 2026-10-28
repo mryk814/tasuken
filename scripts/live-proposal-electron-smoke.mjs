@@ -309,8 +309,8 @@ try {
       { exact: true },
     )
     .waitFor();
-  const copiedRequest = await electronApp.evaluate(({ clipboard }) => {
-    const text = clipboard.readText();
+  const copiedRequest = await electronApp.evaluate(async ({ clipboard }) => {
+    const text = await clipboard.readText();
     return {
       done: text.includes("tasken.report_work（status=done）"),
       blocked: text.includes("tasken.report_work（status=blocked）"),
