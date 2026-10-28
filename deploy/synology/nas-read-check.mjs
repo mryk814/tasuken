@@ -14,6 +14,7 @@ import { StdioClientTransport } from "/app/node_modules/@modelcontextprotocol/sd
 const READ_ONLY = (process.env.TASKEN_MCP_READ_ONLY ?? "1") !== "0";
 const WRITE_TOOL_NAMES = new Set([
   "tasken.start_task_work",
+  "tasken.report_work",
   "tasken.append_work_receipt",
   "tasken.report_task_done",
   "tasken.report_task_blocked",

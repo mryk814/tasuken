@@ -12,6 +12,7 @@ import {
   TaskenCoreClient,
 } from "../src/main/mcp/taskenCoreClient.mjs";
 import { TASKEN_MCP_PACKAGE_SMOKE_MARKER_FILE } from "../src/shared/taskenPaths.mjs";
+import { mcpToolAvailability } from "../src/main/mcp/toolAvailability.mjs";
 import {
   monitorPackagedProcess,
   waitForPackagedReadiness,
@@ -54,6 +55,7 @@ const environment = {
   TASKEN_USER_DATA_DIR: root,
   TASKEN_DB_PATH: fakeDbPath,
   TASKEN_MCP_INBOX_PATH: legacyInboxPath,
+  TASKEN_MCP_TOOLSETS: "all",
 };
 const coreClient = new TaskenCoreClient({ env: environment, timeoutMs: 2_000 });
 function launchDesktop(args) {
@@ -118,13 +120,15 @@ async function launchVerification(proposalId, verifyOnly = false) {
 }
 
 /**
- * 期待するtoolは正本（`src/main/mcp/server.mjs`）の登録から導く。
+ * 期待するtoolは正本（`toolAvailability.mjs`）のセット・capabilityから導く。
  * 固定値にすると、toolを増やしたときにこの検査だけが古くなる（実際に44のまま47とずれていた）。
  * read/proposalの内訳は `tests/tasken-core-phase0-characterization.test.mjs` が固定する。
  */
-function registeredToolNames() {
-  const source = fs.readFileSync(new URL("../src/main/mcp/server.mjs", import.meta.url), "utf8");
-  return [...source.matchAll(/server\.registerTool\(\s*"([^"]+)"/g)].map((match) => match[1]);
+function registeredToolNames(capabilities) {
+  const { tools } = mcpToolAvailability(capabilities, { toolsets: "all" });
+  return Object.entries(tools)
+    .filter(([, tool]) => tool.access === "read" || tool.available)
+    .map(([name]) => name);
 }
 
 try {
@@ -136,7 +140,7 @@ try {
   client = await connectMcp();
   const listed = await client.listTools();
   const listedNames = new Set(listed.tools.map((tool) => tool.name));
-  const expectedNames = registeredToolNames();
+  const expectedNames = registeredToolNames(core.capabilities);
   const missing = expectedNames.filter((name) => !listedNames.has(name));
   const unexpected = [...listedNames].filter((name) => !expectedNames.includes(name));
   if (missing.length || unexpected.length) {

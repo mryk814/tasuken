@@ -8,8 +8,8 @@ Issue #364 の統合証跡は `tests/ai-collaboration-e2e.test.mjs` を正本と
 
 1. pre-#277/#278 形式の Theme / Task / Note を SQLite へ bootstrap し、Task に human requester、AI executor、RepositoryContext を割り当てる。
 2. actual stdio MCP の `tasken.list_agent_ready_tasks` で候補を見つけ、`tasken.get_task_context` で Task、assignment、安全な repository locator、関連 Note を取得する。一覧・Context読取では永続データが変わらないことも確認する。
-3. 開始方法を二つ検証する。明示開始では `tasken.start_task_work` がProposalを作らず `in_progress` を保存し、返却された `value.task.version` を後続Receiptの `expected_version` に使う。同じ開始リクエストの再送で書込が重複せず、AI Ready一覧から対象が外れることも確認する。開始省略ではAI Ready Taskへ直接 `tasken.append_work_receipt` を送り、採用時にstarted eventとReceiptが同じtransactionで保存されることを確認する。いずれもReceiptは人の採用まで正式保存されない。
-4. 一つ目の `tasken.report_task_done` を Main で reject し、Task と Receipt が変わらないことを確認する。
+3. 開始方法を二つ検証する。明示開始では `tasken.start_task_work` がProposalを作らず `in_progress` を保存し、返却された `value.task.version` を後続Receiptの `expected_version` に使う。同じ開始リクエストの再送で書込が重複せず、AI Ready一覧から対象が外れることも確認する。開始省略ではAI Ready Taskへ直接 `tasken.report_work(status=progress)` を送り、採用時にstarted eventとReceiptが同じtransactionで保存されることを確認する。いずれもReceiptは人の採用まで正式保存されない。
+4. 一つ目の `tasken.report_work(status=done)` を Main で reject し、Task と Receipt が変わらないことを確認する。
 5. 二つ目のdone proposal採用途中へfailureを注入し、Task / Work Receipt / ChangeEvent / Proposal statusが同じSQLite transactionでrollbackすることを確認する。
 6. 同じproposalを正常採用し、Receiptを受け入れてもTaskは未完了のままであることを確認する。AIのTask直接変更・完了は引き続き拒否し、人が別途明示した完了だけを保存する。
 7. 同じdecisionの再送が保存済みreceiptを返し、EntityやChangeEventを増やさないことを確認する。

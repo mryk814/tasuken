@@ -474,11 +474,10 @@ async function runProviderScenario(provider, explicitStart = false) {
       "Interim receipt remains in progress.",
       workAttemptId,
     );
-    const queuedProgress = await callTaskWork(
-      client,
-      "tasken.append_work_receipt",
-      progressArguments,
-    );
+    const queuedProgress = await callTaskWork(client, "tasken.report_work", {
+      ...progressArguments,
+      status: "progress",
+    });
     let progressProposal = canonicalProposal(
       fixture.database,
       queuedProgress.proposal_id,
@@ -554,11 +553,10 @@ async function runProviderScenario(provider, explicitStart = false) {
       "This report is rejected by the human reviewer.",
       workAttemptId,
     );
-    const queuedRejected = await callTaskWork(
-      client,
-      "tasken.report_task_done",
-      rejectedDoneArguments,
-    );
+    const queuedRejected = await callTaskWork(client, "tasken.report_work", {
+      ...rejectedDoneArguments,
+      status: "done",
+    });
     const rejectedProposal = canonicalProposal(
       fixture.database,
       queuedRejected.proposal_id,
@@ -587,7 +585,10 @@ async function runProviderScenario(provider, explicitStart = false) {
     });
     doneArguments.expected_version = checklistTask.version;
     doneArguments.completed_checklist_item_ids = ["verified-boundary"];
-    const queuedDone = await callTaskWork(client, "tasken.report_task_done", doneArguments);
+    const queuedDone = await callTaskWork(client, "tasken.report_work", {
+      ...doneArguments,
+      status: "done",
+    });
     const doneProposal = canonicalProposal(fixture.database, queuedDone.proposal_id, fixture.root);
     assert.deepEqual(doneProposal.payload.task_work[0].completed_checklist_item_ids, [
       "verified-boundary",

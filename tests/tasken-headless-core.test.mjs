@@ -423,8 +423,9 @@ test("replicaが受けたTask作業報告はDesktopの採用でWork Receiptに�
       assert.equal(task.id, "task-headless");
 
       const queued = await client.callTool({
-        name: "tasken.report_task_done",
+        name: "tasken.report_work",
         arguments: {
+          status: "done",
           idempotency_key: "replica-task-work",
           caller: "ChatGPT",
           source_app: "chatgpt",
@@ -542,8 +543,9 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
         },
       ],
       [
-        "tasken.report_task_done",
+        "tasken.report_work",
         {
+          status: "done",
           idempotency_key: "restricted-report",
           caller: "gate test",
           source_app: "gate-test",
@@ -594,6 +596,11 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
         reason: "missing_capability:task.start_work",
         listed: false,
       },
+      ...["append_work_receipt", "report_task_done", "report_task_blocked"].map((name) => ({
+        name: `tasken.${name}`,
+        reason: "toolset_not_enabled",
+        listed: false,
+      })),
       { name: "tasken.propose_note_edit", reason: "kind_not_allowed:note_edit", listed: false },
       {
         name: "tasken.answer_feed_question",

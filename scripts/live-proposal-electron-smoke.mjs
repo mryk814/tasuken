@@ -102,6 +102,12 @@ async function openFirstNeedsRow(page) {
   await open.click();
 }
 
+async function captureWorkReport(page, name) {
+  const directory = path.resolve("artifacts", "mcp-lightweight");
+  fs.mkdirSync(directory, { recursive: true });
+  await page.screenshot({ path: path.join(directory, `${name}.png`), fullPage: true });
+}
+
 /**
  * 選択中の1件を採用する。
  * 成果確認は #599 の読み順を持つ面（`feed-review`）、変更案と作業報告は提案のプレビューで決める。
@@ -297,6 +303,22 @@ try {
   const taskRow = page.locator(".table-row", { hasText: title }).first();
   await taskRow.getByRole("button", { name: "AI Readyにする" }).click();
   await taskRow.getByRole("button", { name: "AI Readyを解除" }).waitFor();
+  await page
+    .getByText(
+      "AI Readyにして依頼文をコピーしました。Tasken MCPに接続したAIへ貼り付けてください。",
+      { exact: true },
+    )
+    .waitFor();
+  const copiedRequest = await electronApp.evaluate(async ({ clipboard }) => {
+    const text = await clipboard.readText();
+    return {
+      done: text.includes("tasken.report_work（status=done）"),
+      blocked: text.includes("tasken.report_work（status=blocked）"),
+      legacy: text.includes("tasken.report_task_done"),
+    };
+  });
+  assert.deepEqual(copiedRequest, { done: true, blocked: true, legacy: false });
+  await captureWorkReport(page, "ai-ready");
   const readyTaskContext = await getTaskContext(taskId);
   const readyTaskVersion = Number(readyTaskContext.task.version);
   assert.ok(
@@ -317,7 +339,10 @@ try {
     summary: staleWorkSummary,
   });
   staleWorkArguments.completed_checklist_item_ids = ["stale-checklist-item"];
-  const staleWork = await callMcp("tasken.append_work_receipt", staleWorkArguments);
+  const staleWork = await callMcp("tasken.report_work", {
+    ...staleWorkArguments,
+    status: "progress",
+  });
   assert.equal(staleWork.status, "queued");
   await openProposalConfirmation(page);
   await waitForPendingCount(page, 1);
@@ -337,6 +362,7 @@ try {
     undefined,
     { timeout: 15_000 },
   );
+  await captureWorkReport(page, "report-conflict");
   await page.evaluate(async (summary) => {
     const proposals = await window.api.entities.list("ai_proposal");
     const proposal = proposals.find(
@@ -368,15 +394,23 @@ try {
     idempotencyKey: "electron-live-task-work-recovered-v1",
     summary: recoveredWorkSummary,
   });
-  const completedWork = await callMcp("tasken.report_task_done", completedWorkArguments);
+  const completedWork = await callMcp("tasken.report_work", {
+    ...completedWorkArguments,
+    status: "done",
+  });
   assert.equal(completedWork.status, "queued");
   await waitForPendingCount(page, 1);
   await openFirstNeedsRow(page);
+  await captureWorkReport(page, "report-pending");
   await acceptSelectedNeedsItem(page);
 
   await waitForWorkProposalDecision(page);
+  await captureWorkReport(page, "report-adopted");
 
-  const duplicateCompletedWork = await callMcp("tasken.report_task_done", completedWorkArguments);
+  const duplicateCompletedWork = await callMcp("tasken.report_work", {
+    ...completedWorkArguments,
+    status: "done",
+  });
   assert.equal(duplicateCompletedWork.status, "duplicate");
   assert.equal(duplicateCompletedWork.proposal_id, completedWork.proposal_id);
   await waitForPendingCount(page, 0);
@@ -397,15 +431,15 @@ try {
   assert.equal(completedTaskContext.assignment.work_state, "accepted");
   assert.equal(await page.getByRole("button", { name: "Taskを完了", exact: true }).count(), 0);
   await page.keyboard.press("Escape");
-  const followUp = await callMcp(
-    "tasken.append_work_receipt",
-    workReceiptArguments({
+  const followUp = await callMcp("tasken.report_work", {
+    ...workReceiptArguments({
       taskId,
       expectedVersion: refreshedTaskVersion,
       idempotencyKey: "electron-live-task-work-follow-up",
       summary: "完了後の追加検証",
     }),
-  );
+    status: "progress",
+  });
   assert.equal(followUp.status, "queued");
   await openProposalConfirmation(page);
   await waitForPendingCount(page, 1);

@@ -34,18 +34,18 @@ Issue #595 の成果物。`docs/agent-collaboration.md`（#594）が決めた用
 
 **すべて任意。既存データはそのまま読め、既存の書き込み経路は変更なしで動く。**
 
-| 場所                                                                                  | field                                                | 型                                      | 意味                                           |
-| ------------------------------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------- | ---------------------------------------------- |
-| `task_work` Proposal（`start` / `append_receipt` / `report_done` / `report_blocked`） | `work_attempt_id`                                    | UUID?                                   | この報告が属する作業単位                       |
-| 同上                                                                                  | `report_sequence`                                    | 0〜100000?                              | 作業単位内の順番                               |
-| `report_blocked`                                                                      | `request_id`                                         | UUID?                                   | 人間が回答すべき一回の質問のID。再送で変えない |
-| `work_receipt`                                                                        | `work_attempt_id` / `report_sequence` / `request_id` | 同上                                    | 採用時にProposalから引き継ぐ                   |
-| `work_receipt`（人の返答）                                                            | `receipt_kind` / `reply_choice_id` / `reply_note`    | `"ai_report"` / `"human_reply"`（#597） | 省略時は従来のAI報告として読む                 |
-| `Task`                                                                                | `work_attempt_id`                                    | UUID?                                   | 現在参照している作業単位                       |
-| `StartTaskWork`（application command）                                                | `workAttemptId`                                      | UUID?                                   | 指定すると新しい作業単位を開始する             |
-| MCP `tasken.start_task_work`                                                          | `work_attempt_id`                                    | UUID?                                   | 同上                                           |
-| MCP `tasken.append_work_receipt` / `report_task_done` / `report_task_blocked`         | `work_attempt_id` / `report_sequence`                | 同上                                    | 報告の帰属と順番                               |
-| MCP `tasken.report_task_blocked`                                                      | `request_id`                                         | UUID?                                   | 質問のID                                       |
+| 場所                                                                                                   | field                                                | 型                                      | 意味                                           |
+| ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- | --------------------------------------- | ---------------------------------------------- |
+| `task_work` Proposal（`start` / `append_receipt` / `report_done` / `report_blocked`）                  | `work_attempt_id`                                    | UUID?                                   | この報告が属する作業単位                       |
+| 同上                                                                                                   | `report_sequence`                                    | 0〜100000?                              | 作業単位内の順番                               |
+| `report_blocked`                                                                                       | `request_id`                                         | UUID?                                   | 人間が回答すべき一回の質問のID。再送で変えない |
+| `work_receipt`                                                                                         | `work_attempt_id` / `report_sequence` / `request_id` | 同上                                    | 採用時にProposalから引き継ぐ                   |
+| `work_receipt`（人の返答）                                                                             | `receipt_kind` / `reply_choice_id` / `reply_note`    | `"ai_report"` / `"human_reply"`（#597） | 省略時は従来のAI報告として読む                 |
+| `Task`                                                                                                 | `work_attempt_id`                                    | UUID?                                   | 現在参照している作業単位                       |
+| `StartTaskWork`（application command）                                                                 | `workAttemptId`                                      | UUID?                                   | 指定すると新しい作業単位を開始する             |
+| MCP `tasken.start_task_work`                                                                           | `work_attempt_id`                                    | UUID?                                   | 同上                                           |
+| MCP `tasken.report_work(status=progress)` / `report_work(status=done)` / `report_work(status=blocked)` | `work_attempt_id` / `report_sequence`                | 同上                                    | 報告の帰属と順番                               |
+| MCP `tasken.report_work(status=blocked)`                                                               | `request_id`                                         | UUID?                                   | 質問のID                                       |
 
 ### 生成と更新の責務
 
@@ -99,8 +99,8 @@ Issue #595 の成果物。`docs/agent-collaboration.md`（#594）が決めた用
 
 ```text
 StartTaskWork(workAttemptId=A)          → Task.work_attempt_id=A, work_state=in_progress
-append_work_receipt(A, seq=1)           → 採用: receipt.work_attempt_id=A。表示は working
-report_task_done(A, seq=2)              → pending。表示は review_waiting、要対応1件
+report_work(A, status=progress, seq=1)  → 採用: receipt.work_attempt_id=A。表示は working
+report_work(A, status=done, seq=2)      → pending。表示は review_waiting、要対応1件
 利用者が採用（Taskは継続）               → work_state=accepted。表示は accepted_continuing
 利用者が完了を明示                       → state=done, work_state=accepted。accepted_completed
 ```
@@ -108,7 +108,7 @@ report_task_done(A, seq=2)              → pending。表示は review_waiting�
 ### 4.2 質問と回答
 
 ```text
-report_task_blocked(A, request_id=Q)    → work_state=blocked。表示は answer_waiting、要対応1件
+report_work(A, status=blocked, request_id=Q) → work_state=blocked。表示は answer_waiting、要対応1件
 利用者が報告を採用                       → Receiptに request_id=Q が入る。**質問はまだ未解決**
 （同じ質問を再送）                       → 同じ request_id なので要対応は1件のまま
 人が回答を保存（#597）                   → 表示は answered_resume_waiting、要対応から外れる
@@ -120,7 +120,7 @@ report_task_blocked(A, request_id=Q)    → work_state=blocked。表示は answe
 StartTaskWork(workAttemptId=A, Codex)   → Task.work_attempt_id=A
 （Aの進捗を採用）                        → receipt.work_attempt_id=A
 StartTaskWork(workAttemptId=B, Claude)  → Task.work_attempt_id=B
-report_task_done(A) が遅れて到着         → past_attempt_report。要対応は0件のまま
+report_work(A, status=done) が遅れて到着 → past_attempt_report。要対応は0件のまま
 ```
 
 **Taskは一つ。** Aの報告も同じTask IDの履歴として残り、Bの current 状態を巻き戻さない。
@@ -128,8 +128,8 @@ report_task_done(A) が遅れて到着         → past_attempt_report。要対�
 ### 4.4 順不同と再送
 
 ```text
-append_work_receipt(A, seq=2) が先に到着 → 受信時刻では後だが seq=2
-append_work_receipt(A, seq=1) が後で到着 → seq で並べるので current は seq=2 のまま
+report_work(A, status=progress, seq=2) が先に到着 → 受信時刻では後だが seq=2
+report_work(A, status=progress, seq=1) が後で到着 → seq で並べるので current は seq=2 のまま
 同じ idempotency_key の再送             → 保存済みReceiptを返し、Entityを増やさない
 ```
 
@@ -464,7 +464,7 @@ Task作成 → Handoff → MCP開始 → 質問 → Android回答 → MCP再取�
 
 | 未確認                  | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 回答のUI                | FeedとAndroidのAI面から回答できる。Task詳細の課題会話からも質問へ返答できる（[課題のやり取り](task-board-conversation.md)）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 回答のUI                | FeedとAndroidのAI面から回答できる。Task詳細の課題会話からも質問へ返答できる（[課題のやり取り](task-board-conversation.md)）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | 回答のMCP越しの受け渡し | 実stdio MCP → Desktop Core → Android回答 → MCP再取得までを通した（`tests/agent-roundtrip-acceptance.test.mjs`）。**2026-09-26に実クライアント（Codex CLI）でも実測**した（blocked報告→実機Androidの回答→`get_task_context`の`human_reply`取得。`provenance.reported_via = "mobile"`）。残るのは他プロバイダ・他クライアントでの確認                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | 再割当のUI操作          | 委任の解除と「新しい作業単位で任せ直す」はTask詳細から行える（`ReassignTaskWork`。#602。`npm run audit:handoff` で実画面、`tests/agent-work-attempt.test.mjs` で境界）。**実行中に解除した相手のagent側の扱いは未検証**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | 表示                    | Agent DeskはTask詳細と同じ詳細コンポーネントをまだ共有していない（#600で統合する）。対応待ちの一覧＋詳細はFeed内で完結する（`docs/feed-surface.md` §6.6）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |

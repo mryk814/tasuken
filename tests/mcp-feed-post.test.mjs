@@ -244,16 +244,16 @@ test("投稿は「採用が必要なProposal」と混同させず、再送の防
   await withWorkspace(async ({ client }) => {
     // 接続時の説明が、Feedの読み物と採用待ちProposalを分けている。
     const instructions = String(client.getInstructions() || "");
-    assert.match(instructions, /propose_feed_post/u);
-    assert.match(instructions, /NOT pending decisions/u);
-    assert.match(instructions, /accepting them is not required/u);
-    assert.match(instructions, /queues a Proposal/u);
-    assert.match(instructions, /proactively/u);
-    assert.match(instructions, /verified.*reusable technical findings/u);
-    assert.match(instructions, /no posting quota/u);
-    assert.match(instructions, /observations from hypotheses/u);
-    assert.match(instructions, /Do not expose secrets or expand the task/u);
-    assert.match(instructions, /do not replace Task work reports/u);
+    assert.match(instructions, /Feed posts\/replies appear immediately/u);
+    assert.match(instructions, /Proposals stay unofficial until human adoption/u);
+    const guide = (await client.readResource({ uri: "tasken://guide/feed_post" })).contents[0].text;
+    assert.match(guide, /NOT a pending decision/u);
+    assert.match(guide, /does not need to accept it/u);
+    assert.match(guide, /Proactively.*verified.*reusable technical finding/u);
+    assert.match(guide, /do not invent findings, set posting quotas, or post every turn/u);
+    assert.match(guide, /observations from hypotheses/u);
+    assert.match(guide, /Do not expose secrets or investigate outside the task/u);
+    assert.match(guide, /Do not restate or replace a Task work report/u);
     // AIに見える画面名は現行の表示名へ揃える（旧称を使わない）。
     assert.doesNotMatch(instructions, /AI Inbox/u);
 
@@ -268,16 +268,16 @@ test("投稿は「採用が必要なProposal」と混同させず、再送の防
     );
     const feedTool = tools.tools.find((tool) => tool.name === "tasken.propose_feed_post");
     assert.ok(feedTool, "tasken.propose_feed_post が公開されている");
-    assert.match(feedTool.description, /appears in Feed as soon as this call succeeds/u);
-    assert.match(feedTool.description, /does not need to accept it/u);
+    assert.match(feedTool.description, /immediately in Feed without adoption/u);
     assert.match(feedTool.description, /Proactively/u);
-    assert.match(feedTool.description, /trade-offs/u);
+    assert.match(guide, /trade-offs/u);
     assert.doesNotMatch(feedTool.description, /recent post ids in/u);
 
     const properties = feedTool.inputSchema.properties;
     // recent_post_ids へ自動の重複排除を約束させない。
-    assert.match(String(properties.recent_post_ids.description), /does not compare them/u);
-    assert.match(String(properties.recent_post_ids.description), /does not prevent a duplicate/u);
+    assert.match(String(properties.recent_post_ids.description), /Ignored legacy field/u);
+    assert.match(guide, /does not compare them/u);
+    assert.match(guide, /does not prevent a duplicate/u);
     // 再送はkeyの再利用で防ぐと説明する。
     assert.match(String(properties.idempotency_key.description), /Reuse the same value/u);
     assert.match(String(properties.idempotency_key.description), /generates a new key/u);

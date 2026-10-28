@@ -81,10 +81,10 @@ Windowsのカンバンではカードの「AIに渡す」からClaude Code／Cod
 1. Taskenで完了条件と関連Themeを整え、TaskをAI Readyにします。依頼文を手渡しする経路では、デスクトップの保存成功後に依頼文を自動コピーします。ボードの「AIに渡す」はCLIへ直接渡すため、クリップボードを変更しません。
 2. 普段使うAIに依頼文を貼り付けます。Taskドロワーの「依頼文をコピー」から取り直せます。解除時や既存AI Readyの編集時はクリップボードを変えません。コピー失敗時もAI Readyは保存され、再コピーの案内を表示します。
 3. AIは`get_task_context`で対象と作業先を確認し、実際に着手するときだけ`start_task_work`を呼びます。
-4. AIは通常、完了時に最新versionで`report_task_done`を一度だけ送ります。完了直前に同じ結果を`append_work_receipt`で送る必要はありません。途中報告は長期作業で必要なとき、中断報告は人の対応が必要なときに使います。`reported_at`にはAIが作業を終えた時刻を指定します。完了報告の後で追報告が必要になったら、新しい`idempotency_key`で送ると同じTaskに積まれ、Agent Deskでまとめて確認できます。同じ`idempotency_key`で内容を変えると競合になるため、再送時は日時・内容も維持します。
+4. AIは通常、完了時に最新versionで`report_work(status=done)`を一度だけ送ります。完了直前に同じ結果を`report_work(status=progress)`で送る必要はありません。途中報告は長期作業で必要なとき、中断報告は人の対応が必要なときに使います。`reported_at`にはAIが作業を終えた時刻を指定します。完了報告の後で追報告が必要になったら、新しい`idempotency_key`で送ると同じTaskに積まれ、Agent Deskでまとめて確認できます。同じ`idempotency_key`で内容を変えると競合になるため、再送時は日時・内容も維持します。
 5. 人がAgent DeskでTaskごとの時系列を確認し、「採用」を押します。検証済みのチェック項目IDを`completed_checklist_item_ids`に添えた報告は、プレビューで項目名を確認してから反映します。報告の採用ではTaskを完了せず、人がTaskドロワーの「承認して完了」などで別途判断します。ActivityとDebriefのAI作業期間は、採用日時ではなく開始・報告時刻で表示します。
 
-採用後やTask完了後も`append_work_receipt`で追加報告できます。報告の採用でTask本文・既存の完了状態は変わりません。チェックを反映する場合は最新のTask versionが必要です。チェック項目やversionが変わった場合は`get_task_context`で再確認して報告を作り直します。
+採用後やTask完了後も`report_work(status=progress)`で追加報告できます。報告の採用でTask本文・既存の完了状態は変わりません。チェックを反映する場合は最新のTask versionが必要です。チェック項目やversionが変わった場合は`get_task_context`で再確認して報告を作り直します。
 
 追加報告は採用しても`work_state`を進めないため、Agent Deskの「採用」では作業中のままです。同じ画面の「完了」を人が選んだときだけ、追加報告の採用とTaskの完了を同時に行います。
 
@@ -99,7 +99,7 @@ AI ReadyにしただけではAIを起動せず、定期実行も開始しませ�
 
 1. `get_task_context`へTask IDと現在のworkspace情報を渡す。対象、完了条件、Repositoryの一致を確認し、曖昧なら着手前に確認する。
 2. AI Readyを確認して`start_task_work`を送る。`expected_version`、`caller`、`idempotency_key`、ISO日時の`started_at`を指定する。成功したら最新のTask/versionを読み直す。
-3. 作業と検証を行い、結果に応じて`report_task_done`または`report_task_blocked`を送る。必要な途中報告は`append_work_receipt`を使う。
+3. 作業と検証を行い、結果に応じて`report_work(status=done)`または`report_work(status=blocked)`を送る。必要な途中報告は`report_work(status=progress)`を使う。
 4. `queued`は人の採用待ち。Proposal ID、実施した検証、残作業を伝えて依頼を閉じる。AI自身は採用しない。
 
 通信結果が不明な同じ要求を再送するときはkey・日時・内容を維持します。
@@ -113,9 +113,9 @@ version競合はTaskを読み直して内容を再判断します。新しい要
 付けると、再委任後に届いた前の作業の報告が「過去の作業報告」として扱われ、いまの状態を巻き戻しません。
 
 1. `start_task_work` に `work_attempt_id` を付けて委任を始める。やり直すときだけ新しいUUIDにする。
-2. 同じ委任の `append_work_receipt` / `report_task_done` / `report_task_blocked` には同じ `work_attempt_id` を付ける。
+2. 同じ委任の `report_work(status=progress)` / `report_work(status=done)` / `report_work(status=blocked)` には同じ `work_attempt_id` を付ける。
 3. 同じ作業単位の中で順番が問題になる場合は `report_sequence`（0以上の整数）を付ける。付けると、到着順や発信時刻ではなくこの順番で並びます。
-4. 人に判断を求める `report_task_blocked` には `request_id`（UUID）を付ける。同じ質問を送り直すときは同じIDを使い、別の質問には新しいIDを使う。
+4. 人に判断を求める `report_work(status=blocked)` には `request_id`（UUID）を付ける。同じ質問を送り直すときは同じIDを使い、別の質問には新しいIDを使う。
 
 省略した場合はこれまでと同じ動作です（Taskに作業単位IDが付いていない間は、すべての報告がいまの作業として扱われます）。
 詳細は [agent-work-contract.md](./agent-work-contract.md)。

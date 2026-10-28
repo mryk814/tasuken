@@ -28,6 +28,7 @@ const readTools = [
   "tasken.get_capabilities",
 ];
 const proposalTools = [
+  "tasken.report_work",
   "tasken.append_work_receipt",
   "tasken.report_task_done",
   "tasken.report_task_blocked",
@@ -63,7 +64,7 @@ function toolBlock(value, toolName) {
  */
 function registeredSplit() {
   const serverSource = source("src/main/mcp/server.mjs");
-  const boundary = serverSource.indexOf("if (readOnly) return server;");
+  const boundary = serverSource.indexOf("if (readOnly) return filterAvailableTools();");
   assert.notEqual(boundary, -1, "read-only boundary");
   const registrations = [...serverSource.matchAll(/server\.registerTool\(\s*"([^"]+)"/g)].map(
     (match) => ({ name: match[1], offset: match.index }),

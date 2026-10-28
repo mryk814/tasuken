@@ -87,7 +87,7 @@ test("任意項目が空なら依頼文へ空の見出しを残さない", () =>
   assert.equal(text.includes("参照版"), false);
   // 既存の手順は変わらない。
   assert.ok(text.includes("tasken.start_task_work"));
-  assert.ok(text.includes("tasken.report_task_done"));
+  assert.ok(text.includes("tasken.report_work（status=done）"));
 });
 
 test("任せる相手は既知の値だけを受け付ける", () => {

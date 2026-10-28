@@ -582,11 +582,7 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
   try {
     await client.connect(transport);
     const names = new Set((await client.listTools()).tools.map((tool) => tool.name));
-    for (const name of [
-      "tasken.append_work_receipt",
-      "tasken.report_task_done",
-      "tasken.report_task_blocked",
-    ]) {
+    for (const name of ["tasken.report_work"]) {
       assert.equal(names.has(name), true);
     }
     // このCoreはtask.commandを公開しないため、直接開始は一覧に出さず理由を報告する。
@@ -605,8 +601,9 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
     );
     assert.equal(capabilities.structuredContent.writes.task_work_report, true);
     const result = await client.callTool({
-      name: "tasken.report_task_blocked",
+      name: "tasken.report_work",
       arguments: {
+        status: "blocked",
         task_id: "task-1",
         expected_version: 4,
         idempotency_key: "session-1-blocked-1",
@@ -652,8 +649,9 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
     assert.equal(JSON.parse(persistedRow.data_json).status, "pending");
 
     const duplicate = await client.callTool({
-      name: "tasken.report_task_blocked",
+      name: "tasken.report_work",
       arguments: {
+        status: "blocked",
         task_id: "task-1",
         expected_version: 4,
         idempotency_key: "session-1-blocked-1",
@@ -677,8 +675,9 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
     assert.equal(database.list("ai_proposal").length, 1);
 
     const conflict = await client.callTool({
-      name: "tasken.report_task_blocked",
+      name: "tasken.report_work",
       arguments: {
+        status: "blocked",
         task_id: "task-1",
         expected_version: 4,
         idempotency_key: "session-1-blocked-1",
@@ -691,8 +690,9 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
     assert.equal(conflict.structuredContent.error.code, "IDEMPOTENCY_CONFLICT");
     assert.equal(database.list("ai_proposal").length, 1);
     const rejected = await client.callTool({
-      name: "tasken.report_task_blocked",
+      name: "tasken.report_work",
       arguments: {
+        status: "blocked",
         task_id: "task-1",
         expected_version: 4,
         idempotency_key: "session-1-blocked-private-path",
