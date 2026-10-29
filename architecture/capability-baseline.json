@@ -18,7 +18,8 @@
         "platform",
         "previewDue",
         "resize",
-        "save"
+        "save",
+        "startFocus"
       ]
     },
     {

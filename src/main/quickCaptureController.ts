@@ -22,6 +22,7 @@ import {
 } from "../shared/doneTaskAttachments";
 import type { CommandEnvelope, CommandReceipt } from "../shared/applicationCommand";
 import { IPC } from "../shared/ipc/contracts";
+import { findActiveFocusSession, focusSessionTaskId } from "../shared/focusSession.mjs";
 import {
   mobileCaptureOrganizationRequestSchema,
   mobileCaptureOrganizationTimedBatchSchema,
@@ -49,6 +50,7 @@ interface QuickCaptureControllerOptions {
   executeCommands: (envelopes: CommandEnvelope[]) => CommandReceipt[];
   organizeCapture?: (input: CaptureOrganizerInput) => Promise<CaptureOrganizerBatch>;
   isMainSender?: (senderId: number) => boolean;
+  showMainWindow?: () => BrowserWindow;
 }
 
 const organizedSubmissionSchema = mobileCaptureOrganizationTimedBatchSchema.extend({
@@ -94,6 +96,8 @@ export function createQuickCaptureController(
     executeCommands: options.executeCommands,
   });
   let visibleMode: QuickCaptureMode = "feed";
+  const capturedTaskIds = new Set<string>();
+  const focusRequests = new Map<string, { senderId: number; finish: (ok: boolean) => void }>();
 
   function createWindow(): BrowserWindow {
     const win = new BrowserWindow({
@@ -280,6 +284,53 @@ export function createQuickCaptureController(
   }
 
   function registerIpc(): void {
+    ipcMain.handle(IPC.capturedTaskFocusResult, (event, requestId: string, ok: boolean) => {
+      const pending = focusRequests.get(requestId);
+      if (pending?.senderId === event.sender.id && options.isMainSender?.(event.sender.id))
+        pending.finish(ok === true);
+    });
+    ipcMain.handle(IPC.quickCaptureFocus, async (event, taskId: unknown) => {
+      if (
+        event.sender !== captureWindow?.webContents ||
+        typeof taskId !== "string" ||
+        !capturedTaskIds.has(taskId)
+      )
+        throw new Error("この入力画面で保存したTaskを選んでください。");
+      const task = options.repository.get("task", taskId);
+      if (!task || task.state === "done" || task.state === "cancelled")
+        throw new Error("保存したTaskを開始できません。メイン画面で状態を確認してください。");
+      const active = findActiveFocusSession(options.repository.list("note") as Entity[]);
+      if (active && focusSessionTaskId(active) !== taskId)
+        throw new Error(
+          "別のFocus Sessionが進行中です。終了してから「Focus開始を再試行」を押してください。",
+        );
+      const mainWindow = options.showMainWindow?.();
+      if (!mainWindow) throw new Error("メイン画面を開けませんでした。再試行してください。");
+      const requestId = randomUUID();
+      const ok = await new Promise<boolean>((resolve) => {
+        const finish = (result: boolean) => {
+          clearInterval(interval);
+          clearTimeout(timeout);
+          focusRequests.delete(requestId);
+          resolve(result);
+        };
+        // Rendererの初回読み込み中でも、購読が始まってから同じ要求を受け取れる。
+        const send = () => {
+          if (!mainWindow.isDestroyed())
+            mainWindow.webContents.send(IPC.capturedTaskFocusOpen, { requestId, taskId });
+        };
+        const interval = setInterval(send, 500);
+        const timeout = setTimeout(() => finish(false), 15000);
+        focusRequests.set(requestId, { senderId: mainWindow.webContents.id, finish });
+        send();
+      });
+      if (!ok) {
+        captureWindow?.focus();
+        throw new Error("Focusを開始できませんでした。保存済みTaskで再試行できます。");
+      }
+      captureWindow?.hide();
+      if (!mainWindow.isDestroyed()) mainWindow.focus();
+    });
     ipcMain.handle(IPC.captureOrganizerOpenSaved, (event, captureId: string, version: number) => {
       if (!options.isMainSender?.(event.sender.id))
         throw new Error("メイン画面からCaptureを開いてください。");
@@ -385,6 +436,7 @@ export function createQuickCaptureController(
         selectedRangeSemantics?: "once_within_window" | "ongoing",
         organization?: unknown,
         attachmentsValue?: unknown,
+        taskSubmissionValue?: unknown,
       ) => {
         if (event.sender === savedCaptureWindow?.webContents) {
           if (mode !== "saved-capture" || organization === undefined)
@@ -399,156 +451,192 @@ export function createQuickCaptureController(
             throw new Error("整理案はTask入力から追加してください。");
           return saveOrganized(text, organization, event.sender.id);
         }
-        const trimmed = (text || "").trim();
-        if (!trimmed) throw new Error("入力が空です。");
-        if (mode === "feed") {
-          // Quick CaptureからFeedへ直接投稿する。Captureの整理を
-          // 経由せず、Feed専用の正本だけを作る。Notes・capture_entryは増やさない。
-          if (event.sender !== captureWindow?.webContents)
-            throw new Error("この画面からは投稿できません。");
-          const title = quickCaptureTitle(trimmed);
-          if (!title) throw new Error("投稿する本文を入力してください。");
-          const now = new Date().toISOString();
+        try {
+          const trimmed = (text || "").trim();
+          if (!trimmed) throw new Error("入力が空です。");
+          if (mode === "feed") {
+            // Quick CaptureからFeedへ直接投稿する。Captureの整理を
+            // 経由せず、Feed専用の正本だけを作る。Notes・capture_entryは増やさない。
+            if (event.sender !== captureWindow?.webContents)
+              throw new Error("この画面からは投稿できません。");
+            const title = quickCaptureTitle(trimmed);
+            if (!title) throw new Error("投稿する本文を入力してください。");
+            const now = new Date().toISOString();
+            const saved = options.repository.save(
+              "feed_post",
+              {
+                id: randomUUID(),
+                title,
+                body_markdown: trimmed,
+                project_id: canonicalThemeId(themeId, { defaultPersonal: true }),
+                source_record_id: null,
+                published_at: now,
+                origin_note_id: null,
+              },
+              { source: "quick-capture" },
+            );
+            options.notifyWorkspaceChanged({
+              entities: [{ type: "feed_post", entity: saved as Entity }],
+            });
+            return saved;
+          }
+          if (mode === "today-task" || mode === "done-task") {
+            const taskSubmission =
+              mode === "today-task" && taskSubmissionValue !== undefined
+                ? z
+                    .object({ id: z.uuid(), issuedAt: isoTimestampSchema })
+                    .parse(taskSubmissionValue)
+                : null;
+            if (taskSubmission && event.sender !== captureWindow?.webContents)
+              throw new Error("この画面からはTaskを追加できません。");
+            const taskId = taskSubmission?.id || randomUUID();
+            const today = localDateString(
+              taskSubmission ? new Date(taskSubmission.issuedAt) : new Date(),
+            );
+            const now = taskSubmission?.issuedAt || new Date().toISOString();
+            const isDoneTask = mode === "done-task";
+            // 「本体｜補足」の補足はmodeごとに意味が違う（#308）。
+            const { main, extra } = splitQuickCaptureInput(trimmed);
+            if (!main) throw new Error("タスク名を入力してください。");
+            const attachments = isDoneTask ? normalizeDoneTaskAttachments(attachmentsValue) : [];
+            if (!isDoneTask && attachmentsValue !== undefined && attachmentsValue !== null)
+              throw new Error("成果物は完了Taskの記録でだけ添えられます。");
+            const taskThemeId = canonicalThemeId(themeId, { defaultPersonal: true });
+            // 成果物のファイルはQuick Captureと同じく元の場所を参照し、勝手にコピーしない。
+            // 見つからないファイルはTaskを作る前に止め、入力を残して直せるようにする。
+            const attachedFiles = attachments.flatMap((item) =>
+              item.kind === "file" ? [{ path: item.path, name: item.name }] : [],
+            );
+            for (const file of attachedFiles) {
+              if (!fs.existsSync(file.path) || !fs.statSync(file.path).isFile())
+                throw new Error(`成果物のファイルが見つかりません（${file.name}）。`);
+            }
+            const due = mode === "today-task" && extra ? parseSchedule(extra, today) : null;
+            if (due && !due.ok) throw new Error(due.message);
+            const parsedDue = due?.ok ? due : null;
+            const isRange = parsedDue?.kind === "range";
+            const scheduledDate = parsedDue
+              ? parsedDue.kind === "range"
+                ? parsedDue.startDate
+                : parsedDue.date
+              : today;
+            const scheduledEndDate =
+              parsedDue?.kind === "range" ? parsedDue.endDate : scheduledDate;
+            const rangeSemantics =
+              parsedDue?.kind === "range"
+                ? selectedRangeSemantics === "ongoing"
+                  ? "ongoing"
+                  : selectedRangeSemantics === "once_within_window"
+                    ? "once_within_window"
+                    : parsedDue.rangeSemantics
+                : null;
+            const receipt = options.executeCommand({
+              commandId: taskSubmission ? `${taskSubmission.id}-command` : randomUUID(),
+              name: "CreateTask",
+              payload: {
+                task: {
+                  id: taskId,
+                  title: main,
+                  // Task追加の補足は期限として消費するので本文へは残さない。
+                  description: null,
+                  // やったことのひとことは本文と混ぜず、完了の記録として分けて保存する。
+                  completion_note: isDoneTask && extra ? extra : null,
+                  project_id: taskThemeId,
+                  state: isDoneTask ? "done" : "todo",
+                  priority: "normal",
+                  today_date: mode === "today-task" && !parsedDue ? today : null,
+                  completed_at: isDoneTask ? now : null,
+                  reminder_at:
+                    parsedDue?.kind === "single" && parsedDue.time
+                      ? `${parsedDue.date}T${parsedDue.time}`
+                      : null,
+                  created_at: now,
+                },
+                schedule: {
+                  id: taskSubmission ? `${taskSubmission.id}-schedule` : randomUUID(),
+                  owner_type: "task",
+                  owner_id: taskId,
+                  start_date: scheduledDate,
+                  end_date: scheduledEndDate,
+                  date_kind: isRange ? "range" : parsedDue ? "deadline" : "point",
+                  range_semantics: rangeSemantics,
+                  confidence: "fixed",
+                  granularity: "day",
+                },
+              },
+              actor: { kind: "user" },
+              source: "quick_capture",
+              issuedAt: now,
+            });
+            if (mode === "today-task") capturedTaskIds.add(taskId);
+            options.notifyCommandApplied(receipt, event.sender.id);
+            const task = receipt.changes.find((change) => change.type === "task")?.entity;
+            if (attachments.length) {
+              const artifacts = buildDoneTaskArtifacts({
+                taskId,
+                themeId: taskThemeId,
+                files: attachedFiles,
+                urls: attachments.flatMap((item) => (item.kind === "url" ? [item.url] : [])),
+                newId: randomUUID,
+              });
+              const saved = options.repository.saveMany(
+                artifacts.map((entity) => ({
+                  action: "save" as const,
+                  type: "artifact",
+                  entity,
+                  options: { source: "quick-capture" },
+                })),
+              ) as Entity[];
+              options.notifyWorkspaceChanged({
+                entities: saved.map((entity) => ({ type: "artifact" as EntityType, entity })),
+              });
+            }
+            return task;
+          }
+          if (mode !== "micro-memo") throw new Error("この入力モードでは保存できません。");
+          const contentType = quickCaptureContentType(trimmed);
           const saved = options.repository.save(
-            "feed_post",
+            "capture_entry",
             {
-              id: randomUUID(),
-              title,
-              body_markdown: trimmed,
+              text: trimmed,
+              title: null,
+              kind: "micro_memo",
+              content_type: contentType,
+              url: contentType === "url" ? firstCaptureUrl(trimmed) : null,
               project_id: canonicalThemeId(themeId, { defaultPersonal: true }),
-              source_record_id: null,
-              published_at: now,
-              origin_note_id: null,
+              captured_at: localDateTimeString(),
+              properties_json: {
+                capture_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              },
+              state: "untriaged",
             },
             { source: "quick-capture" },
           );
           options.notifyWorkspaceChanged({
-            entities: [{ type: "feed_post", entity: saved as Entity }],
+            entities: [{ type: "capture_entry", entity: saved as Entity }],
           });
           return saved;
-        }
-        if (mode === "today-task" || mode === "done-task") {
-          const taskId = randomUUID();
-          const today = localDateString();
-          const now = new Date().toISOString();
-          const isDoneTask = mode === "done-task";
-          // 「本体｜補足」の補足はmodeごとに意味が違う（#308）。
-          const { main, extra } = splitQuickCaptureInput(trimmed);
-          if (!main) throw new Error("タスク名を入力してください。");
-          const attachments = isDoneTask ? normalizeDoneTaskAttachments(attachmentsValue) : [];
-          if (!isDoneTask && attachmentsValue !== undefined && attachmentsValue !== null)
-            throw new Error("成果物は完了Taskの記録でだけ添えられます。");
-          const taskThemeId = canonicalThemeId(themeId, { defaultPersonal: true });
-          // 成果物のファイルはQuick Captureと同じく元の場所を参照し、勝手にコピーしない。
-          // 見つからないファイルはTaskを作る前に止め、入力を残して直せるようにする。
-          const attachedFiles = attachments.flatMap((item) =>
-            item.kind === "file" ? [{ path: item.path, name: item.name }] : [],
-          );
-          for (const file of attachedFiles) {
-            if (!fs.existsSync(file.path) || !fs.statSync(file.path).isFile())
-              throw new Error(`成果物のファイルが見つかりません（${file.name}）。`);
+        } catch (error) {
+          const submission = z
+            .object({ id: z.uuid(), issuedAt: isoTimestampSchema })
+            .safeParse(taskSubmissionValue);
+          if (
+            mode !== "today-task" ||
+            !submission.success ||
+            event.sender !== captureWindow?.webContents
+          )
+            throw error;
+          const saved = options.repository.get("task", submission.data.id);
+          if (saved) {
+            capturedTaskIds.add(saved.id);
+            return saved;
           }
-          const due = mode === "today-task" && extra ? parseSchedule(extra, today) : null;
-          if (due && !due.ok) throw new Error(due.message);
-          const parsedDue = due?.ok ? due : null;
-          const isRange = parsedDue?.kind === "range";
-          const scheduledDate = parsedDue
-            ? parsedDue.kind === "range"
-              ? parsedDue.startDate
-              : parsedDue.date
-            : today;
-          const scheduledEndDate = parsedDue?.kind === "range" ? parsedDue.endDate : scheduledDate;
-          const rangeSemantics =
-            parsedDue?.kind === "range"
-              ? selectedRangeSemantics === "ongoing"
-                ? "ongoing"
-                : selectedRangeSemantics === "once_within_window"
-                  ? "once_within_window"
-                  : parsedDue.rangeSemantics
-              : null;
-          const receipt = options.executeCommand({
-            commandId: randomUUID(),
-            name: "CreateTask",
-            payload: {
-              task: {
-                id: taskId,
-                title: main,
-                // Task追加の補足は期限として消費するので本文へは残さない。
-                description: null,
-                // やったことのひとことは本文と混ぜず、完了の記録として分けて保存する。
-                completion_note: isDoneTask && extra ? extra : null,
-                project_id: taskThemeId,
-                state: isDoneTask ? "done" : "todo",
-                priority: "normal",
-                today_date: mode === "today-task" && !parsedDue ? today : null,
-                completed_at: isDoneTask ? now : null,
-                reminder_at:
-                  parsedDue?.kind === "single" && parsedDue.time
-                    ? `${parsedDue.date}T${parsedDue.time}`
-                    : null,
-                created_at: now,
-              },
-              schedule: {
-                id: randomUUID(),
-                owner_type: "task",
-                owner_id: taskId,
-                start_date: scheduledDate,
-                end_date: scheduledEndDate,
-                date_kind: isRange ? "range" : parsedDue ? "deadline" : "point",
-                range_semantics: rangeSemantics,
-                confidence: "fixed",
-                granularity: "day",
-              },
-            },
-            actor: { kind: "user" },
-            source: "quick_capture",
-            issuedAt: new Date().toISOString(),
-          });
-          options.notifyCommandApplied(receipt, event.sender.id);
-          const task = receipt.changes.find((change) => change.type === "task")?.entity;
-          if (attachments.length) {
-            const artifacts = buildDoneTaskArtifacts({
-              taskId,
-              themeId: taskThemeId,
-              files: attachedFiles,
-              urls: attachments.flatMap((item) => (item.kind === "url" ? [item.url] : [])),
-              newId: randomUUID,
-            });
-            const saved = options.repository.saveMany(
-              artifacts.map((entity) => ({
-                action: "save" as const,
-                type: "artifact",
-                entity,
-                options: { source: "quick-capture" },
-              })),
-            ) as Entity[];
-            options.notifyWorkspaceChanged({
-              entities: saved.map((entity) => ({ type: "artifact" as EntityType, entity })),
-            });
-          }
-          return task;
+          return {
+            status: "not_saved" as const,
+            message:
+              error instanceof Error ? error.message : "保存できませんでした。再試行してください。",
+          };
         }
-        if (mode !== "micro-memo") throw new Error("この入力モードでは保存できません。");
-        const contentType = quickCaptureContentType(trimmed);
-        const saved = options.repository.save(
-          "capture_entry",
-          {
-            text: trimmed,
-            title: null,
-            kind: "micro_memo",
-            content_type: contentType,
-            url: contentType === "url" ? firstCaptureUrl(trimmed) : null,
-            project_id: canonicalThemeId(themeId, { defaultPersonal: true }),
-            captured_at: localDateTimeString(),
-            properties_json: { capture_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-            state: "untriaged",
-          },
-          { source: "quick-capture" },
-        );
-        options.notifyWorkspaceChanged({
-          entities: [{ type: "capture_entry", entity: saved as Entity }],
-        });
-        return saved;
       },
     );
 

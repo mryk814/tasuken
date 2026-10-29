@@ -18,6 +18,7 @@ import {
   focusSessionDraftKey,
   focusSessionElapsedMs,
   focusSessionProperties,
+  focusSessionTaskId,
   isFocusSession,
   pauseFocusSessionProperties,
   resumeFocusSessionProperties,
@@ -123,6 +124,8 @@ export function FocusSessionDialog({
   openContentViewer,
   setToast,
   close,
+  onStarted,
+  onStartFailed,
 }: {
   task: Task;
   session: BaseRecord | null;
@@ -135,6 +138,8 @@ export function FocusSessionDialog({
   openContentViewer: OpenContentViewer;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
   close: () => void;
+  onStarted?: () => void;
+  onStartFailed?: () => void;
 }) {
   const [target, setTarget] = useState<FocusTarget>({ type: "scratchpad" });
   const [scratchpad, setScratchpad] = useState("");
@@ -191,6 +196,10 @@ export function FocusSessionDialog({
   }, [endOpen]);
 
   useEffect(() => {
+    if (session && focusSessionTaskId(session) === task.id) onStarted?.();
+  }, [session, task.id, onStarted]);
+
+  useEffect(() => {
     if (session || creating.current) return;
     creating.current = true;
     const startedAt = new Date().toISOString();
@@ -235,8 +244,9 @@ export function FocusSessionDialog({
     ).catch(() => {
       creating.current = false;
       setSaveState("error");
+      onStartFailed?.();
     });
-  }, [saveEntities, session, task]);
+  }, [saveEntities, session, task, onStartFailed]);
 
   useEffect(() => {
     const draft =

@@ -311,6 +311,16 @@ const api: ResearchDeskApi = {
         ipcRenderer.removeListener(IPC.workspaceOpenRootTarget, handler);
       };
     },
+    onCapturedTaskFocus: (callback): Unsubscribe => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        request: Parameters<typeof callback>[0],
+      ): void => callback(request);
+      ipcRenderer.on(IPC.capturedTaskFocusOpen, handler);
+      return () => ipcRenderer.removeListener(IPC.capturedTaskFocusOpen, handler);
+    },
+    ackCapturedTaskFocus: (requestId, ok) =>
+      ipcRenderer.invoke(IPC.capturedTaskFocusResult, requestId, ok),
   },
   entities: {
     markAiItemSeen: (type, id) => ipcRenderer.invoke(IPC.aiItemSeen, type, id),

@@ -2868,6 +2868,7 @@ async function startDesktopApp(): Promise<void> {
   });
   taskenRootController.registerIpc();
   quickCaptureController = createQuickCaptureController({
+    showMainWindow,
     isMainSender: (senderId) => findMainWindow()?.webContents.id === senderId,
     organizeCapture: (input) => captureOrganizerSettings.organize(input),
     repository: workspaceRepository,

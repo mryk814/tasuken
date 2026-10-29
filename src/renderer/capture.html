@@ -13,6 +13,8 @@
       :root[data-theme="dark"] { color-scheme: dark; }
       html, body { height: 100%; overflow: hidden; }
       body {
+        display: flex;
+        flex-direction: column;
         font-family: var(--font-base);
         font-size: var(--text-base);
         color: var(--color-text);
@@ -21,6 +23,8 @@
         border-radius: var(--radius-md);
       }
       .capture-form {
+        flex: 1;
+        min-height: 0;
         display: flex;
         flex-direction: column;
         gap: 8px;
@@ -240,10 +244,15 @@
         pointer-events: none;
       }
       .feedback.error {
-        padding: 12px;
-        background: var(--color-danger);
-        text-align: center;
+        position: static;
+        padding: var(--space-2);
+        margin: 0 var(--space-3) var(--space-2);
+        background: var(--color-danger-bg);
+        color: var(--color-danger-strong);
+        font-weight: 400;
+        text-align: left;
         animation: none;
+        flex-shrink: 0;
       }
       @keyframes fade-out {
         to { opacity: 0; }
@@ -312,6 +321,7 @@
       <div class="capture-actions">
         <button id="saved-source-return" class="secondary" type="button" hidden>元Captureへ戻る</button>
         <button id="organize" class="secondary" type="button" hidden>AIで整理</button>
+        <button id="submit-focus" class="secondary" type="button" hidden>保存してFocus開始</button>
         <button id="submit" type="button">記録する</button>
       </div>
     </div>
@@ -319,6 +329,7 @@
     <script>
       const input = document.getElementById("input");
       const submitButton = document.getElementById("submit");
+      const focusButton = document.getElementById("submit-focus");
       const feedback = document.getElementById("feedback");
       const title = document.getElementById("title");
       const modePill = document.getElementById("mode-pill");
@@ -352,6 +363,8 @@
       let activeCandidate = 0;
       let submission = null;
       let saving = false;
+      let taskSubmission = null;
+      let savedFocusTaskId = null;
       let resumeFocus = null;
       let themesInitialized = false;
       let savedSource = null;
@@ -364,7 +377,7 @@
 
       function updateOrganizationControls() {
         const count = organization?.tasks.length ?? 0;
-        const locked = saving || submission !== null;
+        const locked = saving || submission !== null || taskSubmission !== null || savedFocusTaskId !== null;
         candidateRow.hidden = !organization || count === 0;
         candidateSelect.hidden = count < 2;
         candidateRemove.disabled = locked;
@@ -393,6 +406,15 @@
         voiceHelp.hidden = mode !== "today-task" || Boolean(organization) || window.captureApi.platform !== "win32";
         externalCopy.disabled = locked || organizing;
         externalPreview.disabled = locked || organizing;
+        focusButton.hidden = mode !== "today-task" || Boolean(organization);
+        focusButton.disabled = saving || organizing;
+        focusButton.textContent = saving ? (savedFocusTaskId ? "Focus開始中…" : "保存中…") : savedFocusTaskId ? "Focus開始を再試行" : "保存してFocus開始";
+        focusButton.setAttribute("aria-busy", String(saving));
+        focusButton.title = "Ctrl+Alt+Enter";
+        focusButton.setAttribute("aria-keyshortcuts", "Control+Alt+Enter Meta+Alt+Enter");
+        if (mode === "today-task" && !organization) submitButton.textContent = savedFocusTaskId ? "保存済み・閉じる" : taskSubmission && !saving ? "保存を再確認" : "追加";
+        organizeButton.disabled ||= locked;
+        for (const button of rangeChoice.querySelectorAll("button")) button.disabled = locked;
       }
 
       function retainCandidate() {
@@ -566,6 +588,7 @@
         hint.textContent = isDoneTask || isTodayTask
           ? "｜ の後ろが" + (isTodayTask ? "期限" : "ひとこと") + " / Ctrl+Enter で記録 / Escで閉じる"
           : "Ctrl+Enter で記録 / Shift追加で続ける / Escで閉じる";
+        if (isTodayTask) hint.textContent = "Ctrl+Enter で保存 / Ctrl+Alt+Enter で保存してFocus / Shift追加で続ける / Escで閉じる";
         submitButton.textContent = isTodayTask ? "追加" : isDoneTask ? "完了で記録" : isMicroMemo ? "記録する" : "Feedへ投稿";
         feedback.textContent = isDoneTask ? "やったことを記録しました" : isTodayTask ? "タスクを追加しました" : isMicroMemo ? "付箋メモに記録しました" : "Feedへ投稿しました";
         themeRow.classList.toggle("is-visible", usesTheme);
@@ -711,10 +734,10 @@
 
       // 期限は解釈結果を保存前に見せる。読めない表現のまま黙って保存させない（#308）。
       async function refreshDuePreview() {
-        if (mode !== "today-task" || organization) return;
+        if (mode !== "today-task" || organization || taskSubmission || savedFocusTaskId) return;
         const request = ++previewRequest;
         const result = await window.captureApi.previewDue(input.value);
-        if (mode !== "today-task" || organization || request !== previewRequest) return;
+        if (mode !== "today-task" || organization || taskSubmission || savedFocusTaskId || request !== previewRequest) return;
         if (result.state === "empty") {
           duePreview.className = "due-preview is-visible";
           duePreview.textContent = "期限指定なし · 今日";
@@ -732,8 +755,15 @@
         }
       }
 
-      async function submit(continueCapturing = false) {
-        if (organizing || submitButton.disabled) return;
+      async function submit(continueCapturing = false, startFocus = false) {
+        if (organizing || saving || submitButton.disabled) return;
+        if (startFocus && (mode !== "today-task" || organization)) return;
+        clearTimeout(feedbackTimeout);
+        if (savedFocusTaskId && !startFocus) {
+          resetSavedTask();
+          window.captureApi.hide();
+          return;
+        }
         const text = input.value.trim();
         if (!organization && !text) return;
         if (organization) {
@@ -752,22 +782,35 @@
           }
         }
         saving = true;
+        if (mode === "today-task" && !organization && !savedFocusTaskId)
+          taskSubmission ??= { id: crypto.randomUUID(), issuedAt: new Date().toISOString() };
         updateOrganizationControls();
         try {
           const usesTheme = mode !== "micro-memo";
           const themeId = usesTheme ? themeSelect.value : "";
           const attached = mode === "done-task" && attachments.length ? attachments : undefined;
-          const result = await window.captureApi.save(originalInput?.text ?? text, mode, themeId, selectedRangeSemantics || undefined, submission ?? undefined, attached);
-          if (organization && result?.status === "not_saved") {
+          const result = savedFocusTaskId ? { id: savedFocusTaskId } : await window.captureApi.save(originalInput?.text ?? text, mode, themeId, selectedRangeSemantics || undefined, submission ?? undefined, attached, taskSubmission ?? undefined);
+          if (result?.status === "not_saved") {
             submission = null;
-            organizationStatus.textContent = result.message || "内容を確認して再試行してください。入力は残っています。";
+            taskSubmission = null;
+            if (organization) organizationStatus.textContent = result.message;
+            else { feedback.textContent = result.message + " 入力は残っています。"; feedback.classList.add("error"); feedback.style.display = ""; }
             return;
           }
-          const savedCount = organization?.tasks.length;
           if (usesTheme) {
             lastThemeId = themeId;
             localStorage.setItem("tasken:quick-capture:last-theme-id", themeId);
           }
+          if (startFocus) {
+            if (!result?.id) throw new Error("保存結果を確認できませんでした。同じ内容で再試行してください。");
+            savedFocusTaskId = result.id;
+            updateOrganizationControls();
+            await window.captureApi.startFocus(savedFocusTaskId);
+            resetSavedTask();
+            return;
+          }
+          taskSubmission = null;
+          const savedCount = organization?.tasks.length;
           input.value = mode === "saved-capture" ? savedSource.text : "";
           captureAnchor = null;
           clearOrganization();
@@ -799,17 +842,31 @@
             return;
           }
           feedback.textContent = reason
-            ? `${reason} 入力は残っています。`
+            ? `${savedFocusTaskId ? "Taskは保存済みです。" : ""}${reason}${savedFocusTaskId ? "" : " 入力は残っています。"}`
             : "保存できませんでした。入力は残っています。メイン画面を開いて状態を確認してください。";
           feedback.classList.add("error");
           feedback.style.display = "";
         } finally {
           saving = false;
           updateOrganizationControls();
+          if (savedFocusTaskId) focusButton.focus({ preventScroll: true });
+          else if (taskSubmission) submitButton.focus({ preventScroll: true });
         }
       }
 
+      function resetSavedTask() {
+        taskSubmission = null;
+        savedFocusTaskId = null;
+        input.value = "";
+        captureAnchor = null;
+        externalResult.value = "";
+        externalInput.open = false;
+        applyMode(mode);
+        void refreshDuePreview();
+      }
+
       submitButton.addEventListener("click", (event) => submit(event.shiftKey));
+      focusButton.addEventListener("click", () => submit(false, true));
       document.getElementById("close").addEventListener("click", () => { stopOrganizing(); window.captureApi.hide(); });
       input.addEventListener("input", () => {
         if (!organization) {
@@ -841,6 +898,7 @@
       document.getElementById("organization-restore").addEventListener("click", () => { if (!submission && !saving) { clearOrganization(true); input.focus(); } });
 
       document.addEventListener("keydown", (event) => {
+        if (event.isComposing || event.repeat) return;
         if (event.key === "Escape") {
           stopOrganizing();
           window.captureApi.hide();
@@ -848,14 +906,15 @@
         }
         if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
           event.preventDefault();
-          submit(event.shiftKey);
+          if (event.altKey) { if (!event.shiftKey) submit(false, true); }
+          else submit(event.shiftKey);
         }
       });
 
       window.captureApi.onShow((nextMode, source) => {
         clearTimeout(feedbackTimeout);
         stopOrganizing();
-        if (submission || saving) nextMode = mode;
+        if (submission || taskSubmission || savedFocusTaskId || saving) nextMode = mode;
         if (source && !submission && !saving && (!savedSource || source.id !== savedSource.id || source.version !== savedSource.version)) {
           clearOrganization();
           savedSource = source;
@@ -865,14 +924,16 @@
         }
         if (source && savedSource?.id === source.id && !submission && !saving) savedSource.canOrganize = source.canOrganize;
         if (nextMode !== mode) { clearOrganization(true); }
-        applyMode(nextMode);
+        if (!taskSubmission && !savedFocusTaskId) applyMode(nextMode);
         updateOrganizationControls();
         resizeForInput();
         if (organization) { duePreview.className = "due-preview"; rangeChoice.hidden = true; }
-        if (organization && resumeFocus && !resumeFocus.disabled && !resumeFocus.hidden) resumeFocus.focus({ preventScroll: true });
+        if (savedFocusTaskId) focusButton.focus({ preventScroll: true });
+        else if (taskSubmission) submitButton.focus({ preventScroll: true });
+        else if (organization && resumeFocus && !resumeFocus.disabled && !resumeFocus.hidden) resumeFocus.focus({ preventScroll: true });
         else input.focus({ preventScroll: true });
-        feedback.style.display = "none";
-        feedback.classList.remove("error");
+        if (!savedFocusTaskId && !taskSubmission) { feedback.style.display = "none"; feedback.classList.remove("error"); }
+        else { feedback.textContent = savedFocusTaskId ? "Taskは保存済みです。Focus開始を再試行できます。" : "保存結果を再確認してください。同じ内容で再試行できます。"; feedback.classList.add("error"); feedback.style.display = ""; }
         const theme = document.documentElement.dataset.theme;
         if (!theme) document.documentElement.dataset.theme = "light";
       });

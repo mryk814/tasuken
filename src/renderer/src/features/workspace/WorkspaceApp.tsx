@@ -87,6 +87,7 @@ import {
   type CommandPaletteExecutionContext,
 } from "./components/CommandPalette";
 import { findActiveFocusSession, focusSessionTaskId } from "../../../../shared/focusSession.mjs";
+import type { CapturedTaskFocusRequest } from "../../../../shared/ipc/contracts";
 import { canonicalThemeId } from "../../../../shared/themeRef.mjs";
 import type {
   ApplicationCommandSource,
@@ -220,6 +221,8 @@ export function WorkspaceApp() {
   const [contextPackThemeId, setContextPackThemeId] = useState<string | null>(null);
   const [scratchpadDate, setScratchpadDate] = useState<string | null>(null);
   const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
+  const [capturedTaskFocus, setCapturedTaskFocus] = useState<CapturedTaskFocusRequest | null>(null);
+  const captureFocusRequestRef = useRef("");
   const closeContextPack = useCallback(() => setContextPackThemeId(null), []);
   const [sidebarCollapsed, setSidebarCollapsed] = usePreference("shell.sidebarCollapsed");
   const [sidebarWidth, setSidebarWidth] = usePreference("shell.sidebarWidth");
@@ -667,6 +670,44 @@ export function WorkspaceApp() {
     }
     setFocusTaskId(taskId);
   }
+
+  const finishCapturedTaskFocus = useCallback((ok: boolean) => {
+    const requestId = captureFocusRequestRef.current;
+    if (!requestId) return;
+    captureFocusRequestRef.current = "";
+    setCapturedTaskFocus(null);
+    if (!ok) setFocusTaskId(null);
+    void window.api.app.ackCapturedTaskFocus(requestId, ok);
+  }, []);
+
+  useEffect(() => {
+    if (detachedNoteId) return;
+    return window.api.app.onCapturedTaskFocus((request) => {
+      if (captureFocusRequestRef.current === request.requestId) return;
+      captureFocusRequestRef.current = request.requestId;
+      void refreshWorkspace()
+        .then(() => {
+          if (captureFocusRequestRef.current === request.requestId) setCapturedTaskFocus(request);
+        })
+        .catch(() => finishCapturedTaskFocus(false));
+    });
+  }, [detachedNoteId, refreshWorkspace, finishCapturedTaskFocus]);
+
+  useEffect(() => {
+    if (!capturedTaskFocus || loadState !== "success") return;
+    const task = fullDomain.tasks.find((entry) => entry.id === capturedTaskFocus.taskId);
+    const activeTaskId = focusSessionTaskId(activeFocusSession);
+    if (
+      !task ||
+      task.state === "done" ||
+      task.state === "cancelled" ||
+      (activeTaskId && activeTaskId !== task.id)
+    ) {
+      finishCapturedTaskFocus(false);
+      return;
+    }
+    setFocusTaskId(task.id);
+  }, [capturedTaskFocus, fullDomain.tasks, activeFocusSession, loadState, finishCapturedTaskFocus]);
 
   useEffect(() => {
     if (loadState !== "success") return undefined;
@@ -2645,6 +2686,9 @@ export function WorkspaceApp() {
           {focusTaskId && fullDomain.tasks.find((task) => task.id === focusTaskId) && (
             <Suspense fallback={<LazyOverlayFallback />}>
               <FocusSessionDialog
+                key={focusTaskId}
+                onStarted={capturedTaskFocus ? () => finishCapturedTaskFocus(true) : undefined}
+                onStartFailed={capturedTaskFocus ? () => finishCapturedTaskFocus(false) : undefined}
                 task={
                   fullDomain.tasks.find(
                     (task) => task.id === focusTaskId,
@@ -2659,7 +2703,10 @@ export function WorkspaceApp() {
                 openDrawer={openDrawer}
                 openContentViewer={openContentViewer}
                 setToast={setToast}
-                close={() => setFocusTaskId(null)}
+                close={() => {
+                  finishCapturedTaskFocus(false);
+                  setFocusTaskId(null);
+                }}
               />
             </Suspense>
           )}

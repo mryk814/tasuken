@@ -93,6 +93,7 @@ export function createQuickCaptureOrganizationFixture(
     },
     organizeCapture,
     isMainSender: overrides.isMainSender,
+    showMainWindow: overrides.showMainWindow,
   });
   controller.registerIpc();
   controller.show("today-task");

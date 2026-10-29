@@ -25,6 +25,13 @@ Quick Captureは分類を要求しない独立ウィンドウである。`Ctrl+S
 未整理CaptureやNoteを作らないため、投稿後に「整理する」操作を要求しない。失敗時は入力を残す。
 上のCapture整理フローは既存Captureやファイル・画像・手書きの受取履歴に適用し、通常のメモショートカットには適用しない。
 
+タスク追加（`Ctrl+Shift+M`）では「保存してFocus開始」または`Ctrl+Alt+Enter`で、
+保存したTaskのFocus Sessionをメイン画面に開ける。`Ctrl+Enter`の通常保存と
+`Ctrl+Shift+Enter`の連続追加は従来通り。AI整理で候補をまとめて追加する画面には適用しない。
+Focus開始に失敗した場合や別のFocusが進行中・一時停止中の場合も、Taskは保存済みとして保持する。
+「Focus開始を再試行」は同じTaskを使い、「保存済み・閉じる」で保存だけを終えられる。
+別のFocusは自動で終了・置換しない。保存結果が不明な場合は編集を止め、同じCommand IDで再確認する。
+
 ## 正本と境界
 
 - 受取履歴の正本は `CaptureEntry`。
