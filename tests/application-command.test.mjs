@@ -2372,6 +2372,51 @@ test("Desktop batch rolls back the first candidate when second persistence fails
   }
 });
 
+test("Desktop通常追加は保存後の再送・SQLite再起動でもTaskとScheduleを重複させない", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "tasken-capture-focus-replay-"));
+  let database;
+  try {
+    database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
+    database.save("theme", { id: "theme-personal-default", name: "個人業務" });
+    const identity = { id: randomUUID(), issuedAt: "2026-10-29T03:00:00.000Z" };
+    const fixture = () => {
+      const service = new ApplicationCommandService(database);
+      return createQuickCaptureOrganizationFixture(
+        undefined,
+        (command) => service.execute(command),
+        { repository: database },
+      );
+    };
+    const save = (f) =>
+      f.call(
+        "save",
+        "比較条件を確認｜明日まで",
+        "today-task",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        identity,
+      );
+    const f = fixture();
+    assert.equal(save(f).id, identity.id);
+    save(f);
+    const before = Object.fromEntries(
+      ["task", "schedule", "change_event"].map((type) => [type, database.list(type)]),
+    );
+    assert.equal(before.task.length, 1);
+    assert.equal(before.schedule.length, 1);
+    database.db.close();
+    database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
+    assert.equal(save(fixture()).id, identity.id);
+    for (const type of ["task", "schedule", "change_event"])
+      assert.deepEqual(database.list(type), before[type]);
+  } finally {
+    database?.db.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("Desktop organized execution time and original text survive canonical CreateTask and SQLite reopen", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "tasken-capture-planned-time-"));
   let database;

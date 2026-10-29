@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld("captureApi", {
     rangeSemantics?: "once_within_window" | "ongoing",
     organization?: unknown,
     attachments?: unknown,
+    taskSubmission?: import("../shared/ipc/contracts").CapturedTaskSubmission,
   ) =>
     ipcRenderer.invoke(
       IPC.quickCaptureSave,
@@ -19,7 +20,9 @@ contextBridge.exposeInMainWorld("captureApi", {
       rangeSemantics,
       organization,
       attachments,
+      taskSubmission,
     ),
+  startFocus: (taskId: string) => ipcRenderer.invoke(IPC.quickCaptureFocus, taskId),
   pathForFile: (file: File) => webUtils.getPathForFile(file),
   organize: (input: unknown) => ipcRenderer.invoke(IPC.quickCaptureOrganize, input),
   copyExternalPrompt: (input: unknown) => ipcRenderer.invoke(IPC.quickCaptureExternalPrompt, input),

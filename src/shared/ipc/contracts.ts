@@ -11,6 +11,14 @@ export interface DailyContextPublishRequest {
   expectedContentHash: string;
   allowPartial: boolean;
 }
+export interface CapturedTaskFocusRequest {
+  requestId: string;
+  taskId: string;
+}
+export interface CapturedTaskSubmission {
+  id: string;
+  issuedAt: string;
+}
 import type {
   Entity,
   EntityType,
@@ -294,6 +302,9 @@ export const IPC = {
   conversationContextRemove: "conversation-context:remove",
   workspaceChanged: "workspace:changed",
   quickCaptureSave: "quick-capture:save",
+  quickCaptureFocus: "quick-capture:focus",
+  capturedTaskFocusOpen: "workspace:captured-task-focus-open",
+  capturedTaskFocusResult: "workspace:captured-task-focus-result",
   quickCapturePreviewDue: "quick-capture:preview-due",
   quickCaptureOrganize: "quick-capture:organize",
   quickCaptureOpenTask: "quick-capture:open-task",
@@ -979,6 +990,8 @@ export interface ResearchDeskApi {
     onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
     onOpenTaskDetail(callback: (taskId: string) => void): () => void;
     onOpenTaskenRootTarget(callback: (request: RootOpenRequest) => void): () => void;
+    onCapturedTaskFocus(callback: (request: CapturedTaskFocusRequest) => void): () => void;
+    ackCapturedTaskFocus(requestId: string, ok: boolean): Promise<void>;
   };
   entities: {
     markAiItemSeen(type: "task" | "note", id: string): Promise<Entity>;
