@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { buildAttentionQueue, countAttention } from "../../../../../shared/contracts/task/public";
 import {
   IconArrowLeft,
@@ -26,7 +26,7 @@ import {
   todayHubTabs,
   toolNavigation,
 } from "../../../pages/routes";
-import { todayIso } from "../../../utils/dataFormat.js";
+import { useCurrentLocalDate } from "../lib/currentLocalDate";
 import type { OpenDrawer, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 import { todayTaskProgress } from "../domain-model/selectors";
@@ -421,34 +421,43 @@ export function Sidebar({
   activeFocus,
   openActiveFocus,
 }: SidebarProps) {
-  const today = todayIso();
-  const schedulesByOwner = new Map(
-    domain.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]),
-  );
-  // Today画面の「今日やること」の見出し（あとN件）と同じ数え方にする。
-  const todayProgress = todayTaskProgress(domain, today);
-  const todayCount = todayProgress.total - todayProgress.done;
-  const overdueTasks = domain.tasks.filter((t) => {
-    if (t.state === "done" || t.state === "cancelled") return false;
-    const s = schedulesByOwner.get(`task:${t.id}`);
-    const due = String(s?.end_date || "");
-    return Boolean(due && due < today);
-  }).length;
+  const today = useCurrentLocalDate();
+  // Sidebarはリマインダー時計やWorkspace全体の再描画でも描き直されるため、件数は入力が変わったときだけ数える（#684）。
+  const { todayCount, overdueTasks, debriefCount } = useMemo(() => {
+    const schedulesByOwner = new Map(
+      domain.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]),
+    );
+    // Today画面の「今日やること」の見出し（あとN件）と同じ数え方にする。
+    const todayProgress = todayTaskProgress(domain, today);
+    return {
+      todayCount: todayProgress.total - todayProgress.done,
+      overdueTasks: domain.tasks.filter((t) => {
+        if (t.state === "done" || t.state === "cancelled") return false;
+        const s = schedulesByOwner.get(`task:${t.id}`);
+        const due = String(s?.end_date || "");
+        return Boolean(due && due < today);
+      }).length,
+      debriefCount:
+        buildDailyDebriefEvidence(domain, today).length > 0 &&
+        !findDailyDebriefNote(domain.notes, today)
+          ? 1
+          : 0,
+    };
+  }, [domain, today]);
   // Feedのbadgeは、AIが答えを待っている質問・判断の数だけ（2026-10-06に対応待ちタブを廃止）。
   // 成果の確認や変更案はホームの投稿として並び、AI印で見分ける。
-  const proposalCount = countAttention(
-    buildAttentionQueue({
-      tasks: domain.tasks,
-      proposals: domain.ai_proposals,
-      receipts: domain.work_receipts,
-      themes,
-    }).filter((item) => item.kind === "answer_request" || item.kind === "decision_request"),
+  const proposalCount = useMemo(
+    () =>
+      countAttention(
+        buildAttentionQueue({
+          tasks: domain.tasks,
+          proposals: domain.ai_proposals,
+          receipts: domain.work_receipts,
+          themes,
+        }).filter((item) => item.kind === "answer_request" || item.kind === "decision_request"),
+      ),
+    [domain.tasks, domain.ai_proposals, domain.work_receipts, themes],
   );
-  const debriefCount =
-    buildDailyDebriefEvidence(domain, today).length > 0 &&
-    !findDailyDebriefNote(domain.notes, today)
-      ? 1
-      : 0;
   const countByRoute: Record<string, number> = {
     today: todayCount,
     todo: overdueTasks,

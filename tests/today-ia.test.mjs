@@ -40,10 +40,15 @@ test("Todayの「扱う日を変更」は today_date だけを変え、締切を
   // Scheduleを動かす旧「延期」は残さない。締切の変更はTask詳細の予定編集へ分ける。
   assert.doesNotMatch(todayPageSource, /handlePostpone/);
   assert.doesNotMatch(todayPageSource, /\+1d/);
-  const start = todayPageSource.indexOf("async function handleChangeTodayDate");
+  // 保存中の二重操作を止めるラッパー（#684）の内側が実際の保存処理。
+  assert.match(
+    todayPageSource,
+    /const handleChangeTodayDate = [\s\S]*?runPending\(row\.id, \(\) => saveChangeTodayDate/,
+  );
+  const start = todayPageSource.indexOf("async function saveChangeTodayDate");
   const handler = todayPageSource.slice(
     start,
-    todayPageSource.indexOf("async function handleToggleToday"),
+    todayPageSource.indexOf("async function saveToggleToday"),
   );
   assert.match(handler, /today_date: target/);
   assert.doesNotMatch(handler, /buildSaveScheduleOperations/);
@@ -132,8 +137,9 @@ test("Todayは日付範囲の意味ごとに扱いを分ける（#309）", () =>
   // 期間内に一度やるTaskと、継続中Taskを別のセクションで見せる。
   assert.match(todayPageSource, /<h2>期間内に対応<\/h2>/);
   assert.match(todayPageSource, /<h2>継続中<\/h2>/);
-  assert.match(todayPageSource, /buildExecutionWindowTaskView/);
-  assert.match(todayPageSource, /buildOngoingPeriodTaskView/);
+  const projectionSource = readFileSync("src/renderer/src/features/workspace/lib/dailyPlanning.ts", "utf8");
+  assert.match(projectionSource, /buildExecutionWindowTaskView/);
+  assert.match(projectionSource, /buildOngoingPeriodTaskView/);
 
   // 期間内に一度やるTaskは、一回の完了でTask全体が終わるのでcheckboxを残す。
   assert.match(todayPageSource, /todo-check-circle/);

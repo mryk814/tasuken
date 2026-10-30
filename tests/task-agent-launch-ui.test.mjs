@@ -8,7 +8,11 @@ const taskFields = readFileSync(
   "utf8",
 );
 const todo = readFileSync("src/renderer/src/features/workspace/pages/TodoPage.tsx", "utf8");
-const today = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
+const today = [
+  readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8"),
+  // Today一覧の投影（#684）。今日やることから外す条件はここにある。
+  readFileSync("src/renderer/src/features/workspace/lib/dailyPlanning.ts", "utf8"),
+].join("\n");
 const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
 const workspaceApi = readFileSync("src/renderer/src/services/workspaceApi.ts", "utf8");
 
