@@ -45,8 +45,11 @@ test("daily planning candidates classify open work without completed tasks", () 
 
 test("Today page uses the Today mini window instead of the daily planning wizard", () => {
   const source = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
+  // 候補棚の投影はDomainと日付だけに依存させ、Today画面の外へ分けた（#684）。
+  const projectionSource = readFileSync("src/renderer/src/features/workspace/lib/dailyPlanning.ts", "utf8");
 
-  assert.match(source, /buildDailyPlanningCandidates/);
+  assert.match(projectionSource, /buildDailyPlanningCandidates/);
+  assert.match(source, /buildTodayPageProjection/);
   assert.match(source, /workspaceApi\.showTodayMiniWindow/);
   assert.match(source, /今日やること/);
   assert.doesNotMatch(source, /今日の計画/);

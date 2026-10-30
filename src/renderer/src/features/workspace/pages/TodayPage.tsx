@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   IconCalendar,
   IconCalendarCheck,
@@ -21,12 +21,16 @@ import type {
 import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { captureOrganizerApi } from "../../../services/captureOrganizerApi";
-import { todayIso } from "../../../utils/dataFormat.js";
 import { playCompleteSound } from "../../../utils/sounds";
 import type { BaseRecord, PageProps } from "../types";
 import { themeColor } from "../lib/domain";
 import { addDays, formatDate } from "../lib/format";
-import { buildDailyPlanningCandidates, type DailyPlanningRow } from "../lib/dailyPlanning";
+import {
+  buildTodayPageProjection,
+  type DailyPlanningRow,
+  type TodayRow,
+} from "../lib/dailyPlanning";
+import { useCurrentLocalDate } from "../lib/currentLocalDate";
 import { taskShelfStatus } from "../lib/taskShelves";
 
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
@@ -44,61 +48,14 @@ import { ToolbarMenu } from "../components/ToolbarMenu";
 import { WorkLogDialog } from "../components/WorkLogDialog";
 import { ChecklistProgressBadge, InlineTaskChecklist } from "../../task/public";
 import {
-  CAPTURE_ENTRY_STATE_LABELS,
-  PLAN_NODE_STATE_LABELS,
-  PLAN_NODE_TYPE_LABELS,
-  TASK_STATE_LABELS,
-  WAITING_STATE_LABELS,
-} from "../domain-model/labels";
-import {
-  buildExecutionWindowTaskView,
-  buildOngoingPeriodTaskView,
-  buildTodayView,
-  todayTaskProgress,
-} from "../domain-model/selectors";
-import {
   buildSaveTaskOperations,
   buildSaveWaitingOperations,
   buildSavePlanNodeOperations,
   buildSaveScheduleOperations,
 } from "../domain-model/persistence";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
-import type {
-  CaptureEntry,
-  PlanNode,
-  Schedule,
-  Task,
-  Waiting,
-  WorkspaceDomain,
-} from "../domain-model/types";
-import type {
-  ExecutionWindowTaskRow,
-  OngoingPeriodTaskRow,
-  TodayEntry,
-} from "../domain-model/viewModels";
-
-type DomainRow =
-  | { type: "task"; task: Task; schedule?: Schedule }
-  | { type: "waiting"; waiting: Waiting; schedule?: Schedule }
-  | { type: "milestone"; planNode: PlanNode; schedule?: Schedule }
-  | { type: "capture"; captureEntry: CaptureEntry };
-
-type TodayRow = {
-  id: string;
-  title: string;
-  projectId?: string | null;
-  date?: string;
-  kindLabel: string;
-  status: string;
-  statusLabel: string;
-  priority?: "normal" | "high";
-  waitingFor?: string | null;
-  v2?: DomainRow;
-};
-
-function scheduleDate(schedule?: Schedule): string {
-  return String(schedule?.end_date || schedule?.start_date || "");
-}
+import type { PlanNode, Schedule, Task, Waiting } from "../domain-model/types";
+import type { ExecutionWindowTaskRow, OngoingPeriodTaskRow } from "../domain-model/viewModels";
 
 /** 今日期限 / 期限切れ。完了系には付けない。 */
 /** 続けること・手入れは個人業務として、個人業務Themeと同じ帯の色にする。 */
@@ -123,96 +80,12 @@ function dateUrgency(
   return null;
 }
 
-function scheduleTouchesRange(schedule: Schedule | undefined, start: string, end: string): boolean {
-  const date = scheduleDate(schedule);
-  return Boolean(date && date >= start && date <= end);
-}
-
 function scheduleRangeLabel(schedule: Schedule): string {
   return `${formatDate(schedule.start_date)}-${formatDate(schedule.end_date)}`;
 }
 
 function isActiveTask(task: Task): boolean {
   return task.state !== "done" && task.state !== "cancelled";
-}
-
-function isActivePlanNode(planNode: PlanNode): boolean {
-  return planNode.state !== "done" && planNode.state !== "cancelled";
-}
-
-function schedulesByOwner(domain: WorkspaceDomain): Map<string, Schedule> {
-  return new Map(
-    domain.schedules.map((schedule) => [`${schedule.owner_type}:${schedule.owner_id}`, schedule]),
-  );
-}
-
-function rowDate(row: TodayRow): string {
-  return String(row.date || "9999-12-31");
-}
-
-function compareRows(a: TodayRow, b: TodayRow): number {
-  return rowDate(a).localeCompare(rowDate(b)) || a.title.localeCompare(b.title, "ja");
-}
-
-function taskToRow(task: Task, schedule: Schedule | undefined): TodayRow {
-  return {
-    id: task.id,
-    title: task.title,
-    projectId: task.project_id,
-    date: scheduleDate(schedule),
-    kindLabel: "タスク",
-    status: task.state,
-    statusLabel: TASK_STATE_LABELS[task.state],
-    priority: task.priority,
-    v2: { type: "task", task, schedule },
-  };
-}
-
-function waitingToRow(waiting: Waiting, schedule: Schedule | undefined): TodayRow {
-  return {
-    id: waiting.id,
-    title: waiting.title,
-    projectId: waiting.project_id,
-    date: scheduleDate(schedule),
-    kindLabel: "待ち",
-    status: waiting.state,
-    statusLabel: WAITING_STATE_LABELS[waiting.state],
-    waitingFor: waiting.waiting_for,
-    v2: { type: "waiting", waiting, schedule },
-  };
-}
-
-function planNodeToRow(planNode: PlanNode, schedule: Schedule | undefined): TodayRow {
-  return {
-    id: planNode.id,
-    title: planNode.title,
-    projectId: planNode.project_id,
-    date: scheduleDate(schedule),
-    kindLabel: PLAN_NODE_TYPE_LABELS[planNode.type],
-    status: planNode.state,
-    statusLabel:
-      planNode.type === "milestone" ? "マイルストーン" : PLAN_NODE_STATE_LABELS[planNode.state],
-    v2: { type: "milestone", planNode, schedule },
-  };
-}
-
-function captureToRow(captureEntry: CaptureEntry): TodayRow {
-  return {
-    id: captureEntry.id,
-    title: captureEntry.title || captureEntry.text,
-    date: captureEntry.captured_at,
-    kindLabel: "Capture",
-    status: captureEntry.state,
-    statusLabel: CAPTURE_ENTRY_STATE_LABELS[captureEntry.state],
-    v2: { type: "capture", captureEntry },
-  };
-}
-
-function todayEntryToRow(entry: TodayEntry): TodayRow {
-  if (entry.type === "task") return taskToRow(entry.task, entry.schedule);
-  if (entry.type === "waiting") return waitingToRow(entry.waiting, entry.schedule);
-  if (entry.type === "milestone") return planNodeToRow(entry.planNode, entry.schedule);
-  return captureToRow(entry.captureEntry);
 }
 
 function canComplete(row: TodayRow): boolean {
@@ -281,6 +154,7 @@ function TodayRows({
   onAdd,
   /** 今日専用リストでは due-today を付けない（全部今日なのでうるさくなる） */
   markDueToday = true,
+  pendingIds,
 }: {
   rows: TodayRow[];
   themes: PageProps["themes"];
@@ -295,6 +169,7 @@ function TodayRows({
   onOpenChecklistEditor: (row: TodayRow) => void;
   onAdd?: () => void;
   markDueToday?: boolean;
+  pendingIds: ReadonlySet<string>;
 }) {
   const [dateMenu, setDateMenu] = useState<{
     row: TodayRow;
@@ -328,16 +203,18 @@ function TodayRows({
         const reminderDue =
           !done && row.v2?.type === "task" && isReminderDue(row.v2.task.reminder_at, reminderNow);
         const task = row.v2?.type === "task" ? row.v2.task : null;
+        const pending = pendingIds.has(row.id);
         return (
           <div
-            className={`today-task-row is-clickable-row${urgency ? ` is-${urgency}` : ""}`}
+            className={`today-task-row is-clickable-row${urgency ? ` is-${urgency}` : ""}${pending ? " is-pending" : ""}`}
             key={row.id}
             style={{ "--chip-color": chipColor } as React.CSSProperties}
             onClick={() => onOpenDetail(row)}
+            aria-busy={pending || undefined}
           >
             <span className="todo-theme-bar" />
             <button
-              className={`todo-check-circle ${done ? "is-done" : ""}`}
+              className={`todo-check-circle ${done ? "is-done" : ""}${pending ? " is-pending" : ""}`}
               aria-label={`${row.title}を完了`}
               onClick={(event) => {
                 event.stopPropagation();
@@ -549,18 +426,6 @@ function TodayDateMenu({
   );
 }
 
-function compareWaitingRows(a: TodayRow, b: TodayRow, today: string): number {
-  const aDate = a.date || "";
-  const bDate = b.date || "";
-  const aOverdue = aDate && aDate < today ? 0 : 1;
-  const bOverdue = bDate && bDate < today ? 0 : 1;
-  if (aOverdue !== bOverdue) return aOverdue - bOverdue;
-  const aHasDate = aDate ? 0 : 1;
-  const bHasDate = bDate ? 0 : 1;
-  if (aHasDate !== bHasDate) return aHasDate - bHasDate;
-  return aDate.localeCompare(bDate) || a.title.localeCompare(b.title, "ja");
-}
-
 function WaitingListRows({
   rows,
   themes,
@@ -568,6 +433,7 @@ function WaitingListRows({
   onOpenDetail,
   onToggleComplete,
   empty,
+  pendingIds,
 }: {
   rows: TodayRow[];
   themes: PageProps["themes"];
@@ -575,6 +441,7 @@ function WaitingListRows({
   onOpenDetail: (row: TodayRow) => void;
   onToggleComplete: (row: TodayRow) => void;
   empty: string;
+  pendingIds: ReadonlySet<string>;
 }) {
   if (!rows.length) return <EmptyState title={empty} />;
   return (
@@ -587,15 +454,17 @@ function WaitingListRows({
           : "var(--color-border-strong)";
         const due = row.date || "";
         const urgency = dateUrgency(due, today);
+        const pending = pendingIds.has(row.id);
         return (
           <div
             key={row.id}
-            className={`today-waiting-row${urgency ? ` is-${urgency}` : ""}`}
+            className={`today-waiting-row${urgency ? ` is-${urgency}` : ""}${pending ? " is-pending" : ""}`}
             style={{ "--chip-color": chipColor } as React.CSSProperties}
+            aria-busy={pending || undefined}
           >
             <span className="today-waiting-theme-bar" aria-hidden="true" />
             <button
-              className="todo-check-circle"
+              className={`todo-check-circle${pending ? " is-pending" : ""}`}
               aria-label={`${row.title}を受領`}
               onClick={() => onToggleComplete(row)}
             />
@@ -633,12 +502,14 @@ function ExecutionWindowTaskRows({
   onOpenDetail,
   onComplete,
   onMoveToday,
+  pendingIds,
 }: {
   rows: ExecutionWindowTaskRow[];
   themes: PageProps["themes"];
   onOpenDetail: (row: ExecutionWindowTaskRow) => void;
   onComplete: (row: ExecutionWindowTaskRow) => void;
   onMoveToday: (row: ExecutionWindowTaskRow) => void;
+  pendingIds: ReadonlySet<string>;
 }) {
   if (!rows.length) return <EmptyState title="期間内に対応するタスクはありません" />;
   return (
@@ -651,16 +522,18 @@ function ExecutionWindowTaskRows({
             : row.daysRemaining === 0
               ? "今日まで"
               : `${Math.abs(row.daysRemaining)}日超過`;
+        const pending = pendingIds.has(row.task.id);
         return (
           <div
-            className={`today-task-row execution-window-row is-clickable-row urgency-${row.urgency}`}
+            className={`today-task-row execution-window-row is-clickable-row urgency-${row.urgency}${pending ? " is-pending" : ""}`}
             key={row.task.id}
             style={style}
             onClick={() => onOpenDetail(row)}
+            aria-busy={pending || undefined}
           >
             <span className="todo-theme-bar" />
             <button
-              className="todo-check-circle"
+              className={`todo-check-circle${pending ? " is-pending" : ""}`}
               aria-label={`${row.task.title}を完了`}
               onClick={(event) => {
                 event.stopPropagation();
@@ -710,28 +583,32 @@ function OngoingPeriodTaskRows({
   onOpenDetail,
   onPlanToday,
   onFinishPeriod,
+  pendingIds,
 }: {
   rows: OngoingPeriodTaskRow[];
   themes: PageProps["themes"];
   onOpenDetail: (row: OngoingPeriodTaskRow) => void;
   onPlanToday: (row: OngoingPeriodTaskRow) => void;
   onFinishPeriod: (row: OngoingPeriodTaskRow) => void;
+  pendingIds: ReadonlySet<string>;
 }) {
   if (!rows.length) return <EmptyState title="継続中のタスクはありません" />;
   return (
     <div className="today-task-list">
       {rows.map((row) => {
         const { theme, style } = themeChipStyle(themes, row.task.project_id);
+        const pending = pendingIds.has(row.task.id);
         return (
           <div
-            className={`today-task-row period-task-row is-clickable-row ${row.pastEnd ? "is-past-end" : ""}`}
+            className={`today-task-row period-task-row is-clickable-row ${row.pastEnd ? "is-past-end" : ""}${pending ? " is-pending" : ""}`}
             key={row.task.id}
             style={style}
             onClick={() => onOpenDetail(row)}
+            aria-busy={pending || undefined}
           >
             <span className="todo-theme-bar" />
             <button
-              className="todo-check-circle"
+              className={`todo-check-circle${pending ? " is-pending" : ""}`}
               aria-label={`${row.task.title}を完了`}
               onClick={(event) => {
                 event.stopPropagation();
@@ -781,12 +658,14 @@ function CandidateTaskRows({
   onOpenDetail,
   onMoveToday,
   today,
+  pendingIds,
 }: {
   rows: DailyPlanningRow[];
   themes: PageProps["themes"];
   onOpenDetail: (row: DailyPlanningRow) => void;
   onMoveToday: (row: DailyPlanningRow) => void;
   today: string;
+  pendingIds: ReadonlySet<string>;
 }) {
   if (!rows.length) return <EmptyState title="この候補はありません" />;
   return (
@@ -798,11 +677,13 @@ function CandidateTaskRows({
           ? `var(--color-${themeColor(theme, themeIndex)})`
           : "var(--color-border-strong)";
         const status = taskShelfStatus(row, today);
+        const pending = pendingIds.has(row.task.id);
         return (
           <div
             key={row.task.id}
-            className={`shelf-task-row ${status ? `is-${status}` : ""}`}
+            className={`shelf-task-row ${status ? `is-${status}` : ""}${pending ? " is-pending" : ""}`}
             style={{ "--chip-color": chipColor } as React.CSSProperties}
+            aria-busy={pending || undefined}
           >
             <span className="shelf-theme-bar" />
             <button className="shelf-task-title" onClick={() => onOpenDetail(row)}>
@@ -886,7 +767,7 @@ function TodayCalendarSection({ onReconnect }: { onReconnect: () => void }) {
   const [calendarStatus, setCalendarStatus] = useState<CalendarConnectionStatus | null>(null);
   const [calendarResult, setCalendarResult] = useState<CalendarEventsResult | null>(null);
   const [calendarLoading, setCalendarLoading] = useState(false);
-  const today = todayIso();
+  const today = useCurrentLocalDate();
 
   const fetchEvents = useCallback(async () => {
     setCalendarLoading(true);
@@ -1035,59 +916,47 @@ export function TodayPage({
   useEffect(() => {
     saveEntitiesRef.current = saveEntities;
   }, [saveEntities]);
-  const today = todayIso();
-  const soon = addDays(today, 14);
-  const schedules = schedulesByOwner(v2);
-  const allTodayRows = buildTodayView(v2, today).map((entry) => todayEntryToRow(entry));
-  // 今日やることは人が手を動かす面。AI作業中のTaskはFeed側で追う。
-  // 予定終了が当日のTaskはここに残す（#454の「期限の確認」撤去後、受け皿はここだけ）。
-  // 過去日の締切はbuildTodayViewの対象外で、候補棚「期限切れ」に集約する。
-  const todayRows = allTodayRows.filter((row) => {
-    if (row.v2?.type !== "task") return true;
-    const task = row.v2.task;
-    return !(task.intended_executor === "ai_agent" && task.work_state === "in_progress");
-  });
-  const periodRows = buildOngoingPeriodTaskView(v2, today);
-  const executionWindowRows = buildExecutionWindowTaskView(v2, today);
-  const dailyTaskRows: DailyPlanningRow[] = v2.tasks.map((task) => ({
-    task,
-    schedule: schedules.get(`task:${task.id}`),
-  }));
-  const dailyCandidates = buildDailyPlanningCandidates(dailyTaskRows, today);
-  const taskRows = v2.tasks.map((task) => taskToRow(task, schedules.get(`task:${task.id}`)));
+  const today = useCurrentLocalDate();
+  // Domainか日付が変わったときだけ一覧を作り直す（#684）。入力・drawer・トーストでは再計算しない。
+  const {
+    todayRows,
+    periodRows,
+    executionWindowRows,
+    dailyCandidates,
+    overdue,
+    milestones,
+    openWaitings,
+    overdueWaitingCount,
+    progress,
+  } = useMemo(() => buildTodayPageProjection(v2, today), [v2, today]);
   const shelfOverdueRows = dailyCandidates.overdue;
-  const waitingRows = v2.waitings.map((waiting) =>
-    waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`)),
+  const themeNames = useMemo(
+    () => new Map(themes.map((theme) => [theme.id, theme.name])),
+    [themes],
   );
-  const planNodeRows = v2.plan_nodes.map((planNode) =>
-    planNodeToRow(planNode, schedules.get(`plan_node:${planNode.id}`)),
-  );
-  const overdue = [
-    ...taskRows.filter(
-      (row) => row.status !== "done" && row.status !== "cancelled" && row.date && row.date < today,
-    ),
-    ...waitingRows.filter((row) => row.status === "waiting" && row.date && row.date < today),
-    ...planNodeRows.filter(
-      (row) => row.status !== "done" && row.status !== "cancelled" && row.date && row.date < today,
-    ),
-  ].sort(compareRows);
-  const milestones = v2.plan_nodes
-    .filter(
-      (planNode) =>
-        planNode.type === "milestone" &&
-        isActivePlanNode(planNode) &&
-        scheduleTouchesRange(schedules.get(`plan_node:${planNode.id}`), today, soon),
-    )
-    .map((planNode) => planNodeToRow(planNode, schedules.get(`plan_node:${planNode.id}`)))
-    .sort(compareRows);
-  const openWaitings = v2.waitings
-    .filter((waiting) => waiting.state === "waiting")
-    .map((waiting) => waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`)))
-    .sort((a, b) => compareWaitingRows(a, b, today));
 
-  const overdueWaitingCount = openWaitings.filter((row) => row.date && row.date < today).length;
+  /*
+   * 保存中の行（#684）。押した直後に処理中を示し、保存が終わるまで同じ行への操作を受け付けない。
+   * 完了表示は保存の確定後に切り替え、保存前に「完了した」とは見せない。
+   * 同じTaskへの連続操作は古い版で書いて版競合になるため、行単位でまとめて止める。
+   */
+  const pendingRef = useRef(new Set<string>());
+  const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(() => new Set());
+  async function runPending(id: string, action: () => Promise<void>) {
+    if (pendingRef.current.has(id)) return;
+    pendingRef.current.add(id);
+    setPendingIds(new Set(pendingRef.current));
+    try {
+      await action();
+    } catch {
+      // 失敗はsaveEntitiesがトーストで知らせる。表示は保存前の状態のまま残す。
+    } finally {
+      pendingRef.current.delete(id);
+      setPendingIds(new Set(pendingRef.current));
+    }
+  }
 
-  async function handleToggleComplete(row: TodayRow) {
+  async function saveToggleComplete(row: TodayRow) {
     if (row.v2?.type === "task") {
       const nextState = row.v2.task.state === "done" ? "todo" : "done";
       if (nextState === "done") playCompleteSound();
@@ -1126,7 +995,7 @@ export function TodayPage({
     }
   }
 
-  async function handleToggleChecklistItem(row: TodayRow, itemId: string) {
+  async function saveToggleChecklistItem(row: TodayRow, itemId: string) {
     if (row.v2?.type !== "task") return;
     const nextItems = (row.v2.task.checklist_items || []).map((item) =>
       item.id === itemId
@@ -1147,7 +1016,7 @@ export function TodayPage({
    * `today_date` だけを変え、Scheduleの締切と実施期間は動かさない。
    * 期限が関係する場合だけ、締切が変わっていないことを短く添える。
    */
-  async function handleChangeTodayDate(row: TodayRow, target: string | null) {
+  async function saveChangeTodayDate(row: TodayRow, target: string | null) {
     if (row.v2?.type !== "task") return;
     const task = row.v2.task;
     const previous = task.today_date ?? null;
@@ -1183,7 +1052,7 @@ export function TodayPage({
     });
   }
 
-  async function handleToggleToday(row: TodayRow) {
+  async function saveToggleToday(row: TodayRow) {
     if (row.v2 && row.v2.type !== "capture") {
       if (row.v2.type === "task") {
         const isToday = row.v2.task.today_date === today;
@@ -1226,7 +1095,7 @@ export function TodayPage({
     }
   }
 
-  async function handleCreateTodayTask(row: OngoingPeriodTaskRow) {
+  async function saveCreateTodayTask(row: OngoingPeriodTaskRow) {
     const taskId = crypto.randomUUID();
     const task: Task = {
       id: taskId,
@@ -1255,7 +1124,7 @@ export function TodayPage({
   }
 
   /** 継続そのものを終える操作。今日の実施記録とは別に扱う（#309）。 */
-  async function handleFinishOngoingPeriod(row: OngoingPeriodTaskRow) {
+  async function saveFinishOngoingPeriod(row: OngoingPeriodTaskRow) {
     if (row.task.state !== "done") playCompleteSound();
     await saveEntities(
       buildCompleteTaskOperations(row.task, row.schedule),
@@ -1264,7 +1133,7 @@ export function TodayPage({
     );
   }
 
-  async function handleCompleteExecutionWindow(row: ExecutionWindowTaskRow) {
+  async function saveCompleteExecutionWindow(row: ExecutionWindowTaskRow) {
     if (row.task.state !== "done") playCompleteSound();
     const message = row.task.repeat_rule
       ? "完了しました。次のタスクを作成しました。"
@@ -1277,7 +1146,7 @@ export function TodayPage({
   }
 
   /** 期間内に一度やるTaskを、今日やることへ明示的に持ち上げる（#309）。 */
-  async function handleMoveExecutionWindowToday(row: ExecutionWindowTaskRow) {
+  async function saveMoveExecutionWindowToday(row: ExecutionWindowTaskRow) {
     await saveEntities(
       buildSaveTaskOperations({ ...row.task, today_date: today }),
       "今日やることへ移しました。",
@@ -1378,10 +1247,27 @@ export function TodayPage({
     });
   }
 
-  async function handleMoveCandidateTaskToday(row: DailyPlanningRow) {
+  async function saveMoveCandidateTaskToday(row: DailyPlanningRow) {
     const task: Task = { ...row.task, planning_shelf: null, today_date: today };
     await saveEntities(buildSaveTaskOperations(task), "今日やることへ移しました。", "today_window");
   }
+
+  const handleToggleComplete = (row: TodayRow) => runPending(row.id, () => saveToggleComplete(row));
+  const handleToggleChecklistItem = (row: TodayRow, itemId: string) =>
+    runPending(row.id, () => saveToggleChecklistItem(row, itemId));
+  const handleChangeTodayDate = (row: TodayRow, target: string | null) =>
+    runPending(row.id, () => saveChangeTodayDate(row, target));
+  const handleToggleToday = (row: TodayRow) => runPending(row.id, () => saveToggleToday(row));
+  const handleCreateTodayTask = (row: OngoingPeriodTaskRow) =>
+    runPending(row.task.id, () => saveCreateTodayTask(row));
+  const handleFinishOngoingPeriod = (row: OngoingPeriodTaskRow) =>
+    runPending(row.task.id, () => saveFinishOngoingPeriod(row));
+  const handleCompleteExecutionWindow = (row: ExecutionWindowTaskRow) =>
+    runPending(row.task.id, () => saveCompleteExecutionWindow(row));
+  const handleMoveExecutionWindowToday = (row: ExecutionWindowTaskRow) =>
+    runPending(row.task.id, () => saveMoveExecutionWindowToday(row));
+  const handleMoveCandidateTaskToday = (row: DailyPlanningRow) =>
+    runPending(row.task.id, () => saveMoveCandidateTaskToday(row));
 
   async function addTask() {
     const title = addTitle.trim();
@@ -1416,38 +1302,40 @@ export function TodayPage({
     setAddTitle("");
   }
 
-  const todayMarkdown = [
-    "# Today",
-    "",
-    "## 今日やること",
-    ...(todayRows.length
-      ? todayRows.map(
-          (row) =>
-            `- [ ] ${row.title} (${themes.find((theme) => theme.id === row.projectId)?.name || "個人業務"})`,
-        )
-      : ["- なし"]),
-    "",
-    "## 期限切れ",
-    ...(overdue.length
-      ? overdue.map((row) => `- ${row.date || "予定なし"} ${row.title}`)
-      : ["- なし"]),
-    "",
-    "## 進行中の期間タスク",
-    ...(periodRows.length
-      ? periodRows.map(
-          (row) =>
-            `- ${scheduleRangeLabel(row.schedule)} ${row.task.title} (${row.dayIndex}/${row.totalDays}日目、終了まであと${row.daysRemaining}日)`,
-        )
-      : ["- なし"]),
-    "",
-    "## Waiting",
-    ...(openWaitings.length
-      ? openWaitings.map(
-          (row) =>
-            `- ${row.date || "予定なし"} ${row.title}${row.waitingFor ? ` / ${row.waitingFor}` : ""}`,
-        )
-      : ["- なし"]),
-  ].join("\n");
+  // コピー用の本文は押したときだけ作る（#684）。
+  const buildTodayMarkdown = () =>
+    [
+      "# Today",
+      "",
+      "## 今日やること",
+      ...(todayRows.length
+        ? todayRows.map(
+            (row) =>
+              `- [ ] ${row.title} (${(row.projectId && themeNames.get(row.projectId)) || "個人業務"})`,
+          )
+        : ["- なし"]),
+      "",
+      "## 期限切れ",
+      ...(overdue.length
+        ? overdue.map((row) => `- ${row.date || "予定なし"} ${row.title}`)
+        : ["- なし"]),
+      "",
+      "## 進行中の期間タスク",
+      ...(periodRows.length
+        ? periodRows.map(
+            (row) =>
+              `- ${scheduleRangeLabel(row.schedule)} ${row.task.title} (${row.dayIndex}/${row.totalDays}日目、終了まであと${row.daysRemaining}日)`,
+          )
+        : ["- なし"]),
+      "",
+      "## Waiting",
+      ...(openWaitings.length
+        ? openWaitings.map(
+            (row) =>
+              `- ${row.date || "予定なし"} ${row.title}${row.waitingFor ? ` / ${row.waitingFor}` : ""}`,
+          )
+        : ["- なし"]),
+    ].join("\n");
 
   const rowHandlers = {
     onToggleComplete: handleToggleComplete,
@@ -1486,7 +1374,7 @@ export function TodayPage({
               label: "Todayの内容をコピー",
               onSelect: () =>
                 void workspaceApi
-                  .copyText(todayMarkdown)
+                  .copyText(buildTodayMarkdown())
                   .then(() => setToast("Todayの内容をコピーしました。")),
             },
             {
@@ -1550,15 +1438,16 @@ export function TodayPage({
           themes={themes}
           onTitleChange={setAddTitle}
           onThemeChange={setAddTheme}
-          onSubmit={addTask}
+          onSubmit={() => runPending("today-add-task", addTask)}
           onOrganize={() => captureOrganizerApi.openTaskCapture()}
         />
       )}
 
       {focusItem && (
         <section
-          className={`today-focus-hero panel${focusItem.date && focusItem.date < today ? " is-overdue" : ""}`}
+          className={`today-focus-hero panel${focusItem.date && focusItem.date < today ? " is-overdue" : ""}${pendingIds.has(focusItem.id) ? " is-pending" : ""}`}
           onClick={() => handleOpenDetail(focusItem)}
+          aria-busy={pendingIds.has(focusItem.id) || undefined}
         >
           <div className="focus-hero-content">
             <span className="focus-hero-label">
@@ -1567,7 +1456,7 @@ export function TodayPage({
             </span>
             <strong className="focus-hero-title">{focusItem.title}</strong>
             <span className="focus-hero-meta">
-              {themes.find((t) => t.id === focusItem.projectId)?.name || "個人業務"} /{" "}
+              {(focusItem.projectId && themeNames.get(focusItem.projectId)) || "個人業務"} /{" "}
               {focusItem.kindLabel}
               {focusItem.date ? ` / ${formatDate(focusItem.date)}` : ""}
             </span>
@@ -1603,7 +1492,7 @@ export function TodayPage({
       <section className="panel today-focus-panel">
         <div className="section-heading">
           <h2>今日やること</h2>
-          <TodayProgress {...todayTaskProgress(v2, today)} />
+          <TodayProgress {...progress} />
           <button className="text-button compact" onClick={() => navigate("todo")}>
             ToDoへ
           </button>
@@ -1616,6 +1505,7 @@ export function TodayPage({
           {...rowHandlers}
           onAdd={() => setShowAdd(true)}
           markDueToday={false}
+          pendingIds={pendingIds}
         />
         {/* 続けること・手入れはTaskと同じ行で並べる（2026-10-06）。無ければ何も出さない。 */}
         <div className="today-task-list today-routine-list" style={personalChipStyle(themes)}>
@@ -1658,6 +1548,7 @@ export function TodayPage({
               today={today}
               onOpenDetail={handleOpenCandidateTask}
               onMoveToday={handleMoveCandidateTaskToday}
+              pendingIds={pendingIds}
             />
           </section>
           <section className="task-shelf-lane">
@@ -1671,6 +1562,7 @@ export function TodayPage({
               today={today}
               onOpenDetail={handleOpenCandidateTask}
               onMoveToday={handleMoveCandidateTaskToday}
+              pendingIds={pendingIds}
             />
           </section>
           <section className="task-shelf-lane">
@@ -1684,6 +1576,7 @@ export function TodayPage({
               today={today}
               onOpenDetail={handleOpenCandidateTask}
               onMoveToday={handleMoveCandidateTaskToday}
+              pendingIds={pendingIds}
             />
           </section>
         </div>
@@ -1707,6 +1600,7 @@ export function TodayPage({
             onOpenDetail={handleOpenExecutionWindowTask}
             onComplete={handleCompleteExecutionWindow}
             onMoveToday={handleMoveExecutionWindowToday}
+            pendingIds={pendingIds}
           />
         </section>
 
@@ -1723,6 +1617,7 @@ export function TodayPage({
             onOpenDetail={handleOpenPeriodTask}
             onPlanToday={handleCreateTodayTask}
             onFinishPeriod={handleFinishOngoingPeriod}
+            pendingIds={pendingIds}
           />
         </section>
       </div>
@@ -1741,6 +1636,7 @@ export function TodayPage({
             empty="近いマイルストーンはありません"
             today={today}
             {...rowHandlers}
+            pendingIds={pendingIds}
           />
         </section>
         <section className="panel today-waiting-panel">
@@ -1768,6 +1664,7 @@ export function TodayPage({
             empty="待ちはありません"
             onOpenDetail={handleOpenDetail}
             onToggleComplete={handleToggleComplete}
+            pendingIds={pendingIds}
           />
         </section>
       </div>

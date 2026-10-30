@@ -43,7 +43,11 @@ test("task shelves are wired through Today candidates and the task drawer", () =
   ].join("\n");
 
   assert.doesNotMatch(todoSource, /moveTaskToShelf/);
-  assert.match(todaySource, /buildDailyPlanningCandidates/);
+  assert.match(
+    readFileSync("src/renderer/src/features/workspace/lib/dailyPlanning.ts", "utf8"),
+    /buildDailyPlanningCandidates/,
+  );
+  assert.match(todaySource, /buildTodayPageProjection/);
   assert.match(todaySource, /handleMoveCandidateTaskToday/);
   assert.match(todaySource, /task-shelf-lane/);
   // 編集UIからは非表示だが、既存 planning_shelf は hidden で保持して保存時に消えない（#137）
