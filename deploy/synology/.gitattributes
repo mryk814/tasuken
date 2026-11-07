@@ -1,0 +1,3 @@
+# NAS の上で bash が読むもの。Windows の作業コピーでも LF のまま置く（CRLF だと NAS で止まる。
+# 2026-10-22 に backup.sh で踏んだ。DEPLOYED.md）
+*.sh text eol=lf
