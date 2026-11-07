@@ -119,7 +119,7 @@ package/buildだけではWindows packaged E2Eやactual client接続の代わり�
 
 ## Mobile境界
 
-Mobile GatewayはCoreの外向きadapterだが、local MCPのdiscovery tokenやloopback exposure policyを流用しない。device identity、scope、conflict、offline/pending、deep link、release signing、実機postureは`docs/mobile-gateway-phase4a.md`を正本とする。
+Mobile GatewayはCoreの外向きadapterだが、local MCPのdiscovery tokenやloopback exposure policyを流用しない。Gatewayのendpointと要求・応答の契約は`src/shared/contracts/mobile/protocol.mjs`を正本とし、振る舞いは`tests/mobile-gateway-phase4a.test.mjs`が固定する。
 
 ## Headless Core (#588 Phase 1)
 

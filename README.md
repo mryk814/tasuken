@@ -8,7 +8,7 @@ DesktopのQuick CaptureとAndroidの音声・テキスト入力からタイト�
 Desktopの「Settings → AI & Context → 入力のAI整理」で、既定の「ChatGPTの契約」（ChatGPT Plus / Proの利用枠。APIキー不要）に接続します。OpenAI API / Azure OpenAI / Gemini / OpenCode Zen・Goのキーを明示的に設定して使うこともでき、月間の送信上限を指定できます。接続情報とAPIキーは端末内で暗号化して保存します。実行方針は[内部AIの実行方針](docs/internal-ai-execution.md)を参照してください。
 設定方法と対応モデルの制約は[入力整理プロバイダー](docs/mobile-capture-organizer-providers.md)を参照してください。
 整理案は入力した端末で確認・修正してから追加し、元の入力もTaskの本文へ保持します。
-Desktopの既存Taskでは、編集画面の「文章から日程を変更」から一件の日程変更案を確認・採用できます。[日程変更案の契約](docs/task-schedule-proposal.md)を参照してください。
+Desktopの既存Taskでは、編集画面の「文章から日程を変更」から一件の日程変更案を確認・採用できます。AIへ送る項目の限定は`taskScheduleProposalRequestSchema`（`src/shared/taskScheduleProposal.ts`）と`tests/task-schedule-proposal.test.mjs`が固定しています。
 WindowsはToday / ToDoのタスク追加にある「音声・AI整理から追加」から進み、入力欄で `Win + H` を使えます。アプリ内AIを使わず、外部AIへの依頼文をコピーして整理結果のJSONを貼り付ける経路も同じ画面にあります。
 Androidは[PCなしのAI整理設定](docs/android-capture-requests.md)で同じサービスを選べます。端末専用キーを設定し、明示的に有効化するとAndroidから直接整理できます。
 

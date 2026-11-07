@@ -35,7 +35,7 @@ cleanup testはこのfixture固有のAndroid DBとpreferencesだけを削除す�
 emulator自体は停止しない。
 debug buildだけが127.0.0.1へのHTTPを許可し、通常版のHTTPS制約は維持する。
 
-個別機能の検証は`android-today-local-first.md`、`android-unsent-create-editing.md`、`android-task-followup-edits.md`、`mobile-long-capture.md`、`android-input-recovery.md`に記録する。
+個別機能の検証は`android-unsent-create-editing.md`、`android-task-followup-edits.md`、`mobile-long-capture.md`、`android-input-recovery.md`に記録する。
 本journeyはそれらの代替ではない。
 
 2026-09-06、Gateway fixtureの自己検証2件は成功した。
