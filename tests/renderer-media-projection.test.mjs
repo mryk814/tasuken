@@ -13,7 +13,9 @@ const result = await build({
   write: false,
   logLevel: "silent",
 });
-const projection = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+const projection = await import(
+  `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
+);
 
 const privatePath = "C:/private/tasken/voice.wav";
 const artifact = {
@@ -26,7 +28,10 @@ const artifact = {
 };
 const receipt = {
   status: "applied",
-  changes: [{ type: "capture_entry", entity: { id: "capture" } }, { type: "artifact", entity: artifact }],
+  changes: [
+    { type: "capture_entry", entity: { id: "capture" } },
+    { type: "artifact", entity: artifact },
+  ],
 };
 const event = {
   id: "event",
@@ -44,19 +49,51 @@ function assertNoPrivateMediaPath(value) {
 }
 
 test("workspace projection removes media paths nested in capture-owned receipt JSON", () => {
-  const projected = projection.projectWorkspaceForRenderer({ artifacts: [artifact], change_events: [event] });
+  const projected = projection.projectWorkspaceForRenderer({
+    artifacts: [artifact],
+    change_events: [event],
+  });
   assertNoPrivateMediaPath(projected);
   assert.equal(projected.artifacts[0].filename, "voice.wav");
-  assert.equal(JSON.parse(projected.change_events[0].receipt_json).changes[1].entity.filename, "voice.wav");
+  // receipt_jsonはMainだけが冪等性に使う。Rendererへは渡さない（IPCの量を半分にする）。
+  assert.equal("receipt_json" in projected.change_events[0], false);
+});
+
+test("Activity EventのMain専用項目はRendererへ渡さず、Rendererからの保存では既存の値を戻す", () => {
+  const stored = { ...event, command_fingerprint: '{"name":"capture.commit"}' };
+  const projected = projection.projectEntityForRenderer("change_event", stored);
+  assert.equal("receipt_json" in projected, false);
+  assert.equal("command_fingerprint" in projected, false);
+  assert.equal(stored.receipt_json, event.receipt_json);
+
+  const restored = projection.restoreMainOnlyEventFields("change_event", projected, stored);
+  assert.equal(restored.receipt_json, stored.receipt_json);
+  assert.equal(restored.command_fingerprint, stored.command_fingerprint);
+  // 新しいEvent、Event以外、Rendererが明示した値はそのまま。
+  assert.equal(projection.restoreMainOnlyEventFields("change_event", projected, null), projected);
+  assert.equal(
+    projection.restoreMainOnlyEventFields("note", { id: "n" }, stored).receipt_json,
+    undefined,
+  );
+  assert.equal(
+    projection.restoreMainOnlyEventFields(
+      "change_event",
+      { ...projected, receipt_json: "x" },
+      stored,
+    ).receipt_json,
+    "x",
+  );
 });
 
 test("entity list/get and changed broadcast projection never serialize media paths", () => {
   assertNoPrivateMediaPath(projection.projectEntityForRenderer("artifact", artifact));
   assertNoPrivateMediaPath(projection.projectEntityForRenderer("change_event", event));
-  assertNoPrivateMediaPath(projection.projectChangesForRenderer([
-    { type: "artifact", entity: artifact },
-    { type: "change_event", entity: event },
-  ]));
+  assertNoPrivateMediaPath(
+    projection.projectChangesForRenderer([
+      { type: "artifact", entity: artifact },
+      { type: "change_event", entity: event },
+    ]),
+  );
 });
 
 test("command notification sender, other window, and satellite payloads are all path-safe", () => {
@@ -75,13 +112,22 @@ test("command notification sender, other window, and satellite payloads are all 
 test("media commit can send safe Capture and Artifact changes back to the issuing Inbox", () => {
   const capture = { id: "capture", content_type: "audio", title: "voice" };
   const payloads = projection.commandNotificationPayloads(
-    [{ type: "capture_entry", entity: capture }, { type: "artifact", entity: artifact }],
+    [
+      { type: "capture_entry", entity: capture },
+      { type: "artifact", entity: artifact },
+    ],
     [{ type: "change_event", entity: event }],
     true,
   );
   assert.equal(payloads.sender.entities.length, 3);
-  assert.equal(payloads.sender.entities.some((change) => change.type === "capture_entry"), true);
-  assert.equal(payloads.sender.entities.some((change) => change.type === "artifact"), true);
+  assert.equal(
+    payloads.sender.entities.some((change) => change.type === "capture_entry"),
+    true,
+  );
+  assert.equal(
+    payloads.sender.entities.some((change) => change.type === "artifact"),
+    true,
+  );
   assertNoPrivateMediaPath(payloads.sender);
 });
 
@@ -93,19 +139,26 @@ test("single and batch command receipts retain safe deltas without media storage
   assertNoPrivateMediaPath(projected);
   assert.equal(projected.changes[0].entity.id, "capture");
   assert.equal(projected.changes[1].entity.filename, "voice.wav");
-  assert.equal(JSON.parse(projected.eventChanges[0].entity.receipt_json).changes[1].entity.filename, "voice.wav");
+  assert.equal("receipt_json" in projected.eventChanges[0].entity, false);
 });
 
 test("snapshot preview projects nested incoming/local media and apply workspace projection stays path-safe", () => {
   const preview = projection.projectSnapshotInspectForRenderer({
     status: "preview",
     changes: [
-      { type: "artifact", classification: "updated", incoming: artifact, local: { ...artifact, stored_path: "C:/private/local.wav" } },
+      {
+        type: "artifact",
+        classification: "updated",
+        incoming: artifact,
+        local: { ...artifact, stored_path: "C:/private/local.wav" },
+      },
       { type: "change_event", classification: "updated", incoming: event, local: event },
     ],
   });
   assertNoPrivateMediaPath(preview);
   assert.equal(preview.changes[0].incoming.filename, "voice.wav");
   assert.equal(preview.changes[0].local.filename, "voice.wav");
-  assertNoPrivateMediaPath(projection.projectWorkspaceForRenderer({ artifacts: [artifact], change_events: [event] }));
+  assertNoPrivateMediaPath(
+    projection.projectWorkspaceForRenderer({ artifacts: [artifact], change_events: [event] }),
+  );
 });

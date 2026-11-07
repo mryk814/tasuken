@@ -36,6 +36,7 @@ import {
   projectEntityForRenderer,
   projectSnapshotInspectForRenderer,
   projectWorkspaceForRenderer,
+  restoreMainOnlyEventFields,
 } from "../rendererMediaProjection";
 import type { CommandReceipt } from "../../shared/applicationCommand";
 import { projectMediaCaptureIpcError } from "../mediaCaptureIpcError";
@@ -210,6 +211,23 @@ function screenRecordingRequestContext(event: Electron.IpcMainInvokeEvent) {
     isMainFrame: event.sender.mainFrame === frame,
     detached: frame.detached,
   };
+}
+
+/** Rendererへ渡していないActivity Eventの項目を、保存の前に既存の値から戻す。 */
+function preserveMainOnlyEventFields(
+  repository: WorkspaceRepository,
+  type: EntityType,
+  entity: unknown,
+): unknown {
+  if (type !== "change_event" || !entity || typeof entity !== "object" || Array.isArray(entity))
+    return entity;
+  const id = typeof (entity as Entity).id === "string" ? String((entity as Entity).id) : "";
+  if (!id) return entity;
+  return restoreMainOnlyEventFields(
+    type,
+    entity as Entity,
+    repository.get("change_event", id, true) as Entity | null,
+  );
 }
 
 export function registerIpc(
@@ -718,7 +736,11 @@ export function registerIpc(
     }
     const entityType = requireEntityType(type);
     rejectTaskPersistence(entityType);
-    const normalizedEntity = normalizeMediaCapturePersistence(repository, entityType, entity);
+    const normalizedEntity = preserveMainOnlyEventFields(
+      repository,
+      entityType,
+      normalizeMediaCapturePersistence(repository, entityType, entity),
+    );
     const saved = repository.save(
       entityType,
       normalizedEntity as Entity,
@@ -763,7 +785,11 @@ export function registerIpc(
       if (!operation || typeof operation !== "object" || Array.isArray(operation)) continue;
       const value = operation as Record<string, unknown>;
       const type = requireEntityType(value.type);
-      value.entity = normalizeMediaCapturePersistence(repository, type, value.entity, "一括保存");
+      value.entity = preserveMainOnlyEventFields(
+        repository,
+        type,
+        normalizeMediaCapturePersistence(repository, type, value.entity, "一括保存"),
+      );
     }
     const saved = repository.saveMany(
       operations.map((operation) =>

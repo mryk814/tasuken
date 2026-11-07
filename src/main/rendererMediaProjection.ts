@@ -2,13 +2,23 @@ import type { Entity, EntityType } from "../shared/types/workspace";
 import type { CommandReceipt } from "../shared/applicationCommand";
 
 const PRIVATE_MEDIA_PATH_FIELDS = [
-  "stored_path", "target", "original_path", "file_path", "path",
-  "linked_source_real_path", "linked_source_device", "linked_source_inode",
+  "stored_path",
+  "target",
+  "original_path",
+  "file_path",
+  "path",
+  "linked_source_real_path",
+  "linked_source_device",
+  "linked_source_inode",
 ] as const;
 
 function mediaArtifact(value: unknown): value is Entity {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value)
-    && ["audio", "video"].includes(String((value as Entity).media_kind || "")));
+  return Boolean(
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    ["audio", "video"].includes(String((value as Entity).media_kind || "")),
+  );
 }
 
 function redactMediaArtifact(entity: Entity): Entity {
@@ -22,9 +32,13 @@ function projectNestedMedia(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
   if (mediaArtifact(value)) {
     const redacted = redactMediaArtifact(value);
-    return Object.fromEntries(Object.entries(redacted).map(([key, nested]) => [key, projectNestedMedia(nested)]));
+    return Object.fromEntries(
+      Object.entries(redacted).map(([key, nested]) => [key, projectNestedMedia(nested)]),
+    );
   }
-  return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, projectNestedMedia(nested)]));
+  return Object.fromEntries(
+    Object.entries(value).map(([key, nested]) => [key, projectNestedMedia(nested)]),
+  );
 }
 
 function redactEventJson(value: unknown): unknown {
@@ -37,24 +51,51 @@ function redactEventJson(value: unknown): unknown {
   }
 }
 
+/**
+ * Application Commandの冪等性のためにMainだけが読むActivity Eventの項目。Rendererは使わない。
+ * 実データでは変更履歴112MBのうち約62MBをこの2つが占め、workspace:loadのIPCを倍にしていた。
+ */
+const MAIN_ONLY_EVENT_FIELDS = ["receipt_json", "command_fingerprint"] as const;
+
 export function projectEntityForRenderer(type: EntityType, entity: Entity): Entity {
   if (type === "artifact" && mediaArtifact(entity)) return redactMediaArtifact(entity);
   if (type === "change_event") {
-    return {
+    const projected: Entity = {
       ...entity,
       before_json: redactEventJson(entity.before_json),
       after_json: redactEventJson(entity.after_json),
-      receipt_json: redactEventJson(entity.receipt_json),
     };
+    for (const field of MAIN_ONLY_EVENT_FIELDS) delete projected[field];
+    return projected;
   }
   return entity;
 }
 
+/**
+ * Rendererから届いたActivity Eventの保存で、Rendererへ渡していない項目を既存の値から戻す。
+ * Rendererは既存のEventを保存し直さないが、もし送ってきても冪等性の記録を消さない。
+ */
+export function restoreMainOnlyEventFields(
+  type: EntityType,
+  entity: Entity,
+  existing: Entity | null | undefined,
+): Entity {
+  if (type !== "change_event" || !existing) return entity;
+  const restored: Entity = { ...entity };
+  for (const field of MAIN_ONLY_EVENT_FIELDS) {
+    if (restored[field] === undefined && existing[field] !== undefined) {
+      restored[field] = existing[field];
+    }
+  }
+  return restored;
+}
+
 export function projectCommandReceiptForRenderer(receipt: CommandReceipt): CommandReceipt {
-  const projectChanges = (changes: CommandReceipt["changes"]): CommandReceipt["changes"] => changes.map((change) => ({
-    ...change,
-    entity: projectEntityForRenderer(change.type, change.entity),
-  }));
+  const projectChanges = (changes: CommandReceipt["changes"]): CommandReceipt["changes"] =>
+    changes.map((change) => ({
+      ...change,
+      entity: projectEntityForRenderer(change.type, change.entity),
+    }));
   return {
     ...receipt,
     changes: projectChanges(receipt.changes),
@@ -70,16 +111,22 @@ export function projectSnapshotInspectForRenderer<T>(result: T): T {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
     const change = entry as Record<string, unknown>;
     const type = change.type as EntityType;
-    const project = (candidate: unknown) => candidate && typeof candidate === "object" && !Array.isArray(candidate)
-      ? projectEntityForRenderer(type, candidate as Entity)
-      : candidate;
+    const project = (candidate: unknown) =>
+      candidate && typeof candidate === "object" && !Array.isArray(candidate)
+        ? projectEntityForRenderer(type, candidate as Entity)
+        : candidate;
     return { ...change, incoming: project(change.incoming), local: project(change.local) };
   });
   return { ...value, changes } as T;
 }
 
-export function projectChangesForRenderer(changes: Array<{ type: EntityType; entity: Entity }>): Array<{ type: EntityType; entity: Entity }> {
-  return changes.map((change) => ({ ...change, entity: projectEntityForRenderer(change.type, change.entity) }));
+export function projectChangesForRenderer(
+  changes: Array<{ type: EntityType; entity: Entity }>,
+): Array<{ type: EntityType; entity: Entity }> {
+  return changes.map((change) => ({
+    ...change,
+    entity: projectEntityForRenderer(change.type, change.entity),
+  }));
 }
 
 export function commandNotificationPayloads(
@@ -105,10 +152,14 @@ export function projectWorkspaceForRenderer(value: unknown): unknown {
   const workspace = value as Record<string, unknown>;
   const projected = { ...workspace };
   if (Array.isArray(workspace.artifacts)) {
-    projected.artifacts = workspace.artifacts.map((entity) => projectEntityForRenderer("artifact", entity as Entity));
+    projected.artifacts = workspace.artifacts.map((entity) =>
+      projectEntityForRenderer("artifact", entity as Entity),
+    );
   }
   if (Array.isArray(workspace.change_events)) {
-    projected.change_events = workspace.change_events.map((entity) => projectEntityForRenderer("change_event", entity as Entity));
+    projected.change_events = workspace.change_events.map((entity) =>
+      projectEntityForRenderer("change_event", entity as Entity),
+    );
   }
   return projected;
 }
