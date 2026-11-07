@@ -48,7 +48,7 @@ CORE=tasken-headless # Core のサービス名とコンテナ名
 DOCKER="${DOCKER:-/var/packages/ContainerManager/target/usr/bin/docker}"
 DC="${DC:-/var/packages/ContainerManager/target/usr/bin/docker-compose}"
 SLEEP="${SLEEP:-sleep}"
-HEALTH_TRIES="${HEALTH_TRIES:-90}" # 2 秒おきに最大 180 秒
+HEALTH_TRIES="${HEALTH_TRIES:-300}" # 2 秒おきに最大 10 分（Core は起動の同期を終えてから応答する。添付画像の照合をやり直すので長い）
 SYNC_TRIES="${SYNC_TRIES:-12}"     # 10 秒おきに最大 120 秒
 DOCKER_TIMEOUT="${DOCKER_TIMEOUT:-300}"
 CHECK=/app/core-dist/replica-check.mjs
@@ -174,14 +174,25 @@ core_healthy() {
   return 1
 }
 
-set_image() {
-  awk -v img="$1" '/^TASKEN_IMAGE=/ { print "TASKEN_IMAGE=" img; found = 1; next } { print } END { if (!found) print "TASKEN_IMAGE=" img }' \
+# image はサービスごとの変数で持つ（TASKEN_IMAGE が Core と tunnel、TASKEN_IMAGE_<名前> がそれ以外）。
+# 導入の時点で、HTTP MCP だけ別の image で動いていることがある（2026-10-22 の配備）。戻すときに
+# Core の古い image で HTTP MCP を起こすと、http-server.mjs が無くて再起動を繰り返す。
+# 先に環境にある値は --env-file より優先されるので、tasken.conf の値をいつも環境にも出す。
+export_images() {
+  local line
+  while read -r line; do
+    [[ "$line" =~ ^(TASKEN_IMAGE[A-Z0-9_]*)=(.*)$ ]] && export "${BASH_REMATCH[1]}=${BASH_REMATCH[2]}"
+  done < <(tr -d '\r' < "$CONF")
+  return 0
+}
+set_images() { # 新しい image へ: すべての TASKEN_IMAGE* を同じ tag に
+  awk -v img="$1" '/^TASKEN_IMAGE[A-Z0-9_]*=/ { sub(/=.*/, "=" img); found = 1 } { print } END { if (!found) print "TASKEN_IMAGE=" img }' \
     "$CONF" > "$CONF.tmp"
   chmod 644 "$CONF.tmp"
   mv "$CONF.tmp" "$CONF"
-  # 先に環境にある値は --env-file より優先されるので、環境にも出す。
-  export TASKEN_IMAGE="$1"
+  export_images
 }
+export_images
 
 if [ "$old" = "$tag" ]; then
   if core_healthy "$tag"; then
@@ -267,14 +278,24 @@ for k in sys.argv[2].split("."):
 print("" if d is None else (json.dumps(d) if isinstance(d, (dict, list, bool)) else d))
 ' "$1" "$2" 2>/dev/null || true
 }
-check_line() { sed -n 's/^TASKEN_REPLICA_CHECK //p' <<< "$1" | tail -1; }
+# 最後の TASKEN_REPLICA_CHECK の行。出力の形の版が 1 でなければ読まない（空を返す）。
+check_line() {
+  local line
+  line=$(sed -n 's/^TASKEN_REPLICA_CHECK //p' <<< "$1" | tail -1)
+  [ -n "$line" ] && [ "$(check_value "$line" schema_version)" = 1 ] && printf '%s' "$line"
+  return 0
+}
 
 # 版ずれの事前検査。新しい image を隔離して（ネットワークなし・読み取り専用・DB なし）、共有フォルダの
 # 最近の差分をこの版の取り込み規則で読ませる。Core と同じ利用者と追加の group で読む（Synology の ACL）。
+# replica 自身の端末（導入のときに tasken.conf へ書いた TASKEN_DEVICE_ID）は、取り込みが読まないので外す。
+device_conf=$(conf TASKEN_DEVICE_ID)
+[[ "$device_conf" =~ ^[0-9a-fA-F-]+$ ]] || device_conf=""
 set +e
 pre_out=$(dk run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
   --user "$uid:$gid" ${admin_gid:+--group-add "$admin_gid"} --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m \
-  -v "$sync_dir:/sync:ro" --entrypoint node "$tag" "$CHECK" packets --sync-dir=/sync 2>&1)
+  -v "$sync_dir:/sync:ro" --entrypoint node "$tag" "$CHECK" packets --sync-dir=/sync \
+  ${device_conf:+--exclude-device="$device_conf"} 2>&1)
 pre_rc=$?
 set -e
 pre=$(check_line "$pre_out")
@@ -386,20 +407,41 @@ attention="" # 戻せても人が見るべき理由（終了 5）
 device_id=""
 published_before=""
 
+# 戻すときは Core だけを先に起こし、応答してから、Core の network を使うほかのサービスを起こす。
+# まとめて up すると、古い Core がすぐ落ちたとき（DB の schema が新しくて開けないなど）に、ほかの
+# サービスが Core の network に入れず compose ごと失敗し、DB を戻す二段目に届かない。
+up_core() {
+  compose up -d --no-build --pull never --force-recreate --no-deps "$CORE" > "$DEPLOY_DIR/.compose.log" 2>&1
+}
+up_others() { # 起こせて、動いていれば 0
+  local others=() i
+  for i in "${!services[@]}"; do [ "${services[$i]}" = "$CORE" ] || others+=("${services[$i]}"); done
+  [ "${#others[@]}" -gt 0 ] || return 0
+  compose up -d --no-build --pull never --force-recreate --no-deps "${others[@]}" >> "$DEPLOY_DIR/.compose.log" 2>&1 || return 1
+  for i in "${!services[@]}"; do
+    [ "${services[$i]}" = "$CORE" ] && continue
+    [ "$(dk inspect --format '{{.State.Running}}' "${containers[$i]}" 2>/dev/null || true)" = true ] || return 1
+  done
+  return 0
+}
+
 # 戻し方は二段。1) image を戻す。2) 古い image でも応答しないときだけ、今の data を別名で残してから、
 # 更新前のバックアップを丸ごと写して戻す（SQLite は書き換えるので、ハードリンクではなく写す）。
 rollback() {
   trap - EXIT
   set +e
   echo ROLLBACK_IMAGE
-  set_image "$old"
+  # サービスごとの前の image（入れ替える前の tasken.conf）に戻す。書き換える前に落ちたなら今のまま。
+  if [ -n "${ts:-}" ] && [ -f "$CONF.before-$ts" ]; then cp -p "$CONF.before-$ts" "$CONF"; fi
+  export_images
   # compose そのものが動かないなら、DB を戻しても直らない。二段目に進まずに止める。
-  if ! compose up -d --no-build --pull never --force-recreate > "$DEPLOY_DIR/.compose.log" 2>&1; then
+  if ! up_core; then
     echo "COMPOSE_UP_FAILED $(tail -3 "$DEPLOY_DIR/.compose.log" | tr '\n' ' ')"
     echo "RESTORE_FAILED image=$old kept=none（データには触れていない）"
     exit 4
   fi
   if core_healthy "$old"; then
+    up_others || attention="${attention:+$attention,}OTHER_SERVICES_NOT_RUNNING"
     if [ -n "$attention" ]; then
       echo "RESTORED_PREVIOUS image=$old attention=$attention"
       exit 5
@@ -434,9 +476,11 @@ rollback() {
     # 差し替えまで済んだときだけ起動して確かめる。途中で止まったなら data は元のままか
     # failed- の中で、db_restored と言ってはいけない。
     if [ "$restored" = 1 ]; then
-      compose up -d --no-build --pull never --force-recreate >/dev/null 2>&1
+      up_core
       if core_healthy "$old"; then
-        echo "RESTORED_PREVIOUS image=$old db_restored=1 kept=${failed:-none}/$base"
+        others=""
+        up_others || others=" attention=OTHER_SERVICES_NOT_RUNNING"
+        echo "RESTORED_PREVIOUS image=$old db_restored=1 kept=${failed:-none}/$base$others"
         exit 5
       fi
     fi
@@ -491,7 +535,7 @@ published_before=$(published_fp "$device_id")
 echo "SYNC_BEFORE enabled=${sync_enabled_before:-unknown} error=${sync_error_before:-none}"
 
 cp -p "$CONF" "$CONF.before-$ts"
-set_image "$tag"
+set_images "$tag"
 echo RECREATE
 if ! compose up -d --no-build --pull never --force-recreate > "$DEPLOY_DIR/.compose.log" 2>&1; then
   echo "COMPOSE_UP_FAILED $(tail -3 "$DEPLOY_DIR/.compose.log" | tr '\n' ' ')"
@@ -502,7 +546,15 @@ if ! core_healthy "$tag"; then
   echo HEALTH_FAIL
   exit 1
 fi
-restarts() { for c in "${containers[@]}"; do printf '%s=%s ' "$c" "$(dk inspect --format '{{.RestartCount}}' "$c" 2>/dev/null || echo x)"; done; }
+# 作り直した後の再起動を数える。tunnel は外す（制御面が前の接続を放す前に client が終わって起こし
+# 直されることがあり、readyz と同じく外の都合で揺れる）。
+restarts() {
+  local i
+  for i in "${!services[@]}"; do
+    [ "${services[$i]}" = tunnel-client ] && continue
+    printf '%s=%s ' "${containers[$i]}" "$(dk inspect --format '{{.RestartCount}}' "${containers[$i]}" 2>/dev/null || echo x)"
+  done
+}
 restarts_after_up=$(restarts)
 
 # 新しい版を受け入れるか（ここで落ちたら image だけ戻す。core_healthy には入れない）。

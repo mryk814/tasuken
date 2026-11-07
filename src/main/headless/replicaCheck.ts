@@ -59,6 +59,8 @@ const REASON_LIMIT = 160;
 const SAMPLE_LIMIT = 3;
 /** 入れ替えの前に見る、端末ごとの最近の差分の数。Desktopの今の版が書いた形を見る。 */
 export const DEFAULT_RECENT_PACKETS = 300;
+/** そのうち、読めなければ入れ替えを止める最新の差分の数（端末ごと）。 */
+export const DEFAULT_BLOCKING_PACKETS = 20;
 /** stateで中身まで確かめる未取り込みの差分の上限（端末をまたいだ合計）。 */
 const PENDING_VALIDATE_LIMIT = 500;
 
@@ -74,9 +76,13 @@ export interface PacketCheckResult {
   manifest_ok: boolean;
   reason?: string;
   devices: number;
+  excluded_device?: string;
   checked: number;
   unreadable: number;
+  /** 止める理由になった拒否（各端末の最新の数件）。 */
   rejected_total: number;
+  /** それより古い差分の拒否。取り込み済みなので止めない。 */
+  rejected_old: number;
   rejected: PacketRejection[];
 }
 
@@ -209,10 +215,22 @@ function packetRejection(
   }
 }
 
-/** 共有フォルダの各端末の最近の差分を、この版の取り込み規則で読めるか。 */
+/**
+ * 共有フォルダの各端末の最近の差分を、この版の取り込み規則で読めるか。
+ *
+ * 止めるのは、各端末の最新の `blocking` 件に読めない差分があるときだけ。最新の差分が、その端末の
+ * 今の版が書く形を表す。それより古い差分は取り込み済みで、この版がもう読まなくてよいもの
+ * （規則を厳しくした版や、廃止したEntity型で永久に止まらないように、数だけ rejected_old に出す）。
+ * replica自身の端末（`excludeDevice`）は取り込みが読まないので見ない。
+ * ほかの端末に差分があるのに一つも読めなければ、確かめられていないので合格にしない。
+ */
 export function checkSyncPackets(
   syncDirectory: string,
-  { recent = DEFAULT_RECENT_PACKETS }: { recent?: number } = {},
+  {
+    recent = DEFAULT_RECENT_PACKETS,
+    blocking = DEFAULT_BLOCKING_PACKETS,
+    excludeDevice = "",
+  }: { recent?: number; blocking?: number; excludeDevice?: string } = {},
 ): PacketCheckResult {
   const manifest = readManifestWorkspace(syncDirectory);
   if ("reason" in manifest) {
@@ -224,20 +242,25 @@ export function checkSyncPackets(
       checked: 0,
       unreadable: 0,
       rejected_total: 0,
+      rejected_old: 0,
       rejected: [],
     };
   }
   const rejected: PacketRejection[] = [];
   let rejectedTotal = 0;
+  let rejectedOld = 0;
   let checked = 0;
   let unreadable = 0;
-  const devices = listDevices(syncDirectory);
+  let published = 0;
+  const devices = listDevices(syncDirectory).filter((device) => device !== excludeDevice);
   for (const device of devices) {
-    for (const fileName of listPacketFiles(syncDirectory, device).slice(-recent)) {
+    const files = listPacketFiles(syncDirectory, device).slice(-recent);
+    published += files.length;
+    files.forEach((fileName, index) => {
       const read = readPacket(syncDirectory, device, fileName);
       if ("unreadable" in read) {
         unreadable += 1;
-        continue;
+        return;
       }
       checked += 1;
       const rejection = packetRejection(
@@ -246,21 +269,37 @@ export function checkSyncPackets(
         Number(fileName.slice(0, 12)),
         manifest.workspaceId,
       );
-      if (rejection) {
-        rejectedTotal += 1;
-        if (rejected.length < SAMPLE_LIMIT) rejected.push(rejection);
+      if (!rejection) return;
+      if (index < files.length - blocking) {
+        rejectedOld += 1;
+        return;
       }
-    }
+      rejectedTotal += 1;
+      if (rejected.length < SAMPLE_LIMIT) rejected.push(rejection);
+    });
   }
+  const nothingReadable = published > 0 && checked === 0;
   return {
-    compatible: rejectedTotal === 0,
+    compatible: rejectedTotal === 0 && !nothingReadable,
     manifest_ok: true,
+    ...(nothingReadable ? { reason: "ほかの端末の差分を一つも読めない" } : {}),
     devices: devices.length,
+    ...(excludeDevice ? { excluded_device: shortId(excludeDevice) } : {}),
     checked,
     unreadable,
     rejected_total: rejectedTotal,
+    rejected_old: rejectedOld,
     rejected,
   };
+}
+
+/**
+ * 同期の失敗のうち、共有フォルダへの到着を待っているだけのもの（版のせいではない）。
+ * 差分の連番の抜け・差分や添付画像や写真の到着待ちは、どれも「…待っています」で返る
+ * （services/sharedFolderSync.mjs・sharedFolderAttachments.mjs）。
+ */
+export function isWaitingSyncError(message: string): boolean {
+  return message.includes("待っています");
 }
 
 /**
@@ -367,6 +406,8 @@ export function readReplicaState({
     : null;
   // 同期が通ると last_error は空に戻る。後で失敗すると last_at は前の成功のまま残る。
   const succeeded = !lastError && (since ? syncedSince === true : Boolean(lastAt));
+  // 差分の連番の抜けは上で見た。添付画像や写真の到着待ちは差分からは分からないので、文で見る。
+  if (lastError && isWaitingSyncError(lastError)) waiting = true;
   const verdict: ReplicaSyncVerdict = !enabled
     ? "disabled"
     : pendingInvalid
@@ -458,7 +499,7 @@ export async function probeMcp({
 }
 
 const USAGE = `Usage:
-  node core-dist/replica-check.mjs packets --sync-dir=<path> [--recent=<n>]
+  node core-dist/replica-check.mjs packets --sync-dir=<path> [--recent=<n>] [--exclude-device=<id>]
   node core-dist/replica-check.mjs state --user-data-dir=<path> --sync-dir=<path> [--db-path=<path>] [--since=<ISO 8601>]
   node core-dist/replica-check.mjs mcp --user-data-dir=<path> [--mcp-server=<path>]`;
 
@@ -485,6 +526,7 @@ export async function runReplicaCheck(argv: string[]): Promise<number> {
         "db-path": { type: "string" },
         since: { type: "string" },
         recent: { type: "string" },
+        "exclude-device": { type: "string" },
         "mcp-server": { type: "string" },
       },
       allowPositionals: false,
@@ -497,7 +539,10 @@ export async function runReplicaCheck(argv: string[]): Promise<number> {
     if (command === "packets" && values["sync-dir"]) {
       const recent = values.recent ? Number(values.recent) : DEFAULT_RECENT_PACKETS;
       if (!Number.isInteger(recent) || recent < 1) throw new Error("--recentは1以上の整数");
-      const result = checkSyncPackets(path.resolve(values["sync-dir"]), { recent });
+      const result = checkSyncPackets(path.resolve(values["sync-dir"]), {
+        recent,
+        excludeDevice: values["exclude-device"] || "",
+      });
       emit("packets", { ...result });
       return result.compatible ? 0 : 3;
     }

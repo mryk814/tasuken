@@ -8,6 +8,7 @@ import test from "node:test";
 import {
   checkSyncPackets,
   errorDigest,
+  isWaitingSyncError,
   probeMcp,
   readReplicaState,
   runReplicaCheck,
@@ -95,6 +96,72 @@ test("packets: この版の知らないEntityの差分を版ずれとし、中�
   } finally {
     world.close();
   }
+});
+
+test("packets: 取り込み済みの古い差分の拒否では止めず、数だけ出す", async () => {
+  const world = await createDesktopAndReplica();
+  try {
+    // いちばん古い差分（task-a）を、この版では読めない形にする
+    const oldest = fs
+      .readdirSync(world.deviceDirectory)
+      .filter((name) => name.endsWith(".json"))
+      .sort()[0];
+    for (let i = 0; i < 3; i += 1) world.desktop.database.save("task", task(`task-n${i}`, "架空"));
+    await world.desktop.service.syncNow();
+    rewriteJson(path.join(world.deviceDirectory, oldest), (packet) => {
+      packet.entityType = "retired_kind";
+    });
+    const result = checkSyncPackets(world.shared, { blocking: 2 });
+    assert.equal(result.compatible, true);
+    assert.equal(result.rejected_total, 0);
+    assert.equal(result.rejected_old, 1);
+    // 最新の数件に入っていれば止める
+    assert.equal(checkSyncPackets(world.shared, { blocking: 10 }).compatible, false);
+  } finally {
+    world.close();
+  }
+});
+
+test("packets: replica 自身の端末は見ない。ほかの端末を一つも読めなければ合格にしない", async () => {
+  const world = await createDesktopAndReplica();
+  try {
+    world.replica.database.save("task", task("task-r", "replica が作った"));
+    await world.replica.service.syncNow();
+    const replicaDirectory = path.join(world.shared, "devices", world.replica.database.deviceId);
+    for (const name of fs.readdirSync(replicaDirectory).filter((n) => n.endsWith(".json"))) {
+      rewriteJson(path.join(replicaDirectory, name), (packet) => {
+        packet.entityType = "retired_kind";
+      });
+    }
+    assert.equal(checkSyncPackets(world.shared).compatible, false);
+    const excluded = checkSyncPackets(world.shared, {
+      excludeDevice: world.replica.database.deviceId,
+    });
+    assert.equal(excluded.compatible, true);
+    assert.equal(excluded.excluded_device, world.replica.database.deviceId.slice(0, 8));
+    for (const name of fs.readdirSync(world.deviceDirectory).filter((n) => n.endsWith(".json"))) {
+      fs.writeFileSync(path.join(world.deviceDirectory, name), "{");
+    }
+    const unreadable = checkSyncPackets(world.shared, {
+      excludeDevice: world.replica.database.deviceId,
+    });
+    assert.equal(unreadable.compatible, false);
+    assert.equal(unreadable.checked, 0);
+  } finally {
+    world.close();
+  }
+});
+
+test("waiting: 差分・添付画像・写真の到着待ちの文を、版のせいではない失敗とみなす", () => {
+  // 文は services/sharedFolderSync.mjs と sharedFolderAttachments.mjs が返すもの
+  for (const message of [
+    "端末 の同期差分 000000000003 を待っています。共有フォルダの同期完了後に再試行します。",
+    "端末 の添付画像 a.png の到着を待っています。共有フォルダの同期完了後に再試行します。",
+    "写真の到着を待っています。共有フォルダーの同期後に再試行してください。",
+  ]) {
+    assert.equal(isWaitingSyncError(message), true, message);
+  }
+  assert.equal(isWaitingSyncError("同期差分の形式が不正です。"), false);
 });
 
 test("packets: 共有フォルダの形式の版が上がったら読めないとする", async () => {
