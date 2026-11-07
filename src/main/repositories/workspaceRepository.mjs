@@ -57,6 +57,7 @@ const uuid = () => crypto.randomUUID();
 // 問い合わせ側も同じ式を使わないと、SQLiteは索引を使えない。
 const CHANGE_EVENT_JSON_SQL = "CASE WHEN json_valid(data_json) THEN data_json END";
 const CHANGE_EVENT_DEDUPE_KEY_SQL = `json_extract(${CHANGE_EVENT_JSON_SQL}, '$.metadata.dedupe_key')`;
+const CHANGE_EVENT_COMMAND_ID_SQL = `json_extract(${CHANGE_EVENT_JSON_SQL}, '$.command_id')`;
 // String.prototype.trim が落とす空白（WhiteSpaceとLineTerminator）。
 const JS_TRIM_CHARACTERS_SQL =
   "char(9, 10, 11, 12, 13, 32, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288, 65279)";
@@ -452,6 +453,8 @@ export class WorkspaceDatabase {
    * - sync_outbox: payload_json（1件数KB〜）の後ろにpublished_atがあり、未公開件数や
    *   一覧のたびに全payloadのoverflow pageを辿っていた。必要な列だけを索引に持つ。
    * - change_event: 保存のたびの重複判定が全Eventを読み直していた。判定に使うキーで引く。
+   * - change_event の command_id: Taskの保存・完了やProposalの採用など、Application Commandの
+   *   たびに冪等性の確認で全Eventを読み直していた（1回あたり約0.65秒、1コマンドで2回以上）。
    *
    * 作成に失敗しても起動は止めない。索引がないときは従来の全件走査に戻る。
    *
@@ -460,11 +463,14 @@ export class WorkspaceDatabase {
    * 黙って遅さが戻る。
    */
   ensurePerformanceIndexes() {
-    this.performanceIndexes = { changeEventDedupe: false };
+    this.performanceIndexes = { changeEventDedupe: false, changeEventCommandId: false };
     try {
       this.db.exec(`
         CREATE INDEX IF NOT EXISTS idx_sync_outbox_publish_state_v1
           ON sync_outbox(device_sequence, change_id, published_at);
+        CREATE INDEX IF NOT EXISTS idx_change_event_command_id_v1
+          ON entities(${CHANGE_EVENT_COMMAND_ID_SQL})
+          WHERE entity_type = 'change_event';
         CREATE INDEX IF NOT EXISTS idx_change_event_dedupe_key_v1
           ON entities(${CHANGE_EVENT_DEDUPE_KEY_SQL})
           WHERE entity_type = 'change_event';
@@ -473,6 +479,7 @@ export class WorkspaceDatabase {
           WHERE entity_type = 'change_event' AND (${CHANGE_EVENT_IRREGULAR_DEDUPE_KEY_SQL});
       `);
       this.performanceIndexes.changeEventDedupe = true;
+      this.performanceIndexes.changeEventCommandId = true;
     } catch (error) {
       console.warn("[tasken-db] 読み取り用の索引を作れませんでした。全件走査で続けます。", error);
     }
@@ -517,6 +524,56 @@ export class WorkspaceDatabase {
         .sort(newestFirst)
         .map(parseRow)
         .find((candidate) => activityEventDedupeKey(candidate) === dedupeKey) || null
+    );
+  }
+
+  /**
+   * command_id が一致するActivity Event（削除済みを含む）を、list("change_event", true) と
+   * 同じ並び（updated_at の新しい順、同時刻なら rowid の大きい順）で返す。
+   * 従来の list("change_event", true).filter((event) => event.command_id === commandId) と同じ結果。
+   * 呼び出し側は src/shared/activityEvent.mjs の changeEventsForCommand を使う。
+   */
+  listChangeEventsByCommandId(commandId) {
+    // 文字列でないIDは「command_idを持たない行」にも一致しうる（=== undefined）。従来の走査に任せる。
+    if (!this.performanceIndexes?.changeEventCommandId || typeof commandId !== "string") {
+      return this.list("change_event", true).filter((event) => event.command_id === commandId);
+    }
+    return this.db
+      .prepare(
+        `SELECT * FROM entities INDEXED BY idx_change_event_command_id_v1
+         WHERE entity_type = 'change_event' AND ${CHANGE_EVENT_COMMAND_ID_SQL} = ?
+         ORDER BY updated_at DESC, rowid DESC`,
+      )
+      .all(commandId)
+      .map(parseRow)
+      .filter((event) => event.command_id === commandId);
+  }
+
+  /**
+   * prefix で始まる command_id の集まり。従来の
+   * list("change_event", true).map((event) => String(event.command_id || "")).filter(startsWith)
+   * と同じ集合（prefix が空でない文字列のとき）。
+   */
+  changeEventCommandIdsWithPrefix(prefix) {
+    if (!this.performanceIndexes?.changeEventCommandId || typeof prefix !== "string" || !prefix) {
+      return new Set(
+        this.list("change_event", true)
+          .map((event) => String(event.command_id || ""))
+          .filter((id) => id.startsWith(prefix)),
+      );
+    }
+    // 文字列の比較はUTF-8のバイト順。prefix で始まる文字列はすべて [prefix, prefix + U+10FFFF) に入る。
+    return new Set(
+      this.db
+        .prepare(
+          `SELECT DISTINCT ${CHANGE_EVENT_COMMAND_ID_SQL} AS command_id
+           FROM entities INDEXED BY idx_change_event_command_id_v1
+           WHERE entity_type = 'change_event'
+             AND ${CHANGE_EVENT_COMMAND_ID_SQL} >= ? AND ${CHANGE_EVENT_COMMAND_ID_SQL} < ?`,
+        )
+        .all(prefix, `${prefix}${String.fromCodePoint(0x10ffff)}`)
+        .map((row) => String(row.command_id || ""))
+        .filter((id) => id.startsWith(prefix)),
     );
   }
 
@@ -1221,6 +1278,10 @@ export class WorkspaceDatabase {
     const transaction = this.db.transaction(() =>
       callback({
         list: (type, includeDeleted = false) => this.list(type, includeDeleted),
+        // 冪等性の確認はtransactionの中で走る。窓口にも索引で引く道を渡す（同じ接続なので
+        // このtransactionの書き込みも見える）。渡さないと全Eventの走査に戻る。
+        listChangeEventsByCommandId: (commandId) => this.listChangeEventsByCommandId(commandId),
+        changeEventCommandIdsWithPrefix: (prefix) => this.changeEventCommandIdsWithPrefix(prefix),
         get: (type, id, includeDeleted = false) => this.get(type, id, includeDeleted),
         save: (type, entity, options = {}) => this.saveWithinTransaction(type, entity, options),
         saveMany: (operations) =>

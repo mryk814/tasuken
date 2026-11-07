@@ -1,4 +1,6 @@
 import { ApplicationCommandError } from "../../shared/applicationCommand.ts";
+import { changeEventsForCommand } from "../../shared/activityEvent.mjs";
+import type { Entity } from "../../shared/types/workspace.ts";
 import {
   isAiAudienceAllowed,
   normalizeAiVisibility,
@@ -90,9 +92,7 @@ export function createMobileWorkLogPort(
     },
     executeWorkLogCommand(input): MobileGatewayWorkLogCommandResult {
       const actor = { kind: "user" as const, id: input.actorId };
-      const previous = persistence
-        .list("change_event", true)
-        .find((event) => event.command_id === input.commandId);
+      const previous: Entity | undefined = changeEventsForCommand(persistence, input.commandId)[0];
       if (previous && previous.command_name !== input.command.name)
         return { ok: false, code: "idempotency_conflict" };
       try {

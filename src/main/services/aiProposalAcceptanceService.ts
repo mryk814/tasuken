@@ -11,6 +11,7 @@ import {
 } from "../../shared/applicationCommand";
 import type { Entity } from "../../shared/types/workspace";
 import { markdownSignature } from "../../shared/canonicalMarkdown.mjs";
+import { changeEventsForCommand } from "../../shared/activityEvent.mjs";
 import {
   applyProposalMarkdownHunks,
   markdownProposalHunkCount,
@@ -115,9 +116,7 @@ function validateLegacyReceipt(
   )
     receiptConflict(command.commandId);
 
-  const commandEvents = repository
-    .list("change_event", true)
-    .filter((event) => event.command_id === command.commandId);
+  const commandEvents: Entity[] = changeEventsForCommand(repository, command.commandId);
   const commandEventIds = new Set(commandEvents.map((event) => event.id));
   if (
     commandEventIds.size !== receipt.events.length ||
@@ -585,9 +584,7 @@ export class AiProposalAcceptanceService {
       );
     }
     const command: CommandEnvelope = { ...parsedInput, commandId };
-    const existingEvent = this.repository
-      .list("change_event", true)
-      .find((event) => event.command_id === commandId);
+    const existingEvent: Entity | undefined = changeEventsForCommand(this.repository, commandId)[0];
     if (existingEvent && typeof existingEvent.receipt_json === "string") {
       if (
         existingEvent.command_name !== command.name ||

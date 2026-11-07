@@ -4,7 +4,12 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { activityEventDedupeKey, buildActivityEvent } from "../src/shared/activityEvent.mjs";
+import {
+  activityEventDedupeKey,
+  buildActivityEvent,
+  changeEventCommandIdsWithPrefix,
+  changeEventsForCommand,
+} from "../src/shared/activityEvent.mjs";
 import { queryActivityEvents } from "../src/shared/activityProjection.mjs";
 import {
   WorkspaceDatabase,
@@ -117,6 +122,76 @@ test("change_eventの重複判定は、索引で引いても全件走査と同�
   });
 });
 
+test("command_id で引くActivity Eventは、全件走査のfilterと同じ行を同じ順で返す", async () => {
+  await withRepository(async (repository) => {
+    repository.save("note", { id: "note-1", title: "Note", body_markdown: "a" });
+    const base = buildActivityEvent({
+      entityType: "note",
+      entityId: "note-1",
+      changeType: "updated",
+      after: { id: "note-1" },
+      source: "manual",
+      metadata: { session_id: "s" },
+    });
+    const at = (second) => `2026-11-05T00:00:0${second}.000Z`;
+    insertRawChangeEvent(repository, "c1", { ...base, command_id: "cmd-a" }, at(1));
+    insertRawChangeEvent(repository, "c2", { ...base, command_id: "cmd-b" }, at(2));
+    insertRawChangeEvent(repository, "c3", { ...base, command_id: "cmd-a" }, at(3));
+    insertRawChangeEvent(repository, "c4", { ...base, command_id: "cmd-a" }, at(3));
+    insertRawChangeEvent(repository, "c5", { ...base, command_id: 7 }, at(4));
+    insertRawChangeEvent(repository, "c6", { ...base, command_id: "sub-1-command-x" }, at(5));
+    insertRawChangeEvent(repository, "c7", { ...base, command_id: "sub-1-command-y" }, at(5));
+    insertRawChangeEvent(repository, "c8", { ...base, command_id: "sub-10-command-z" }, at(6));
+    repository.db
+      .prepare(
+        "UPDATE entities SET deleted_at = ? WHERE entity_type = 'change_event' AND id = 'c3'",
+      )
+      .run(at(9));
+
+    const scan = (commandId) =>
+      repository
+        .list("change_event", true)
+        .filter((event) => event.command_id === commandId)
+        .map((event) => event.id);
+    for (const commandId of ["cmd-a", "cmd-b", "7", "none"]) {
+      assert.deepEqual(
+        changeEventsForCommand(repository, commandId).map((event) => event.id),
+        scan(commandId),
+        commandId,
+      );
+    }
+    // 同時刻は rowid の大きい順、削除済みも含む。
+    assert.deepEqual(scan("cmd-a"), ["c4", "c3", "c1"]);
+    // 数値のIDは文字列の "7" に一致しない（=== と同じ）。数値で問われたら従来の走査になる。
+    assert.deepEqual(
+      changeEventsForCommand(repository, 7).map((event) => event.id),
+      ["c5"],
+    );
+    const prefixScan = new Set(
+      repository
+        .list("change_event", true)
+        .map((event) => String(event.command_id || ""))
+        .filter((id) => id.startsWith("sub-1-command-")),
+    );
+    assert.deepEqual(
+      [...changeEventCommandIdsWithPrefix(repository, "sub-1-command-")].sort(),
+      [...prefixScan].sort(),
+    );
+    assert.deepEqual([...prefixScan].sort(), ["sub-1-command-x", "sub-1-command-y"]);
+
+    // list() しか持たない入れ物（transactionの窓口など）でも同じ結果になる。
+    const listOnly = { list: (type, deleted) => repository.list(type, deleted) };
+    assert.deepEqual(
+      changeEventsForCommand(listOnly, "cmd-a").map((event) => event.id),
+      scan("cmd-a"),
+    );
+    assert.deepEqual(
+      [...changeEventCommandIdsWithPrefix(listOnly, "sub-1-command-")].sort(),
+      [...prefixScan].sort(),
+    );
+  });
+});
+
 test("読み取り用の索引はschema_versionを上げずに作り、開き直しても作り直さない", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "tasken-read-indexes-"));
   const file = path.join(directory, "workspace.sqlite");
@@ -130,6 +205,7 @@ test("読み取り用の索引はschema_versionを上げずに作り、開き直
       .map((row) => row.name);
     for (const name of [
       "idx_sync_outbox_publish_state_v1",
+      "idx_change_event_command_id_v1",
       "idx_change_event_dedupe_key_v1",
       "idx_change_event_irregular_dedupe_key_v1",
     ]) {

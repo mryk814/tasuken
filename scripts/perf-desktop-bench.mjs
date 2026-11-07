@@ -286,6 +286,63 @@ try {
     return samples;
   });
   results.mainLagsSave = await takeMainLags();
+
+  // Taskの書き込み: 画面と同じTask commandで、題名の変更→完了→再開を3回。
+  // 本人の言葉「タスクを保存したり完了したりの書き込みっぽいの重い」に合わせて測る。
+  const taskSamples = await page.evaluate(async () => {
+    const tasks = await window.api.entities.list("task");
+    const target = [...tasks]
+      .filter((task) => !task.deleted_at && task.state !== "done")
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)))[0];
+    if (!target) return null;
+    const base = () => ({
+      schemaVersion: 2,
+      command_id: crypto.randomUUID(),
+      actor: { kind: "user" },
+      source: "desktop",
+      entrypoint: "main_ui",
+      issued_at: new Date().toISOString(),
+    });
+    const samples = { update: [], complete: [], reopen: [] };
+    let version = Number(target.version);
+    const run = async (kind, command) => {
+      const started = performance.now();
+      const response = await window.api.task[kind](command);
+      samples[kind].push(performance.now() - started);
+      if (!response.ok) throw new Error(`${kind}: ${JSON.stringify(response.error)}`);
+      version = response.value.task.version;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    };
+    for (let index = 0; index < 3; index += 1) {
+      const title = `${target.title}（計測${index}）`;
+      await run("update", {
+        ...base(),
+        name: "UpdateTask",
+        payload: { task_id: target.id, expected_version: version, changes: { title } },
+      });
+      await run("complete", {
+        ...base(),
+        name: "CompleteTask",
+        payload: { task_id: target.id, expected_version: version },
+      });
+      await run("reopen", {
+        ...base(),
+        name: "ReopenTask",
+        payload: { task_id: target.id, expected_version: version },
+      });
+    }
+    return samples;
+  });
+  if (taskSamples) {
+    results.taskCommandMs = Object.fromEntries(
+      Object.entries(taskSamples).map(([kind, samples]) => [
+        kind,
+        { median: median(samples), samples: samples.map(Math.round) },
+      ]),
+    );
+  }
+  results.mainLagsTask = await takeMainLags();
+
   if (profileMain) {
     const profile = await app.evaluate(async () => {
       const session = globalThis.__perfProfiler;

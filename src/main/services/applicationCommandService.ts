@@ -9,7 +9,7 @@ import {
 } from "../../shared/entityRegistry.mjs";
 import { normalizeAgentSession } from "../../shared/agentSession.mjs";
 import { deriveAgentWorkState, taskWorkEntry } from "../../shared/contracts/task/public.ts";
-import { buildActivityEvent } from "../../shared/activityEvent.mjs";
+import { buildActivityEvent, changeEventsForCommand } from "../../shared/activityEvent.mjs";
 import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
 import { normalizeRepositoryContext } from "../../shared/repositoryContext.mjs";
 import {
@@ -793,9 +793,8 @@ function recoverNoteAiReceipt(
 }
 
 function readIdempotent(repository: Repository, command: CommandEnvelope): CommandReceipt | null {
-  const existing = repository
-    .list("change_event", true)
-    .find((event) => event.command_id === command.commandId);
+  // Application Commandのたびに走る。全Eventを読まず、command_id の索引で引く。
+  const existing: Entity | undefined = changeEventsForCommand(repository, command.commandId)[0];
   if (!existing) return null;
   if (
     existing.command_name !== command.name ||

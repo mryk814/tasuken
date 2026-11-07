@@ -27,6 +27,7 @@ import {
   type CommandReceipt,
 } from "../../../../shared/applicationCommand.ts";
 import type { Entity } from "../../../../shared/types/workspace.ts";
+import { changeEventsForCommand } from "../../../../shared/activityEvent.mjs";
 import { SqliteTaskRepository } from "../infrastructure/sqliteTaskRepository.ts";
 import type { WorkspaceTaskPersistence } from "../ports/taskRepository.ts";
 import { TaskQueryHandler } from "./taskQueryHandler.ts";
@@ -304,9 +305,8 @@ function replayApplicationEnvelope(
   persistence: WorkspaceTaskPersistence,
   command: TaskCommand,
 ): CommandEnvelope | null {
-  const events = persistence
-    .list("change_event", true)
-    .filter((event) => event.command_id === command.command_id);
+  // Taskの保存・完了のたびに走る。全Eventを読まず、command_id の索引で引く。
+  const events: Entity[] = changeEventsForCommand(persistence, command.command_id);
   if (events.length === 0) return null;
 
   const taskEvent = events.find((event) => event.record_type === "task");
