@@ -72,9 +72,12 @@ export function createLocalDateStore(environment: LocalDateEnvironment): LocalDa
       };
     },
     getSnapshot() {
-      // 購読者がいない間はtimerが止まっているため、その場で読む。
-      if (listeners.size === 0) current = todayIso(environment.now());
-      return current;
+      // 描き直すたびに時計を読む。0時を跨いだ直後の操作（「やったことを記録」を開くなど）で、
+      // 60秒ごとの確認やfocusを待たずに当日を返す（前面のまま日付が変わると、どちらも来ない）。
+      // current は「購読者へ通知済みの日付」。render中には通知せず、次の check が全員へ知らせる。
+      const today = todayIso(environment.now());
+      if (listeners.size === 0) current = today;
+      return today;
     },
     check,
   };

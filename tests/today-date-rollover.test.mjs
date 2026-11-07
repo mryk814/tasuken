@@ -77,6 +77,24 @@ test("開きっぱなしで0時を跨ぐと、操作なしで翌日の日付を�
   unsubscribe();
 });
 
+test("前面のまま0時を跨いだ直後でも、描き直しでは当日を返し、次の確認で全員へ知らせる", () => {
+  // v0.1.83のrelease確認（packaged Activity smoke）で、Todayを開いたまま時計を翌日へ進めて
+  // 「やったことを記録」を開くと、実施日の既定値が前日のままだった。60秒の確認もfocusも来ないため。
+  const env = fakeEnvironment(new Date(2026, 7, 24, 12, 0));
+  const store = localDate.createLocalDateStore(env);
+  let notified = 0;
+  const unsubscribe = store.subscribe(() => notified++);
+  assert.equal(store.getSnapshot(), "2026-08-24");
+
+  env.time = new Date(2026, 7, 25, 12, 0);
+  assert.equal(store.getSnapshot(), "2026-08-25");
+  assert.equal(notified, 0, "render中には通知しない");
+  env.tick();
+  assert.equal(notified, 1, "他の購読者は次の確認で当日へ揃う");
+  assert.equal(store.getSnapshot(), "2026-08-25");
+  unsubscribe();
+});
+
 test("スリープ中にtimerが走らなくても、復帰・focusで当日へ揃える（#685）", () => {
   const env = fakeEnvironment(new Date(2026, 9, 29, 18, 0));
   const store = localDate.createLocalDateStore(env);
