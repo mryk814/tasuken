@@ -79,6 +79,16 @@
     },
     {
       "rule": "compatibility.consumer_added",
+      "source": "tests/headless-replica-check.test.mjs",
+      "target": "workspace-repository",
+      "reason": "#588 the NAS replica update check must judge real shared-folder packets and a real replica database, so the test drives the production SharedFolderSyncService between two temporary SQLite databases; no runtime consumer is added.",
+      "owner": "issue-588-synology-replica",
+      "issue": 588,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Use the public headless-database fixture factory once it exists."
+    },
+    {
+      "rule": "compatibility.consumer_added",
       "source": "tests/tasken-headless-core.test.mjs",
       "target": "workspace-repository",
       "reason": "#588 isolates the headless Core E2E on a temporary SQLite database to prove MCP reads stop cleanly without Electron; no runtime consumer is added.",

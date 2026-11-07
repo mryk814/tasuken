@@ -226,7 +226,8 @@
       "status": "report-only",
       "publicEntrypoints": [
         "src/main/headless/taskenHeadlessCore.ts",
-        "src/main/headless/main.ts"
+        "src/main/headless/main.ts",
+        "src/main/headless/replicaCheck.ts"
       ],
       "owner": "main-architecture"
     },

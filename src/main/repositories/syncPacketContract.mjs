@@ -1,6 +1,4 @@
-import { assertEntityType, validateEntity } from "../repositories/domain.mjs";
-
-export const SYNC_PACKET_FILE_PATTERN = /^\d{12}-[0-9a-f-]+\.json$/i;
+import { assertEntityType, validateEntity } from "./domain.mjs";
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
