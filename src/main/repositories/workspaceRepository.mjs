@@ -2332,6 +2332,32 @@ export class WorkspaceDatabase {
    */
   enqueueOrphanSyncRelays(availableDeviceIds) {
     return this.db.transaction(() => {
+      // 中継が要るのは、headが自端末の送信履歴になく（publishedでない）、作成端末の差分も
+      // 共有フォルダから消えたEntityだけ。起動後の最初の同期で走り、従来は送信履歴
+      // （実データ257MB）と全Entityを読んで1.6秒かかっていた。
+      // まず列だけで候補を絞る。自端末の通常の差分は revisionId = change_id なので、headが
+      // change_idにあれば必ず公開済み。作成端末（entities.device_id）のフォルダがあれば中継しない。
+      // 候補が残ったときだけ送信履歴を読み、従来と同じ判定をする。
+      const candidates = this.db
+        .prepare(
+          `
+        SELECT head.entity_type, head.entity_id, entity.device_id
+        FROM sync_entity_heads AS head
+        JOIN entities AS entity
+          ON entity.entity_type = head.entity_type AND entity.id = head.entity_id
+        WHERE head.revision_id <> ''
+          AND NOT EXISTS (SELECT 1 FROM sync_outbox AS outbox WHERE outbox.change_id = head.revision_id)
+      `,
+        )
+        .all()
+        .filter((row) => row.device_id === this.deviceId || !availableDeviceIds.has(row.device_id));
+      if (!candidates.length) return 0;
+      const candidateIds = new Map();
+      for (const row of candidates) {
+        if (!candidateIds.has(row.entity_type)) candidateIds.set(row.entity_type, new Set());
+        candidateIds.get(row.entity_type).add(row.entity_id);
+      }
+
       const published = new Set();
       const ownRevisions = new Map();
       const rows = this.db
@@ -2349,11 +2375,22 @@ export class WorkspaceDatabase {
       for (const row of rows) {
         published.add(row.revision_id);
         const key = `${row.entity_type}\u0000${row.entity_id}`;
-        ownRevisions.set(key, [...(ownRevisions.get(key) || []), row.revision_id]);
+        const revisions = ownRevisions.get(key);
+        if (revisions) revisions.push(row.revision_id);
+        else ownRevisions.set(key, [row.revision_id]);
       }
+      // 並びは従来どおり、種類ごと・updated_at の新しい順（中継の連番の付き方を変えない）。
+      // 中継はheadを書き換えないので、先に候補を選んでも結果は同じ。
+      const idsNewestFirst = this.db.prepare(
+        "SELECT id FROM entities WHERE entity_type = ? ORDER BY updated_at DESC",
+      );
       let count = 0;
       for (const type of workspaceEntityTypes) {
-        for (const entity of this.list(type, true)) {
+        const ids = candidateIds.get(type);
+        if (!ids) continue;
+        for (const { id } of idsNewestFirst.all(type)) {
+          if (!ids.has(id)) continue;
+          const entity = this.get(type, id, true);
           const head = this.syncHead(type, entity.id);
           if (!head || published.has(head)) continue;
           if (entity.device_id !== this.deviceId && availableDeviceIds.has(entity.device_id)) {
