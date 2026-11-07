@@ -12,7 +12,8 @@
 #
 # Tasken に固有のこと:
 # - 1つの image で、Core（tasken-headless）・tunnel（tasken-tunnel）・HTTP MCP（tasken-mcp-http）が
-#   動く。導入のときに今の配備から作った docker-compose.json のサービスを、まとめて止めて作り直す
+#   動く。導入のときに今の配備から作った docker-compose.json のサービスのうち、いま動いているものを
+#   まとめて止めて作り直す。止めてあるサービスは止めたまま触らない（SKIP_STOPPED）
 # - 版ずれ: Desktop（正本の書き手）と replica の契約は共有フォルダの同期差分で、SQLite の schema は
 #   端末の中だけのもの。新しい版が Desktop の書いた差分を読めなければ版ずれとみる。読めるかの判定は
 #   image の中の replica-check がする（このスクリプトは手で置き直すもので、DB や差分の作りを知らない）
@@ -27,7 +28,7 @@
 #   0 HEALTH_OK（ALREADY_RUNNING も）
 #   1 この commit の成果物が駄目（record・image・中身の不一致、検査が動かない）。何も変えていない
 #   2 環境の都合で始めなかった（LOCKED・NO_SPACE・INSECURE_PATH・SECRET_BAD・NOT_COMPOSE_MANAGED・
-#     SYNC_SKEW など）。何も変えていない。後でやり直せる
+#     CORE_NOT_RUNNING・SYNC_SKEW など）。何も変えていない。後でやり直せる
 #   3 RESTORED_PREVIOUS: image だけ戻した。データには触れていない
 #   4 RESTORE_FAILED: 前の版でも動かない（または DB を戻すと同期が壊れる）。人の手が要る
 #   5 RESTORED_PREVIOUS だが人が見るべき（DB を戻した、本番 DB の写しが検査に落ちた、止まらなかった）
@@ -218,11 +219,17 @@ elif what == "services":
     for name, svc in sorted(cfg.get("services", {}).items()):
         print(name, svc.get("container_name") or "-")
 elif what == "secrets":
+    # 入れ替えるサービス（引数の残り）が使う秘密だけ。止めたままのサービスの秘密は見ない。
+    wanted = set(sys.argv[3:])
+    top = cfg.get("secrets") or {}
     files = set()
-    for item in (cfg.get("secrets") or {}).values():
-        if isinstance(item, dict) and item.get("file"):
-            files.add(item["file"])
-    for svc in cfg.get("services", {}).values():
+    for name, svc in cfg.get("services", {}).items():
+        if name not in wanted:
+            continue
+        for ref in svc.get("secrets") or []:
+            item = top.get(ref.get("source") if isinstance(ref, dict) else ref) or {}
+            if isinstance(item, dict) and item.get("file"):
+                files.add(item["file"])
         for vol in svc.get("volumes") or []:
             if isinstance(vol, dict) and vol.get("type") == "bind":
                 src = vol.get("source", "")
@@ -230,7 +237,7 @@ elif what == "secrets":
                     files.add(src)
     for f in sorted(files):
         print(f)
-' "$1" "$DEPLOY_DIR" <<< "$cfg"
+' "$1" "$DEPLOY_DIR" "${@:2}" <<< "$cfg"
 }
 project=$(compose_py project)
 [ -n "$project" ] || { echo COMPOSE_CONFIG_FAILED; exit 2; }
@@ -246,15 +253,30 @@ core_in=0
 for i in "${!services[@]}"; do [ "${services[$i]}" = "$CORE" ] && [ "${containers[$i]}" = "$CORE" ] && core_in=1; done
 [ "$core_in" = 1 ] || { echo "NO_CORE_SERVICE $CORE"; exit 2; }
 
-# 動いているコンテナが、この compose の project・service のものか。違うと compose stop で止まらず
+# コンテナが、この compose の project・service のものか。違うと compose stop で止まらず
 # （STOP_FAILED）、戻すときの up も container_name の衝突で落ちて、毎回終了 4 になる。
-# compose にあるサービスは、すべて動いていること（入れ替えで、止めてあったものを起こさない）。
+# 入れ替えるのは、いま動いているサービスだけ。止めてあるサービス（本人が止めた HTTP MCP など）は
+# 止めたまま触らない（起こさない・作り直さない）。以後の services と containers は動いているものだけ。
+# Core は動いていること（止めてある Core を、更新で起こさない）。
+running_services=()
+running_containers=()
 for i in "${!services[@]}"; do
   c=${containers[$i]}
+  dk inspect "$c" >/dev/null 2>&1 || { echo "SKIP_ABSENT $c"; continue; }
   labels=$(dk inspect --format '{{index .Config.Labels "com.docker.compose.project"}}/{{index .Config.Labels "com.docker.compose.service"}}' "$c" 2>/dev/null || true)
   [ "$labels" = "$project/${services[$i]}" ] || { echo "NOT_COMPOSE_MANAGED $c running=$labels want=$project/${services[$i]}"; exit 2; }
-  [ "$(dk inspect --format '{{.State.Running}}' "$c" 2>/dev/null || true)" = true ] || { echo "SERVICE_NOT_RUNNING $c"; exit 2; }
+  if [ "$(dk inspect --format '{{.State.Running}}' "$c" 2>/dev/null || true)" = true ]; then
+    running_services+=("${services[$i]}")
+    running_containers+=("$c")
+  else
+    [ "$c" = "$CORE" ] && { echo "CORE_NOT_RUNNING $c"; exit 2; }
+    echo "SKIP_STOPPED $c（止めたまま入れ替える）"
+  fi
 done
+services=("${running_services[@]}")
+containers=("${running_containers[@]}")
+printf -v service_list '%s ' "${services[@]}"
+[[ " $service_list" == *" $CORE "* ]] || { echo "CORE_NOT_RUNNING $CORE"; exit 2; }
 
 # 秘密のファイルは、ホストの持ち主と mode がそのままコンテナに見える（NAS の docker-compose v2.20.1 は
 # compose に書いた uid・gid・mode を黙って無視する）。無いと止めた後の up が mount で落ちる。
@@ -266,7 +288,7 @@ while read -r s; do
     echo "SECRET_BAD ${s##*/}（TASKEN_UID=$uid の所有で 600 か 400 の、空でない通常のファイルにする）"
     exit 2
   fi
-done < <(compose_py secrets)
+done < <(compose_py secrets "${services[@]}")
 
 # replica-check の結果（最後の TASKEN_REPLICA_CHECK の行の JSON）から値を取り出す。
 check_value() { # json key（"." 区切り）
@@ -451,7 +473,7 @@ rollback() {
   fi
   local failed restoring restored=0
   if [ -d "$new_bk" ] && [ ! -L "$data" ]; then
-    compose stop >/dev/null 2>&1
+    compose stop "${services[@]}" >/dev/null 2>&1
     # 新しい版が共有フォルダへ差分を出していたら、DB を戻さない。戻した DB は出した差分を知らず、
     # 同じ連番で別の差分を出す。Desktop は連番で読むので、後の方を黙って読み飛ばす。
     if [ -z "$device_id" ] || [ "$(published_fp "$device_id")" != "$published_before" ]; then
@@ -497,7 +519,7 @@ trap on_exit EXIT
 
 echo STOP
 stopped=1
-compose stop >/dev/null
+compose stop "${services[@]}" >/dev/null
 # 止まったことを確かめてから写す。動いている DB を写すと、揃っていない写しになる。
 for c in "${containers[@]}"; do
   if [ "$(dk inspect --format '{{.State.Running}}' "$c" 2>/dev/null || true)" = true ]; then
@@ -537,7 +559,7 @@ echo "SYNC_BEFORE enabled=${sync_enabled_before:-unknown} error=${sync_error_bef
 cp -p "$CONF" "$CONF.before-$ts"
 set_images "$tag"
 echo RECREATE
-if ! compose up -d --no-build --pull never --force-recreate > "$DEPLOY_DIR/.compose.log" 2>&1; then
+if ! compose up -d --no-build --pull never --force-recreate "${services[@]}" > "$DEPLOY_DIR/.compose.log" 2>&1; then
   echo "COMPOSE_UP_FAILED $(tail -3 "$DEPLOY_DIR/.compose.log" | tr '\n' ' ')"
   exit 1
 fi
