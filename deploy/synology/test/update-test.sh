@@ -78,9 +78,13 @@ case "$1" in
   image) [ -f "$F/images/$5" ] && cat "$F/images/$5" || exit 1 ;;
   load) exit 0 ;;
   inspect)
+    if [ "$2" != --format ]; then [ ! -f "$F/absent_$2" ]; exit; fi # コンテナがあるか
     fmt=$3; name=$4
+    [ -f "$F/absent_$name" ] && exit 1
     [ "$(cat "$F/state")" = stopped ] && running=false || running=true
     [ "$name" = tasken-tunnel ] && [ -f "$F/tunnel_down" ] && running=false
+    [ "$name" = tasken-mcp-http ] && [ -f "$F/http_down" ] && running=false
+    [ "$name" = tasken-headless ] && [ -f "$F/core_down" ] && running=false
     [ "$name" = tasken-headless ] && core_dead && running=false
     case "$fmt" in
       '{{.Config.Image}}') image_of "$name" ;;
@@ -157,7 +161,7 @@ case "${1:-}" in
 {"name":"tasken","services":{
  "tasken-headless":{"container_name":"tasken-headless","image":"$TASKEN_IMAGE","volumes":[{"type":"bind","source":"$W/vol/state","target":"/data"}]},
  "tunnel-client":{"container_name":"tasken-tunnel","image":"$TASKEN_IMAGE","volumes":[{"type":"bind","source":"$D/secrets/control_plane_api_key","target":"/run/secrets/control_plane_api_key","read_only":true}]},
- "mcp-http":{"container_name":"tasken-mcp-http","image":"${TASKEN_IMAGE_MCP_HTTP:-$TASKEN_IMAGE}"}},
+ "mcp-http":{"container_name":"tasken-mcp-http","image":"${TASKEN_IMAGE_MCP_HTTP:-$TASKEN_IMAGE}","secrets":[{"source":"mcp_http_clients"}]}},
  "secrets":{"mcp_http_clients":{"file":"$D/secrets/mcp_http_clients"}}}
 JSON
     ;;
@@ -521,16 +525,43 @@ for bad in mode640 symlink missing empty owner; do
   expect "秘密（$bad）: SECRET_BAD・終了 2・止めない" '[ "$code" = 2 ] && [[ "$last" == SECRET_BAD* ]] && [ ! -f "$F/calls" ]'
 done
 
-# 14. 動いているコンテナが compose の外・止まっているサービスがあるなら始めない
+# 14. 動いているコンテナが compose の外なら始めない
 new_world
 record tasken:new14141414a sha256:new14
 echo synology/tasken-headless > "$F/labels_tasken-headless"
 run_update
 expect "compose の外のコンテナ: NOT_COMPOSE_MANAGED・終了 2・止めない" '[ "$code" = 2 ] && [[ "$last" == "NOT_COMPOSE_MANAGED tasken-headless running=synology/tasken-headless want=tasken/tasken-headless" ]] && [ ! -f "$F/calls" ]'
+
+# 15. 止めてあるサービス（本人が止めた HTTP MCP など）は、止めたまま入れ替える（起こさない・作り直さない）
 new_world
-record tasken:new14b14b14b sha256:new14b
+record tasken:new15151515a sha256:new15
+touch "$F/http_down"
+echo sha256:old000000000 > "$F/img_tasken-mcp-http"
+rm "$D/secrets/mcp_http_clients" # 止めたままのサービスの秘密は見ない
+run_update
+expect "止めてある HTTP MCP: 終了 0・SKIP_STOPPED" '[ "$code" = 0 ] && grep -q "^SKIP_STOPPED tasken-mcp-http" <<< "$out"'
+expect "止めてある HTTP MCP: 止めるのも作り直すのも Core と tunnel だけ" 'grep -q "^stop .* stop tasken-headless tunnel-client" "$F/calls" && grep -q "^up tasken:new15151515a tasken-headless tunnel-client " "$F/calls" && ! grep -q "mcp-http" "$F/calls"'
+expect "止めてある HTTP MCP: 触らない（image も health も）" '[ "$(cat "$F/img_tasken-mcp-http")" = sha256:old000000000 ] && ! grep -q "^tasken-mcp-http" "$F/exec_calls"'
+new_world
+record tasken:new15b15b15b sha256:new15b
+touch "$F/http_down"
+echo tasken:new15b15b15b > "$F/bad"
+run_update
+expect "止めてある HTTP MCP: 戻すときも起こさない" '[ "$code" = 3 ] && grep -q "^up sha256:old000000000 tunnel-client " "$F/calls" && ! grep -q "mcp-http" "$F/calls"'
+new_world
+record tasken:new15c15c15c sha256:new15c
 touch "$F/tunnel_down"
 run_update
-expect "止めてある tunnel: SERVICE_NOT_RUNNING・終了 2・起こさない" '[ "$code" = 2 ] && [ "$last" = "SERVICE_NOT_RUNNING tasken-tunnel" ] && [ ! -f "$F/calls" ]'
+expect "止めてある tunnel: 止めたまま入れ替える" '[ "$code" = 0 ] && grep -q "^SKIP_STOPPED tasken-tunnel" <<< "$out" && ! grep -q "tunnel-client" "$F/calls"'
+new_world
+record tasken:new15d15d15d sha256:new15d
+touch "$F/absent_tasken-mcp-http"
+run_update
+expect "まだ作られていない HTTP MCP: 作らずに入れ替える" '[ "$code" = 0 ] && grep -q "^SKIP_ABSENT tasken-mcp-http" <<< "$out" && ! grep -q "mcp-http" "$F/calls"'
+new_world
+record tasken:new15e15e15e sha256:new15e
+touch "$F/core_down"
+run_update
+expect "止めてある Core: 起こさずに始めない（終了 2）" '[ "$code" = 2 ] && [[ "$last" == "CORE_NOT_RUNNING tasken-headless" ]] && [ ! -f "$F/calls" ]'
 
 if [ "$fails" = 0 ]; then echo ALL_PASSED; else echo "FAILED $fails"; exit 1; fi
