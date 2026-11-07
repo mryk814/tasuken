@@ -162,3 +162,18 @@ test("snapshot preview projects nested incoming/local media and apply workspace 
     projection.projectWorkspaceForRenderer({ artifacts: [artifact], change_events: [event] }),
   );
 });
+
+test("mediaを含まない前後の写しは解析せずにそのまま渡し、uエスケープで書いたキーも伏字にする", () => {
+  const plain = '{ "id": "note", "title": "メモ" }';
+  const projected = projection.projectEntityForRenderer("change_event", {
+    ...event,
+    before_json: plain,
+    after_json: JSON.stringify(artifact).replace(
+      '"media_kind"',
+      `"media${String.fromCharCode(92)}u005fkind"`,
+    ),
+  });
+  assert.equal(projected.before_json, plain);
+  assertNoPrivateMediaPath(projected);
+  assert.equal(JSON.parse(projected.after_json).filename, "voice.wav");
+});
