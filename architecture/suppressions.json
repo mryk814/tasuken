@@ -119,6 +119,16 @@
     },
     {
       "rule": "compatibility.consumer_added",
+      "source": "tests/automatic-snapshot-backup.test.mjs",
+      "target": "workspace-repository",
+      "reason": "#690 the automatic backup copies the production SQLite file through the backup API, so its test must back up, reopen and rotate real temporary databases; no runtime consumer is added.",
+      "owner": "issue-690-workspace-performance",
+      "issue": 690,
+      "expiresAt": "2026-12-31",
+      "removalCondition": "Use the public headless-database fixture factory once it exists."
+    },
+    {
+      "rule": "compatibility.consumer_added",
       "source": "tests/repository-read-indexes.test.mjs",
       "target": "workspace-repository",
       "reason": "#690 the performance indexes must return exactly the rows of the previous full scans, which only the production SQLite repository on a temporary database can prove; no runtime consumer is added.",
