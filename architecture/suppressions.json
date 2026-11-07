@@ -89,6 +89,46 @@
     },
     {
       "rule": "compatibility.consumer_added",
+      "source": "scripts/perf-workspace-bench.mjs",
+      "target": "workspace-repository",
+      "reason": "#690 the manual benchmark measures main-side reads, saves and sync work against a backup-API copy of real data, so it opens the production WorkspaceDatabase on a temporary copy; it never opens the user's profile and adds no runtime consumer.",
+      "owner": "issue-690-workspace-performance",
+      "issue": 690,
+      "expiresAt": "2026-12-31",
+      "removalCondition": "Use the public headless-database fixture factory once it exists."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "scripts/perf-desktop-bench.mjs",
+      "target": "generic-entity-api",
+      "reason": "#690 the manual Electron benchmark replays the renderer's own Note save (entities.saveMany with an activity event) against a copy of real data to measure the round trip; it adds no runtime consumer.",
+      "owner": "issue-690-workspace-performance",
+      "issue": 690,
+      "expiresAt": "2026-12-31",
+      "removalCondition": "Measure Note saves through a Note capability once the renderer save path moves off the generic entity API."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "scripts/perf-desktop-bench.mjs",
+      "target": "global-workspace-snapshot",
+      "reason": "#690 the manual Electron benchmark measures the full workspace reload that the renderer still performs after delete, restore and work-log writes; it adds no runtime consumer.",
+      "owner": "issue-690-workspace-performance",
+      "issue": 690,
+      "expiresAt": "2026-12-31",
+      "removalCondition": "Remove the reload measurement when the renderer no longer reloads the global workspace snapshot."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "tests/repository-read-indexes.test.mjs",
+      "target": "workspace-repository",
+      "reason": "#690 the performance indexes must return exactly the rows of the previous full scans, which only the production SQLite repository on a temporary database can prove; no runtime consumer is added.",
+      "owner": "issue-690-workspace-performance",
+      "issue": 690,
+      "expiresAt": "2026-12-31",
+      "removalCondition": "Use the public headless-database fixture factory once it exists."
+    },
+    {
+      "rule": "compatibility.consumer_added",
       "source": "tests/tasken-headless-core.test.mjs",
       "target": "workspace-repository",
       "reason": "#588 isolates the headless Core E2E on a temporary SQLite database to prove MCP reads stop cleanly without Electron; no runtime consumer is added.",

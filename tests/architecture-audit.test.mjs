@@ -284,11 +284,11 @@ test("production audit is deterministic and keeps temporary composition growth v
     assert.equal(first.stdout, second.stdout);
     const report = JSON.parse(first.stdout);
     assert.equal(report.mode, "report-only");
-    assert.equal(report.summary.newFindings, 18);
-    assert.equal(report.summary.suppressedFindings, 18);
+    assert.equal(report.summary.newFindings, 22);
+    assert.equal(report.summary.suppressedFindings, 22);
     assert.equal(report.summary.blockingFindings, 0);
     const newFindings = report.findings.filter((entry) => !entry.baseline);
-    assert.equal(newFindings.length, 18);
+    assert.equal(newFindings.length, 22);
     assert.equal(
       newFindings.every((entry) => entry.suppressed && entry.suppression?.issue),
       true,
@@ -306,13 +306,16 @@ test("production audit is deterministic and keeps temporary composition growth v
         ["src/shared/ipc/contracts.ts", true, 407],
       ],
     );
-    assert.equal(report.summary.newCompatibilityConsumers, 12);
+    assert.equal(report.summary.newCompatibilityConsumers, 16);
     assert.deepEqual(
       newFindings
         .filter((entry) => entry.ruleId === "compatibility.consumer_added")
         .map((entry) => [entry.source, entry.target, entry.suppressed, entry.suppression?.issue]),
       [
         ["scripts/agent-work-log-electron-smoke.mjs", "generic-entity-api", true, 629],
+        ["scripts/perf-desktop-bench.mjs", "generic-entity-api", true, 690],
+        ["scripts/perf-desktop-bench.mjs", "global-workspace-snapshot", true, 690],
+        ["scripts/perf-workspace-bench.mjs", "workspace-repository", true, 690],
         ["src/main/headless/taskenHeadlessCore.ts", "workspace-repository", true, 588],
         ["src/main/headless/taskenHeadlessCore.ts", "workspace-service", true, 588],
         ["src/main/services/workspaceService.ts", "generic-task-write", true, 405],
@@ -328,6 +331,7 @@ test("production audit is deterministic and keeps temporary composition growth v
         ["tests/ai-task-start.test.mjs", "workspace-repository", true, 588],
         ["tests/headless-replica-check.test.mjs", "workspace-repository", true, 588],
         ["tests/helpers/mobile-offline-gateway.mjs", "workspace-repository", true, 537],
+        ["tests/repository-read-indexes.test.mjs", "workspace-repository", true, 690],
         ["tests/tasken-headless-core.test.mjs", "workspace-repository", true, 588],
       ],
     );
