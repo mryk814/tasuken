@@ -16,6 +16,7 @@ import {
   splitQuickCaptureInput,
 } from "../shared/quickCapture.mjs";
 import { canonicalThemeId } from "../shared/themeRef.mjs";
+import { changeEventCommandIdsWithPrefix } from "../shared/activityEvent.mjs";
 import {
   buildDoneTaskArtifacts,
   normalizeDoneTaskAttachments,
@@ -187,11 +188,10 @@ export function createQuickCaptureController(
       value && typeof value === "object" ? Reflect.get(value, "submissionId") : undefined;
     const identity = z.uuid().safeParse(rawId);
     const existingCommandIds = identity.success
-      ? new Set(
-          (options.repository.list("change_event", true) as Entity[])
-            .map((event) => String(event.command_id || ""))
-            .filter((id) => id.startsWith(`${identity.data}-command-`)),
-        )
+      ? (changeEventCommandIdsWithPrefix(
+          options.repository,
+          `${identity.data}-command-`,
+        ) as Set<string>)
       : new Set<string>();
     const hasExistingTask =
       identity.success &&

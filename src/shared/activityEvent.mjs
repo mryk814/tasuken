@@ -544,6 +544,31 @@ export function isStructuredActivityEvent(value) {
   );
 }
 
+/**
+ * command_id が一致するActivity Event（削除済みを含む）を、list("change_event", true) と同じ並びで返す。
+ * 正本（WorkspaceDatabase）は索引で引く。list() しか持たない入れ物（transactionの窓口やテストの代役）は
+ * 従来どおり全件から探す。冪等性の確認はApplication Commandのたびに走るので、全件を読まないこと。
+ */
+export function changeEventsForCommand(store, commandId) {
+  if (typeof store?.listChangeEventsByCommandId === "function") {
+    return store.listChangeEventsByCommandId(commandId);
+  }
+  return store.list("change_event", true).filter((event) => event.command_id === commandId);
+}
+
+/** prefix で始まる command_id の集まり（削除済みのEventを含む）。 */
+export function changeEventCommandIdsWithPrefix(store, prefix) {
+  if (typeof store?.changeEventCommandIdsWithPrefix === "function") {
+    return store.changeEventCommandIdsWithPrefix(prefix);
+  }
+  return new Set(
+    store
+      .list("change_event", true)
+      .map((event) => String(event.command_id || ""))
+      .filter((id) => id.startsWith(prefix)),
+  );
+}
+
 export function activityEventDedupeKey(event) {
   const metadata = isObject(event?.metadata) ? event.metadata : {};
   if (text(metadata.dedupe_key)) return text(metadata.dedupe_key);

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { normalizeAiVisibility, resolveAiVisibility } from "../../shared/aiMetadata.mjs";
+import { changeEventCommandIdsWithPrefix } from "../../shared/activityEvent.mjs";
 import { canonicalThemeId } from "../../shared/themeRef.mjs";
 import type { CommandEnvelope, CommandReceipt } from "../../shared/applicationCommand";
 import type { Entity } from "../../shared/types/workspace";
@@ -112,11 +113,9 @@ export class SavedCaptureOrganizer {
   save(value: unknown) {
     const submission = savedCaptureOrganizationSubmissionSchema.parse(value);
     const { submissionId, issuedAt, captureId, captureVersion, tasks, warnings } = submission;
-    const existing = new Set(
-      this.options.repository
-        .list("change_event", true)
-        .map((event) => String(event.command_id || ""))
-        .filter((id) => id.startsWith(`${submissionId}-command-`)),
+    const existing: Set<string> = changeEventCommandIdsWithPrefix(
+      this.options.repository,
+      `${submissionId}-command-`,
     );
     if (
       existing.size &&

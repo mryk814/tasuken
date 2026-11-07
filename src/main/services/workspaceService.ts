@@ -108,6 +108,7 @@ import { referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
 import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs";
 import { reconcileStableLinkAssertions } from "../../shared/stableLinks.mjs";
 import { queryActivityEvents } from "../../shared/activityProjection.mjs";
+import { changeEventsForCommand } from "../../shared/activityEvent.mjs";
 import { normalizeAiVisibility } from "../../shared/aiMetadata.mjs";
 import {
   previewTaskCoding,
@@ -986,9 +987,10 @@ export class WorkspaceService {
   ): WorkLogLifecycleReceipt {
     const command = normalizeWorkLogLifecycleCommand(value);
     const fingerprint = workLogLifecycleFingerprint(command, actor);
-    const previous = this.repository
-      .list("change_event", true)
-      .find((event) => event.command_id === command.commandId);
+    const previous: Record<string, unknown> | undefined = changeEventsForCommand(
+      this.repository,
+      command.commandId,
+    )[0];
     if (previous) {
       if (previous.command_fingerprint !== fingerprint || previous.command_name !== command.name)
         throw new ApplicationCommandError(
