@@ -156,6 +156,11 @@ import { findCoreClient } from "./coreClientTokens.mjs";
 
 const LOOPBACK_HOST = "127.0.0.1";
 // Token-free origin for read-only clients; the full token stays in discovery only.
+// It lives in a folder of its own so that a reader in another container (awai on
+// the NAS) can be given that folder alone. Core replaces the file by rename, so a
+// reader needs the folder rather than the file, and userData itself holds the
+// full-token discovery file and the database.
+const TASKEN_CORE_ENDPOINT_DIR = "core-endpoint";
 const TASKEN_CORE_ENDPOINT_FILE = "tasken-core-endpoint.json";
 // Read-only clients may call query routes, but not proposal state.
 const READ_CLIENT_DENIED_QUERY_PATHS = new Set([
@@ -534,7 +539,11 @@ export class TaskenCoreHost {
   constructor(options: TaskenCoreHostOptions) {
     this.options = options;
     this.discoveryPath = path.join(options.userDataPath, TASKEN_CORE_DISCOVERY_FILE);
-    this.endpointPath = path.join(options.userDataPath, TASKEN_CORE_ENDPOINT_FILE);
+    this.endpointPath = path.join(
+      options.userDataPath,
+      TASKEN_CORE_ENDPOINT_DIR,
+      TASKEN_CORE_ENDPOINT_FILE,
+    );
   }
 
   enableAiItemCreation(provider: QueryProvider<AiItemCreationRequest, AiItemCreationResponse>) {

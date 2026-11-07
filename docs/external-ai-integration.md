@@ -153,7 +153,7 @@ node scripts/tasken-core-client.mjs revoke awai                                 
 ```
 
 - 通るのは`/v1/queries/*`と`/v1/task/query`の読み取りだけです。Proposalの状態（`get-proposal-status`、`list-proposals`）と、書き込み・Proposal作成の`/v1/commands/*`・`/v1/task/command`は`403 READ_ONLY_CLIENT`になります。
-- Coreのポートは起動ごとに変わります。接続先は、tokenを含まない`<userData>/tasken-core-endpoint.json`の`origin`から読みます。全権tokenを含む`tasken-core.json`は読まないでください。
+- Coreのポートは起動ごとに変わります。接続先は、tokenを含まない`<userData>/core-endpoint/tasken-core-endpoint.json`の`origin`から読みます。全権tokenを含む`tasken-core.json`は読まないでください。別のコンテナの読み手（NAS の awai）には、`core-endpoint/`のフォルダだけを読み取りで渡します（Coreはファイルをrenameで置き直すので、ファイルだけを渡すと古い中身が見え続けます）。
 - tokenはuserDataの`tasken-core-clients.json`にSHA-256だけが保存されます。取り消しはCoreの再起動なしで反映されます。再発行は取り消してから行います。
 - Windows PowerShell 5の`>`はUTF-16で書くため、Git BashかPowerShell 7で実行してください。
 

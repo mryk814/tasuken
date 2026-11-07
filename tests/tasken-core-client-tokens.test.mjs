@@ -129,13 +129,17 @@ test("wrong and revoked client tokens are refused at once", async (t) => {
 
 test("Core publishes a token-free endpoint file for read-only clients", async (t) => {
   await withHost(t, async ({ host, userDataPath, origin }) => {
-    const endpointPath = path.join(userDataPath, "tasken-core-endpoint.json");
+    // A folder of its own, so a reader can be handed it without the full-token
+    // discovery file and the database beside it in userData.
+    const endpointDir = path.join(userDataPath, "core-endpoint");
+    const endpointPath = path.join(endpointDir, "tasken-core-endpoint.json");
     const endpoint = JSON.parse(await fs.readFile(endpointPath, "utf8"));
     assert.equal(endpoint.origin, origin);
     assert.equal(endpoint.api_version, "1");
     assert.equal(endpoint.pid, process.pid);
     assert.equal("token" in endpoint, false);
     assert.doesNotMatch(await fs.readFile(endpointPath, "utf8"), /token/);
+    assert.deepEqual(await fs.readdir(endpointDir), ["tasken-core-endpoint.json"]);
 
     await host.stop();
     await assert.rejects(fs.access(endpointPath));
