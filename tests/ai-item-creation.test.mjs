@@ -12,6 +12,7 @@ import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.
 import { SharedFolderSyncService } from "../src/main/services/sharedFolderSync.mjs";
 import { TaskenCoreClient } from "../src/main/mcp/taskenCoreClient.mjs";
 import { canonicalMarkdownBindingFromProperties } from "../src/shared/canonicalMarkdown.mjs";
+import { createHash } from "node:crypto";
 
 const bundles = fs.mkdtempSync(path.join(process.cwd(), ".ai-creation-test-"));
 after(() => fs.rmSync(bundles, { recursive: true, force: true }));
@@ -280,6 +281,100 @@ test("creation-only replica joins while empty and publishes personal Task/Note t
     assert.equal(host.get("note", note.entity.id).body_markdown, request("note").body);
     assert.deepEqual(host.get("task", task.entity.id).ai_creation, task.entity.ai_creation);
     assert.equal(host.get("note", note.entity.id).ai_seen_at, null);
+  } finally {
+    await core?.stop();
+    await sync.stop();
+    host.db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Desktop と NAS の replica が読み合う、AI 作成の Task・Note の差分の形。replica はプル型で、main に
+// 入ってから 5 分で新しい形を書き始めるが、Desktop は本人が上げるまで古いまま。形を変えると、古い
+// Desktop が replica の差分を取り込めず止まりうる。形が変わったら、入れる前に一言の印を立てる
+// （本人の判断、2026-11-08）。その印を、人の注意ではなくこの試験で求める。
+const AI_ITEM_CONTRACT = path.resolve("contracts/sync/ai-item-packets.json");
+const VARIABLE_TEXT = [
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i, // ID（note:<id> のように途中に含むものも）
+  /^\d{4}-\d{2}-\d{2}([T ][\d:.]+(Z|[+-]\d{2}:?\d{2})?)?$/, // 日付・時刻
+  /^[0-9a-f]{32,}$/i, // 要約値
+];
+/** キーと型の一覧。文字列は、ID・時刻・入力の文・path でなければ値まで写す（列挙の値の変化も拾う）。 */
+function packetShape(value, inputs, prefix = "$", out = new Set()) {
+  if (value === null) out.add(`${prefix}: null`);
+  else if (Array.isArray(value)) {
+    out.add(`${prefix}: array`);
+    for (const item of value) packetShape(item, inputs, `${prefix}[]`, out);
+  } else if (typeof value === "object") {
+    out.add(`${prefix}: object`);
+    for (const key of Object.keys(value).sort())
+      packetShape(value[key], inputs, `${prefix}.${key}`, out);
+  } else if (typeof value === "string") {
+    const variable =
+      inputs.has(value) || path.isAbsolute(value) || VARIABLE_TEXT.some((re) => re.test(value));
+    out.add(variable ? `${prefix}: string` : `${prefix}: string=${JSON.stringify(value)}`);
+  } else if (typeof value === "boolean") out.add(`${prefix}: boolean=${value}`);
+  else out.add(`${prefix}: ${typeof value}`);
+  return out;
+}
+
+test("AI 作成の Task・Note の差分の形が変わったら、contracts/sync/ai-item-packets.json に印が要る", async () => {
+  const dir = temporary();
+  const hostDirectory = path.join(dir, "desktop");
+  fs.mkdirSync(hostDirectory);
+  const host = open(hostDirectory);
+  const shared = path.join(dir, "shared");
+  const sync = new SharedFolderSyncService(host, () => {}, path.join(hostDirectory, "images"));
+  let core;
+  try {
+    await sync.configure(shared);
+    core = await startTaskenHeadlessCore({
+      userDataPath: path.join(dir, "replica"),
+      syncDirectory: shared,
+      writeMode: "create-only",
+    });
+    const client = new TaskenCoreClient({ userDataPath: path.join(dir, "replica") });
+    const task = await client.createAiItem(request("task", "contract-task"));
+    const note = await client.createAiItem(request("note", "contract-note"));
+    await core.syncNow();
+    // replica が共有フォルダへ実際に出したファイル（各 Entity の最後の差分）
+    const replicaDevice = fs
+      .readdirSync(path.join(shared, "devices"))
+      .find((name) => name !== host.deviceId);
+    const deviceDirectory = path.join(shared, "devices", replicaDevice);
+    const packets = fs
+      .readdirSync(deviceDirectory)
+      .filter((name) => name.endsWith(".json"))
+      .sort()
+      .map((name) => JSON.parse(fs.readFileSync(path.join(deviceDirectory, name), "utf8")));
+    const latest = (id) => packets.filter((packet) => packet.entityId === id).at(-1);
+    const inputs = new Set([
+      ...Object.values(request("task", "contract-task")),
+      ...Object.values(request("note", "contract-note")),
+    ]);
+    const shape = {
+      task: [...packetShape(latest(task.entity.id), inputs)].sort(),
+      note: [...packetShape(latest(note.entity.id), inputs)].sort(),
+    };
+    const digest = createHash("sha256").update(JSON.stringify(shape)).digest("hex");
+    const contract = fs.existsSync(AI_ITEM_CONTRACT)
+      ? JSON.parse(fs.readFileSync(AI_ITEM_CONTRACT, "utf8"))
+      : { shape: null, flags: [] };
+    const flag = contract.flags.at(-1);
+    const howTo = [
+      "AI 作成の Task・Note の差分の形（Desktop と NAS の replica が読み合う形）が変わった。",
+      "replica は main に入ってから 5 分でこの形を書き始め、Desktop は本人が上げるまで古いまま。",
+      "入れる前に、古い Desktop がこの形を取り込めるか（Desktop を先に上げる必要があるか）を決め、",
+      `${path.relative(process.cwd(), AI_ITEM_CONTRACT)} の shape を下の新しい形にし、flags の末尾に`,
+      `{ "date": "YYYY-MM-DD", "shape_sha256": "${digest}", "desktop_first": true|false, "note": "何が変わったか" }`,
+      "を足す。PR の本文にも同じ一言を書く。",
+      `新しい形: ${JSON.stringify(shape, null, 2)}`,
+    ].join("\n");
+    assert.deepEqual(contract.shape, shape, howTo);
+    assert.equal(flag?.shape_sha256, digest, howTo);
+    assert.equal(typeof flag.desktop_first, "boolean", howTo);
+    assert.ok(typeof flag.note === "string" && flag.note.trim().length >= 10, howTo);
+    assert.match(String(flag.date), /^\d{4}-\d{2}-\d{2}$/, howTo);
   } finally {
     await core?.stop();
     await sync.stop();
