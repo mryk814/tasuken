@@ -152,24 +152,24 @@ npm run release:check
 インストール版とportable版はいずれもElectronの`userData`配下に
 `research-desk.sqlite`を保存します。通常起動の30秒後には、Settingsで指定した保存先へ
 このデータベースの写し（`tasken-auto-<日時>-<id>.sqlite`）を自動作成し、既定5世代をローテーション保持します。
+写しは圧縮しないので、1世代がデータベースと同じ大きさ（2026-11時点で約490MB）になります。
 保存先・有効/無効・世代数はSettingsの「詳細」で変更でき、同じ場所から今すぐ作成できます。
 2026-11より前の版が作った`tasken-auto-*.zip`は世代に数えず、自動では消しません。
-端末間移行や任意の時点を残す場合は、手動のWorkspace Snapshot書き出しを使用してください。
+節目の状態を残すときは、「今すぐ作成」でできた写しを別の場所へコピーしておきます。
+手動のWorkspace Snapshot（ZIP）は、今のデータ量では読み込みの上限（1ファイル10MB・全体50MB）を超えるため、戻す手段にしません。
 
 ### 自動バックアップから戻す
 
-Settingsの「詳細」→「バックアップを読み込む」で`Backups\tasken-auto-<日時>-<id>.sqlite`を選ぶ。
-今のデータと内容が違う行だけが一覧に出るので、戻す行を「既存を更新」などに切り替えて「選択内容を反映」する。
-同じ内容の行は一覧に出さず、件数だけを示す。正本のファイルは置き換えないので、端末間同期はそのまま続く。
-
-Taskenが起動しないときだけ、ファイルを差し替える。
+写しは同期の状態や設定まで含めた正本そのものなので、ファイルを差し替えて戻します。
 
 1. Taskenを終了する（トレイに残っていればトレイのメニューから終了）。
 2. `%APPDATA%\tasken`の`research-desk.sqlite`と、あれば`research-desk.sqlite-wal`・`research-desk.sqlite-shm`を、別のフォルダへ移す（消さない）。
-3. 戻したい写しを、`%APPDATA%\tasken\research-desk.sqlite`という名前でコピーして起動する。
+3. 戻したい`Backups\tasken-auto-<日時>-<id>.sqlite`を、`%APPDATA%\tasken\research-desk.sqlite`という名前でコピーする。
+4. Taskenを起動する。
 
+- 2と3の間にTaskenを起動しない。空のデータベースが作られる（自動バックアップは空の作業台では作らないので、世代は消えない）。
 - `-wal`を残したまま差し替えない。古いWALが写しに当てられて壊れる。
-- 差し替えると端末間同期の通し番号が写しの時点へ巻き戻り、それより後に共有フォルダへ出た差分と重なって他の端末へ届かなくなることがある。写しの設定のまま起動直後に同期が始まるので、端末間同期を使っているときは差し替えを最後の手段にする。
+- 端末間同期を使っている場合、差し替えると同期の通し番号が写しの時点へ巻き戻り、それより後に共有フォルダへ出た差分と重なって、他の端末（NASのreplica）へ届かなくなることがある。写しの設定のまま起動直後に同期が始まる。差し替える前に、どう戻すかを決めておく。
 
 複数端末で継続利用する場合は、主端末のSettingsで「端末間同期」の共有フォルダを設定し、
 空のTaskenを起動した別端末で同じフォルダを選びます。
@@ -185,7 +185,7 @@ NASの開始専用権限は`task.start_work`です。本人の個人業務のAI 
 - Timeline: テーマ横断の長期ガントとマイルストーン一覧
 - Themes / Notes（URL・コメントを含む）/ Waiting
 - Context / Agent連携: MCP・Context Preview / Pack、外部AgentからのProposal差分確認、JSON / YAML / Markdownの書き出し
-- Workspace Snapshot: 復元検証付きの起動時自動世代バックアップ、手動ZIP書き出し、差分プレビュー、競合選択付きImport
+- 自動バックアップ: 起動後に正本データベースの写しを作り、確かめてから世代を入れ替える
 - Theme Status / Plan Revision / 情報源管理 / Settings
 - Knowledge / Context Graph / MCP: 既存Knowledge・Relationの診断、read-only context、Preview必須のSafe Write Proposal。Context GraphとAI ContextはKnowledge画面の手動整理に依存しない
 
@@ -197,7 +197,7 @@ NASの開始専用権限は`task.start_work`です。本人の個人業務のAI 
 4. `Timeline` で長期予定を調整します。バー移動・リサイズ、依存線、計画進捗と実進捗の差分を示すイナズマ線を利用できます。
 5. 会議・実験・AI壁打ちは `Notes`、成果物は `Links`、外部待ちは `Waiting` に残します。
 6. 週次レビューやAIへの相談時は `AI Import / Export` で範囲と形式を選んでコピーします。
-7. `Settings` の「詳細」で自動バックアップの保存先と最新結果を確認します。節目では手動Snapshotも書き出します。
+7. `Settings` の「詳細」で自動バックアップの保存先と最新結果を確認します。節目では「今すぐ作成」でできた写しを別の場所へコピーします。
 
 開発時の作業・検証は [AGENTS.md](./AGENTS.md)、設計・保存の境界は [設計・データ契約](./docs/engineering-contracts.md)、未完了の作業は [GitHub Issues](https://github.com/mryk814/tasuken/issues) を参照してください。
 Knowledge ModelとAI/MCP連携の次期方針は [`knowledge-mcp-policy.md`](./docs/knowledge-mcp-policy.md) を参照してください。

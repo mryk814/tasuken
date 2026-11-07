@@ -14,20 +14,24 @@ import type {
  * 1ファイル10MB・全体50MBの読み込み上限に当たり、2026-10-06以降の起動では毎回失敗していた
  * （実データでchange_events.jsonが137MB）。失敗するまでにも起動時のMainを約3秒止めていた。
  * SQLiteのbackupは同期の状態や設定まで含めて写せて、上限もなく、小分けに進むのでMainをほぼ止めない。
- * 手動のSnapshot（ZIP）による移行・差分取り込みはこれまでどおり別にある。
+ * 戻すときは、Taskenを終了して写しを正本の名前でコピーする（README）。
  */
-const AUTOMATIC_BACKUP_PATTERN = /^tasken-auto-\d{8}T\d{9}Z-[0-9a-f]{8}\.sqlite$/;
+const AUTOMATIC_BACKUP_PATTERN = /^tasken-auto-(\d{8}T\d{9}Z)-[0-9a-f]{8}\.sqlite$/;
 /** 終了や失敗で残った作成途中のファイル。自分が作る名前だけを片付ける。 */
 const AUTOMATIC_BACKUP_TEMPORARY_PATTERN =
   /^\.tasken-auto-\d{8}T\d{9}Z-[0-9a-f]{8}\.sqlite\.tmp(?:-journal|-wal|-shm)?$/;
 
 export interface AutomaticBackupDatabase {
-  /** 正本の件数（削除済みを含む）。0なら空の作業台として保存しない。 */
+  /** 正本の件数（削除済みを含む）。写しの確認に使う。 */
   entityCount(): number;
+  /** 本人が作ったEntityの件数。0なら空の作業台として保存しない（自動の既定Themeは数えない）。 */
+  userEntityCount(): number;
+  /** 正本のWorkspace ID。別のWorkspaceの写しは世代の入れ替えで消さない。 */
+  workspaceId(): string;
   /** 正本の一貫した写しを filePath へ書く。shouldAbort が true を返したら途中でやめて投げる。 */
   backupTo(filePath: string, shouldAbort: () => boolean): Promise<void>;
-  /** 写しを開き直して件数を返す。Taskenの正本として開けなければ投げる。 */
-  inspectBackup(filePath: string): { entityCount: number };
+  /** 写しを開き直して件数とWorkspace IDを返す。Taskenの正本として開けなければ投げる。 */
+  inspectBackup(filePath: string): { entityCount: number; workspaceId: string };
 }
 
 interface AutomaticSnapshotBackupOptions extends AutomaticSnapshotBackupConfig {
@@ -55,6 +59,11 @@ function timestamp(date: Date): string {
   return date.toISOString().replaceAll("-", "").replaceAll(":", "").replace(".", "");
 }
 
+/** ファイル名の時刻（20261107T140508945Z）をISO形式に戻す。 */
+function isoFromFileTimestamp(value: string): string {
+  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T${value.slice(9, 11)}:${value.slice(11, 13)}:${value.slice(13, 15)}.${value.slice(15, 18)}Z`;
+}
+
 class BackupCancelledError extends Error {}
 
 export class AutomaticSnapshotBackupService {
@@ -65,6 +74,7 @@ export class AutomaticSnapshotBackupService {
   private config: AutomaticSnapshotBackupConfig;
   private running: Promise<AutomaticSnapshotBackupStatus> | null = null;
   private cancelRequested = false;
+  private closed = false;
   private runtime: Omit<AutomaticSnapshotBackupStatus, keyof AutomaticSnapshotBackupConfig> = {
     lastAttemptAt: "",
     lastSuccessAt: "",
@@ -96,9 +106,10 @@ export class AutomaticSnapshotBackupService {
     return { ...this.config, ...this.runtime };
   }
 
-  /** 実行中なら同じ結果を待つ。同時に2つの写しを作らない。 */
+  /** 実行中なら同じ結果を待つ。同時に2つの写しを作らない。終了の後は作らない。 */
   run(trigger: AutomaticSnapshotTrigger = "manual"): Promise<AutomaticSnapshotBackupStatus> {
     if (this.running) return this.running;
+    if (this.closed) return Promise.resolve(this.status());
     this.cancelRequested = false;
     this.running = this.runOnce(trigger).finally(() => {
       this.running = null;
@@ -106,8 +117,12 @@ export class AutomaticSnapshotBackupService {
     return this.running;
   }
 
-  /** 終了時に呼ぶ。作成途中の写しを止めて片付け終わるまで待つ。完成済みの世代には触れない。 */
+  /**
+   * 終了時に呼ぶ。作成途中の写しを止めて片付け終わるまで待つ。完成済みの世代には触れない。
+   * 以後の run（起動30秒後のタイマーなど）は何もしない。
+   */
   async cancel(): Promise<void> {
+    this.closed = true;
     if (!this.running) return;
     this.cancelRequested = true;
     await this.running.catch(() => undefined);
@@ -127,7 +142,9 @@ export class AutomaticSnapshotBackupService {
     const directory = this.config.directory;
     let temporaryPath = "";
     try {
-      if (this.database.entityCount() === 0) {
+      // 起動のたびに既定Theme「個人業務」が自動で作られるので、全件の数では空を判定できない。
+      // DBを移した直後などに空の写しを作ると、世代の入れ替えで本物の写しが消えていく。
+      if (this.database.userEntityCount() === 0) {
         this.runtime.skippedReason =
           "保存するデータがまだないため、バックアップを作成しませんでした。";
         return this.status();
@@ -148,15 +165,13 @@ export class AutomaticSnapshotBackupService {
       }
       fs.renameSync(temporaryPath, finalPath);
       temporaryPath = "";
-
-      const backups = this.listBackups();
-      for (const stale of backups.slice(this.config.generations)) fs.unlinkSync(stale.path);
       this.runtime.lastSuccessAt = attemptedAt.toISOString();
       this.runtime.latestFilePath = finalPath;
       this.log(
         "info",
         `自動バックアップを作成した (trigger=${trigger}, generations=${this.config.generations})`,
       );
+      this.removeOldGenerations();
     } catch (error) {
       if (temporaryPath) this.removeTemporaryFile(temporaryPath);
       // 中止はbackupTo自身が投げる（進捗の途中で止める）ことも、終わった直後に気づくこともある。
@@ -169,6 +184,33 @@ export class AutomaticSnapshotBackupService {
     }
     this.refreshInventory();
     return this.status();
+  }
+
+  /**
+   * 今のWorkspaceの写しを新しい順に数え、世代数を超えた古いものを消す。
+   * 別のWorkspaceの写し（DBを作り直す前のものなど）と、開けない写しは数えず消さない。
+   * 消せないファイル（同期ソフトが掴んでいるなど）は警告にとどめ、作成の成功は取り消さない。
+   */
+  private removeOldGenerations(): void {
+    const workspaceId = this.database.workspaceId();
+    let kept = 0;
+    for (const backup of this.listBackups()) {
+      let backupWorkspaceId = "";
+      try {
+        backupWorkspaceId = this.database.inspectBackup(backup.path).workspaceId;
+      } catch (error) {
+        this.log("warn", "開けない自動バックアップは入れ替えの対象にしない", error);
+        continue;
+      }
+      if (backupWorkspaceId !== workspaceId) continue;
+      kept += 1;
+      if (kept <= this.config.generations) continue;
+      try {
+        fs.unlinkSync(backup.path);
+      } catch (error) {
+        this.log("warn", "古い自動バックアップを消せなかった（次の作成で再び試す）", error);
+      }
+    }
   }
 
   private removeTemporaryFile(temporaryPath: string): void {
@@ -200,18 +242,28 @@ export class AutomaticSnapshotBackupService {
     };
   }
 
-  /** 世代として数え、入れ替えるのはSQLiteの写しだけ。以前のZIP（tasken-auto-*.zip）には触れない。 */
-  private listBackups(): Array<{ path: string; modifiedAt: number }> {
+  /**
+   * SQLiteの写しを、ファイル名の時刻の新しい順に並べる（更新時刻は写しを開いて書き換えると
+   * 変わるので使わない）。以前のZIP（tasken-auto-*.zip）は数えず、触れない。
+   */
+  private listBackups(): Array<{ path: string; createdAt: string }> {
     if (!fs.statSync(this.config.directory, { throwIfNoEntry: false })?.isDirectory()) return [];
     return fs
       .readdirSync(this.config.directory, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && AUTOMATIC_BACKUP_PATTERN.test(entry.name))
-      .map((entry) => {
-        const filePath = path.join(this.config.directory, entry.name);
-        return { path: filePath, modifiedAt: fs.statSync(filePath).mtimeMs };
+      .flatMap((entry) => {
+        const match = entry.isFile() ? AUTOMATIC_BACKUP_PATTERN.exec(entry.name) : null;
+        return match
+          ? [
+              {
+                path: path.join(this.config.directory, entry.name),
+                createdAt: isoFromFileTimestamp(match[1]),
+              },
+            ]
+          : [];
       })
       .sort(
-        (left, right) => right.modifiedAt - left.modifiedAt || right.path.localeCompare(left.path),
+        (left, right) =>
+          right.createdAt.localeCompare(left.createdAt) || right.path.localeCompare(left.path),
       );
   }
 
@@ -221,7 +273,7 @@ export class AutomaticSnapshotBackupService {
       this.runtime.backupCount = backups.length;
       this.runtime.latestFilePath = backups[0]?.path || "";
       if (!this.runtime.lastSuccessAt && backups[0]) {
-        this.runtime.lastSuccessAt = new Date(backups[0].modifiedAt).toISOString();
+        this.runtime.lastSuccessAt = backups[0].createdAt;
       }
     } catch (error) {
       this.runtime.backupCount = 0;

@@ -359,8 +359,6 @@ export interface SnapshotPreview {
   token: string;
   manifest?: Record<string, unknown>;
   changes: SnapshotChange[];
-  /** 今のデータと同じ内容のため一覧に出さない行の数。反映では無視される。 */
-  unchangedCount?: number;
   decisions: Record<string, string>;
 }
 

@@ -28,6 +28,8 @@ const { AutomaticSnapshotBackupService } = await import(
 function databasePort(repository) {
   return {
     entityCount: () => repository.entityCount(),
+    userEntityCount: () => repository.userEntityCount(),
+    workspaceId: () => repository.workspaceId,
     backupTo: (filePath, shouldAbort) => repository.backupTo(filePath, shouldAbort),
     inspectBackup: (filePath) => inspectWorkspaceBackup(filePath),
   };
@@ -126,6 +128,10 @@ test("起動時は停止中なら作らず、手動では作れる。実行中�
 test("空の作業台は保存せず、保存先の失敗は投げずに報告する", async (t) => {
   const empty = fixture(t, { seed: false });
   assert.match((await empty.service.run("startup")).skippedReason, /データがまだない/);
+  // 起動のたびに既定Themeが自動で作られる。それだけのDBも空として扱う（本物の世代を消さない）。
+  empty.repository.ensurePersonalDefaultTheme();
+  assert.equal(empty.repository.entityCount(), 1);
+  assert.match((await empty.service.run("startup")).skippedReason, /データがまだない/);
 
   const deleted = fixture(t);
   deleted.repository.remove("task", "task-1");
@@ -199,22 +205,60 @@ test("終了時のcancelは作成途中の写しを止めて片付け、前回�
   assert.deepEqual(fs.readdirSync(directory), []);
 });
 
-test("自動バックアップの写しから、消したTaskを差分プレビュー経由で今のDBへ戻せる", async (t) => {
-  const { repository, service } = fixture(t);
-  const backup = await service.run("manual");
-  const sequence = () => Number(repository.ensureMeta("sync_device_sequence", "0"));
-  const sequenceBefore = sequence();
-  repository.remove("task", "task-1");
-  assert.equal(repository.get("task", "task-1"), null);
+test("別のWorkspaceの写しと開けない写しは、世代の入れ替えで消さない", async (t) => {
+  const { root, service, directory } = fixture(t, { generations: 1 });
+  // DBを作り直す前（別のWorkspace）の写しを、名前の時刻が古い世代として置く。
+  const other = new WorkspaceDatabase(path.join(root, "other", "research-desk.sqlite"));
+  other.save("task", { id: "task-other", title: "前のDB", state: "todo" });
+  fs.mkdirSync(directory, { recursive: true });
+  const foreign = path.join(directory, "tasken-auto-20260101T000000000Z-0000aaaa.sqlite");
+  await other.backupTo(foreign);
+  other.db.close();
+  const broken = path.join(directory, "tasken-auto-20260102T000000000Z-0000bbbb.sqlite");
+  fs.writeFileSync(broken, "not a database");
 
-  const { manifest, workspace } = repository.readBackupSnapshot(backup.latestFilePath);
-  assert.equal(manifest.source, "automatic-backup");
-  assert.equal(manifest.workspaceId, repository.workspaceId);
-  const change = repository.previewSnapshot(workspace).find((entry) => entry.key === "task:task-1");
-  assert.equal(change.category, "local_newer");
-  repository.applySnapshot(workspace, { [change.key]: "update" }, workspace.plan_revisions);
+  await service.run("startup");
+  const status = await service.run("startup");
 
-  assert.equal(repository.get("task", "task-1")?.title, "守る対象");
-  // 正本のファイルを置き換えないので、端末間同期の通し番号は巻き戻らない。
-  assert.ok(sequence() > sequenceBefore);
+  assert.equal(status.lastError, "");
+  assert.equal(fs.existsSync(foreign), true);
+  assert.equal(fs.existsSync(broken), true);
+  assert.equal(titleIn(foreign, "task-other"), "前のDB");
+  // 今のWorkspaceの写しは設定どおり1世代だけ残る。
+  const own = fs
+    .readdirSync(directory)
+    .filter(
+      (name) =>
+        name.endsWith(".sqlite") && !name.includes("0000aaaa") && !name.includes("0000bbbb"),
+    );
+  assert.deepEqual(own, [path.basename(status.latestFilePath)]);
+});
+
+test("古い世代を消せなくても、作れた写しは成功として扱う", async (t) => {
+  const warnings = [];
+  const { service, directory } = fixture(t, { generations: 1 });
+  await service.run("startup");
+  const first = fs.readdirSync(directory).find((name) => name.endsWith(".sqlite"));
+  const originalUnlink = fs.unlinkSync;
+  fs.unlinkSync = () => {
+    throw Object.assign(new Error("busy"), { code: "EBUSY" });
+  };
+  t.after(() => {
+    fs.unlinkSync = originalUnlink;
+  });
+  service["log"] = (level, message) => warnings.push([level, message]);
+  const status = await service.run("startup");
+  fs.unlinkSync = originalUnlink;
+
+  assert.equal(status.lastError, "");
+  assert.notEqual(path.basename(status.latestFilePath), first);
+  assert.ok(warnings.some(([level]) => level === "warn"));
+});
+
+test("終了の後は、起動30秒後のタイマーが来ても写しを作らない", async (t) => {
+  const { service, directory } = fixture(t);
+  await service.cancel();
+  const status = await service.run("startup");
+  assert.equal(status.backupCount, 0);
+  assert.equal(fs.existsSync(directory), false);
 });

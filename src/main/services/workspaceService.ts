@@ -303,8 +303,6 @@ interface WorkspaceRepository {
   ): Array<Record<string, unknown>>;
   previewSnapshot(workspace: unknown): unknown[];
   applySnapshot(workspace: unknown, decisions: SnapshotDecisions, revisions: unknown[]): unknown;
-  /** 自動バックアップ（SQLiteの写し）をSnapshotと同じ形で読む。写しは書き換えない。 */
-  readBackupSnapshot(filePath: string): { manifest: Record<string, unknown>; workspace: unknown };
   getPreference(key: string): unknown;
   setPreference(key: string, value: unknown): unknown;
   getDailyContextAutoState(): unknown;
@@ -4583,34 +4581,21 @@ export class WorkspaceService {
     const result = await dialog.showOpenDialog({
       title: "Workspace Snapshotを読み込む",
       properties: ["openFile"],
-      filters: [{ name: "Tasken Snapshot・自動バックアップ", extensions: ["zip", "sqlite"] }],
+      filters: [{ name: "Tasken Snapshot", extensions: ["zip"] }],
     });
     if (result.canceled || !result.filePaths[0]) return { canceled: true };
-    const filePath = result.filePaths[0];
-    // 自動バックアップ（SQLiteの写し）も、ZIPと同じ差分プレビュー→選んで反映で戻す。
-    const parsed = (
-      path.extname(filePath).toLowerCase() === ".sqlite"
-        ? this.repository.readBackupSnapshot(filePath)
-        : readSnapshot(filePath)
-    ) as {
+    const parsed = readSnapshot(result.filePaths[0]) as {
       manifest: Record<string, unknown>;
       workspace: Workspace;
     };
     this.validateSnapshotMedia(parsed.workspace);
     const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     this.pendingSnapshots.set(token, parsed.workspace);
-    const changes = this.repository.previewSnapshot(parsed.workspace) as Array<{
-      category?: string;
-    }>;
-    // 同じ内容の行は既定で無視され、選び直す意味もない。実データでは1万件を超えるため、
-    // 件数だけを返して画面とIPCを軽くする（反映は既定の「無視」のまま）。
-    const changed = changes.filter((change) => change.category !== "same");
     return {
       canceled: false,
       token,
       manifest: parsed.manifest,
-      changes: changed,
-      unchangedCount: changes.length - changed.length,
+      changes: this.repository.previewSnapshot(parsed.workspace),
     };
   }
 
