@@ -6,7 +6,11 @@
 //
 // 写しの扱い:
 // - --db のファイルは読むだけ。backup APIで一時userDataへ写し、その写しで起動する。
-// - 写しの設定から外へ出る経路を止める（共有フォルダ同期・成果物の保存先・活動ログの自動書き出し）。
+// - 写しの設定から外へ出る経路を止める（共有フォルダ同期・成果物の保存先・活動ログの自動書き出し・
+//   自動バックアップの保存先・Daily Contextの自動公開）。作業フォルダの外を指すパスが設定に
+//   残っていたら起動しない。
+// - 写しは通常起動と同じく常駐する（トレイ・グローバルショートカット・リマインダー）。計測の間に
+//   クイック記録などを使うと写しに入り、終わりに消える。本人が使っていない時間に流す。
 // - Android連携の待ち受け（127.0.0.1:48177、Tailscale Serveで公開されている）を計測中だけ
 //   ダミーの待ち受けで塞ぐ。写しが本物の端末の同期を受けてしまうと、端末側は送信済みと
 //   みなし、本物の正本に届かない。ポートが使用中ならTaskenが動いているとみなして止める。
@@ -62,7 +66,39 @@ async function prepareCopy() {
   setMeta.run("artifact_directory", artifactDirectory);
   setMeta.run("activity_log_auto_export_time", "");
   setMeta.run("activity_log_directory", "");
+  // 自動バックアップは世代を入れ替える（古いものを消す）ので、本物の保存先へ向けない。
+  setMeta.run("automatic_snapshot_backup_directory", path.join(workDirectory, "backups"));
+  // Daily Contextの自動公開は本物の公開先とTheme AI Packを書き換える。止めて行き先も作業フォルダにする。
+  const dailyAuto = copy
+    .prepare("SELECT value FROM workspace_meta WHERE key = 'daily_context_auto_state'")
+    .get();
+  if (dailyAuto) {
+    const state = JSON.parse(dailyAuto.value);
+    state.config = { ...state.config, enabled: false, root: path.join(workDirectory, "daily") };
+    setMeta.run("daily_context_auto_state", JSON.stringify(state));
+  }
+  copy.prepare("DELETE FROM workspace_meta WHERE key = 'daily_context_publication'").run();
+  // 抜けを防ぐ: 設定に作業フォルダの外を指す絶対パスが残っていたら起動しない。
+  const outside = copy
+    .prepare("SELECT key, value FROM workspace_meta")
+    .all()
+    .filter(({ value }) => absolutePathsIn(value).some((found) => !isInside(found, workDirectory)))
+    .map(({ key }) => key);
   copy.close();
+  if (outside.length) {
+    throw new Error(`写しの設定に作業フォルダの外を指すパスが残っています: ${outside.join(", ")}`);
+  }
+}
+
+function absolutePathsIn(value) {
+  const text = String(value || "").replaceAll("\\\\", "\\");
+  return [...text.matchAll(/(?:[A-Za-z]:[\\/]|\\\\)[^"'\s,\]}]*/g)].map((match) => match[0]);
+}
+
+function isInside(candidate, directory) {
+  const normalized = path.resolve(candidate).toLowerCase();
+  const root = path.resolve(directory).toLowerCase();
+  return normalized === root || normalized.startsWith(`${root}${path.sep}`);
 }
 
 function guardMobileGatewayPort() {
