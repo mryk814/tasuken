@@ -497,16 +497,20 @@ export function buildActivityEvent(input = {}) {
   return event;
 }
 
+/** migrateChangeEvent が手を加えずに複製だけを返す、現行形式のEventか。 */
+export function isCurrentActivityEvent(event) {
+  return Boolean(
+    isObject(event) &&
+    Number(event.metadata?.schema_version) >= ACTIVITY_EVENT_SCHEMA_VERSION &&
+    event.event_kind &&
+    event.entity_ref,
+  );
+}
+
 /** Idempotent legacy migration. Existing fields are not deleted or rewritten. */
 export function migrateChangeEvent(event, { entity = null } = {}) {
   if (!isObject(event)) throw new Error("Change Eventが不正です。");
-  if (
-    Number(event.metadata?.schema_version) >= ACTIVITY_EVENT_SCHEMA_VERSION &&
-    event.event_kind &&
-    event.entity_ref
-  ) {
-    return clone(event);
-  }
+  if (isCurrentActivityEvent(event)) return clone(event);
   const migrated = buildActivityEvent({
     ...event,
     after: parseEntity(event.after_json) || entity || {},

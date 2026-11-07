@@ -122,7 +122,11 @@ import {
   publicationForThemeAiPack,
   type ConversationContextPlan,
 } from "../../shared/conversationContext.mjs";
-import { buildThemeAiPackPlan, type ThemeAiPackPlan } from "../../shared/themeAiPack.mjs";
+import {
+  buildThemeAiPackPlan,
+  type BuildThemeAiPackPlanInput,
+  type ThemeAiPackPlan,
+} from "../../shared/themeAiPack.mjs";
 import { buildDailyContextPlan } from "../../shared/dailyContext";
 import { localDate as activityLocalDate } from "../../shared/activityProjection.mjs";
 import {
@@ -225,6 +229,14 @@ import {
 } from "./conversationContextPublisher.mjs";
 
 type SnapshotDecisions = Record<string, string>;
+
+interface ThemeAiPackInputs {
+  candidates: NonNullable<BuildThemeAiPackPlanInput["candidates"]>;
+  workspace: Record<string, unknown>;
+  events: Array<Record<string, unknown>>;
+  workspaceDefault: BuildThemeAiPackPlanInput["workspaceDefault"];
+  roots: Record<string, string>;
+}
 
 const MARKDOWN_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
 /** アプリ内ビューア用。インフォグラフィック等の大きめ画像も許容する。 */
@@ -1514,7 +1526,35 @@ export class WorkspaceService {
     return result!;
   }
 
-  private buildThemeAiPack(themeIdValue: unknown): {
+  /**
+   * Theme AI Packの材料。Themeに依らないので、全Themeの状態をまとめて出すとき（Data Health）は
+   * 1回だけ読んでThemeごとに使い回す。Themeごとに全件を読み直していたころは、実データで
+   * 1 Themeあたり1秒以上かかり、Knowledgeを開くたびにTheme数ぶんMainが止まっていた。
+   */
+  private themeAiPackInputs(loadedWorkspace?: Record<string, unknown>): ThemeAiPackInputs {
+    const candidates = THEME_AI_PACK_CANDIDATE_TYPES.flatMap((type) =>
+      this.repository.list(type).map((entity) => {
+        const publication = type === "resource" ? publicationForThemeAiPack(entity) : null;
+        return { type, entity, ...(publication ? { publication } : {}) };
+      }),
+    );
+    // 呼び出し側が同じ loadWorkspace(false) をすでに持っていれば、それを使う。
+    const workspace =
+      loadedWorkspace || (this.repository.loadWorkspace(false) as Record<string, unknown>);
+    return {
+      candidates,
+      workspace,
+      // loadWorkspace(false) は削除済みを除いた change_event を持つ。list("change_event") と同じ中身。
+      events: (workspace.change_events as Array<Record<string, unknown>> | undefined) || [],
+      workspaceDefault: normalizeAiVisibility(this.repository.getPreference("aiVisibilityDefault")),
+      roots: this.activityCanonicalRootPaths(),
+    };
+  }
+
+  private buildThemeAiPack(
+    themeIdValue: unknown,
+    sharedInputs?: ThemeAiPackInputs,
+  ): {
     theme: Record<string, unknown>;
     plan: ThemeAiPackPlan;
   } {
@@ -1522,23 +1562,15 @@ export class WorkspaceService {
     if (!themeId) throw new Error("Theme IDがありません。Themeを開き直してください。");
     const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
     if (!theme || theme.deleted_at) throw new Error("AI Packを作成するThemeが見つかりません。");
-    const candidates = THEME_AI_PACK_CANDIDATE_TYPES.flatMap((type) =>
-      this.repository.list(type).map((entity) => {
-        const publication = type === "resource" ? publicationForThemeAiPack(entity) : null;
-        return { type, entity, ...(publication ? { publication } : {}) };
-      }),
-    );
-    const workspace = this.repository.loadWorkspace(false) as Record<string, unknown>;
-    const workspaceDefault = normalizeAiVisibility(
-      this.repository.getPreference("aiVisibilityDefault"),
-    );
+    const { candidates, workspace, events, workspaceDefault, roots } =
+      sharedInputs || this.themeAiPackInputs();
     const activity = queryActivityEvents({
       workspace,
-      events: this.repository.list("change_event"),
+      events,
       themeId,
       audience: "m365",
       workspaceDefault,
-      roots: this.activityCanonicalRootPaths(),
+      roots,
       limit: 100,
     });
     const sourceRevision = markdownSignature(
@@ -1697,12 +1729,26 @@ export class WorkspaceService {
       ...((workspace.themes || []) as Array<Record<string, unknown>>),
     ].filter((theme) => !theme.deleted_at && typeof theme.id === "string");
     const seenThemeIds = new Set<string>();
+    // 材料は全Themeで共通なので1回だけ作る。作れなければ、従来どおり各Themeを失敗として返す。
+    let packInputs: ThemeAiPackInputs | null = null;
+    let packInputsError: unknown = null;
+    const sharedPackInputs = () => {
+      if (!packInputs && !packInputsError) {
+        try {
+          packInputs = this.themeAiPackInputs(workspace as unknown as Record<string, unknown>);
+        } catch (error) {
+          packInputsError = error;
+        }
+      }
+      if (packInputsError) throw packInputsError;
+      return packInputs!;
+    };
     const themeAiPackStatuses = themes.flatMap((theme) => {
       const themeId = String(theme.id);
       if (seenThemeIds.has(themeId)) return [];
       seenThemeIds.add(themeId);
       try {
-        const status = this.getThemeAiPackStatus(themeId);
+        const status = this.getThemeAiPackStatus(themeId, sharedPackInputs());
         return [{ themeId, state: status.state }];
       } catch {
         return [{ themeId, state: "failed_retryable" }];
@@ -2310,8 +2356,11 @@ export class WorkspaceService {
     }
   }
 
-  getThemeAiPackPreview(themeIdValue: unknown): ThemeAiPackPreviewResult {
-    const { theme, plan } = this.buildThemeAiPack(themeIdValue);
+  getThemeAiPackPreview(
+    themeIdValue: unknown,
+    sharedInputs?: ThemeAiPackInputs,
+  ): ThemeAiPackPreviewResult {
+    const { theme, plan } = this.buildThemeAiPack(themeIdValue, sharedInputs);
     const location = this.resolveThemeAiPack(theme);
     const storage =
       location.status === "ok"
@@ -2344,8 +2393,11 @@ export class WorkspaceService {
     };
   }
 
-  getThemeAiPackStatus(themeIdValue: unknown): ThemeAiPackStatusResult {
-    const preview = this.getThemeAiPackPreview(themeIdValue);
+  getThemeAiPackStatus(
+    themeIdValue: unknown,
+    sharedInputs?: ThemeAiPackInputs,
+  ): ThemeAiPackStatusResult {
+    const preview = this.getThemeAiPackPreview(themeIdValue, sharedInputs);
     const { files, warnings, excludedReasons: _excludedReasons, ...status } = preview;
     return {
       ...status,

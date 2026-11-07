@@ -53,6 +53,20 @@ const MOBILE_DEVICE_SCOPES = Object.freeze(Object.values(TASKEN_MOBILE_SCOPES));
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();
 
+// 索引の式。壊れたJSONの行があっても索引の作成・更新が失敗しないよう json_valid で守る。
+// 問い合わせ側も同じ式を使わないと、SQLiteは索引を使えない。
+const CHANGE_EVENT_JSON_SQL = "CASE WHEN json_valid(data_json) THEN data_json END";
+const CHANGE_EVENT_DEDUPE_KEY_SQL = `json_extract(${CHANGE_EVENT_JSON_SQL}, '$.metadata.dedupe_key')`;
+// String.prototype.trim が落とす空白（WhiteSpaceとLineTerminator）。
+const JS_TRIM_CHARACTERS_SQL =
+  "char(9, 10, 11, 12, 13, 32, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288, 65279)";
+// activityEventDedupeKey が保存済みの metadata.dedupe_key をそのまま返さない行。
+const CHANGE_EVENT_IRREGULAR_DEDUPE_KEY_SQL = [
+  `json_type(${CHANGE_EVENT_JSON_SQL}, '$.metadata.dedupe_key') IS NOT 'text'`,
+  `trim(${CHANGE_EVENT_DEDUPE_KEY_SQL}, ${JS_TRIM_CHARACTERS_SQL}) = ''`,
+  `${CHANGE_EVENT_DEDUPE_KEY_SQL} <> trim(${CHANGE_EVENT_DEDUPE_KEY_SQL}, ${JS_TRIM_CHARACTERS_SQL})`,
+].join(" OR ");
+
 function parseRow(row) {
   if (!row) return null;
   const entity = {
@@ -181,6 +195,7 @@ export class WorkspaceDatabase {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
     this.migrate();
+    this.ensurePerformanceIndexes();
     this.deviceId = this.ensureMeta("device_id", uuid());
     this.workspaceId = this.ensureMeta("workspace_id", uuid());
     this.ensureMeta("theme_mode", "light");
@@ -427,6 +442,73 @@ export class WorkspaceDatabase {
       }
     });
     applyMigrations();
+  }
+
+  /**
+   * 読み取りを速くするための索引。行の中身（保存形式）は変えず、schema_versionも上げない。
+   * versionを上げると、旧版のアプリがmigrate()で新しいversionを拒んでDBを開けなくなる。
+   * 索引は起動ごとに「なければ作る」にとどめ、旧版で開いてもSQLiteがそのまま保守する。
+   *
+   * - sync_outbox: payload_json（1件数KB〜）の後ろにpublished_atがあり、未公開件数や
+   *   一覧のたびに全payloadのoverflow pageを辿っていた。必要な列だけを索引に持つ。
+   * - change_event: 保存のたびの重複判定が全Eventを読み直していた。判定に使うキーで引く。
+   *
+   * 作成に失敗しても起動は止めない。索引がないときは従来の全件走査に戻る。
+   */
+  ensurePerformanceIndexes() {
+    this.performanceIndexes = { changeEventDedupe: false };
+    try {
+      this.db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_sync_outbox_publish_state
+          ON sync_outbox(device_sequence, change_id, published_at);
+        CREATE INDEX IF NOT EXISTS idx_change_event_dedupe_key
+          ON entities(${CHANGE_EVENT_DEDUPE_KEY_SQL})
+          WHERE entity_type = 'change_event';
+        CREATE INDEX IF NOT EXISTS idx_change_event_irregular_dedupe_key
+          ON entities(updated_at)
+          WHERE entity_type = 'change_event' AND (${CHANGE_EVENT_IRREGULAR_DEDUPE_KEY_SQL});
+      `);
+      this.performanceIndexes.changeEventDedupe = true;
+    } catch (error) {
+      console.warn("[tasken-db] 読み取り用の索引を作れませんでした。全件走査で続けます。", error);
+    }
+  }
+
+  /**
+   * activityEventDedupeKeyが一致する最新のEventを返す（削除済みも含む）。
+   * 従来の list("change_event", true).find(...) と同じ結果を、索引で引いた候補だけで出す。
+   * 候補は「保存済みキーが一致する行」と「保存済みキーをそのまま使えない行」
+   * （キーがない・文字列でない・前後に空白がある）。後者はJSの関数でキーを計算し直す。
+   */
+  findChangeEventByDedupeKey(dedupeKey) {
+    if (!this.performanceIndexes?.changeEventDedupe) {
+      return (
+        this.list("change_event", true).find(
+          (candidate) => activityEventDedupeKey(candidate) === dedupeKey,
+        ) || null
+      );
+    }
+    const matching = this.db
+      .prepare(
+        `SELECT * FROM entities INDEXED BY idx_change_event_dedupe_key
+         WHERE entity_type = 'change_event' AND ${CHANGE_EVENT_DEDUPE_KEY_SQL} = ?`,
+      )
+      .all(dedupeKey);
+    const irregular = this.db
+      .prepare(
+        `SELECT * FROM entities INDEXED BY idx_change_event_irregular_dedupe_key
+         WHERE entity_type = 'change_event' AND (${CHANGE_EVENT_IRREGULAR_DEDUPE_KEY_SQL})`,
+      )
+      .all();
+    // SQLiteの ORDER BY updated_at DESC と同じ二値比較で並べる。
+    const newestFirst = (left, right) =>
+      left.updated_at === right.updated_at ? 0 : left.updated_at < right.updated_at ? 1 : -1;
+    return (
+      [...matching, ...irregular]
+        .sort(newestFirst)
+        .map(parseRow)
+        .find((candidate) => activityEventDedupeKey(candidate) === dedupeKey) || null
+    );
   }
 
   ensureMeta(key, fallback) {
@@ -1156,9 +1238,7 @@ export class WorkspaceDatabase {
       type === "change_event" ? activityEventDedupeKey(normalizedActivityInput) : "";
     const dedupedExisting =
       type === "change_event" && requestedDedupeKey
-        ? this.list("change_event", true).find(
-            (candidate) => activityEventDedupeKey(candidate) === requestedDedupeKey,
-          )
+        ? this.findChangeEventByDedupeKey(requestedDedupeKey)
         : null;
     const existing = dedupedExisting || this.get(type, id, true);
     if (type === "work_receipt" && existing)
@@ -2285,12 +2365,31 @@ export class WorkspaceDatabase {
   }
 
   ensureSyncBaseline() {
+    // 共有フォルダ同期が10秒ごとに呼ぶ。headを持つ行（ほぼ全部）はJSONを読まずにSQLで除く。
+    // syncHead() は空文字のrevisionを「なし」と扱うので、ここでも同じに数える。
+    // 並び順は従来の list(type, true) と同じ（種類ごと、updated_at の新しい順）。
+    const headMissing = `
+      NOT EXISTS (
+        SELECT 1 FROM sync_entity_heads AS head
+        WHERE head.entity_type = entity.entity_type
+          AND head.entity_id = entity.id
+          AND head.revision_id <> ''
+      )`;
+    // ふだんは欠けがないので、主キーの索引だけで「1件もない」を先に確かめる。
+    const anyMissing = this.db
+      .prepare(`SELECT 1 FROM entities AS entity WHERE ${headMissing} LIMIT 1`)
+      .get();
+    if (!anyMissing) return 0;
+    const missingHead = this.db.prepare(`
+      SELECT * FROM entities AS entity
+      WHERE entity.entity_type = ? AND ${headMissing}
+      ORDER BY entity.updated_at DESC
+    `);
     const transaction = this.db.transaction(() => {
       let count = 0;
       for (const type of workspaceEntityTypes) {
-        for (const entity of this.list(type, true)) {
-          if (this.syncHead(type, entity.id)) continue;
-          this.enqueueSyncEntity(type, entity, []);
+        for (const row of missingHead.all(type)) {
+          this.enqueueSyncEntity(type, parseRow(row), []);
           count += 1;
         }
       }
