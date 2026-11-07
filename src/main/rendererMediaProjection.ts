@@ -43,6 +43,10 @@ function projectNestedMedia(value: unknown): unknown {
 
 function redactEventJson(value: unknown): unknown {
   if (typeof value !== "string") return value;
+  // 伏字にするのは media_kind を持つobjectの中だけ。キーの文字がそのまま現れず、\u による
+  // 書き換えもない文字列にはmediaのobjectがないので、解析せずに返す（中身は同じ）。
+  // workspace:loadのたびに全Eventの前後の写しを解析し直すと、実データで約0.35秒かかっていた。
+  if (!value.includes("media_kind") && !value.includes("\\u")) return value;
   try {
     const parsed = JSON.parse(value);
     return JSON.stringify(projectNestedMedia(parsed));
