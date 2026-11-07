@@ -159,13 +159,12 @@ node scripts/tasken-core-client.mjs revoke awai                                 
 
 ## その他の入口
 
-| 目的                     | 入口                                                  | 返り先                     |
-| ------------------------ | ----------------------------------------------------- | -------------------------- |
-| 日報                     | MCP Prompt `daily-report`、Debriefの依頼文            | Note Proposal → Agent Desk |
-| 選んだ資料を任意AIへ渡す | [Context Pack](context-pack.md)                       | 通常Noteとして回答を保存   |
-| M365へThemeを渡す        | [Theme AI Pack](theme-ai-pack.md)                     | OneDrive上の読み取り投影   |
-| 選択会話を公開する       | [Conversation AI Context](conversation-ai-context.md) | 明示公開したMarkdown       |
-| AI作業の履歴を集める     | [Agent Session hooks](agent-session-provenance.md)    | Session記録／Debrief       |
+| 目的                 | 入口                                                  | 返り先                     |
+| -------------------- | ----------------------------------------------------- | -------------------------- |
+| 日報                 | MCP Prompt `daily-report`、Debriefの依頼文            | Note Proposal → Agent Desk |
+| M365へThemeを渡す    | Theme AI Pack（`themeAiPack.mjs`）                    | OneDrive上の読み取り投影   |
+| 選択会話を公開する   | [Conversation AI Context](conversation-ai-context.md) | 明示公開したMarkdown       |
+| AI作業の履歴を集める | [Agent Session hooks](agent-session-provenance.md)    | Session記録／Debrief       |
 
 Context Packから構造化JSONを貼り戻して既存Taskを更新するUIは、現在のAgent Deskにはありません。
 新規Taskの作成には、Today・ToDoの[外部AI取り込み](mobile-capture-organizer-providers.md)で自然文を外部AIへ渡し、返ってきたJSONをプレビューして採用できます。
