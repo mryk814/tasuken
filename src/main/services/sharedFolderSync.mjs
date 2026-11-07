@@ -7,6 +7,7 @@ import {
   syncMarkdownImageAttachments,
   syncCaptureImageAttachments,
 } from "./sharedFolderAttachments.mjs";
+import { SYNC_PACKET_FILE_PATTERN } from "./syncPacketContract.mjs";
 
 const MANIFEST_FILE = "tasken-sync.json";
 const DEVICE_DIRECTORY = "devices";
@@ -373,7 +374,7 @@ export class SharedFolderSyncService {
       const deviceId = deviceEntry.name;
       let cursor = this.repository.syncCursor(deviceId);
       const files = (await fs.promises.readdir(path.join(devicesRoot, deviceId)))
-        .filter((name) => /^\d{12}-[0-9a-f-]+\.json$/i.test(name))
+        .filter((name) => SYNC_PACKET_FILE_PATTERN.test(name))
         .sort();
       for (const fileName of files) {
         const sequence = Number(fileName.slice(0, 12));
@@ -416,3 +417,4 @@ export class SharedFolderSyncService {
 }
 
 export const sharedFolderSyncManifestFile = MANIFEST_FILE;
+export const sharedFolderSyncDeviceDirectory = DEVICE_DIRECTORY;

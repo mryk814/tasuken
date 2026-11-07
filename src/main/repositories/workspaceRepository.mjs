@@ -18,6 +18,7 @@ import { DEFAULT_AI_VISIBILITY, normalizeAiVisibility } from "../../shared/aiMet
 import { DATA_HEALTH_STATE_SCHEMA, normalizeDataHealthState } from "../../shared/dataHealth.mjs";
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { migratePublishedFeedNotes } from "./feedPostMigration.mjs";
+import { assertSyncPacket } from "../services/syncPacketContract.mjs";
 import {
   isPersonalDefaultTheme,
   isThemeDeletable,
@@ -2470,22 +2471,7 @@ export class WorkspaceDatabase {
   }
 
   applySyncPacket(packet) {
-    if (
-      !isPlainObject(packet) ||
-      packet.format !== "tasken-sync-change" ||
-      packet.formatVersion !== 1
-    ) {
-      throw new Error("同期差分の形式が不正です。");
-    }
-    if (packet.workspaceId !== this.workspaceId) throw new Error("別のWorkspaceの同期差分です。");
-    assertEntityType(packet.entityType);
-    if (
-      !isPlainObject(packet.entity) ||
-      String(packet.entity.id || "") !== String(packet.entityId || "")
-    ) {
-      throw new Error("同期差分のEntityが不正です。");
-    }
-    validateEntity(packet.entityType, packet.entity);
+    assertSyncPacket(packet, this.workspaceId);
     const transaction = this.db.transaction(() => {
       const type = packet.entityType;
       const id = String(packet.entityId);

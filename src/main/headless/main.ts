@@ -162,6 +162,8 @@ async function run(): Promise<void> {
       sync_directory: handle.syncDirectory,
       write_mode: handle.writeMode,
       pid: handle.pid,
+      // NASで作ったimageが埋めるcommit（deploy/synology/Dockerfile.nas）。手元の起動では null。
+      source_sha: process.env.TASKEN_SOURCE_SHA || null,
     })}\n`,
   );
   const shutdown = (signal: NodeJS.Signals) => {
