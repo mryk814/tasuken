@@ -18,7 +18,7 @@ import { DEFAULT_AI_VISIBILITY, normalizeAiVisibility } from "../../shared/aiMet
 import { DATA_HEALTH_STATE_SCHEMA, normalizeDataHealthState } from "../../shared/dataHealth.mjs";
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { migratePublishedFeedNotes } from "./feedPostMigration.mjs";
-import { assertSyncPacket } from "../services/syncPacketContract.mjs";
+import { assertSyncPacket } from "./syncPacketContract.mjs";
 import {
   isPersonalDefaultTheme,
   isThemeDeletable,

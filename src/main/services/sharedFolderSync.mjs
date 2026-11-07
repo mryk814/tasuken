@@ -7,10 +7,11 @@ import {
   syncMarkdownImageAttachments,
   syncCaptureImageAttachments,
 } from "./sharedFolderAttachments.mjs";
-import { SYNC_PACKET_FILE_PATTERN } from "./syncPacketContract.mjs";
 
 const MANIFEST_FILE = "tasken-sync.json";
 const DEVICE_DIRECTORY = "devices";
+/** 共有フォルダの差分のファイル名（<12桁の連番>-<change id>.json）。replica-checkも同じものを使う。 */
+export const SYNC_PACKET_FILE_PATTERN = /^\d{12}-[0-9a-f-]+\.json$/i;
 const SYNC_INTERVAL_MS = 10_000;
 
 // 同期フォルダはNAS(SMB)上にあることが多く、数千件のreaddirだけで1秒前後かかる。

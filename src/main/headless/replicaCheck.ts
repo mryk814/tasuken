@@ -11,7 +11,7 @@
  * 端末の中だけのもの。replicaのschemaが進んでもDesktopとの食い違いにはならない
  * （戻すときに古いimageが開けないだけで、それは更新スクリプトがDBを戻して扱う）。
  * 食い違いになるのは「この版がDesktopの書いた差分を取り込めない」ことなので、
- * 取り込みと同じ規則（services/syncPacketContract.mjs）で確かめる。
+ * 取り込みと同じ規則（repositories/syncPacketContract.mjs）で確かめる。
  *
  *   packets  共有フォルダの各端末の最近の差分を、この版で読めるか。DBは開かない
  *            （入れ替える前に、隔離したコンテナで流す）
@@ -37,11 +37,12 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 // @ts-expect-error better-sqlite3 は型を持たない。Repository（.mjs）の推論を変えないよう、全体の宣言は足さない。
 import BetterSqlite3 from "better-sqlite3";
 
+import { assertSyncPacket } from "../repositories/syncPacketContract.mjs";
 import {
+  SYNC_PACKET_FILE_PATTERN,
   sharedFolderSyncDeviceDirectory,
   sharedFolderSyncManifestFile,
 } from "../services/sharedFolderSync.mjs";
-import { assertSyncPacket, SYNC_PACKET_FILE_PATTERN } from "../services/syncPacketContract.mjs";
 
 interface SqliteStatement {
   get(...params: unknown[]): unknown;
