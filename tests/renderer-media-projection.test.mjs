@@ -156,8 +156,17 @@ test("snapshot preview projects nested incoming/local media and apply workspace 
     ],
   });
   assertNoPrivateMediaPath(preview);
-  assert.equal(preview.changes[0].incoming.filename, "voice.wav");
-  assert.equal(preview.changes[0].local.filename, "voice.wav");
+  // 差分の画面は題名と状態だけを出す。本文やMain専用の項目は送らない（反映はMainの元データで行う）。
+  assert.deepEqual(preview.changes[0].incoming, { id: "artifact-audio" });
+  assert.deepEqual(preview.changes[0].local, { id: "artifact-audio" });
+  assert.deepEqual(Object.keys(preview.changes[1].incoming), ["id"]);
+  assert.equal(
+    projection.projectSnapshotInspectForRenderer({
+      changes: [{ type: "note", incoming: { id: "n", title: "題名", body_markdown: "本文" } }],
+      unchangedCount: 3,
+    }).unchangedCount,
+    3,
+  );
   assertNoPrivateMediaPath(
     projection.projectWorkspaceForRenderer({ artifacts: [artifact], change_events: [event] }),
   );

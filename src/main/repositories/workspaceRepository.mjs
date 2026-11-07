@@ -1090,7 +1090,37 @@ export class WorkspaceDatabase {
   }
 
   isEmpty() {
-    return this.db.prepare("SELECT COUNT(*) AS count FROM entities").get().count === 0;
+    return this.entityCount() === 0;
+  }
+
+  /** 自動バックアップの写しをSnapshotと同じ形で読む（readWorkspaceBackup）。 */
+  readBackupSnapshot(filePath) {
+    return readWorkspaceBackup(filePath);
+  }
+
+  /** 削除済みを含むEntityの件数。 */
+  entityCount() {
+    return this.db.prepare("SELECT COUNT(*) AS count FROM entities").get().count;
+  }
+
+  /**
+   * 自動バックアップ用に、正本の一貫した写しを filePath へ書く。
+   * SQLiteのbackupは100 pageずつ setImmediate で進むので、Mainを長く止めない。
+   * 写しはrollback journalの単体ファイルにする（WALのまま開くと -wal / -shm が並ぶ）。
+   */
+  async backupTo(filePath, shouldAbort = () => false) {
+    await this.db.backup(filePath, {
+      progress: () => {
+        if (shouldAbort()) throw new Error("バックアップを中止しました。");
+        return undefined;
+      },
+    });
+    const copy = new Database(filePath, { fileMustExist: true });
+    try {
+      copy.pragma("journal_mode = DELETE");
+    } finally {
+      copy.close();
+    }
   }
 
   isEmptyForSyncJoin() {
@@ -2801,3 +2831,63 @@ export class WorkspaceDatabase {
 
 export { workspaceEntityTypes };
 export const workspaceSchemaVersion = SCHEMA_VERSION;
+
+/**
+ * 自動バックアップの写しを読み取り専用で開き、Taskenの正本として読めるかを確かめる。
+ * migrateは走らせない（写しを書き換えない）。
+ */
+export function inspectWorkspaceBackup(filePath) {
+  return withWorkspaceBackup(filePath, (copy) => ({
+    entityCount: copy.prepare("SELECT COUNT(*) AS count FROM entities").get().count,
+  }));
+}
+
+/**
+ * 自動バックアップの写しを、Workspace Snapshot（ZIP）を読んだときと同じ形で返す。
+ * 「バックアップを読み込む」の差分プレビュー→選んで反映、の経路で今のDBへ戻すために使う。
+ * 写しのファイルで正本を置き換えると、端末間同期の通し番号が巻き戻って他の端末へ届かなくなるため。
+ */
+export function readWorkspaceBackup(filePath) {
+  return withWorkspaceBackup(filePath, (copy, schemaVersion) => {
+    const meta = (key) =>
+      copy.prepare("SELECT value FROM workspace_meta WHERE key = ?").get(key)?.value || "";
+    const workspace = { meta: { workspaceId: meta("workspace_id"), deviceId: meta("device_id") } };
+    const rows = copy.prepare(
+      "SELECT * FROM entities WHERE entity_type = ? ORDER BY updated_at DESC",
+    );
+    for (const type of workspaceEntityTypes) {
+      workspace[collectionKeyForEntityType(type)] = rows.all(type).map(parseRow);
+    }
+    workspace.plan_revisions = copy
+      .prepare("SELECT * FROM plan_revisions ORDER BY changed_at DESC")
+      .all()
+      .map((row) => ({ ...row, old: JSON.parse(row.old_json), next: JSON.parse(row.new_json) }));
+    return {
+      manifest: {
+        format: "research-desk-workspace",
+        source: "automatic-backup",
+        schemaVersion,
+        workspaceId: workspace.meta.workspaceId,
+        deviceId: workspace.meta.deviceId,
+        exportedAt: fs.statSync(filePath).mtime.toISOString(),
+      },
+      workspace,
+    };
+  });
+}
+
+function withWorkspaceBackup(filePath, read) {
+  const copy = new Database(filePath, { readonly: true, fileMustExist: true });
+  try {
+    const version = Number(
+      copy.prepare("SELECT value FROM workspace_meta WHERE key = 'schema_version'").get()?.value ||
+        0,
+    );
+    if (version < 1 || version > SCHEMA_VERSION) {
+      throw new Error("バックアップの形式を確認できませんでした。");
+    }
+    return read(copy, version);
+  } finally {
+    copy.close();
+  }
+}
