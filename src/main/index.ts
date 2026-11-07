@@ -2753,6 +2753,8 @@ async function startDesktopApp(): Promise<void> {
   automaticSnapshotBackup = new AutomaticSnapshotBackupService({
     database: {
       entityCount: () => backupDatabase.entityCount(),
+      userEntityCount: () => backupDatabase.userEntityCount(),
+      workspaceId: () => backupDatabase.workspaceId,
       backupTo: (filePath, shouldAbort) => backupDatabase.backupTo(filePath, shouldAbort),
       inspectBackup: (filePath) => inspectWorkspaceBackup(filePath),
     },

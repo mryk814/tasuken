@@ -566,7 +566,6 @@ export function SettingsPage({
           token: result.token,
           manifest: result.manifest,
           changes,
-          unchangedCount: result.unchangedCount || 0,
           decisions: Object.fromEntries(changes.map((change) => [change.key, change.action])),
         };
         setSnapshotPreview(preview);
@@ -1665,12 +1664,7 @@ export function SettingsPage({
         <section className="panel snapshot-preview">
           <div className="section-heading">
             <h2>Snapshot差分</h2>
-            <span>
-              {snapshotPreview.changes.length}件
-              {snapshotPreview.unchangedCount
-                ? `（同じ内容の${snapshotPreview.unchangedCount}件は省略）`
-                : ""}
-            </span>
+            <span>{snapshotPreview.changes.length}件</span>
           </div>
           {snapshotPreview.changes.map((change) => (
             <div className="import-candidate" key={change.key}>
