@@ -66,17 +66,30 @@ function localDate(value: string): string {
   return `${year}-${month}-${day}`;
 }
 
-function referencesForSession(references: Reference[], sessionId: string) {
+interface NormalizedSessionReference {
+  subject: { type: string; id: string };
+  object: { type: string; id: string };
+  status: string;
+}
+
+/** Referenceの正規化はSessionに依らないので、Sessionごとにやり直さず1回だけ行う。 */
+function normalizeSessionReferences(references: Reference[]): NormalizedSessionReference[] {
   return references.flatMap((reference) => {
     try {
-      const normalized = normalizeReferenceAssertion(
-        reference as unknown as Record<string, unknown>,
-        { legacyRead: true },
-      ) as unknown as {
-        subject: { type: string; id: string };
-        object: { type: string; id: string };
-        status: string;
-      };
+      return [
+        normalizeReferenceAssertion(reference as unknown as Record<string, unknown>, {
+          legacyRead: true,
+        }) as unknown as NormalizedSessionReference,
+      ];
+    } catch {
+      return [];
+    }
+  });
+}
+
+function referencesForSession(references: NormalizedSessionReference[], sessionId: string) {
+  return references.flatMap((normalized) => {
+    try {
       if (normalized.status === "superseded") return [];
       if (normalized.subject.type === "agent_session" && normalized.subject.id === sessionId) {
         return [normalized.object];
@@ -89,6 +102,36 @@ function referencesForSession(references: Reference[], sessionId: string) {
       return [];
     }
   });
+}
+
+/**
+ * origin.session_id ごとのEvent位置。Sessionごとに全Eventを走査すると、実データ
+ * （Session 650件 × Event 7,627件）でDebriefを開くたびに1秒以上かかっていた。
+ */
+function changeEventIndexesBySession(
+  events: WorkspaceDomain["change_events"],
+): Map<unknown, number[]> {
+  const indexes = new Map<unknown, number[]>();
+  events.forEach((event, index) => {
+    const sessionId = event.origin?.session_id;
+    const list = indexes.get(sessionId);
+    if (list) list.push(index);
+    else indexes.set(sessionId, [index]);
+  });
+  return indexes;
+}
+
+/** 従来の change_events.filter(id一致 || source_session_id一致) と同じ並び・同じ要素。 */
+function activitiesForSession(
+  events: WorkspaceDomain["change_events"],
+  indexes: Map<unknown, number[]>,
+  session: AgentSession,
+): WorkspaceDomain["change_events"] {
+  const matched = new Set(indexes.get(session.id) || []);
+  if (session.source_session_id) {
+    for (const index of indexes.get(session.source_session_id) || []) matched.add(index);
+  }
+  return [...matched].sort((left, right) => left - right).map((index) => events[index]);
 }
 
 function byIds<T extends { id: string }>(records: T[], ids: Set<string>): T[] {
@@ -187,10 +230,12 @@ export function buildAgentWorkProjection(
   const taskById = new Map(domain.tasks.map((task) => [task.id, task]));
   const hookSourceApps = agentSessionHookSourceApps(domain.ai_proposals);
   const limit = options.limit ?? 20;
+  const sessionReferences = normalizeSessionReferences(domain.references);
+  const eventIndexes = changeEventIndexesBySession(domain.change_events);
 
   const rows = domain.agent_sessions
     .map((session) => {
-      const related = referencesForSession(domain.references, session.id);
+      const related = referencesForSession(sessionReferences, session.id);
       const themeIds = new Set(
         related.filter((ref) => ref.type === "project").map((ref) => ref.id),
       );
@@ -212,13 +257,7 @@ export function buildAgentWorkProjection(
           related.some((ref) => ref.type === "work_receipt" && ref.id === receipt.id) ||
           (session.source_session_id && receipt.source_session === session.source_session_id),
       );
-      const activities = domain.change_events.filter(
-        (event) =>
-          event.origin?.session_id === session.id ||
-          Boolean(
-            session.source_session_id && event.origin?.session_id === session.source_session_id,
-          ),
-      );
+      const activities = activitiesForSession(domain.change_events, eventIndexes, session);
       const remaining = session.outcome?.remaining_work || [];
       const themes = byIds(domain.projects, themeIds);
       const repositories = byIds(domain.repository_contexts, repositoryIds);

@@ -489,3 +489,32 @@ test("Feed stays beside Inbox and keeps Settings as the utility tool", () => {
   assert.deepEqual(crossNavigation, ["feed", "inbox", "debrief", "timeline"]);
   assert.deepEqual(toolNavigation, ["settings", "knowledge"]);
 });
+
+test("Sessionの活動は session.id と source_session_id のどちらかに一致するEventを元の順で重複なく持つ", () => {
+  const domain = domainFixture();
+  const session = domain.agent_sessions.find((entry) => entry.id === "session-today");
+  domain.change_events = [
+    { id: "e1", origin: { session_id: "codex-498" } },
+    { id: "e2", origin: { session_id: "other" } },
+    { id: "e3", origin: { session_id: "session-today" } },
+    { id: "e4" },
+    { id: "e5", origin: { session_id: "codex-498" } },
+  ];
+  const expected = domain.change_events
+    .filter(
+      (event) =>
+        event.origin?.session_id === session.id ||
+        Boolean(
+          session.source_session_id && event.origin?.session_id === session.source_session_id,
+        ),
+    )
+    .map((event) => event.id);
+  const row = buildAgentWorkProjection(domain, { limit: 100 }).find(
+    (entry) => entry.session.id === "session-today",
+  );
+  assert.deepEqual(expected, ["e1", "e3", "e5"]);
+  assert.deepEqual(
+    row.activities.map((event) => event.id),
+    expected,
+  );
+});
