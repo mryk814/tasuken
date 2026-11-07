@@ -312,6 +312,14 @@ HTTPを確認後、トンネル停止を承認された場合は同じComposeフ
 
 ## 更新と復旧
 
+### プル型の更新（nas-pull）
+
+NASがGitHubの`main`を見て、`deploy/synology/Dockerfile.nas`で自分でimageを作り、`deploy/synology/tasken-update-image.sh`が照合→版ずれの事前検査→停止→バックアップ→差し替え→health→戻しを行います。導入・結果の読み方は[deploy/synology/README.md](../deploy/synology/README.md#プル型の更新nas-pull)と実行役nas-pullのREADMEにあります。
+
+プル型の更新に限り、新しい版がhealthか版ずれの検査に落ちたら**imageを自動で戻します**（本人の判断、2026-11-07）。DBまで戻すのは、古いimageでも応答せず、かつ新しい版が共有フォルダへ差分を出していないときだけで、戻す前の`/data`は別名で残します。下の手順と「自動rollbackしない」原則は、開発機で作ったimageを手で入れる従来の手順のものです。
+
+### 手で入れる（従来の手順）
+
 NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.md`）に倣い、更新は「snapshot → 候補image → 交換 → 照合」の順で行います。
 
 1. 変更に直接関係する最小テストをWindows側で通し、**固定commit**からイメージを作る。`:local` の可変tagだけで判断しない。
