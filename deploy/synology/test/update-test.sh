@@ -54,12 +54,11 @@ new_world() {
   echo '{"架空":"秘密"}' > "$D/secrets/mcp_http_clients"
   chmod 600 "$D/secrets/"*
   echo '{"name":"tasken"}' > "$D/docker-compose.json"
-  printf 'TASKEN_IMAGE=sha256:old000000000\nTASKEN_UID=0\nTASKEN_GID=0\nTASKEN_ADMIN_GID=101\nTASKEN_DATA_DIR=%s\nTASKEN_SYNC_DIR=%s\n' "$DATA" "$SYNC" > "$D/tasken.conf"
+  printf 'TASKEN_IMAGE=sha256:old000000000\nTASKEN_UID=0\nTASKEN_GID=0\nTASKEN_ADMIN_GID=101\nTASKEN_DATA_DIR=%s\nTASKEN_SYNC_DIR=%s\nTASKEN_DEVICE_ID=%s\n' "$DATA" "$SYNC" "$DEV" > "$D/tasken.conf"
   chmod 644 "$D/tasken.conf" "$D/docker-compose.json"
   echo "sha256:old" > "$F/images/sha256:old000000000"
   echo "sha256:old000000000" > "$F/running"
   echo up > "$F/state" # 更新の前は、古い版が動いて応答している
-  echo 0 > "$F/restarts"
   cp "$script" "$A/tasken-update-image.sh"
   chmod 755 "$A/tasken-update-image.sh"
   write_fakes
@@ -70,7 +69,11 @@ write_fakes() {
 #!/bin/bash
 F=$(dirname "$0")
 W=$(dirname "$F")
-img_in() { grep -qx "$(cat "$F/running")" "$F/$1" 2>/dev/null; } # 今動いている image が、そのファイルに書いてあるか
+img_in() { grep -qx "$(cat "$F/running")" "$F/$1" 2>/dev/null; } # 今動いている Core の image が、そのファイルに書いてあるか
+data=$(sed -n 's/^TASKEN_DATA_DIR=//p' "$W/base/tasken/deploy/tasken.conf")
+# 起動してすぐ落ちる Core（すぐ落ちる版、または DB の schema が新しくて開けない古い版）
+core_dead() { img_in crashes || { img_in needs_v1 && [ "$(cat "$data/schema")" != v1 ]; }; }
+image_of() { if [ "$1" = tasken-headless ]; then cat "$F/running"; else cat "$F/img_$1" 2>/dev/null || cat "$F/running"; fi; }
 case "$1" in
   image) [ -f "$F/images/$5" ] && cat "$F/images/$5" || exit 1 ;;
   load) exit 0 ;;
@@ -78,11 +81,12 @@ case "$1" in
     fmt=$3; name=$4
     [ "$(cat "$F/state")" = stopped ] && running=false || running=true
     [ "$name" = tasken-tunnel ] && [ -f "$F/tunnel_down" ] && running=false
+    [ "$name" = tasken-headless ] && core_dead && running=false
     case "$fmt" in
-      '{{.Config.Image}}') cat "$F/running" ;;
+      '{{.Config.Image}}') image_of "$name" ;;
       '{{.State.Running}}') echo "$running" ;;
       '{{.State.StartedAt}}') cat "$F/started" 2>/dev/null || echo 2026-11-07T00:00:00.123456789Z ;;
-      '{{.RestartCount}}') if [ "$name" = tasken-mcp-http ]; then cat "$F/restarts"; else echo 0; fi ;;
+      '{{.RestartCount}}') cat "$F/restarts_$name" 2>/dev/null || echo 0 ;;
       *com.docker.compose.project*)
         svc=$name
         [ "$name" = tasken-tunnel ] && svc=tunnel-client
@@ -107,22 +111,22 @@ case "$1" in
       sh) [ ! -f "$F/probe_fails" ] ;; # 戻す写しへの書き込みの試し
       node)
         grep -qx "$image" "$F/nocheck" 2>/dev/null && { echo "Error: Cannot find module"; exit 1; }
+        grep -qx "$image" "$F/badschema" 2>/dev/null && { echo 'TASKEN_REPLICA_CHECK {"schema_version":2,"check":"packets","compatible":true}'; exit 0; }
         if grep -qx "$image" "$F/skew" 2>/dev/null; then
-          echo 'TASKEN_REPLICA_CHECK {"check":"packets","compatible":false,"manifest_ok":true,"checked":9,"devices":2,"rejected_total":1,"rejected":[{"device":"deskdesk","sequence":9,"entity_type":"future_kind","reason":"未知のEntity typeです"}]}'
+          echo 'TASKEN_REPLICA_CHECK {"schema_version":1,"check":"packets","compatible":false,"manifest_ok":true,"checked":9,"devices":2,"rejected_total":1,"rejected":[{"device":"deskdesk","sequence":9,"entity_type":"future_kind","reason":"未知のEntity typeです"}]}'
           exit 3
         fi
-        echo 'TASKEN_REPLICA_CHECK {"check":"packets","compatible":true,"manifest_ok":true,"checked":9,"devices":2,"rejected_total":0,"rejected":[]}' ;;
+        echo 'TASKEN_REPLICA_CHECK {"schema_version":1,"check":"packets","compatible":true,"manifest_ok":true,"checked":9,"devices":2,"rejected_total":0,"rejected":[]}' ;;
     esac ;;
   exec)
     shift
     c=$1; shift
     [ "$(cat "$F/state")" = up ] || exit 1
+    [ "$c" = tasken-headless ] && core_dead && exit 1
     echo "$c $*" >> "$F/exec_calls"
-    data=$(sed -n 's/^TASKEN_DATA_DIR=//p' "$W/base/tasken/deploy/tasken.conf")
     if [ "$2" = -e ]; then # health（Core・HTTP MCP・tunnel の readyz）
       img_in bad && exit 1
-      if img_in needs_v1 && [ "$(cat "$data/schema")" != v1 ]; then exit 1; fi
-      [ "$c" = tasken-mcp-http ] && img_in http_bad && exit 1
+      [ "$c" = tasken-mcp-http ] && grep -qx "$(image_of tasken-mcp-http)" "$F/http_bad" 2>/dev/null && exit 1
       exit 0
     fi
     case "$3" in
@@ -130,13 +134,13 @@ case "$1" in
         verdict=$(sed -n "s|^$(cat "$F/running") ||p" "$F/sync_verdict" 2>/dev/null | tail -1)
         verdict=${verdict:-synced}
         err=$(cat "$F/sync_digest" 2>/dev/null || true)
-        echo "TASKEN_REPLICA_CHECK {\"check\":\"state\",\"verdict\":\"$verdict\",\"sync\":{\"behind\":0,\"last_error\":\"架空の失敗\",\"last_error_sha256\":\"$err\",\"pending_invalid\":{\"entity_type\":\"future_kind\"}}}"
+        echo "TASKEN_REPLICA_CHECK {\"schema_version\":1,\"check\":\"state\",\"verdict\":\"$verdict\",\"sync\":{\"behind\":0,\"last_error\":\"架空の失敗\",\"last_error_sha256\":\"$err\",\"pending_invalid\":{\"entity_type\":\"future_kind\"}}}"
         [ "$verdict" = synced ] || exit 3 ;;
       mcp)
-        # 検査の間に HTTP MCP が落ちて、docker に起こし直された
-        if [ -f "$F/restart_after_up" ]; then echo 2 > "$F/restarts"; fi
-        if img_in mcp_bad; then echo 'TASKEN_REPLICA_CHECK {"check":"mcp","ok":false,"reason":"架空"}'; exit 3; fi
-        echo 'TASKEN_REPLICA_CHECK {"check":"mcp","ok":true,"tools":16}' ;;
+        # 検査の間に、HTTP MCP（または tunnel）が落ちて docker に起こし直された
+        if [ -f "$F/restart_after_up" ]; then echo 2 > "$F/restarts_$(cat "$F/restart_after_up")"; fi
+        if img_in mcp_bad; then echo 'TASKEN_REPLICA_CHECK {"schema_version":1,"check":"mcp","ok":false,"reason":"架空"}'; exit 3; fi
+        echo 'TASKEN_REPLICA_CHECK {"schema_version":1,"check":"mcp","ok":true,"tools":16}' ;;
     esac ;;
 esac
 SH
@@ -153,7 +157,7 @@ case "${1:-}" in
 {"name":"tasken","services":{
  "tasken-headless":{"container_name":"tasken-headless","image":"$TASKEN_IMAGE","volumes":[{"type":"bind","source":"$W/vol/state","target":"/data"}]},
  "tunnel-client":{"container_name":"tasken-tunnel","image":"$TASKEN_IMAGE","volumes":[{"type":"bind","source":"$D/secrets/control_plane_api_key","target":"/run/secrets/control_plane_api_key","read_only":true}]},
- "mcp-http":{"container_name":"tasken-mcp-http","image":"$TASKEN_IMAGE"}},
+ "mcp-http":{"container_name":"tasken-mcp-http","image":"${TASKEN_IMAGE_MCP_HTTP:-$TASKEN_IMAGE}"}},
  "secrets":{"mcp_http_clients":{"file":"$D/secrets/mcp_http_clients"}}}
 JSON
     ;;
@@ -161,19 +165,36 @@ JSON
     echo "stop $args" >> "$F/calls"
     [ -f "$F/stop_noop" ] || echo stopped > "$F/state" ;;
   up)
-    echo "up $TASKEN_IMAGE $args" >> "$F/calls"
+    shift
+    svcs=()
+    for a in "$@"; do case "$a" in -* | never) ;; *) svcs+=("$a") ;; esac; done
+    [ "${#svcs[@]}" -gt 0 ] || svcs=(tasken-headless tunnel-client mcp-http)
+    echo "up $TASKEN_IMAGE ${svcs[*]} $args" >> "$F/calls"
     [ -f "$F/up_fails" ] && { echo "偽の compose の失敗" >&2; exit 1; }
-    echo "$TASKEN_IMAGE" > "$F/running"; echo up > "$F/state"
     data=$(sed -n 's/^TASKEN_DATA_DIR=//p' "$D/tasken.conf")
-    if grep -qx "$TASKEN_IMAGE" "$F/migrates" 2>/dev/null; then
-      echo v2 > "$data/schema"
-      python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('insert into entities values (\"n\",\"n\",\"{}\",null)'); c.commit()" "$data/research-desk.sqlite"
-    fi
-    # 試しの間に、新しい版が共有フォルダへ差分を出した
-    if grep -qx "$TASKEN_IMAGE" "$F/publishes" 2>/dev/null; then
-      echo '{}' > "$W/vol/sync/devices/aaaaaaaa-1111-2222-3333-444444444444/000000000004-0000bbbb-0000.json"
-    fi
-    echo 0 > "$F/restarts" ;;
+    dependents=0
+    for s in "${svcs[@]}"; do
+      case "$s" in
+        tasken-headless)
+          echo "$TASKEN_IMAGE" > "$F/running"; echo up > "$F/state"
+          if grep -qx "$TASKEN_IMAGE" "$F/migrates" 2>/dev/null; then
+            echo v2 > "$data/schema"
+            python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('insert into entities values (\"n\",\"n\",\"{}\",null)'); c.commit()" "$data/research-desk.sqlite"
+          fi
+          # 試しの間に、新しい版が共有フォルダへ差分を出した
+          if grep -qx "$TASKEN_IMAGE" "$F/publishes" 2>/dev/null; then
+            echo '{}' > "$W/vol/sync/devices/aaaaaaaa-1111-2222-3333-444444444444/000000000004-0000bbbb-0000.json"
+          fi ;;
+        tunnel-client) echo "$TASKEN_IMAGE" > "$F/img_tasken-tunnel"; dependents=1 ;;
+        mcp-http) echo "${TASKEN_IMAGE_MCP_HTTP:-$TASKEN_IMAGE}" > "$F/img_tasken-mcp-http"; dependents=1 ;;
+      esac
+    done
+    rm -f "$F"/restarts_*
+    # Core の network を使うサービスは、Core が動いていないと起こせない（compose ごと失敗する）
+    if [ "$dependents" = 1 ] && "$F/docker" inspect --format '{{.State.Running}}' tasken-headless | grep -qx false; then
+      echo "cannot join network of a non running container" >&2
+      exit 1
+    fi ;;
 esac
 SH
   chmod 755 "$F/docker" "$F/dc"
@@ -217,6 +238,22 @@ expect "成功: 事前検査は隔離して、共有フォルダを読み取り�
 expect "成功: 同期の検査に起動の時刻をミリ秒で渡す" 'grep -q -- "--since=2026-11-07T00:00:00.123Z" "$F/exec_calls"'
 expect "成功: HTTP MCP の health を確かめる" 'grep -q "^tasken-mcp-http node -e" "$F/exec_calls"'
 expect "成功: バックアップに -shm を写さない・root の -shm を残さない" '! ls "$BK"/state.before-*/*-shm >/dev/null 2>&1'
+expect "成功: 事前検査で replica 自身の端末を外す" 'grep -q -- "--exclude-device=$DEV" "$F/run_calls"'
+
+# 1b. HTTP MCP だけ別の image で動いていた（2026-10-22 の配備）: 入れ替えで揃い、戻すときはそれぞれの前の image へ
+new_world
+echo "TASKEN_IMAGE_MCP_HTTP=sha256:http00000000" >> "$D/tasken.conf"
+echo sha256:http00000000 > "$F/img_tasken-mcp-http"
+record tasken:new1b1b1b1b1 sha256:new1b
+run_update
+expect "image が別だった HTTP MCP: 入れ替えで同じ tag に揃う" '[ "$code" = 0 ] && grep -qx "TASKEN_IMAGE_MCP_HTTP=tasken:new1b1b1b1b1" "$D/tasken.conf" && [ "$(cat "$F/img_tasken-mcp-http")" = tasken:new1b1b1b1b1 ]'
+new_world
+echo "TASKEN_IMAGE_MCP_HTTP=sha256:http00000000" >> "$D/tasken.conf"
+echo sha256:http00000000 > "$F/img_tasken-mcp-http"
+record tasken:bad1c1c1c1c1 sha256:bad1c
+echo tasken:bad1c1c1c1c1 > "$F/bad"
+run_update
+expect "image が別だった HTTP MCP: 戻すときは HTTP MCP の前の image へ" '[ "$code" = 3 ] && [ "$(cat "$F/img_tasken-mcp-http")" = sha256:http00000000 ] && [ "$(cat "$F/img_tasken-tunnel")" = sha256:old000000000 ] && grep -qx "TASKEN_IMAGE_MCP_HTTP=sha256:http00000000" "$D/tasken.conf"'
 
 # 2. 起動しない版は image だけ戻る
 new_world
@@ -224,8 +261,16 @@ record tasken:bad222222222 sha256:bad
 echo tasken:bad222222222 > "$F/bad"
 run_update
 expect "image の戻し: 終了 3・古い版で動く・DB はそのまま" '[ "$code" = 3 ] && [ "$(conf_image)" = sha256:old000000000 ] && [ "$(rows "$DATA/research-desk.sqlite")" = 5 ] && grep -q "^HEALTH_FAIL$" <<< "$out" && grep -q "^BACKUP_OK" <<< "$out"'
+expect "image の戻し: Core を先に一つで起こし、ほかはその後" 'grep -q "^up sha256:old000000000 tasken-headless " "$F/calls" && grep -q "^up sha256:old000000000 mcp-http tunnel-client " "$F/calls"'
+# すぐ落ちる版: 新しい Core が動いていないと、ほかのサービスを起こせず compose ごと落ちる。それでも戻る
+new_world
+record tasken:crs2b2b2b2b2 sha256:crs
+echo tasken:crs2b2b2b2b2 > "$F/crashes"
+run_update
+expect "すぐ落ちる版: 終了 3・古い版で動く" '[ "$code" = 3 ] && grep -q "^COMPOSE_UP_FAILED" <<< "$out" && [ "$(cat "$F/running")" = sha256:old000000000 ]'
 
-# 3. schema に触って落ちる版。古い版も動けない → DB も戻す（終了 5）
+# 3. schema に触って落ちる版。古い版は新しい schema の DB を開けず、起動してすぐ落ちる → DB も戻す（終了 5）。
+#    古い Core がすぐ落ちても、Core を先に一つで起こすので、二段目に届く（まとめて起こすと compose ごと落ちて終了 4）
 new_world
 record tasken:mig333333333 sha256:mig
 echo tasken:mig333333333 > "$F/bad"
@@ -398,9 +443,19 @@ run_update
 expect "HTTP MCP が応答しない版: 終了 3" '[ "$code" = 3 ] && grep -q "^HEALTH_FAIL mcp_http" <<< "$out"'
 new_world
 record tasken:rst999999999 sha256:rst
-touch "$F/restart_after_up"
+echo tasken-mcp-http > "$F/restart_after_up"
 run_update
 expect "作り直した後に再起動を繰り返す版: 終了 3" '[ "$code" = 3 ] && grep -q "^HEALTH_FAIL restarting" <<< "$out"'
+new_world
+record tasken:rsu999999999 sha256:rsu
+echo tasken-tunnel > "$F/restart_after_up"
+run_update
+expect "tunnel の再起動は外の都合なので合否に入れない: 終了 0" '[ "$code" = 0 ]'
+new_world
+record tasken:sch999999999 sha256:sch
+echo tasken:sch999999999 > "$F/badschema"
+run_update
+expect "検査の出力の形の版が違う: CHECK_FAILED・終了 1・止めない" '[ "$code" = 1 ] && [[ "$last" == "CHECK_FAILED packets"* ]] && [ ! -f "$F/calls" ]'
 
 # 10. 前提の不一致・書ける設定・親・symlink・record なし
 new_world
