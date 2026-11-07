@@ -454,17 +454,21 @@ export class WorkspaceDatabase {
    * - change_event: 保存のたびの重複判定が全Eventを読み直していた。判定に使うキーで引く。
    *
    * 作成に失敗しても起動は止めない。索引がないときは従来の全件走査に戻る。
+   *
+   * CREATE INDEX IF NOT EXISTS は同じ名前の古い定義を残す。式や列を変えるときは名前の版
+   * （_v1）を上げ、古い名前をDROPする。そのままだと問い合わせが合わない索引を全件読み、
+   * 黙って遅さが戻る。
    */
   ensurePerformanceIndexes() {
     this.performanceIndexes = { changeEventDedupe: false };
     try {
       this.db.exec(`
-        CREATE INDEX IF NOT EXISTS idx_sync_outbox_publish_state
+        CREATE INDEX IF NOT EXISTS idx_sync_outbox_publish_state_v1
           ON sync_outbox(device_sequence, change_id, published_at);
-        CREATE INDEX IF NOT EXISTS idx_change_event_dedupe_key
+        CREATE INDEX IF NOT EXISTS idx_change_event_dedupe_key_v1
           ON entities(${CHANGE_EVENT_DEDUPE_KEY_SQL})
           WHERE entity_type = 'change_event';
-        CREATE INDEX IF NOT EXISTS idx_change_event_irregular_dedupe_key
+        CREATE INDEX IF NOT EXISTS idx_change_event_irregular_dedupe_key_v1
           ON entities(updated_at)
           WHERE entity_type = 'change_event' AND (${CHANGE_EVENT_IRREGULAR_DEDUPE_KEY_SQL});
       `);
@@ -490,19 +494,24 @@ export class WorkspaceDatabase {
     }
     const matching = this.db
       .prepare(
-        `SELECT * FROM entities INDEXED BY idx_change_event_dedupe_key
+        `SELECT *, rowid AS __rowid FROM entities INDEXED BY idx_change_event_dedupe_key_v1
          WHERE entity_type = 'change_event' AND ${CHANGE_EVENT_DEDUPE_KEY_SQL} = ?`,
       )
       .all(dedupeKey);
     const irregular = this.db
       .prepare(
-        `SELECT * FROM entities INDEXED BY idx_change_event_irregular_dedupe_key
+        `SELECT *, rowid AS __rowid FROM entities INDEXED BY idx_change_event_irregular_dedupe_key_v1
          WHERE entity_type = 'change_event' AND (${CHANGE_EVENT_IRREGULAR_DEDUPE_KEY_SQL})`,
       )
       .all();
-    // SQLiteの ORDER BY updated_at DESC と同じ二値比較で並べる。
+    // 従来の list() は idx_entities_type_updated を逆向きに読むので、updated_at の新しい順、
+    // 同時刻なら rowid の大きい順になる。同じ並びにして、同時刻の行でも同じ1件を選ぶ。
     const newestFirst = (left, right) =>
-      left.updated_at === right.updated_at ? 0 : left.updated_at < right.updated_at ? 1 : -1;
+      left.updated_at === right.updated_at
+        ? right.__rowid - left.__rowid
+        : left.updated_at < right.updated_at
+          ? 1
+          : -1;
     return (
       [...matching, ...irregular]
         .sort(newestFirst)

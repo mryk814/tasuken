@@ -87,6 +87,30 @@ test("change_eventの重複判定は、索引で引いても全件走査と同�
     assert.equal(repository.findChangeEventByDedupeKey("padded-key")?.id, "padded");
     assert.equal(repository.findChangeEventByDedupeKey("42")?.id, "numeric");
 
+    // 同じキーで updated_at まで同じ行が並ぶと、従来は後から入った行（rowidの大きい行）を選んだ。
+    // 索引経由でも同じ1件を選ぶ（保存済みキーの行と計算し直す行が混ざっても）。
+    const tie = "2026-11-04T00:00:00.000Z";
+    insertRawChangeEvent(
+      repository,
+      "tie-1",
+      { ...base, metadata: { ...base.metadata, dedupe_key: "tie-key" } },
+      tie,
+    );
+    insertRawChangeEvent(
+      repository,
+      "tie-2",
+      { ...base, metadata: { ...base.metadata, dedupe_key: " tie-key" } },
+      tie,
+    );
+    insertRawChangeEvent(
+      repository,
+      "tie-3",
+      { ...base, metadata: { ...base.metadata, dedupe_key: "tie-key" } },
+      tie,
+    );
+    assert.equal(scanAll(repository, "tie-key")?.id, "tie-3");
+    assert.equal(repository.findChangeEventByDedupeKey("tie-key")?.id, "tie-3");
+
     // 索引がない（作成に失敗した）ときは全件走査に戻り、同じ結果になる。
     repository.performanceIndexes.changeEventDedupe = false;
     assert.equal(repository.findChangeEventByDedupeKey("padded-key")?.id, "padded");
@@ -105,9 +129,9 @@ test("読み取り用の索引はschema_versionを上げずに作り、開き直
       .all()
       .map((row) => row.name);
     for (const name of [
-      "idx_sync_outbox_publish_state",
-      "idx_change_event_dedupe_key",
-      "idx_change_event_irregular_dedupe_key",
+      "idx_sync_outbox_publish_state_v1",
+      "idx_change_event_dedupe_key_v1",
+      "idx_change_event_irregular_dedupe_key_v1",
     ]) {
       assert.ok(indexes.includes(name), name);
     }
@@ -122,7 +146,7 @@ test("読み取り用の索引はschema_versionを上げずに作り、開き直
       .all()
       .map((row) => row.detail)
       .join(" ");
-    assert.match(plan, /COVERING INDEX idx_sync_outbox_publish_state/);
+    assert.match(plan, /COVERING INDEX idx_sync_outbox_publish_state_v1/);
     second.db.close();
   } finally {
     await rm(directory, { recursive: true, force: true });
