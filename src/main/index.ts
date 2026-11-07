@@ -43,14 +43,13 @@ import {
   applyMcpPackageSmokeUserData,
   readMcpPackageSmokeLaunchOptions,
 } from "./composition/taskenDesktopComposition.ts";
-import { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
+import { WorkspaceDatabase, inspectWorkspaceBackup } from "./repositories/workspaceRepository.mjs";
 import { BatchTranscriptionRepository } from "./repositories/batchTranscriptionRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
 import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBackup";
 import { applyEmbeddedAiRetirementMigration } from "./services/embeddedAiRetirementMigration";
-import { createSnapshot, readSnapshot } from "./services/snapshotService.mjs";
 import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
 import type { Entity, EntityType } from "../shared/types/workspace";
 import { MediaCaptureService } from "./services/mediaCaptureService";
@@ -136,7 +135,10 @@ let memoStickyController: MemoStickyController | null = null;
 let noteWindowController: NoteWindowController | null = null;
 let taskenRootController: TaskenRootController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
+let automaticSnapshotBackup: AutomaticSnapshotBackupService | null = null;
 let dailyContextAutoService: WorkspaceService | null = null;
+// 起動直後の画面表示とworkspace:loadの邪魔をしないよう、自動バックアップは少し遅らせて裏で写す。
+const AUTOMATIC_BACKUP_STARTUP_DELAY_MS = 30_000;
 let smokeMediaCaptureService: MediaCaptureService | null = null;
 let smokeVideoSourcePath = "";
 let lastSmokeStage = "startup";
@@ -2747,14 +2749,17 @@ async function startDesktopApp(): Promise<void> {
     );
   }
   await composition.start();
-  const automaticSnapshotBackup = new AutomaticSnapshotBackupService({
-    repository: workspaceRepository,
+  const backupDatabase = workspaceRepository;
+  automaticSnapshotBackup = new AutomaticSnapshotBackupService({
+    database: {
+      entityCount: () => backupDatabase.entityCount(),
+      backupTo: (filePath, shouldAbort) => backupDatabase.backupTo(filePath, shouldAbort),
+      inspectBackup: (filePath) => inspectWorkspaceBackup(filePath),
+    },
     defaultDirectory: path.join(app.getPath("userData"), "Backups"),
     enabled: workspaceRepository.getPreference("automaticSnapshotBackupEnabled") !== false,
     directory: String(workspaceRepository.getPreference("automaticSnapshotBackupDirectory") || ""),
     generations: Number(workspaceRepository.getPreference("automaticSnapshotBackupGenerations")),
-    writeSnapshot: (workspace, filePath) => createSnapshot(workspace).writeZip(filePath),
-    verifySnapshot: (filePath) => readSnapshot(filePath).workspace,
     log: (level, message, error) => logMain(level, "automatic-snapshot", message, error),
   });
   registerWebArtifactProtocol(workspaceService);
@@ -2916,7 +2921,10 @@ async function startDesktopApp(): Promise<void> {
   createWindow();
 
   if (!isSmokeTest) {
-    automaticSnapshotBackup.run("startup");
+    setTimeout(
+      () => void automaticSnapshotBackup?.run("startup"),
+      AUTOMATIC_BACKUP_STARTUP_DELAY_MS,
+    ).unref?.();
     sharedFolderSyncService.start();
     workspaceService.startDailyContextAuto();
     trayController.setup();
@@ -2985,6 +2993,8 @@ app.on("before-quit", (event) => {
         logMain("warn", "tasken-core", "loopback hostを停止できませんでした", error),
       );
       desktopComposition = null;
+      // 作成途中のバックアップは止めて一時ファイルを片付ける（数百MBの作りかけを残さない）。
+      await automaticSnapshotBackup?.cancel();
       appQuitApproved = true;
       app.quit();
     },

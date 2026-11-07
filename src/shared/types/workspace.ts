@@ -177,5 +177,7 @@ export interface SnapshotInspectResult {
   canceled: boolean;
   token?: string;
   manifest?: Record<string, unknown>;
+  /** 内容が違う行だけ。同じ内容の行は既定で無視するので、件数だけを unchangedCount で返す。 */
   changes?: unknown[];
+  unchangedCount?: number;
 }

@@ -2,20 +2,37 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import type { AutomaticSnapshotBackupConfig, AutomaticSnapshotBackupStatus } from "../../shared/ipc/contracts";
-import { entityDefinitions } from "../../shared/entityRegistry.mjs";
+import type {
+  AutomaticSnapshotBackupConfig,
+  AutomaticSnapshotBackupStatus,
+} from "../../shared/ipc/contracts";
 
-const AUTOMATIC_SNAPSHOT_PATTERN = /^tasken-auto-\d{8}T\d{9}Z-[0-9a-f]{8}\.zip$/;
+/**
+ * 自動バックアップは正本DBそのもの（SQLite）の写しにする。
+ *
+ * 以前はWorkspace全体をJSONにしてZIPへ書き、読み直して確かめていた。変更履歴が増えると
+ * 1ファイル10MB・全体50MBの読み込み上限に当たり、2026-10-06以降の起動では毎回失敗していた
+ * （実データでchange_events.jsonが137MB）。失敗するまでにも起動時のMainを約3秒止めていた。
+ * SQLiteのbackupは同期の状態や設定まで含めて写せて、上限もなく、小分けに進むのでMainをほぼ止めない。
+ * 手動のSnapshot（ZIP）による移行・差分取り込みはこれまでどおり別にある。
+ */
+const AUTOMATIC_BACKUP_PATTERN = /^tasken-auto-\d{8}T\d{9}Z-[0-9a-f]{8}\.sqlite$/;
+/** 終了や失敗で残った作成途中のファイル。自分が作る名前だけを片付ける。 */
+const AUTOMATIC_BACKUP_TEMPORARY_PATTERN =
+  /^\.tasken-auto-\d{8}T\d{9}Z-[0-9a-f]{8}\.sqlite\.tmp(?:-journal|-wal|-shm)?$/;
 
-interface SnapshotRepository {
-  loadWorkspace(includeDeleted?: boolean): unknown;
+export interface AutomaticBackupDatabase {
+  /** 正本の件数（削除済みを含む）。0なら空の作業台として保存しない。 */
+  entityCount(): number;
+  /** 正本の一貫した写しを filePath へ書く。shouldAbort が true を返したら途中でやめて投げる。 */
+  backupTo(filePath: string, shouldAbort: () => boolean): Promise<void>;
+  /** 写しを開き直して件数を返す。Taskenの正本として開けなければ投げる。 */
+  inspectBackup(filePath: string): { entityCount: number };
 }
 
 interface AutomaticSnapshotBackupOptions extends AutomaticSnapshotBackupConfig {
-  repository: SnapshotRepository;
+  database: AutomaticBackupDatabase;
   defaultDirectory: string;
-  writeSnapshot: (workspace: unknown, filePath: string) => void;
-  verifySnapshot: (filePath: string) => unknown;
   now?: () => Date;
   log?: (level: "info" | "warn" | "error", message: string, error?: unknown) => void;
 }
@@ -38,24 +55,16 @@ function timestamp(date: Date): string {
   return date.toISOString().replaceAll("-", "").replaceAll(":", "").replace(".", "");
 }
 
-function storedEntityCount(workspace: unknown): number {
-  if (!workspace || typeof workspace !== "object" || Array.isArray(workspace)) return 0;
-  const source = workspace as Record<string, unknown>;
-  return entityDefinitions.reduce((count, definition) => {
-    const collection = source[definition.collectionKey];
-    if (!Array.isArray(collection)) return count;
-    return count + collection.length;
-  }, 0);
-}
+class BackupCancelledError extends Error {}
 
 export class AutomaticSnapshotBackupService {
-  private readonly repository: SnapshotRepository;
+  private readonly database: AutomaticBackupDatabase;
   private readonly defaultDirectory: string;
-  private readonly writeSnapshot: AutomaticSnapshotBackupOptions["writeSnapshot"];
-  private readonly verifySnapshot: AutomaticSnapshotBackupOptions["verifySnapshot"];
   private readonly now: () => Date;
   private readonly log: NonNullable<AutomaticSnapshotBackupOptions["log"]>;
   private config: AutomaticSnapshotBackupConfig;
+  private running: Promise<AutomaticSnapshotBackupStatus> | null = null;
+  private cancelRequested = false;
   private runtime: Omit<AutomaticSnapshotBackupStatus, keyof AutomaticSnapshotBackupConfig> = {
     lastAttemptAt: "",
     lastSuccessAt: "",
@@ -66,10 +75,8 @@ export class AutomaticSnapshotBackupService {
   };
 
   constructor(options: AutomaticSnapshotBackupOptions) {
-    this.repository = options.repository;
+    this.database = options.database;
     this.defaultDirectory = path.resolve(options.defaultDirectory);
-    this.writeSnapshot = options.writeSnapshot;
-    this.verifySnapshot = options.verifySnapshot;
     this.now = options.now || (() => new Date());
     this.log = options.log || (() => {});
     this.config = this.normalizeConfig(options);
@@ -89,7 +96,24 @@ export class AutomaticSnapshotBackupService {
     return { ...this.config, ...this.runtime };
   }
 
-  run(trigger: AutomaticSnapshotTrigger = "manual"): AutomaticSnapshotBackupStatus {
+  /** 実行中なら同じ結果を待つ。同時に2つの写しを作らない。 */
+  run(trigger: AutomaticSnapshotTrigger = "manual"): Promise<AutomaticSnapshotBackupStatus> {
+    if (this.running) return this.running;
+    this.cancelRequested = false;
+    this.running = this.runOnce(trigger).finally(() => {
+      this.running = null;
+    });
+    return this.running;
+  }
+
+  /** 終了時に呼ぶ。作成途中の写しを止めて片付け終わるまで待つ。完成済みの世代には触れない。 */
+  async cancel(): Promise<void> {
+    if (!this.running) return;
+    this.cancelRequested = true;
+    await this.running.catch(() => undefined);
+  }
+
+  private async runOnce(trigger: AutomaticSnapshotTrigger): Promise<AutomaticSnapshotBackupStatus> {
     const attemptedAt = this.now();
     this.runtime.lastAttemptAt = attemptedAt.toISOString();
     this.runtime.lastError = "";
@@ -100,23 +124,27 @@ export class AutomaticSnapshotBackupService {
       return this.status();
     }
 
+    const directory = this.config.directory;
     let temporaryPath = "";
     try {
-      const workspace = this.repository.loadWorkspace(true);
-      const entityCount = storedEntityCount(workspace);
-      if (entityCount === 0) {
-        this.runtime.skippedReason = "保存するデータがまだないため、バックアップを作成しませんでした。";
+      if (this.database.entityCount() === 0) {
+        this.runtime.skippedReason =
+          "保存するデータがまだないため、バックアップを作成しませんでした。";
         return this.status();
       }
 
-      fs.mkdirSync(this.config.directory, { recursive: true });
-      const fileName = `tasken-auto-${timestamp(attemptedAt)}-${crypto.randomUUID().slice(0, 8)}.zip`;
-      const finalPath = path.join(this.config.directory, fileName);
-      temporaryPath = path.join(this.config.directory, `.${fileName}.tmp`);
-      this.writeSnapshot(workspace, temporaryPath);
-      const verifiedWorkspace = this.verifySnapshot(temporaryPath);
-      if (storedEntityCount(verifiedWorkspace) !== entityCount) {
-        throw new Error("Snapshotの復元確認でEntity件数が一致しませんでした。");
+      fs.mkdirSync(directory, { recursive: true });
+      this.removeStaleTemporaryFiles(directory);
+      const fileName = `tasken-auto-${timestamp(attemptedAt)}-${crypto.randomUUID().slice(0, 8)}.sqlite`;
+      const finalPath = path.join(directory, fileName);
+      temporaryPath = path.join(directory, `.${fileName}.tmp`);
+      await this.database.backupTo(temporaryPath, () => this.cancelRequested);
+      if (this.cancelRequested) throw new BackupCancelledError("終了のため中止した");
+      // backupの最後の1歩とこの行の間に他の処理は割り込まない（同じtickの続き）。
+      const liveCount = this.database.entityCount();
+      const { entityCount } = this.database.inspectBackup(temporaryPath);
+      if (entityCount !== liveCount) {
+        throw new Error("バックアップの確認でEntity件数が一致しませんでした。");
       }
       fs.renameSync(temporaryPath, finalPath);
       temporaryPath = "";
@@ -125,20 +153,42 @@ export class AutomaticSnapshotBackupService {
       for (const stale of backups.slice(this.config.generations)) fs.unlinkSync(stale.path);
       this.runtime.lastSuccessAt = attemptedAt.toISOString();
       this.runtime.latestFilePath = finalPath;
-      this.log("info", `自動Snapshotを作成した (trigger=${trigger}, generations=${this.config.generations})`);
+      this.log(
+        "info",
+        `自動バックアップを作成した (trigger=${trigger}, generations=${this.config.generations})`,
+      );
     } catch (error) {
-      if (temporaryPath) {
-        try {
-          fs.unlinkSync(temporaryPath);
-        } catch {
-          // 作成途中の一時ファイルが既にない場合は、元の失敗理由を優先する。
-        }
+      if (temporaryPath) this.removeTemporaryFile(temporaryPath);
+      // 中止はbackupTo自身が投げる（進捗の途中で止める）ことも、終わった直後に気づくこともある。
+      if (error instanceof BackupCancelledError || this.cancelRequested) {
+        this.runtime.skippedReason = "終了のため、作成途中のバックアップを中止しました。";
+      } else {
+        this.runtime.lastError = safeError(error);
+        this.log("error", `自動バックアップに失敗した (trigger=${trigger})`, error);
       }
-      this.runtime.lastError = safeError(error);
-      this.log("error", `自動Snapshotに失敗した (trigger=${trigger})`, error);
     }
     this.refreshInventory();
     return this.status();
+  }
+
+  private removeTemporaryFile(temporaryPath: string): void {
+    for (const suffix of ["", "-journal", "-wal", "-shm"]) {
+      try {
+        fs.rmSync(`${temporaryPath}${suffix}`, { force: true });
+      } catch {
+        // 作成途中のファイルを消せなくても、元の失敗理由を優先する。次回の実行でも片付ける。
+      }
+    }
+  }
+
+  private removeStaleTemporaryFiles(directory: string): void {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (entry.isFile() && AUTOMATIC_BACKUP_TEMPORARY_PATTERN.test(entry.name)) {
+        this.removeTemporaryFile(
+          path.join(directory, entry.name.replace(/(-journal|-wal|-shm)$/, "")),
+        );
+      }
+    }
   }
 
   private normalizeConfig(config: AutomaticSnapshotBackupConfig): AutomaticSnapshotBackupConfig {
@@ -150,15 +200,19 @@ export class AutomaticSnapshotBackupService {
     };
   }
 
+  /** 世代として数え、入れ替えるのはSQLiteの写しだけ。以前のZIP（tasken-auto-*.zip）には触れない。 */
   private listBackups(): Array<{ path: string; modifiedAt: number }> {
     if (!fs.statSync(this.config.directory, { throwIfNoEntry: false })?.isDirectory()) return [];
-    return fs.readdirSync(this.config.directory, { withFileTypes: true })
-      .filter((entry) => entry.isFile() && AUTOMATIC_SNAPSHOT_PATTERN.test(entry.name))
+    return fs
+      .readdirSync(this.config.directory, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && AUTOMATIC_BACKUP_PATTERN.test(entry.name))
       .map((entry) => {
         const filePath = path.join(this.config.directory, entry.name);
         return { path: filePath, modifiedAt: fs.statSync(filePath).mtimeMs };
       })
-      .sort((left, right) => right.modifiedAt - left.modifiedAt || right.path.localeCompare(left.path));
+      .sort(
+        (left, right) => right.modifiedAt - left.modifiedAt || right.path.localeCompare(left.path),
+      );
   }
 
   private refreshInventory(): void {
@@ -173,7 +227,7 @@ export class AutomaticSnapshotBackupService {
       this.runtime.backupCount = 0;
       this.runtime.latestFilePath = "";
       this.runtime.lastError ||= safeError(error);
-      this.log("warn", "自動Snapshot一覧を確認できなかった", error);
+      this.log("warn", "自動バックアップの一覧を確認できなかった", error);
     }
   }
 }

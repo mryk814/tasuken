@@ -107,6 +107,30 @@ export function projectCommandReceiptForRenderer(receipt: CommandReceipt): Comma
   };
 }
 
+/**
+ * Snapshot差分の画面は各行の題名と状態しか出さない。本文まで送ると、実データ規模
+ * （1万件・100MB超）でIPCと画面が固まるため、題名に要る項目だけを渡す。
+ * 反映はMainが持つ元のSnapshotで行うので、ここで落とした項目は失われない。
+ */
+const SNAPSHOT_PREVIEW_FIELDS = [
+  "id",
+  "title",
+  "name",
+  "summary",
+  "version",
+  "updated_at",
+  "deleted_at",
+] as const;
+
+function projectSnapshotPreviewEntity(type: EntityType, entity: Entity): Entity {
+  const safe = projectEntityForRenderer(type, entity) as Record<string, unknown>;
+  const preview: Record<string, unknown> = {};
+  for (const field of SNAPSHOT_PREVIEW_FIELDS) {
+    if (safe[field] !== undefined) preview[field] = safe[field];
+  }
+  return preview as Entity;
+}
+
 export function projectSnapshotInspectForRenderer<T>(result: T): T {
   if (!result || typeof result !== "object" || Array.isArray(result)) return result;
   const value = result as Record<string, unknown>;
@@ -117,7 +141,7 @@ export function projectSnapshotInspectForRenderer<T>(result: T): T {
     const type = change.type as EntityType;
     const project = (candidate: unknown) =>
       candidate && typeof candidate === "object" && !Array.isArray(candidate)
-        ? projectEntityForRenderer(type, candidate as Entity)
+        ? projectSnapshotPreviewEntity(type, candidate as Entity)
         : candidate;
     return { ...change, incoming: project(change.incoming), local: project(change.local) };
   });
