@@ -500,9 +500,9 @@ rollback() {
     if [ "$restored" = 1 ]; then
       up_core
       if core_healthy "$old"; then
-        others=""
-        up_others || others=" attention=OTHER_SERVICES_NOT_RUNNING"
-        echo "RESTORED_PREVIOUS image=$old db_restored=1 kept=${failed:-none}/$base$others"
+        local others_note=""
+        up_others || others_note=" attention=OTHER_SERVICES_NOT_RUNNING"
+        echo "RESTORED_PREVIOUS image=$old db_restored=1 kept=${failed:-none}/$base$others_note"
         exit 5
       fi
     fi
