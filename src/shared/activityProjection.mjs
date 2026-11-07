@@ -1,6 +1,7 @@
 import {
   ACTIVITY_EVENT_SCHEMA_VERSION,
   activityEventDedupeKey,
+  isCurrentActivityEvent,
   migrateChangeEvent,
   normalizeCanonicalRef,
   resolveCanonicalRef,
@@ -254,15 +255,28 @@ function entityTitle(entity, ref) {
   return text(entity?.title || entity?.name) || `${ref.type}:${ref.id}`;
 }
 
+// Intl.DateTimeFormat の生成は重い（Event1件ごとに作ると数千件で秒単位になる）ので、
+// タイムゾーンごとに1つ作って使い回す。不正なタイムゾーンは生成時に投げ、従来どおり下で扱う。
+const dateFormatters = new Map();
+const timeFormatters = new Map();
+
+function cachedFormatter(cache, timezone, options) {
+  const zone = timezone || DEFAULT_TIMEZONE;
+  let formatter = cache.get(zone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(options.locale, { ...options.format, timeZone: zone });
+    cache.set(zone, formatter);
+  }
+  return formatter;
+}
+
 export function localDate(value, timezone) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   try {
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: timezone || DEFAULT_TIMEZONE,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
+    const parts = cachedFormatter(dateFormatters, timezone, {
+      locale: "en-CA",
+      format: { year: "numeric", month: "2-digit", day: "2-digit" },
     }).formatToParts(date);
     const values = Object.fromEntries(
       parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]),
@@ -279,11 +293,9 @@ function localTime(value, timezone) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "--:--";
   try {
-    return new Intl.DateTimeFormat("en-GB", {
-      timeZone: timezone || DEFAULT_TIMEZONE,
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
+    return cachedFormatter(timeFormatters, timezone, {
+      locale: "en-GB",
+      format: { hour: "2-digit", minute: "2-digit", hour12: false },
     }).format(date);
   } catch {
     return timezone && timezone !== DEFAULT_TIMEZONE
@@ -673,7 +685,10 @@ export function queryActivityEvents({
           ),
         ) || null;
       return {
-        ...migrateChangeEvent(event, { entity }),
+        // 現行形式のEventは複製しない。migrateChangeEventは現行形式でもJSONで丸ごと複製し、
+        // 全Event（実データで7千件・100MB超）を問い合わせのたびに複製していた。
+        // 以降の処理は新しいobjectへ写すだけで、入力のEventを書き換えない。
+        ...(isCurrentActivityEvent(event) ? event : migrateChangeEvent(event, { entity })),
         ...(resolveHistory ? { recall_history: resolveHistory(event, entity, themesById) } : {}),
       };
     })
