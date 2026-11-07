@@ -42,7 +42,7 @@ function fixture(t, { seed = true, generations = 2, database } = {}) {
     repository.db.close();
     fs.rmSync(root, { recursive: true, force: true });
   });
-  if (seed) repository.save("task", { id: "task-1", title: "守る対象", state: "todo" });
+  if (seed) repository.save("note", { id: "note-1", title: "守る対象", body_markdown: "本文" });
   let tick = 0;
   const service = new AutomaticSnapshotBackupService({
     database: database?.(repository) || databasePort(repository),
@@ -59,7 +59,7 @@ function titleIn(filePath, id) {
   const copy = new Database(filePath, { readonly: true, fileMustExist: true });
   try {
     const row = copy
-      .prepare("SELECT data_json FROM entities WHERE entity_type = 'task' AND id = ?")
+      .prepare("SELECT data_json FROM entities WHERE entity_type = 'note' AND id = ?")
       .get(id);
     return row ? JSON.parse(row.data_json).title : null;
   } finally {
@@ -94,7 +94,7 @@ test("自動バックアップはSQLiteの写しを確かめてから置き、�
   );
   assert.equal(files.includes("keep-me.zip"), true);
   assert.equal(files.includes(legacy), true);
-  assert.equal(titleIn(status.latestFilePath, "task-1"), "守る対象");
+  assert.equal(titleIn(status.latestFilePath, "note-1"), "守る対象");
 });
 
 test("変更履歴が大きくてもバックアップできる（ZIPの1ファイル10MB上限で毎回失敗していた）", async (t) => {
@@ -134,7 +134,7 @@ test("空の作業台は保存せず、保存先の失敗は投げずに報告�
   assert.match((await empty.service.run("startup")).skippedReason, /データがまだない/);
 
   const deleted = fixture(t);
-  deleted.repository.remove("task", "task-1");
+  deleted.repository.remove("note", "note-1");
   assert.equal((await deleted.service.run("startup")).backupCount, 1);
 
   const blocked = fixture(t);
@@ -165,7 +165,7 @@ test("確かめられない写しは、確かめ済みの世代を置き換え�
   assert.match(failed.lastError, /バックアップを作成できません/);
   assert.equal(failed.backupCount, 1);
   assert.equal(failed.latestFilePath, verified.latestFilePath);
-  assert.equal(titleIn(verified.latestFilePath, "task-1"), "守る対象");
+  assert.equal(titleIn(verified.latestFilePath, "note-1"), "守る対象");
   assert.equal(
     fs.readdirSync(directory).some((name) => name.includes(".tmp")),
     false,
@@ -209,7 +209,7 @@ test("別のWorkspaceの写しと開けない写しは、世代の入れ替え�
   const { root, service, directory } = fixture(t, { generations: 1 });
   // DBを作り直す前（別のWorkspace）の写しを、名前の時刻が古い世代として置く。
   const other = new WorkspaceDatabase(path.join(root, "other", "research-desk.sqlite"));
-  other.save("task", { id: "task-other", title: "前のDB", state: "todo" });
+  other.save("note", { id: "note-other", title: "前のDB", body_markdown: "本文" });
   fs.mkdirSync(directory, { recursive: true });
   const foreign = path.join(directory, "tasken-auto-20260101T000000000Z-0000aaaa.sqlite");
   await other.backupTo(foreign);
@@ -223,7 +223,7 @@ test("別のWorkspaceの写しと開けない写しは、世代の入れ替え�
   assert.equal(status.lastError, "");
   assert.equal(fs.existsSync(foreign), true);
   assert.equal(fs.existsSync(broken), true);
-  assert.equal(titleIn(foreign, "task-other"), "前のDB");
+  assert.equal(titleIn(foreign, "note-other"), "前のDB");
   // 今のWorkspaceの写しは設定どおり1世代だけ残る。
   const own = fs
     .readdirSync(directory)
