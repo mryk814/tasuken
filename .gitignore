@@ -8,6 +8,8 @@
 /deploy/synology/state/
 /deploy/synology/secrets/
 /deploy/synology/.env
+# NASのプル型の更新で、照合済みの実行物（tunnel-client）をbuildの直前に写す置き場
+/deploy/synology/nas-context/
 /build
 /android-app/.gradle/
 /android-app/.kotlin/

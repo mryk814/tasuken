@@ -14,6 +14,15 @@ Issue #588 Phase 2 のTasken headless replica配置です。詳細な手順・�
 | `nas-install.sh`            | NAS上の配置入口（source展開・image load・.env/state・write-probe・起動）                                    |
 | `nas-read-check.mjs`        | 稼働中CoreへMCP(stdio)で接続し、tool一覧と読み取りを確認する（`TASKEN_MCP_READ_ONLY=0`でwrite toolsも列挙） |
 | `DEPLOYED.md`               | 最後に観測した稼働状態（branch・versionとは別）                                                             |
+| `Dockerfile.nas`            | プル型の更新でNASが自分で作るimage。commitを`TASKEN_SOURCE_SHA`に埋め、入れ替えの検査`replica-check`を含む  |
+| `tasken-update-image.sh`    | プル型の更新の入れ替え（照合→版ずれの事前検査→停止→バックアップ→差し替え→health→戻し）。終了コードが契約    |
+| `test/update-test.sh`       | 上の場面の試験。偽のdocker・架空のDBで、alpineのコンテナの中で流す（先頭のコメントにコマンド）              |
+
+## プル型の更新（nas-pull）
+
+NASがGitHubの`main`を見て、`Dockerfile.nas`で作り、`tasken-update-image.sh`で入れ替えます。実行役・導入（`install-tasken.sh`）・結果の読み方は、実行役のリポジトリnas-pull（GitHubには置いていない）のREADMEが正本です。replicaだけがプル型で、Desktop（正本の書き手）の更新は変えません。
+
+版ずれは、新しい版が「Desktopが共有フォルダに書いた同期差分を取り込めるか」で見ます（各端末のSQLite schemaは端末の中だけのもの）。入れ替えの前に新しいimageへ最近の差分を読ませて、読めなければ何も変えずに後回し（`SYNC_SKEW`）。起動の後は、起動の同期が通ったか・未取り込みの差分を読めるかを見て、駄目ならimageを戻します。判定はimageの中の`core-dist/replica-check.mjs`がします。逆向き（replicaが書いた差分をDesktopが読めるか）は、Desktopの版を共有フォルダから知る手段がまだ無いため確かめていません。
 
 守ること:
 
