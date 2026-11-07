@@ -1454,13 +1454,17 @@ function proposalDiffLabel(proposal: BaseRecord): string {
   return entries.length ? `${entries.length}件の新規候補` : "内容を確認";
 }
 
+// toLocaleString は呼ぶたびに書式を作り直す。履歴は数千件あり、Feedを開くたびに0.4秒かかっていた。
+const PROPOSAL_DATE_FORMAT = new Intl.DateTimeFormat("ja-JP", {
+  dateStyle: "short",
+  timeStyle: "short",
+});
+
 function formatProposalDate(proposal: BaseRecord): string {
   const timestamp = str(proposal.received_at || proposal.created_at);
   if (!timestamp) return "日付なし";
   const date = new Date(timestamp);
-  return Number.isNaN(date.getTime())
-    ? timestamp.slice(0, 10)
-    : date.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
+  return Number.isNaN(date.getTime()) ? timestamp.slice(0, 10) : PROPOSAL_DATE_FORMAT.format(date);
 }
 
 function taskWorkActionLabel(entry: Record<string, unknown>): string {
