@@ -6,6 +6,13 @@ import { entityTypes, referenceRelationTypes, referenceTargetEntityTypes } from 
  * A Reference is the durable assertion record. Legacy source/target fields are
  * retained as a read compatibility projection, while subject/object are the
  * canonical typed identities for every new write.
+ *
+ * A relation is not "a connection" but "who asserted it, on what basis".
+ * - An `ai_suggested` or semantic assertion may be written only after a human
+ *   accepted it (`metadata.accepted_from_proposal_id`).
+ * - A logically deleted endpoint is neither cascade-deleted nor re-resolved by
+ *   title, and no phantom node stands in for it; contextGraph.mjs returns it
+ *   separately as a `broken_relation` diagnostic.
  */
 export const relationLayers = Object.freeze(["operational", "provenance", "semantic"]);
 export const relationStatuses = Object.freeze(["asserted", "suggested", "rejected", "superseded"]);

@@ -3622,6 +3622,8 @@ export class WorkspaceService {
         "コピーする画像を読み取れませんでした。画面を開き直して、もう一度試してください。",
       );
     }
+    // Windows では画像と文字列を同時にクリップボードへ書いても、貼り付け先が片方だけ採ることがある。
+    // そのため画像だけを書き、読み戻して寸法が合うことを確かめる。
     await clipboard.write([
       new ClipboardItem({
         "image/png": new Blob([new Uint8Array(image.toPNG())], { type: "image/png" }),

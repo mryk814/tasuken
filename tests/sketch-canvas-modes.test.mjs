@@ -11,7 +11,6 @@ const pageSizePicker = read(
   "src/renderer/src/features/workspace/components/SketchPageSizePicker.tsx",
 );
 const domain = read("src/main/repositories/domain.mjs");
-const comparison = read("docs/sketch-canvas-modes.md");
 
 test("new Sketch chooses Page or Infinite while legacy data remains Page", () => {
   assert.match(library, /setCreateMode\("page"\)/);
@@ -53,11 +52,4 @@ test("both modes use one tool canvas and Infinite exports an explicit range", ()
   assert.match(editor, /キャンバス全体/);
   assert.match(editor, /cropSketchPageToContent\(activePage\)/);
   assert.match(editor, /infiniteCanvasExportPage\(activePage\)/);
-});
-
-test("comparison uses one sample and concrete evaluation criteria", () => {
-  assert.match(comparison, /実験判断フロー/);
-  assert.match(comparison, /Pageでは内容が収まらなければ2ページ目/);
-  assert.match(comparison, /Infiniteでは原点から上下左右へ続け/);
-  assert.match(comparison, /1（つらい）〜5（自然）/);
 });

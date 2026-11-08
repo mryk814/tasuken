@@ -12,7 +12,7 @@ Desktop Coreは`TASKEN_CORE_AI_ITEM_CREATE=1`を明示した起動だけが新�
 
 ## 表示・保存
 
-AI作成の由来は`ai_creation`、情報の根拠は`ai_authority`、認識状態は`ai_seen_at`に分ける。Desktopの「見た」は既読だけを保存し、事実確認や採用を意味しない。Task/Notes一覧は小さなAI由来アイコンと未確認の点を使い、タップ／クリック／キーボードで作成者・受信日・理由を読む。削除/Undoは既存の人間操作を利用する。Androidとの互換表示は[ai-origin-indicator.md](./ai-origin-indicator.md)を参照。
+AI作成の由来は`ai_creation`、情報の根拠は`ai_authority`、認識状態は`ai_seen_at`に分ける。Desktopの「見た」は既読だけを保存し、事実確認や採用を意味しない。Task/Notes一覧は小さなAI由来アイコンと未確認の点を使い、タップ／クリック／キーボードで作成者・受信日・理由を読む。削除/Undoは既存の人間操作を利用する。Androidとの互換表示は`src/shared/contracts/mobile/aiOrigin.ts`を参照。
 
 同じkey/内容は保存済みEntityを返し、内容違いは競合。削除後の再送は削除状態を返し復活させない。NoteはDesktopと同じWorkspaceServiceのCanonical Markdown保存・復旧処理を使い、作成イベントを同伴して保存する。headless bundleではDesktop APIを明示的に利用不可にし、画像とOS操作は公開しない。新経路から`accepted_from_proposal_id`を生成しない。
 

@@ -1,3 +1,7 @@
+// Native PPTX は PptxGenJS 4.0.1 で作り、手書きの OOXML generator は採らない。
+// relationship・theme・font・connector の保守をライブラリに任せられ、生成物を DrawingML として
+// 検証できるため。native にするのは flowchart/graph だけで、sequence diagram などは SVG の
+// copy/export だけを有効にする。
 import PptxGenJS from "pptxgenjs";
 
 import { validateMermaidPptxDiagram, type MermaidPptxDiagram, type MermaidPptxNode } from "../../shared/mermaidPowerPoint";

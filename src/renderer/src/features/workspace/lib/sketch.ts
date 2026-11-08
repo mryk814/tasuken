@@ -1,3 +1,12 @@
+/*
+ * Page と Infinite Canvas は別の Entity ではなく、同じ Sketch を `document.mode` で分けた面である。
+ * 保存・検索・Theme 関連付け・削除・Export を今は共有しているため、別テーブルは作らない。
+ * ライフサイクル・権限・検索単位・Export 形式のどれかが分かれたら、別 Entity を
+ * schema version つきの migration で再検討する。
+ * Note と Sketch は同じ描画文書に統合しない。Note は Sketch の ID 参照だけを持つ。
+ *
+ * Sketch は絵を描くアプリではなく、考える途中の線を素早く残し、Note・AI・共有へつなぐ作業面である。
+ */
 export type SketchTool = "select" | "lasso" | "pen" | "highlighter" | "eraser" | "shape" | "arrow" | "text" | "image" | "pan";
 export type SketchBackground = "plain" | "dot" | "grid";
 export type SketchCanvasMode = "page" | "infinite";

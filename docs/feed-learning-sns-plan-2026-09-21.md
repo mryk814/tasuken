@@ -181,7 +181,7 @@ SNSらしい連続閲覧へ変える際に、この2点と実際のfocus復帰�
 | 外部の資料         | 題名、出典、関連する理由         | 元のURLを開く                                                                |
 
 Noteへの内部リンクはファイル名や絶対パスではなく、既存のtyped IDを使う。
-Markdown内のリンクには[既存の安定リンク形式](./relation-assertion-contract.md)を使い、Noteの改名でリンク先を変えない。
+Markdown内のリンクには既存の安定リンク形式（`tests/stable-links.test.mjs`）を使い、Noteの改名でリンク先を変えない。
 記事の草稿はProposal ID、採用後はNote IDを解決し、元の投稿のIDやブックマークを変えずに遷移先を更新する。
 この対応付けは今回追加する範囲であり、現行`propose_note`の返却値はNote IDではない。
 

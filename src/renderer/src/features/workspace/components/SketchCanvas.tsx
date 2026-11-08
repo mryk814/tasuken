@@ -1057,6 +1057,11 @@ export function SketchCanvas({
             : { width: `${page.width * zoom}px`, height: `${page.height * zoom}px` }
         }
       >
+        {/*
+          Base canvas は背景・確定済み object・選択・整列ガイドで、object か Camera が変わったときだけ描く。
+          Live canvas は現在の stroke / shape / lasso だけを requestAnimationFrame で描き、
+          pointer move のたびに確定済み object を描き直さない。
+        */}
         <canvas
           ref={baseCanvasRef}
           className="sketch-canvas-base"

@@ -182,6 +182,8 @@ export function projectContextGraph(workspace, options = {}) {
     if (validFrom) edge.valid_from = text(validFrom);
     if (validTo) edge.valid_to = text(validTo);
     if (!sourcePresent || !targetPresent) {
+      // A logically deleted endpoint is not cascaded or re-resolved by title, and no
+      // phantom node is made for it: the edge stays and is reported as broken_relation.
       const diagnostic = {
         kind: "broken_relation",
         assertion_id: canonicalAssertionId,

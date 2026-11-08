@@ -1,3 +1,12 @@
+/*
+ * Sketch の座標は World 座標（負値可）で、Camera の x / y / zoom を `document.viewport` に任意項目で
+ * 保存する。入力は screenToSketchWorld、表示は sketchWorldToScreen で変換する。
+ * Pan は object を動かさず Camera だけを動かすので、空の面でも上下左右へ進め、表示位置が跳ねない。
+ *
+ * 旧実装は `page.width / height` と DOM scroll を表示位置の正本にしていたため、左・上へ進めず、
+ * 描画後の拡張で面の寸法が変わっていた。tldraw の Camera / Page space の分離と、
+ * Miro の endless board を参考にした。
+ */
 export const SKETCH_ZOOM_MIN = 0.35;
 export const SKETCH_ZOOM_MAX = 1.6;
 

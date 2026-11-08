@@ -9,7 +9,6 @@
  *   npm run build && npm run audit:maintenance
  *
  * 出力先は output/playwright/maintenance-audit。失敗時は終了コード1。
- * 正本は `docs/maintenance-experiment.md`。
  */
 import { _electron as electron } from "playwright";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
