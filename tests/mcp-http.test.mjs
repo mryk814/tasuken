@@ -320,6 +320,75 @@ test("/api/v1 separates unknown tools (404) from tools this client cannot use (4
   });
 });
 
+async function describe(url, credential = token, init = {}) {
+  const response = await fetch(new URL("/api/v1", url), {
+    headers: { Authorization: `Bearer ${credential}` },
+    ...init,
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+test("GET /api/v1 lists only the tools this client sees, with a hash that follows their shape", async (t) => {
+  const scopedToken = randomBytes(32).toString("base64url");
+  const { url } = await fixture(t, {
+    env: { TASKEN_MCP_READ_ONLY: "0" },
+    clients: { ...apiClients, scoped: { token: scopedToken, toolsets: ["core"] } },
+  });
+  const reader = await describe(url);
+  const writer = await describe(url, otherToken);
+  const scoped = await describe(url, scopedToken);
+  assert.equal(reader.status, 200);
+  assert.equal(writer.status, 200);
+  const names = (result) => result.body.tools.map(({ name }) => name);
+  assert.ok(names(reader).includes("search_items"));
+  assert.ok(!names(reader).includes("propose_feed_post"));
+  assert.ok(names(writer).includes("propose_feed_post"));
+  assert.ok(names(writer).every((name) => !name.startsWith("tasken.")));
+  assert.deepEqual(names(writer), [...names(writer)].sort());
+  assert.ok(reader.body.tools.every(({ access }) => access === "read"));
+  assert.equal(
+    writer.body.tools.find(({ name }) => name === "propose_feed_post").access,
+    "reading",
+  );
+  const search = writer.body.tools.find(({ name }) => name === "search_items");
+  assert.equal(typeof search.description, "string");
+  assert.equal(search.inputSchema.type, "object");
+  for (const { body } of [reader, writer, scoped]) assert.match(body.hash, /^[0-9a-f]{64}$/);
+  // 出るツールが違えば、hashも違う。toolsetsを絞っても変わる。
+  assert.notEqual(reader.body.hash, writer.body.hash);
+  assert.notEqual(scoped.body.hash, reader.body.hash);
+  assert.ok(names(scoped).length < names(reader).length);
+  // 同じ設定なら何度引いても同じ。
+  assert.equal((await describe(url, otherToken)).body.hash, writer.body.hash);
+});
+
+test("GET /api/v1 refuses what /api/v1/<tool> refuses, and takes GET only", async (t) => {
+  const { url } = await fixture(t, { clients: apiClients });
+  const target = new URL("/api/v1", url);
+  assert.equal((await fetch(target)).status, 401);
+  assert.equal(
+    (
+      await fetch(target, {
+        headers: { Authorization: `Bearer ${token}`, Origin: "https://untrusted.example" },
+      })
+    ).status,
+    403,
+  );
+  const post = await fetch(target, {
+    method: "POST",
+    body: "{}",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  assert.equal(post.status, 405);
+  assert.equal(post.headers.get("allow"), "GET");
+  // 名前の無い/api/v1/は口ではない。
+  assert.equal(
+    (await fetch(new URL("/api/v1/", url), { headers: { Authorization: `Bearer ${token}` } }))
+      .status,
+    404,
+  );
+});
+
 test("/api/v1 hides start_task_work from clients without allowStart", async (t) => {
   const started = [];
   const { url } = await fixture(t, {

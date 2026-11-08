@@ -95,56 +95,91 @@ function apiResultValue(result) {
 }
 
 /**
- * `/api/v1/<name>`: 要求ごとのMCP serverをin-memoryで繋いでtools/list・tools/callを通す。
+ * `/api/v1`の二つの口（describeと`<name>`の呼び出し）が共有する、要求ごとのMCP serverとin-memoryのclient。
  * ツールの関数を直に呼ばないのは、readOnly・toolsets・capabilityの絞り込みが
  * 「一覧から外す」形でしか効かないため（直に呼ぶと素通りする）。
  */
-async function callApiTool(server, clientName, name, args) {
+async function withApiClient(server, run) {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const mcpClient = new Client({ name: "tasken-http-api", version: "1.0.0" });
   try {
     await server.connect(serverTransport);
     await mcpClient.connect(clientTransport);
-    const tools = [];
-    let cursor;
-    do {
-      const page = await mcpClient.listTools(cursor ? { cursor } : undefined);
-      tools.push(...page.tools);
-      cursor = page.nextCursor;
-    } while (cursor);
-    const tool = tools.find((entry) => entry.name === name);
-    if (!tool) {
-      return MCP_TOOL_REQUIREMENTS[name]
-        ? { status: 403, body: { error: "tool_not_allowed" } }
-        : { status: 404, body: { error: "unknown_tool" } };
-    }
-    // MCPの入力は未知のキーを黙って捨てるため、綴り違い(idempotencyKey等)が通ってしまうのを断る。
-    const properties = tool.inputSchema?.properties ?? {};
-    const unknown = Object.keys(args).filter((key) => !Object.hasOwn(properties, key));
-    if (unknown.length > 0) {
-      return { status: 400, body: { error: "unknown_arguments", arguments: unknown } };
-    }
-    const isWrite = MCP_TOOL_REQUIREMENTS[name]?.access !== "read";
-    // 提案系は鍵が無いと毎回新しく作るので、再送でFeed投稿やProposalが増えるのを防ぐ。
-    if (isWrite && "idempotency_key" in properties && args.idempotency_key === undefined) {
-      return { status: 400, body: { error: "idempotency_key_required" } };
-    }
-    // callerが必須のtoolでも本文に書かせない。bridgeが認証済みのclient名で上書きする。
-    const callArgs = isWrite && "caller" in properties ? { ...args, caller: clientName } : args;
-    let result;
-    try {
-      result = await mcpClient.callTool({ name, arguments: callArgs });
-    } catch (error) {
-      // 古いSDKは入力検証の失敗をInvalidParamsの例外で返す。
-      if (error?.code === -32602) return { status: 400, body: { error: "invalid_arguments" } };
-      throw error;
-    }
-    const value = apiResultValue(result);
-    return { status: result.isError ? apiErrorStatus(value) : 200, body: value };
+    return await run(mcpClient);
   } finally {
     await mcpClient.close().catch(() => {});
     await server.close().catch(() => {});
   }
+}
+
+async function listAllTools(mcpClient) {
+  const tools = [];
+  let cursor;
+  do {
+    const page = await mcpClient.listTools(cursor ? { cursor } : undefined);
+    tools.push(...page.tools);
+    cursor = page.nextCursor;
+  } while (cursor);
+  return tools;
+}
+
+/**
+ * `GET /api/v1`: そのclientのその時点の`tools/list`に出るツールだけを、名前・access・説明・入力の形で返す。
+ * `hash`は名前順の`[{name, inputSchema}]`のSHA-256。名前か入力の形が変わると変わるので、
+ * 呼ぶ側（helperや手順書）はこれで「ツールの形を読み直すべきか」を知る。
+ */
+async function describeApiTools(server) {
+  const tools = await withApiClient(server, listAllTools);
+  const described = tools
+    .map((tool) => ({
+      name: tool.name.replace(/^tasken\./, ""),
+      access: MCP_TOOL_REQUIREMENTS[tool.name]?.access ?? "read",
+      description: tool.description ?? "",
+      inputSchema: tool.inputSchema,
+    }))
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const hash = createHash("sha256")
+    .update(JSON.stringify(described.map(({ name, inputSchema }) => ({ name, inputSchema }))))
+    .digest("hex");
+  return { tools: described, hash };
+}
+
+/** `POST /api/v1/<name>`: 一覧に出ているツールだけを、同じin-memoryのclientでtools/callに通す。 */
+function callApiTool(server, clientName, name, args) {
+  return withApiClient(server, (mcpClient) => callListedTool(mcpClient, clientName, name, args));
+}
+
+async function callListedTool(mcpClient, clientName, name, args) {
+  const tools = await listAllTools(mcpClient);
+  const tool = tools.find((entry) => entry.name === name);
+  if (!tool) {
+    return MCP_TOOL_REQUIREMENTS[name]
+      ? { status: 403, body: { error: "tool_not_allowed" } }
+      : { status: 404, body: { error: "unknown_tool" } };
+  }
+  // MCPの入力は未知のキーを黙って捨てるため、綴り違い(idempotencyKey等)が通ってしまうのを断る。
+  const properties = tool.inputSchema?.properties ?? {};
+  const unknown = Object.keys(args).filter((key) => !Object.hasOwn(properties, key));
+  if (unknown.length > 0) {
+    return { status: 400, body: { error: "unknown_arguments", arguments: unknown } };
+  }
+  const isWrite = MCP_TOOL_REQUIREMENTS[name]?.access !== "read";
+  // 提案系は鍵が無いと毎回新しく作るので、再送でFeed投稿やProposalが増えるのを防ぐ。
+  if (isWrite && "idempotency_key" in properties && args.idempotency_key === undefined) {
+    return { status: 400, body: { error: "idempotency_key_required" } };
+  }
+  // callerが必須のtoolでも本文に書かせない。bridgeが認証済みのclient名で上書きする。
+  const callArgs = isWrite && "caller" in properties ? { ...args, caller: clientName } : args;
+  let result;
+  try {
+    result = await mcpClient.callTool({ name, arguments: callArgs });
+  } catch (error) {
+    // 古いSDKは入力検証の失敗をInvalidParamsの例外で返す。
+    if (error?.code === -32602) return { status: 400, body: { error: "invalid_arguments" } };
+    throw error;
+  }
+  const value = apiResultValue(result);
+  return { status: result.isError ? apiErrorStatus(value) : 200, body: value };
 }
 
 /** HTTP credentials are independent of the privileged Core discovery token. */
@@ -227,7 +262,9 @@ export async function startTaskenMcpHttpServer(options = {}) {
     };
     if (request.url === "/health" && request.method === "GET") return reply(200, { status: "ok" });
     const apiMatch = /^\/api\/v1\/([A-Za-z0-9_]+)$/.exec(request.url || "");
-    if (request.url !== "/mcp" && !apiMatch) return reply(404, { error: "not_found" });
+    const isDescribe = request.url === "/api/v1";
+    if (request.url !== "/mcp" && !apiMatch && !isDescribe)
+      return reply(404, { error: "not_found" });
     const authorization = request.headers.authorization || "";
     const match = /^Bearer ([A-Za-z0-9_-]{43})$/i.exec(authorization);
     const supplied = digest(match?.[1] || "");
@@ -238,13 +275,16 @@ export async function startTaskenMcpHttpServer(options = {}) {
     }
     // This endpoint is for native AI clients, not credentialed browser requests.
     if (request.headers.origin) return reply(403, { error: "origin_not_allowed" });
-    if (request.method !== "POST") {
-      response.setHeader("Allow", "POST");
+    // describeはGETだけ、それ以外（/mcpと/api/v1/<tool>）はPOSTだけ。
+    const allowedMethod = isDescribe ? "GET" : "POST";
+    if (request.method !== allowedMethod) {
+      response.setHeader("Allow", allowedMethod);
       return reply(405, { error: "method_not_allowed" });
     }
     let body;
     try {
-      body = await readJsonBody(request);
+      // GETの本文は読まない（読むと空の本文がJSONの誤りになる）。
+      body = isDescribe ? undefined : await readJsonBody(request);
     } catch (error) {
       // Drain without retaining the rejected body so clients can receive 413
       // while still sending a chunked request.
@@ -292,6 +332,7 @@ export async function startTaskenMcpHttpServer(options = {}) {
         verifiedClient: client.name,
         env,
       });
+      if (isDescribe) return reply(200, await describeApiTools(server));
       if (apiMatch) {
         const { status, body: result } = await callApiTool(
           server,

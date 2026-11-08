@@ -280,6 +280,30 @@ curl -sS -X POST "https://<NAS>.<tailnet>.ts.net:8444/api/v1/search_items" \
 
 `caller`が必須のtool（`report_work`など）も、`/api/v1`では本文に`caller`を書かなくて構いません。
 
+#### `GET /api/v1`（describe）
+
+同じ認証・Origin拒否で`GET /api/v1`を呼ぶと、そのクライアントのその時点の`tools/list`に出るtoolだけが返ります（`readOnly`・`toolsets`・`allowStart`・Coreのprofileで絞られた後）。
+
+```json
+{
+  "tools": [{ "name": "search_items", "access": "read", "description": "...", "inputSchema": {} }],
+  "hash": "<sha256 hex>"
+}
+```
+
+`name`は`tasken.`を除いた名前、`access`は`read`・`proposal`・`reading`・`direct_write`のいずれかです。`hash`は名前順の`[{name, inputSchema}]`のSHA-256で、toolの名前か入力の形が変わると変わります。methodはGETだけで、`POST /api/v1`は405です。
+
+#### Museの一式（`clients/muse/`）
+
+Muse（本人のAI。tailnetの実行環境でHTTPは呼べるがstdio MCPは使えない）向けに、手順書`CONNECTOR.md`と道具`tasken.py`（Python標準ライブラリだけ。`describe`と`call`の二つ）があります。`tests/muse-connector.test.mjs`が、手順書の流れを本物の道具とHeadless Coreで通します。
+
+Museの実行環境への置き方（本人が行う）:
+
+1. `tasken.py`と`CONNECTOR.md`を、Museの`~/workspace/custom-connectors/custom.tasken/`に置く（`tasken.py`は`bin/`の下）。
+2. `bin/host`に1行で`<NASのtailnet名>:<HTTPSポート>`（例`nas.example.ts.net:8444`）を書く。tokenはどこにも書かない。
+3. NASの`mcp_http_clients`にMuse用のclient（例`muse`）を、新しい32byte乱数のtokenと`"readOnly": false`で足す。書き込みの前提条件は上の「クライアント別Bearer token」と同じ。足したら`mcp-http`を再作成する。
+4. Museで`credentials.request_api_access`を、`CONNECTOR.md`のConnectにあるprovider・`api_key`・`bearer_header`・`api_hosts`（`bin/host`と同じ値）で呼び、tokenを登録する。tokenはMuseの資格情報の登録経路にだけ渡す。
+
 ### 起動・Serve route追加
 
 NASの配備ディレクトリで、既存の`.env`を保持したまま`TASKEN_MCP_HTTP_PORT=18181`を設定します。

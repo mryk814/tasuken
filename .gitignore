@@ -36,3 +36,4 @@ release-*
 audit-shots/
 /output/
 /artifacts/
+__pycache__/
