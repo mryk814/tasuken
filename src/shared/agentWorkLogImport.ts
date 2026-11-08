@@ -306,6 +306,14 @@ export function parseAgentWorkLog(raw: string) {
   };
 }
 
+// 取り込みが依拠する公式形式（確認済み。上流コードはコピー・実行せず、本文の構造だけを参照する）:
+// - Codex rollout fixture: https://github.com/openai/codex/blob/main/codex-rs/app-server/tests/common/rollout.rs
+// - Codex ResponseItem/ContentItem: https://github.com/openai/codex/blob/main/codex-rs/protocol/src/models.rs
+// - Claude session reader: https://github.com/anthropics/claude-agent-sdk-python/blob/main/src/claude_agent_sdk/_internal/sessions.py
+// - Claude session 保存先: https://code.claude.com/docs/en/agent-sdk/sessions
+// 保存先候補の根拠:
+// - Codex home の解決: https://github.com/openai/codex/blob/main/codex-rs/utils/home-dir/src/lib.rs
+// - Codex rollout の保存構造: 上の rollout fixture
 /**
  * 保存先のlogを読むparserの版。正規化を変えたら上げると、取り込み済みのファイルも次の同期で読み直す。
  * 2: Codex IDE拡張・Claude Codeの前置きを外して依頼本文だけを残し、委任threadを除き、

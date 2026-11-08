@@ -1199,6 +1199,12 @@ abstract class MobileLocalDao {
         commandId: String, serverId: String, taskId: String, previous: String, replacement: String,
     ): Int
 
+    /**
+     * Folds edits into a CreateTask that has not left the device: Pending, attemptCount = 0 and no
+     * dependsOnCommandId. The conditional UPDATE also checks the envelope that was read, so a command that
+     * was claimed or changed in the meantime is left alone (the edit then goes in as a follow-up command).
+     * If saving the optimistic cache fails, the envelope update is rolled back with it.
+     */
     @Transaction
     open suspend fun editUnsentCreate(
         taskId: String,

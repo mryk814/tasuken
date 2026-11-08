@@ -65,6 +65,7 @@ PC側から共有フォルダを確認しただけでは、コンテナやSQLite
 - NAS再起動後のHTTP復帰、ChatGPT実クライアントの再接続、トンネル停止後の継続利用。今回のHTTP追加ではトンネルを併用したままにしている。
 - amd64以外のSynology、Synology Drive / Cloud Sync経由の同期。
 - Desktop停止・NAS再起動・transport再接続を含めた一連の復旧。
+- ChatGPTからの最初の一往復。(a) PCのTaskenを閉じ、ChatGPTから許可済みのテスト用Feed投稿を送る。(b) 受領IDを取り、再送して重複しない。(c) transport再接続・NAS再起動を経ても受領結果と投稿が残る。(d) Desktopを開くと投稿が一度だけ見え、対応待ち件数は増えない。(e) NoteまたはTask案を送り、Desktopでプレビューして採用する。(f) 採否が同期され、ChatGPT側から結果を確認できる。(g) NASを使えない状態でもDesktopのローカル利用が続く。
 - リリース候補 `v0.1.71` のNASへの配備。この記録はその配備を示しません。
 
 ## 未配備の変更（2026-10-28、#678–#680）

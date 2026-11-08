@@ -14,6 +14,12 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
+/**
+ * Searches only what the device already holds in its Room caches; there is no search-only DB or index.
+ * Room's change notifications trigger a new search, so a change or deletion in the existing caches shows
+ * up without a second copy to keep in sync. Terms are matched literally (Japanese, `%`, `_` and quotes
+ * included), and an invalid date or an over-long term is reported, never silently truncated.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 internal class MobileLocalSearchReader(
     private val database: MobileLocalDatabase,

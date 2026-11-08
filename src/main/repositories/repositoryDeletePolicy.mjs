@@ -104,6 +104,8 @@ export function applyRepositoryDeletePolicy(repository, type, id) {
       type,
       id,
     );
+  // Proposal を削除しても、採用で作られた Note や Task は消さない。
+  // 採用済みの結果は利用者のデータなので、cascade するのは artifact と、下の Feed の返信・反応だけ。
   if (type === "ai_proposal")
     repository.cascadeWhere(
       "artifact",

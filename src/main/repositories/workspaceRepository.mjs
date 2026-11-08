@@ -372,6 +372,10 @@ export class WorkspaceDatabase {
         `),
       },
       {
+        // #501 で文字起こしの実行を撤去した。終わらないまま残る queued / processing は
+        // failed / provider_failure で終端し、原音と完了済みの履歴は消さない。
+        // 新しい文字起こしが要るなら、外部ツールの成果物を取り込む契約を先に設計する。
+        // 未定義の自動 Import 経路は作らない。
         version: 6,
         up: () => {
           const retiredAt = new Date().toISOString();
