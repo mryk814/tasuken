@@ -1425,3 +1425,30 @@ test("status.json を書けなかったら、1分は書きに行かない", asyn
     pair.close();
   }
 });
+
+test("同期の途中で呼ばれた syncNow は、呼ばれる前に保存した変更も公開してから終わる", async () => {
+  const pair = createPair();
+  try {
+    await pair.firstSync.configure(pair.shared);
+    // 定期の同期が、新しい変更を保存する前に始まり、取り込みの段で止まっている状況を作る。
+    let release;
+    const gate = new Promise((resolve) => (release = resolve));
+    const receive = pair.firstSync.receiveChanges.bind(pair.firstSync);
+    pair.firstSync.receiveChanges = async (directory) => {
+      await gate;
+      return receive(directory);
+    };
+    const inFlight = pair.firstSync.syncNow();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    pair.first.save("task", task("task-late", "同期の途中で保存したTask"));
+    const requested = pair.firstSync.syncNow();
+    release();
+    await inFlight;
+    await requested;
+    pair.firstSync.receiveChanges = receive;
+    await pair.secondSync.configure(pair.shared);
+    assert.equal(pair.second.get("task", "task-late")?.title, "同期の途中で保存したTask");
+  } finally {
+    pair.close();
+  }
+});

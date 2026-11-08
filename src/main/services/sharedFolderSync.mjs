@@ -152,6 +152,7 @@ export class SharedFolderSyncService {
     this.captureImageDirectory = captureImageDirectory;
     this.timer = null;
     this.running = null;
+    this.queued = null;
     this.state = "off";
     this.attachmentStats = { published: 0, received: 0 };
     this.waitingFor = null;
@@ -284,7 +285,18 @@ export class SharedFolderSyncService {
   }
 
   async syncNow() {
-    if (this.running) return this.running;
+    if (this.running) {
+      // 走っている回は、呼ばれる前に保存された変更をもう公開し終えているかもしれない。
+      // その回を待つだけだと、呼び出し側が「同期した」と思った変更が共有フォルダに出ないので、
+      // 終わった後にもう一回だけ回す（重ねて呼ばれても、待ちの回は一つにまとめる）。
+      this.queued ??= this.running
+        .catch(() => {})
+        .then(() => {
+          this.queued = null;
+          return this.syncNow();
+        });
+      return this.queued;
+    }
     this.running = this.runSync().finally(() => {
       this.running = null;
     });
