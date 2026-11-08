@@ -214,3 +214,87 @@ test("detailed guides remain available without adding discovery tools, including
     assert.ok(result.contents[0].text.length > 200);
   }
 });
+
+test("source_status があるCoreに繋いだときだけ、tool結果へ呼び出しごとのsourceを添える", async (t) => {
+  let calls = 0;
+  const sources = [
+    { node: "replica", state: "ok", as_of: "2026-11-01T00:00:00.000Z", desktop_seen_at: null },
+    { node: "replica", state: "waiting_packet", as_of: null, desktop_seen_at: null },
+  ];
+  const coreClient = {
+    status: async () => ({ capabilities: [...capabilities, "source_status"] }),
+    searchItems: async () => ({ items: [] }),
+    listOpenItems: async () => ({ error: { code: "NOT_FOUND", message: "none" } }),
+    getSourceStatus: async () => ({ source: sources[calls++ % sources.length] }),
+  };
+  for (const readOnly of [true, false]) {
+    calls = 0;
+    const client = await connect(t, {
+      readOnly,
+      coreClient,
+      capabilities: [...capabilities, "source_status"],
+    });
+    assert.match(client.getInstructions(), /`source`/u);
+    assert.ok(client.getInstructions().length <= 800);
+    const first = await client.callTool({ name: "tasken.search_items", arguments: {} });
+    assert.deepEqual(first.structuredContent.source, sources[0]);
+    // 呼び出しごとに引く。前の結果の値を持ち回らない。
+    const second = await client.callTool({ name: "tasken.search_items", arguments: {} });
+    assert.deepEqual(second.structuredContent.source, sources[1]);
+    const failed = await client.callTool({ name: "tasken.list_open_items", arguments: {} });
+    assert.equal(failed.isError, true);
+    assert.ok(failed.structuredContent.error);
+  }
+
+  // source を取れなくても結果は失敗にせず、source を付けないだけにする。
+  const broken = await connect(t, {
+    coreClient: {
+      ...coreClient,
+      getSourceStatus: async () => {
+        throw new Error("down");
+      },
+    },
+    capabilities: [...capabilities, "source_status"],
+  });
+  const result = await broken.callTool({ name: "tasken.search_items", arguments: {} });
+  assert.equal(result.isError, undefined);
+  assert.deepEqual(result.structuredContent, { items: [] });
+});
+
+test("source_status が無いCoreでは、tool結果とinstructionsは変わらない", async (t) => {
+  const coreClient = {
+    status: async () => ({ capabilities }),
+    searchItems: async () => ({ items: [] }),
+    getSourceStatus: async () => {
+      throw new Error("呼ばれないはず");
+    },
+  };
+  const client = await connect(t, { readOnly: true, coreClient, capabilities });
+  assert.doesNotMatch(client.getInstructions(), /source/u);
+  const result = await client.callTool({ name: "tasken.search_items", arguments: {} });
+  assert.deepEqual(result.structuredContent, { items: [] });
+  assert.equal(result.content[0].text, JSON.stringify({ items: [] }, null, 2));
+});
+
+test("source はデータを読む前に引く。読んでいる間に進んだ as_of を、古いデータに付けない", async (t) => {
+  let asOf = "2026-11-01T00:00:00.000Z";
+  const coreClient = {
+    status: async () => ({ capabilities: [...capabilities, "source_status"] }),
+    // 同期が、データを読んでいる最中に進む。
+    searchItems: async () => {
+      const result = { items: [] };
+      asOf = "2026-11-01T00:10:00.000Z";
+      return result;
+    },
+    getSourceStatus: async () => ({
+      source: { node: "replica", state: "ok", as_of: asOf, desktop_seen_at: asOf },
+    }),
+  };
+  const client = await connect(t, {
+    readOnly: true,
+    coreClient,
+    capabilities: [...capabilities, "source_status"],
+  });
+  const result = await client.callTool({ name: "tasken.search_items", arguments: {} });
+  assert.equal(result.structuredContent.source.as_of, "2026-11-01T00:00:00.000Z");
+});

@@ -28,6 +28,8 @@ export const TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY = "get_knowledge_health
 export const TASKEN_CORE_GET_ACTIVITY_CAPABILITY = "get_activity";
 export const TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY = "get_context_subgraph";
 export const TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY = "get_feed_context";
+// NAS replicaだけが公開する、同期の状態と鮮度の読み取り。Desktopは公開しない。
+export const TASKEN_CORE_SOURCE_STATUS_CAPABILITY = "source_status";
 export const TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY = "export_ai_context";
 export const TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY = "propose_task_work";
 export const TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY = "propose_agent_session";

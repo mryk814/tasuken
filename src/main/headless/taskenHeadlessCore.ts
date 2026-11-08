@@ -132,6 +132,7 @@ export async function startTaskenHeadlessCore(
         () => {},
         path.join(userDataPath, "attachments", "markdown-images"),
         path.join(userDataPath, "attachments", "capture-images"),
+        { role: "replica" },
       );
       if (!(await syncService.readManifest(syncDirectory))) {
         throw new TaskenHeadlessCoreError(
@@ -163,6 +164,11 @@ export async function startTaskenHeadlessCore(
     await syncService?.stop();
     repository.db.close();
     throw error;
+  }
+  // replicaだけが、取り込みの鮮度をAIへ返す。Desktopのcompositionでは有効にしない。
+  if (syncService) {
+    const sync = syncService;
+    runtime.enableSourceStatus(() => sync.sourceStatus("replica"));
   }
   try {
     const started = await runtime.start();

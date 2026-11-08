@@ -9,7 +9,10 @@ import { buildMcpBridge } from "../scripts/build-mcp-bridge.mjs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
-import { SharedFolderSyncService } from "../src/main/services/sharedFolderSync.mjs";
+import {
+  SharedFolderSyncService,
+  SYNC_PACKET_FILE_PATTERN,
+} from "../src/main/services/sharedFolderSync.mjs";
 import { TaskenCoreClient } from "../src/main/mcp/taskenCoreClient.mjs";
 import { canonicalMarkdownBindingFromProperties } from "../src/shared/canonicalMarkdown.mjs";
 import { createHash } from "node:crypto";
@@ -344,7 +347,7 @@ test("AI 作成の Task・Note の差分の形が変わったら、contracts/syn
     const deviceDirectory = path.join(shared, "devices", replicaDevice);
     const packets = fs
       .readdirSync(deviceDirectory)
-      .filter((name) => name.endsWith(".json"))
+      .filter((name) => SYNC_PACKET_FILE_PATTERN.test(name))
       .sort()
       .map((name) => JSON.parse(fs.readFileSync(path.join(deviceDirectory, name), "utf8")));
     const latest = (id) => packets.filter((packet) => packet.entityId === id).at(-1);

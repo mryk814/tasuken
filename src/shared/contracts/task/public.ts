@@ -242,6 +242,16 @@ export {
 } from "./activityEntries.ts";
 
 export {
+  getSourceStatusRequestSchema,
+  getSourceStatusResponseSchema,
+  sourceStatusSchema,
+  sourceStatusStateSchema,
+  type GetSourceStatusRequest,
+  type GetSourceStatusResponse,
+  type SourceStatus,
+} from "./sourceStatus.ts";
+
+export {
   feedPostSummarySchema,
   feedQuestionSchema,
   getFeedContextRequestSchema,

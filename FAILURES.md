@@ -2,13 +2,14 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
-## 2026-11-08 新しい worktree の `npm ci` が ffmpeg-static のダウンロードで落ちた
+## 2026-11-08 worktree の `npm ci` が ffmpeg-static の取得で落ちた
 
-- しようとしたこと: `git worktree add` で作った worktree で `npm ci --no-audit --no-fund` を流す。
-- 起きたこと: `node_modules\ffmpeg-static` の `node install.js` が `Error: Request timed out after 30004ms` で落ち、`npm ci` が exit 1 で終わった。
-- 原因: ffmpeg-static は install のたびに GitHub の release からバイナリを取る。この時はその取得がタイムアウトした（回線側の一時的なものか、続くものかは不明）。
-- 直し方: `npm ci --ignore-scripts` の後、本体のチェックアウトの `node_modules/ffmpeg-static/ffmpeg.exe`（と `.LICENSE`・`.README`、同じ 5.2.0）を写した。install.js は既にファイルがあれば取得を飛ばすので、続けて `npm rebuild` と `npm run postinstall` を流した。`npm rebuild` は Electron の本体を入れなかったので、`node node_modules/electron/install.js` を流した（`%LOCALAPPDATA%\electron\Cache` から入る）。
-- 再発防止: 記録だけ。同じ手順で数分で戻せるため、仕組みは足していない。
+- しようとしたこと: 新しい worktree（`.claude/worktrees/replica-freshness`）で `npm ci` を流す。
+- 起きたこと: `ffmpeg-static` の install が `https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-win32-x64.gz` の取得で `statusCode: 504` になり、`npm ci` 全体が exit 1 で止まった。
+- 原因: GitHub の releases 側の一時的な 504。同じコマンドをもう一度流すと通った。
+- 直し方: `npm ci` を流し直した。
+- 再発防止: 記録だけ。一時的な障害で、こちらで防げる仕組みが無いため。続くようなら、本体の checkout の `node_modules/ffmpeg-static/ffmpeg.exe` を写す手を考える。
+- 同じ日にもう一度（`.claude/worktrees/drawer-save-external-change`）: 今度は `Error: Request timed out after 30004ms`。流し直す代わりに、写す手で戻した。手順は、`npm ci --ignore-scripts` → 本体の checkout の `node_modules/ffmpeg-static/` から `ffmpeg.exe`・`ffmpeg.exe.LICENSE`・`ffmpeg.exe.README` を写す（版が同じ 5.2.0 であることを確かめる。install.js はファイルがあれば取得を飛ばす）→ `npm rebuild` → `npm run postinstall` → `node node_modules/electron/install.js`（`npm rebuild` は Electron の本体を入れなかった。`%LOCALAPPDATA%\electron\Cache` から入る）。
 
 ## 2026-11-08 `npm run ci` の全体実行で agent-interactive-launch の後片付けが EBUSY で落ちた
 
