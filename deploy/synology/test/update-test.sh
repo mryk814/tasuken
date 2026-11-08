@@ -54,7 +54,7 @@ new_world() {
   echo '{"架空":"秘密"}' > "$D/secrets/mcp_http_clients"
   chmod 600 "$D/secrets/"*
   echo '{"name":"tasken"}' > "$D/docker-compose.json"
-  printf 'TASKEN_IMAGE=sha256:old000000000\nTASKEN_UID=0\nTASKEN_GID=0\nTASKEN_ADMIN_GID=101\nTASKEN_DATA_DIR=%s\nTASKEN_SYNC_DIR=%s\nTASKEN_DEVICE_ID=%s\n' "$DATA" "$SYNC" "$DEV" > "$D/tasken.conf"
+  printf 'TASKEN_IMAGE=sha256:old000000000\nTASKEN_UID=0\nTASKEN_GID=0\nTASKEN_ADMIN_GID=101\nTASKEN_DATA_DIR=%s\nTASKEN_SYNC_DIR=%s\nTASKEN_DEVICE_ID=%s\nTASKEN_KEEP_STOPPED=\n' "$DATA" "$SYNC" "$DEV" > "$D/tasken.conf"
   chmod 644 "$D/tasken.conf" "$D/docker-compose.json"
   echo "sha256:old" > "$F/images/sha256:old000000000"
   echo "sha256:old000000000" > "$F/running"
@@ -82,9 +82,7 @@ case "$1" in
     fmt=$3; name=$4
     [ -f "$F/absent_$name" ] && exit 1
     [ "$(cat "$F/state")" = stopped ] && running=false || running=true
-    [ "$name" = tasken-tunnel ] && [ -f "$F/tunnel_down" ] && running=false
-    [ "$name" = tasken-mcp-http ] && [ -f "$F/http_down" ] && running=false
-    [ "$name" = tasken-headless ] && [ -f "$F/core_down" ] && running=false
+    [ -f "$F/down_$name" ] && running=false # このコンテナだけ止まっている
     [ "$name" = tasken-headless ] && core_dead && running=false
     case "$fmt" in
       '{{.Config.Image}}') image_of "$name" ;;
@@ -126,6 +124,7 @@ case "$1" in
     shift
     c=$1; shift
     [ "$(cat "$F/state")" = up ] || exit 1
+    [ -f "$F/down_$c" ] && exit 1
     [ "$c" = tasken-headless ] && core_dead && exit 1
     echo "$c $*" >> "$F/exec_calls"
     if [ "$2" = -e ]; then # health（Core・HTTP MCP・tunnel の readyz）
@@ -154,8 +153,14 @@ F=$(dirname "$0")
 W=$(dirname "$F")
 D="$W/base/tasken/deploy"
 args="$*"
-while [ "${1:-}" != "" ] && [ "$1" != config ] && [ "$1" != stop ] && [ "$1" != up ]; do shift; done
+while [ "${1:-}" != "" ] && [ "$1" != config ] && [ "$1" != stop ] && [ "$1" != up ] && [ "$1" != start ]; do shift; done
+container_of() { case "$1" in tunnel-client) echo tasken-tunnel ;; mcp-http) echo tasken-mcp-http ;; *) echo "$1" ;; esac; }
 case "${1:-}" in
+  start)
+    shift
+    echo "start $*" >> "$F/calls"
+    [ -f "$F/up_fails_others" ] && exit 1
+    for s in "$@"; do rm -f "$F/down_$(container_of "$s")"; done ;;
   config)
     cat << JSON
 {"name":"tasken","services":{
@@ -175,6 +180,17 @@ JSON
     [ "${#svcs[@]}" -gt 0 ] || svcs=(tasken-headless tunnel-client mcp-http)
     echo "up $TASKEN_IMAGE ${svcs[*]} $args" >> "$F/calls"
     [ -f "$F/up_fails" ] && { echo "偽の compose の失敗" >&2; exit 1; }
+    # 戻しの段で、Core の後にほかのサービスを起こす最初の 1 回だけ失敗させる（本番の 2026-11-08 の再現の代わり）
+    if { [ -f "$F/up_others_fail_once" ] || [ -f "$F/up_fails_others" ]; } && [[ " ${svcs[*]} " != *" tasken-headless "* ]]; then
+      rm -f "$F/up_others_fail_once"
+      echo "偽の compose の失敗（ほかのサービス）" >&2
+      exit 1
+    fi
+    for s in "${svcs[@]}"; do rm -f "$F/down_$(container_of "$s")"; done
+    # Core だけを作り直すと、compose は Core の network を使うサービスを止める（本番の見立て）
+    if [ "${svcs[*]}" = tasken-headless ]; then
+      for c in tasken-tunnel tasken-mcp-http; do touch "$F/down_$c"; done
+    fi
     data=$(sed -n 's/^TASKEN_DATA_DIR=//p' "$D/tasken.conf")
     dependents=0
     for s in "${svcs[@]}"; do
@@ -532,35 +548,74 @@ echo synology/tasken-headless > "$F/labels_tasken-headless"
 run_update
 expect "compose の外のコンテナ: NOT_COMPOSE_MANAGED・終了 2・止めない" '[ "$code" = 2 ] && [[ "$last" == "NOT_COMPOSE_MANAGED tasken-headless running=synology/tasken-headless want=tasken/tasken-headless" ]] && [ ! -f "$F/calls" ]'
 
-# 15. 止めてあるサービス（本人が止めた HTTP MCP など）は、止めたまま入れ替える（起こさない・作り直さない）
+# 15. 止めたままにするのは、導入のときに記録したサービス（TASKEN_KEEP_STOPPED）だけ
+keep() { sed -i "s/^TASKEN_KEEP_STOPPED=.*/TASKEN_KEEP_STOPPED=$1/" "$D/tasken.conf"; }
+running_of() { "$F/docker" inspect --format '{{.State.Running}}' "$1"; }
+# 2026-11-08 の本番の形: tunnel は記録どおり止めたまま、HTTP MCP は動いている
 new_world
+keep tunnel-client
+touch "$F/down_tasken-tunnel"
+echo sha256:tun0 > "$F/img_tasken-tunnel"
+rm "$D/secrets/control_plane_api_key" # 止めたままのサービスの秘密は見ない
 record tasken:new15151515a sha256:new15
-touch "$F/http_down"
-echo sha256:old000000000 > "$F/img_tasken-mcp-http"
-rm "$D/secrets/mcp_http_clients" # 止めたままのサービスの秘密は見ない
 run_update
-expect "止めてある HTTP MCP: 終了 0・SKIP_STOPPED" '[ "$code" = 0 ] && grep -q "^SKIP_STOPPED tasken-mcp-http" <<< "$out"'
-expect "止めてある HTTP MCP: 止めるのも作り直すのも Core と tunnel だけ" 'grep -q "^stop .* stop tasken-headless tunnel-client" "$F/calls" && grep -q "^up tasken:new15151515a tasken-headless tunnel-client " "$F/calls" && ! grep -q "mcp-http" "$F/calls"'
-expect "止めてある HTTP MCP: 触らない（image も health も）" '[ "$(cat "$F/img_tasken-mcp-http")" = sha256:old000000000 ] && ! grep -q "^tasken-mcp-http" "$F/exec_calls"'
+expect "記録どおり止めたままの tunnel: 終了 0・SKIP_STOPPED・触らない" '[ "$code" = 0 ] && grep -q "^SKIP_STOPPED tasken-tunnel" <<< "$out" && ! grep -q "tunnel-client" "$F/calls" && [ "$(cat "$F/img_tasken-tunnel")" = sha256:tun0 ] && [ "$(running_of tasken-tunnel)" = false ]'
+expect "記録どおり止めたままの tunnel: HTTP MCP は入れ替えて確かめる" 'grep -q "^up tasken:new15151515a mcp-http tasken-headless " "$F/calls" && [ "$(running_of tasken-mcp-http)" = true ] && grep -q "^tasken-mcp-http node -e" "$F/exec_calls"'
+# 切り戻しの試験（起きない版）の後に、前から動いていた全サービスが動いていること（穴1）。
+# Core だけを作り直すと compose が HTTP MCP を止める（偽の dc の振る舞い）。戻しはそれを起こし直す
 new_world
+keep tunnel-client
+touch "$F/down_tasken-tunnel"
 record tasken:new15b15b15b sha256:new15b
-touch "$F/http_down"
 echo tasken:new15b15b15b > "$F/bad"
 run_update
-expect "止めてある HTTP MCP: 戻すときも起こさない" '[ "$code" = 3 ] && grep -q "^up sha256:old000000000 tunnel-client " "$F/calls" && ! grep -q "mcp-http" "$F/calls"'
+expect "切り戻しの後: 終了 3（人の手は要らない）・HTTP MCP は前の版で動く" '[ "$code" = 3 ] && [[ "$last" == "RESTORED_PREVIOUS image=sha256:old000000000" ]] && [ "$(running_of tasken-mcp-http)" = true ] && [ "$(cat "$F/img_tasken-mcp-http")" = sha256:old000000000 ]'
+expect "切り戻しの後: 記録どおり止めた tunnel は止めたまま" '[ "$(running_of tasken-tunnel)" = false ] && ! grep -q "tunnel-client" "$F/calls"'
+# 起こし直しが一度失敗しても、やり方を変えて起こす
 new_world
+keep tunnel-client
+touch "$F/down_tasken-tunnel"
 record tasken:new15c15c15c sha256:new15c
-touch "$F/tunnel_down"
+echo tasken:new15c15c15c > "$F/bad"
+touch "$F/up_others_fail_once"
 run_update
-expect "止めてある tunnel: 止めたまま入れ替える" '[ "$code" = 0 ] && grep -q "^SKIP_STOPPED tasken-tunnel" <<< "$out" && ! grep -q "tunnel-client" "$F/calls"'
+expect "起こし直しの一度目が失敗: 二度目で起き、終了 3" '[ "$code" = 3 ] && grep -q "^UP_OTHERS_RETRY try=1" <<< "$out" && [ "$(running_of tasken-mcp-http)" = true ]'
+# どうしても起きなければ、状態を出して人の手に回す（終了 5）
 new_world
 record tasken:new15d15d15d sha256:new15d
-touch "$F/absent_tasken-mcp-http"
+echo tasken:new15d15d15d > "$F/bad"
+touch "$F/up_fails_others"
 run_update
-expect "まだ作られていない HTTP MCP: 作らずに入れ替える" '[ "$code" = 0 ] && grep -q "^SKIP_ABSENT tasken-mcp-http" <<< "$out" && ! grep -q "mcp-http" "$F/calls"'
+expect "起こし直せない: 終了 5・attention・各コンテナの状態を出す" '[ "$code" = 5 ] && [[ "$last" == *attention=OTHER_SERVICES_NOT_RUNNING* ]] && grep -q "^SERVICE_STATE tasken-mcp-http " <<< "$out"'
+# 記録に無いのに止まっている HTTP MCP は、意図ではないので起こして確かめる（穴2）。次の更新で固定しない
 new_world
+touch "$F/down_tasken-mcp-http"
 record tasken:new15e15e15e sha256:new15e
-touch "$F/core_down"
+run_update
+expect "意図せず止まった HTTP MCP: STOPPED_UNINTENDED・入れ替えで起こす・health に入れる" '[ "$code" = 0 ] && grep -q "^STOPPED_UNINTENDED tasken-mcp-http" <<< "$out" && ! grep -q "^SKIP_STOPPED" <<< "$out" && grep -q "^up tasken:new15e15e15e mcp-http tasken-headless tunnel-client " "$F/calls" && [ "$(running_of tasken-mcp-http)" = true ] && grep -q "^tasken-mcp-http node -e" "$F/exec_calls"'
+# 記録にあっても、本人が後で起こして動いているなら入れ替える
+new_world
+keep tunnel-client
+record tasken:new15f15f15f sha256:new15f
+run_update
+expect "記録にあるが動いている tunnel: 入れ替える" '[ "$code" = 0 ] && grep -q "^up tasken:new15f15f15f mcp-http tasken-headless tunnel-client " "$F/calls"'
+# 記録の無い古い tasken.conf では始めない（止めてある tunnel を勝手に起こさない）
+new_world
+sed -i '/^TASKEN_KEEP_STOPPED=/d' "$D/tasken.conf"
+touch "$F/down_tasken-tunnel"
+record tasken:new15g15g15g sha256:new15g
+run_update
+expect "記録が無い: KEEP_STOPPED_UNSET・終了 2・何も変えない" '[ "$code" = 2 ] && [[ "$last" == KEEP_STOPPED_UNSET* ]] && [ ! -f "$F/calls" ]'
+# 作られていないサービス: 記録にあれば作らない、無ければ作る
+new_world
+keep mcp-http
+touch "$F/absent_tasken-mcp-http"
+record tasken:new15h15h15h sha256:new15h
+run_update
+expect "記録どおり作られていない HTTP MCP: SKIP_ABSENT・作らない" '[ "$code" = 0 ] && grep -q "^SKIP_ABSENT tasken-mcp-http" <<< "$out" && ! grep -q "mcp-http" "$F/calls"'
+new_world
+touch "$F/down_tasken-headless"
+record tasken:new15i15i15i sha256:new15i
 run_update
 expect "止めてある Core: 起こさずに始めない（終了 2）" '[ "$code" = 2 ] && [[ "$last" == "CORE_NOT_RUNNING tasken-headless" ]] && [ ! -f "$F/calls" ]'
 
