@@ -34,6 +34,7 @@ async function readJsonBody(request) {
 /**
  * isErrorの結果の`error.code`をHTTP statusへ写す。personal-infrastructureのawai
  * (`/api/v1/<tool>`)と同じ対応にして、Muse・Grok Botが両方を同じ扱いで呼べるようにする。
+ * Taskのtransport(taskHttpAdapter)の対応(FORBIDDEN・INVALID_TRANSITION・UNAVAILABLE・INTERNAL_ERROR)とも揃える。
  * 結果が`{error}`の形でないisErrorは、SDKの入力検証の失敗（-32602）だけを呼び方の誤りとして400にし、
  * それ以外（tool内部の想定外の例外）は500にする。サーバー側の不具合を「要求の誤り」に見せないため。
  */
@@ -44,10 +45,12 @@ export function apiErrorStatus(value) {
     return /-32602|Input validation error/i.test(text) ? 400 : 500;
   }
   const upper = code.toUpperCase();
+  // INVALID_*を503にする規則より先に、入力の誤りの400を判定する。
   if (["VALIDATION_FAILED", "INVALID_JSON"].includes(upper)) return 400;
-  if (upper === "WRITE_NOT_ALLOWED") return 403;
+  if (["WRITE_NOT_ALLOWED", "FORBIDDEN"].includes(upper)) return 403;
   if (upper.includes("NOT_FOUND")) return 404;
-  if (["IDEMPOTENCY_CONFLICT", "CONFLICT", "STALE_VERSION"].includes(upper)) return 409;
+  if (["IDEMPOTENCY_CONFLICT", "CONFLICT", "STALE_VERSION", "INVALID_TRANSITION"].includes(upper))
+    return 409;
   if (["PROPOSAL_TOO_LARGE", "BODY_TOO_LARGE"].includes(upper)) return 413;
   if (
     [
@@ -55,9 +58,19 @@ export function apiErrorStatus(value) {
       "CAPABILITY_UNAVAILABLE",
       "VERSION_MISMATCH",
       "CORE_REQUEST_FAILED",
+      "UNAUTHORIZED",
+      "INVALID_RESPONSE",
+      "INVALID_DISCOVERY",
+      "DISCOVERY_OWNER_MISMATCH",
+      "DISCOVERY_PERMISSION_INVALID",
+      "UNAVAILABLE",
     ].includes(upper)
   )
     return 503;
+  if (upper === "INTERNAL_ERROR") return 500;
+  // 表に無いcodeでも、サーバー側の一時的な失敗を「要求の誤り」と読ませない（botが再送を諦めて失われる）。
+  if (value.error.retryable === true) return 503;
+  if (typeof value.error.status === "number" && value.error.status >= 500) return 500;
   return 422;
 }
 
@@ -97,7 +110,7 @@ async function callApiTool(server, clientName, name, args) {
     }
     // MCPの入力は未知のキーを黙って捨てるため、綴り違い(idempotencyKey等)が通ってしまうのを断る。
     const properties = tool.inputSchema?.properties ?? {};
-    const unknown = Object.keys(args).filter((key) => !(key in properties));
+    const unknown = Object.keys(args).filter((key) => !Object.hasOwn(properties, key));
     if (unknown.length > 0) {
       return { status: 400, body: { error: "unknown_arguments", arguments: unknown } };
     }
@@ -237,10 +250,10 @@ export async function startTaskenMcpHttpServer(options = {}) {
       const core = await coreClient.status();
       // 開始(start_work)はallowStartのclientにだけ見せる。外したcapabilityで作るので、
       // そのclientから見たprofileは開始なしになり、start_task_workは一覧から外れる。
+      const withheldCapabilities =
+        client.allowStart && !readOnly ? [] : [TASKEN_CORE_TASK_START_WORK_CAPABILITY];
       const capabilities = Array.isArray(core.capabilities)
-        ? client.allowStart && !readOnly
-          ? core.capabilities
-          : core.capabilities.filter((value) => value !== TASKEN_CORE_TASK_START_WORK_CAPABILITY)
+        ? core.capabilities.filter((value) => !withheldCapabilities.includes(value))
         : core.capabilities;
       // Never fall back to registering all writes if Core is unavailable or has
       // a desktop/full grant. HTTP writes are restricted to NAS profiles (full,
@@ -265,6 +278,7 @@ export async function startTaskenMcpHttpServer(options = {}) {
         capabilities,
         readOnly,
         toolsets: client.toolsets ?? defaultToolsets,
+        withheldCapabilities,
         verifiedClient: client.name,
         env,
       });

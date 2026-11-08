@@ -319,20 +319,104 @@ test("/api/v1 separates unknown tools (404) from tools this client cannot use (4
 });
 
 test("/api/v1 hides start_task_work from clients without allowStart", async (t) => {
+  const started = [];
   const { url } = await fixture(t, {
     clients: apiClients,
     env: { TASKEN_MCP_READ_ONLY: "0" },
     coreClient: {
       status: async () => ({ capabilities: [...proposalCapabilities, "task.start_work"] }),
-      startTaskWork: async () => ({ started: true }),
+      startAiTaskWork: async (request) => {
+        started.push(request);
+        return { status: "started" };
+      },
     },
   });
-  const args = { task_id: "t", expected_version: 1, idempotency_key: "k" };
+  const args = {
+    task_id: "t",
+    expected_version: 1,
+    idempotency_key: "k",
+    started_at: "2026-11-08T00:00:00.000Z",
+    work_attempt_id: "5b0c4a40-2c0e-4a5c-9d0e-0d3f6f1d7a11",
+  };
   assert.equal((await api(url, "start_task_work", args, otherToken)).status, 403);
   assert.equal((await api(url, "start_task_work", args)).status, 403);
+  assert.deepEqual(started, []);
   const starter = await api(url, "start_task_work", args, starterToken);
-  assert.notEqual(starter.status, 403);
-  assert.notEqual(starter.status, 404);
+  assert.equal(starter.status, 200, JSON.stringify(starter.body));
+  assert.equal(started.length, 1);
+  assert.equal(started[0].caller, "starter");
+});
+
+test("/api/v1/get_capabilities does not claim start for clients without allowStart", async (t) => {
+  const { url } = await fixture(t, {
+    clients: apiClients,
+    env: { TASKEN_MCP_READ_ONLY: "0" },
+    coreClient: {
+      status: async () => ({
+        capabilities: [...proposalCapabilities, "create_ai_item", "task.start_work"],
+      }),
+    },
+  });
+  const writer = (await api(url, "get_capabilities", {}, otherToken)).body;
+  assert.equal(writer.writes.task_start, false);
+  assert.equal(writer.core.write_profile, "create-only");
+  assert.ok(writer.unavailable_tools.some(({ name }) => name === "tasken.start_task_work"));
+  const starter = (await api(url, "get_capabilities", {}, starterToken)).body;
+  assert.equal(starter.writes.task_start, true);
+  assert.equal(starter.core.write_profile, "create-and-start");
+  assert.ok(!starter.unavailable_tools.some(({ name }) => name === "tasken.start_task_work"));
+});
+
+test("/api/v1 honours per-client toolsets", async (t) => {
+  const scopedToken = randomBytes(32).toString("base64url");
+  const { url } = await fixture(t, {
+    clients: { scoped: { token: scopedToken, toolsets: ["core"] } },
+    coreClient: {
+      status: async () => ({ capabilities: [...proposalCapabilities, "get_feed_context"] }),
+    },
+  });
+  assert.deepEqual(await api(url, "get_feed_context", {}, scopedToken), {
+    status: 403,
+    body: { error: "tool_not_allowed" },
+  });
+});
+
+test("/api/v1 rejects prototype property names as unknown arguments", async (t) => {
+  const { url } = await fixture(t, { clients: apiClients });
+  for (const key of ["toString", "constructor", "__proto__", "hasOwnProperty"]) {
+    const result = await api(url, "search_items", `{"${key}": 1}`);
+    assert.equal(result.status, 400, key);
+    assert.deepEqual(result.body, { error: "unknown_arguments", arguments: [key] });
+  }
+});
+
+test("create_task and create_note also record the verified client", async (t) => {
+  const created = [];
+  const { url } = await fixture(t, {
+    clients: apiClients,
+    env: { TASKEN_MCP_READ_ONLY: "0" },
+    coreClient: {
+      status: async () => ({ capabilities: [...proposalCapabilities, "create_ai_item"] }),
+      createAiItem: async (request) => {
+        created.push(request);
+        return { status: "created" };
+      },
+    },
+  });
+  for (const name of ["create_task", "create_note"]) {
+    const result = await api(
+      url,
+      name,
+      { title: "t", idempotency_key: `k-${name}`, caller: "spoofed", source_app: "spoofed" },
+      otherToken,
+    );
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+  }
+  assert.equal(created.length, 2);
+  for (const request of created) {
+    assert.equal(request.caller, "writer");
+    assert.equal(request.source_app, "http:writer");
+  }
 });
 
 test("/api/v1 rejects unknown argument keys and a missing idempotency_key before Core is touched", async (t) => {
@@ -415,11 +499,13 @@ test("writes record the verified client as caller and http:<client> as source_ap
 
 test("/api/v1 maps Core error codes to HTTP statuses", async (t) => {
   let code = "NOT_FOUND";
+  let retryable;
+  let status500;
   const { url } = await fixture(t, {
     clients: apiClients,
     env: { TASKEN_MCP_READ_ONLY: "0" },
     coreClient: {
-      searchItems: async () => ({ error: { code, message: "m" } }),
+      searchItems: async () => ({ error: { code, message: "m", retryable, status: status500 } }),
     },
   });
   for (const [errorCode, status] of [
@@ -432,12 +518,31 @@ test("/api/v1 maps Core error codes to HTTP statuses", async (t) => {
     ["PROPOSAL_TOO_LARGE", 413],
     ["CORE_UNAVAILABLE", 503],
     ["something_else", 422],
+    ["INTERNAL_ERROR", 500],
+    ["FORBIDDEN", 403],
+    ["INVALID_TRANSITION", 409],
+    ["INVALID_JSON", 400],
+    ["UNAUTHORIZED", 503],
+    ["INVALID_RESPONSE", 503],
+    ["INVALID_DISCOVERY", 503],
+    ["DISCOVERY_OWNER_MISMATCH", 503],
+    ["DISCOVERY_PERMISSION_INVALID", 503],
+    ["UNAVAILABLE", 503],
   ]) {
     code = errorCode;
     const result = await api(url, "search_items", {});
     assert.equal(result.status, status, errorCode);
     assert.equal(result.body.error.code, errorCode);
   }
+  // 表に無いcodeでも、再試行できる失敗は503、サーバー側の5xxは500にして、422（要求の誤り）に見せない。
+  code = "NEW_TRANSIENT";
+  retryable = true;
+  assert.equal((await api(url, "search_items", {})).status, 503);
+  retryable = false;
+  assert.equal((await api(url, "search_items", {})).status, 422);
+  code = "NEW_SERVER";
+  status500 = 502;
+  assert.equal((await api(url, "search_items", {})).status, 500);
   // SDKの入力検証の失敗は、{error}の形でないisErrorでも呼び方の誤りとして400。
   assert.equal((await api(url, "search_items", { limit: "many" })).status, 400);
 });
