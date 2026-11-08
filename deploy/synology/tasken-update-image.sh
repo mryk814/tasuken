@@ -12,8 +12,9 @@
 #
 # Tasken に固有のこと:
 # - 1つの image で、Core（tasken-headless）・tunnel（tasken-tunnel）・HTTP MCP（tasken-mcp-http）が
-#   動く。導入のときに今の配備から作った docker-compose.json のサービスのうち、いま動いているものを
-#   まとめて止めて作り直す。止めてあるサービスは止めたまま触らない（SKIP_STOPPED）
+#   動く。導入のときに今の配備から作った docker-compose.json のサービスを、導入のときに止めたままと
+#   記録したもの（TASKEN_KEEP_STOPPED、SKIP_STOPPED）を除いて、まとめて止めて作り直す。記録に無いのに
+#   止まっているサービスは意図ではないとみなし、起こして確かめる（STOPPED_UNINTENDED）。戻すときも同じ全部を起こす
 # - 版ずれ: Desktop（正本の書き手）と replica の契約は共有フォルダの同期差分で、SQLite の schema は
 #   端末の中だけのもの。新しい版が Desktop の書いた差分を読めなければ版ずれとみる。読めるかの判定は
 #   image の中の replica-check がする（このスクリプトは手で置き直すもので、DB や差分の作りを知らない）
@@ -28,7 +29,7 @@
 #   0 HEALTH_OK（ALREADY_RUNNING も）
 #   1 この commit の成果物が駄目（record・image・中身の不一致、検査が動かない）。何も変えていない
 #   2 環境の都合で始めなかった（LOCKED・NO_SPACE・INSECURE_PATH・SECRET_BAD・NOT_COMPOSE_MANAGED・
-#     CORE_NOT_RUNNING・SYNC_SKEW など）。何も変えていない。後でやり直せる
+#     CORE_NOT_RUNNING・KEEP_STOPPED_UNSET・SYNC_SKEW など）。何も変えていない。後でやり直せる
 #   3 RESTORED_PREVIOUS: image だけ戻した。データには触れていない
 #   4 RESTORE_FAILED: 前の版でも動かない（または DB を戻すと同期が壊れる）。人の手が要る
 #   5 RESTORED_PREVIOUS だが人が見るべき（DB を戻した、本番 DB の写しが検査に落ちた、止まらなかった）
@@ -255,26 +256,44 @@ for i in "${!services[@]}"; do [ "${services[$i]}" = "$CORE" ] && [ "${container
 
 # コンテナが、この compose の project・service のものか。違うと compose stop で止まらず
 # （STOP_FAILED）、戻すときの up も container_name の衝突で落ちて、毎回終了 4 になる。
-# 入れ替えるのは、いま動いているサービスだけ。止めてあるサービス（本人が止めた HTTP MCP など）は
-# 止めたまま触らない（起こさない・作り直さない）。以後の services と containers は動いているものだけ。
-# Core は動いていること（止めてある Core を、更新で起こさない）。
-running_services=()
-running_containers=()
+#
+# 入れ替えて動かすサービスは「止めたままにする」と記録したもの以外のすべて。記録は導入のときに
+# install-tasken.sh が tasken.conf の TASKEN_KEEP_STOPPED に書く（本人が止めたサービスの名前、
+# カンマ区切り。空なら全部動かす）。その時々の状態からは決めない。決めると、更新の失敗で止まった
+# ままのサービスが、次の更新から「本人が止めたもの」として固定される（2026-11-08 に本番で踏んだ）。
+# - 記録にあって止まっている: 止めたまま触らない（SKIP_STOPPED）
+# - 記録に無いのに止まっている・作られていない: 意図ではない。入れ替えで起こして health に入れる
+# - 記録にあっても動いている: 本人が後で起こしたもの。動いているので入れ替える
+# 記録が無い（古い tasken.conf）なら始めない。止めてある tunnel などを勝手に起こさないため。
+# Core は動いていること（止めてある Core を、更新で起こさない）。以後の services と containers は動かすもの。
+grep -q '^TASKEN_KEEP_STOPPED=' "$CONF" ||
+  { echo "KEEP_STOPPED_UNSET（止めたままにするサービスの記録が無い。install-tasken.sh を流し直して記録する）"; exit 2; }
+keep_stopped=",$(conf TASKEN_KEEP_STOPPED | tr -d ' '),"
+wanted_services=()
+wanted_containers=()
 for i in "${!services[@]}"; do
   c=${containers[$i]}
-  dk inspect "$c" >/dev/null 2>&1 || { echo "SKIP_ABSENT $c"; continue; }
-  labels=$(dk inspect --format '{{index .Config.Labels "com.docker.compose.project"}}/{{index .Config.Labels "com.docker.compose.service"}}' "$c" 2>/dev/null || true)
-  [ "$labels" = "$project/${services[$i]}" ] || { echo "NOT_COMPOSE_MANAGED $c running=$labels want=$project/${services[$i]}"; exit 2; }
-  if [ "$(dk inspect --format '{{.State.Running}}' "$c" 2>/dev/null || true)" = true ]; then
-    running_services+=("${services[$i]}")
-    running_containers+=("$c")
-  else
+  s=${services[$i]}
+  kept=0
+  [[ "$keep_stopped" == *",$s,"* ]] && kept=1
+  if ! dk inspect "$c" >/dev/null 2>&1; then
     [ "$c" = "$CORE" ] && { echo "CORE_NOT_RUNNING $c"; exit 2; }
-    echo "SKIP_STOPPED $c（止めたまま入れ替える）"
+    if [ "$kept" = 1 ]; then echo "SKIP_ABSENT $c（記録どおり作らない）"; continue; fi
+    echo "STOPPED_UNINTENDED $c（作られていない。記録では動かすサービスなので、入れ替えで作って確かめる）"
+  else
+    labels=$(dk inspect --format '{{index .Config.Labels "com.docker.compose.project"}}/{{index .Config.Labels "com.docker.compose.service"}}' "$c" 2>/dev/null || true)
+    [ "$labels" = "$project/$s" ] || { echo "NOT_COMPOSE_MANAGED $c running=$labels want=$project/$s"; exit 2; }
+    if [ "$(dk inspect --format '{{.State.Running}}' "$c" 2>/dev/null || true)" != true ]; then
+      [ "$c" = "$CORE" ] && { echo "CORE_NOT_RUNNING $c"; exit 2; }
+      if [ "$kept" = 1 ]; then echo "SKIP_STOPPED $c（記録どおり止めたまま）"; continue; fi
+      echo "STOPPED_UNINTENDED $c（止まっているが、記録では動かすサービス。入れ替えで起こして確かめる）"
+    fi
   fi
+  wanted_services+=("$s")
+  wanted_containers+=("$c")
 done
-services=("${running_services[@]}")
-containers=("${running_containers[@]}")
+services=("${wanted_services[@]}")
+containers=("${wanted_containers[@]}")
 printf -v service_list '%s ' "${services[@]}"
 [[ " $service_list" == *" $CORE "* ]] || { echo "CORE_NOT_RUNNING $CORE"; exit 2; }
 
@@ -435,16 +454,38 @@ published_before=""
 up_core() {
   compose up -d --no-build --pull never --force-recreate --no-deps "$CORE" > "$DEPLOY_DIR/.compose.log" 2>&1
 }
-up_others() { # 起こせて、動いていれば 0
-  local others=() i
-  for i in "${!services[@]}"; do [ "${services[$i]}" = "$CORE" ] || others+=("${services[$i]}"); done
-  [ "${#others[@]}" -gt 0 ] || return 0
-  compose up -d --no-build --pull never --force-recreate --no-deps "${others[@]}" >> "$DEPLOY_DIR/.compose.log" 2>&1 || return 1
+# ほかのサービス（入れ替える前に動かすはずだったもの全部）を起こす。起こせて、少し待っても動いていれば 0。
+# 2026-11-08 の本番の切り戻しの試験で、Core を作り直した後に HTTP MCP が止まったまま戻らなかった
+# （compose の出力は次の実行で上書きされ、理由は残っていない）。やり方を変えて 3 回まで試し、
+# 駄目なら各コンテナの状態と compose の出力の末尾を出す（次に踏んだとき理由が分かるように）。
+others_running() {
+  local i
   for i in "${!services[@]}"; do
     [ "${services[$i]}" = "$CORE" ] && continue
     [ "$(dk inspect --format '{{.State.Running}}' "${containers[$i]}" 2>/dev/null || true)" = true ] || return 1
   done
   return 0
+}
+up_others() {
+  local others=() i try rc
+  for i in "${!services[@]}"; do [ "${services[$i]}" = "$CORE" ] || others+=("${services[$i]}"); done
+  [ "${#others[@]}" -gt 0 ] || return 0
+  for try in 1 2 3; do
+    case "$try" in
+      1) compose up -d --no-build --pull never --force-recreate --no-deps "${others[@]}" >> "$DEPLOY_DIR/.compose.log" 2>&1 ;;
+      2) compose up -d --no-build --pull never --no-deps "${others[@]}" >> "$DEPLOY_DIR/.compose.log" 2>&1 ;;
+      3) compose start "${others[@]}" >> "$DEPLOY_DIR/.compose.log" 2>&1 ;;
+    esac
+    rc=$?
+    "$SLEEP" 3
+    if [ "$rc" = 0 ] && others_running; then return 0; fi
+    echo "UP_OTHERS_RETRY try=$try rc=$rc $(tail -2 "$DEPLOY_DIR/.compose.log" | tr '\n' ' ' | cut -c1-200)"
+  done
+  for i in "${!services[@]}"; do
+    [ "${services[$i]}" = "$CORE" ] && continue
+    echo "SERVICE_STATE ${containers[$i]} $(dk inspect --format '{{.State.Status}} exit={{.State.ExitCode}} error={{.State.Error}} image={{.Config.Image}}' "${containers[$i]}" 2>/dev/null || echo absent)"
+  done
+  return 1
 }
 
 # 戻し方は二段。1) image を戻す。2) 古い image でも応答しないときだけ、今の data を別名で残してから、
