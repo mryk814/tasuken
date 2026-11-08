@@ -14,7 +14,7 @@ import { build } from "esbuild";
 
 import { buildMcpBridge } from "../scripts/build-mcp-bridge.mjs";
 
-async function launchHttp(serverPath, userDataPath, credentialsPath) {
+async function launchHttp(serverPath, userDataPath, credentialsPath, extraEnv = {}) {
   const child = spawn(process.env.TASKEN_NODE_EXEC_PATH || "node", [serverPath], {
     env: {
       ...process.env,
@@ -22,6 +22,7 @@ async function launchHttp(serverPath, userDataPath, credentialsPath) {
       TASKEN_MCP_READ_ONLY: "1",
       TASKEN_MCP_HTTP_PORT: "0",
       TASKEN_MCP_HTTP_CLIENTS_FILE: credentialsPath,
+      ...extraEnv,
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
@@ -159,6 +160,59 @@ test("production HTTP and stdio bridges share the isolated Headless Core; restar
     });
     assert.equal(api.status, 200);
     assert.ok((await api.json()).items.some(({ id }) => id === taskId));
+    // 書き込み: proposalsのCoreに、書き込みのclientで同じidempotency_keyのdry_runと本送信を送る。
+    // Proposal IDが一致し、保存された受領のsource_appがhttp:<client名>になる。
+    await httpClient.close();
+    httpClient = undefined;
+    await http.stop();
+    http = undefined;
+    await core.stop();
+    core = await startTaskenHeadlessCore({ userDataPath, writeMode: "proposals" });
+    const writerToken = randomBytes(32).toString("base64url");
+    fs.writeFileSync(
+      credentialsPath,
+      JSON.stringify({ muse: { token: writerToken, readOnly: false } }),
+      { mode: 0o600 },
+    );
+    http = await launchHttp(path.join(outDir, "http-server.mjs"), userDataPath, credentialsPath, {
+      TASKEN_MCP_READ_ONLY: "0",
+    });
+    const post = async (extra) =>
+      fetch(new URL("/api/v1/propose_feed_post", http.url), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${writerToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          idempotency_key: "http-api-write-roundtrip",
+          topic: "insight",
+          body: ["HTTP経由の書き込みを確かめる。"],
+          caller: "spoofed",
+          source_app: "spoofed",
+          ...extra,
+        }),
+      });
+    const dry = await post({ dry_run: true });
+    const dryBody = await dry.json();
+    assert.equal(dry.status, 200, JSON.stringify(dryBody));
+    const real = await post({});
+    const realBody = await real.json();
+    assert.equal(real.status, 200, JSON.stringify(realBody));
+    assert.ok(realBody.proposal_id);
+    assert.equal(dryBody.proposal_id, realBody.proposal_id);
+    const listed = await fetch(new URL("/api/v1/list_proposals", http.url), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${writerToken}`, "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const listedBody = await listed.json();
+    const stored = JSON.stringify(listedBody);
+    assert.ok(stored.includes(realBody.proposal_id), stored);
+    assert.ok(stored.includes("http:muse"), stored);
+    assert.ok(!stored.includes("spoofed"), stored);
+    await http.stop();
+    http = undefined;
+    fs.writeFileSync(credentialsPath, JSON.stringify({ grokbot: { token } }), { mode: 0o600 });
+    http = await launchHttp(path.join(outDir, "http-server.mjs"), userDataPath, credentialsPath);
+    httpClient = await connectHttp(http.url, token);
     const discoveryBefore = fs.readFileSync(core.discoveryPath, "utf8");
     await httpClient.close();
     httpClient = undefined;

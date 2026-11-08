@@ -241,7 +241,7 @@ NASの`deploy/synology/secrets/mcp_http_clients`へ次の形のJSONを保存し�
 - 書き込みを明示的に許す場合だけ、Coreの`proposals`または`create-only`（開始付きの`proposals-and-start`・`create-and-start`・`start-only`も可）、`TASKEN_MCP_READ_ONLY=0`、該当クライアントの`readOnly:false`を揃える。汎用編集・削除・完了はHTTP側へ公開しない。
 - 既存Taskの直接の書き換えになる`start_task_work`（開始）は、`"allowStart": true`を書いた書き込みクライアントにだけ出す。省略はfalseで、開始付きprofileのCoreでも一覧に出ず、`/api/v1/start_task_work`は403になる。`readOnly`のクライアントでは`allowStart`を書いても書き込みは出ない。
 - Coreが`full`や不明なprofileの場合、HTTPの書き込み接続は503で拒否する。読み取り専用接続は利用できる。
-- 書き込みの作成者（`caller`）はクライアントの表示名、`source_app`は`http:<表示名>`に固定され、AIが引数で名乗った値は上書きされる。冪等性の鍵（`idempotency_key`）もクライアントごとに別になる。
+- 書き込みの作成者（`caller`）はクライアントの表示名、`source_app`は`http:<表示名>`に固定され、AIが引数で名乗った値は上書きされる。冪等性の鍵（`idempotency_key`）もクライアントごとに別になる（`start_task_work`を除く。開始の鍵はクライアントをまたいで共有されるため、別のクライアントが同じ鍵を使うとCONFLICTになる。データは壊れない）。
 - tokenの追加・ローテーション・取り消しはsecretを更新して`mcp-http`を再作成する。再作成まで古い設定が有効なため、取り消し時も再作成の成功を確認する。
 
 ### `/api/v1/<tool>`（stdio MCPを使えないAI向け）
@@ -260,18 +260,20 @@ curl -sS -X POST "https://<NAS>.<tailnet>.ts.net:8444/api/v1/search_items" \
 - 成功は200で、toolの結果のJSONを返します。NAS replicaでは結果に`source`（同期の鮮度）が付きます。
 - 本文の最上位に、そのtoolの引数に無いキーがあると400`{"error":"unknown_arguments","arguments":[...]}`で断ります（`idempotencyKey`のような綴り違いを黙って捨てないため）。
 - 書き込みのtoolで`idempotency_key`を持つものは、本文に`idempotency_key`が無いと400`{"error":"idempotency_key_required"}`です。再送でFeed投稿やProposalが増えるのを防ぎます。
-- このクライアント・配備で使えないtoolは403`{"error":"tool_not_allowed"}`、存在しないtoolは404`{"error":"unknown_tool"}`です。Coreに繋がらないときは503`{"error":"mcp_unavailable"}`です。
-- toolがエラーを返したときも本文はtoolの結果のJSONで、statusは`error.code`で決まります。
+- このクライアント・配備で使えないtoolは403`{"error":"tool_not_allowed"}`、存在しないtoolは404`{"error":"unknown_tool"}`です。Coreに繋がらないときは503`{"error":"mcp_unavailable"}`、Coreのprofileが許されないとき（`full`・不明）は書き込みのクライアントに503`{"error":"core_profile_not_allowed"}`です。
+- toolがエラーを返したときも本文はtoolの結果のJSONで、statusは`error.code`で決まります。`error`の形でない失敗は、入力検証の失敗だけ400、tool内部の想定外の失敗は500です。
 
-| `error.code`                                                                            | status |
-| --------------------------------------------------------------------------------------- | ------ |
-| `VALIDATION_FAILED`・`INVALID_JSON`・引数の型の誤りなど入力検証の失敗                   | 400    |
-| `WRITE_NOT_ALLOWED`                                                                     | 403    |
-| `NOT_FOUND`を含むもの                                                                   | 404    |
-| `IDEMPOTENCY_CONFLICT`・`CONFLICT`・`STALE_VERSION`                                     | 409    |
-| `PROPOSAL_TOO_LARGE`・`BODY_TOO_LARGE`                                                  | 413    |
-| `CORE_UNAVAILABLE`・`CAPABILITY_UNAVAILABLE`・`VERSION_MISMATCH`・`CORE_REQUEST_FAILED` | 503    |
-| 上以外                                                                                  | 422    |
+| `error.code`                                                                                                                       | status |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `VALIDATION_FAILED`・`INVALID_JSON`・引数の型の誤りなど入力検証の失敗                                                              | 400    |
+| `WRITE_NOT_ALLOWED`・`FORBIDDEN`                                                                                                   | 403    |
+| `NOT_FOUND`を含むもの                                                                                                              | 404    |
+| `IDEMPOTENCY_CONFLICT`・`CONFLICT`・`STALE_VERSION`・`INVALID_TRANSITION`                                                          | 409    |
+| `PROPOSAL_TOO_LARGE`・`BODY_TOO_LARGE`                                                                                             | 413    |
+| `CORE_UNAVAILABLE`・`CAPABILITY_UNAVAILABLE`・`VERSION_MISMATCH`・`CORE_REQUEST_FAILED`                                            | 503    |
+| `UNAUTHORIZED`・`INVALID_RESPONSE`・`INVALID_DISCOVERY`・`DISCOVERY_OWNER_MISMATCH`・`DISCOVERY_PERMISSION_INVALID`・`UNAVAILABLE` | 503    |
+| `INTERNAL_ERROR`                                                                                                                   | 500    |
+| 上以外（`error.retryable`が`true`なら503、`error.status`が500以上なら500）                                                         | 422    |
 
 `caller`が必須のtool（`report_work`など）も、`/api/v1`では本文に`caller`を書かなくて構いません。
 
@@ -380,7 +382,7 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 
 ## 二重writerにしない
 
-- replicaは**read-only運用が既定**。MCPは `TASKEN_MCP_READ_ONLY=1` で起動し、write toolsを公開しない。書き込みを許す配備でも、Core側の`--write-mode=proposals`と合わせてProposal（Feed投稿・Note案・Task案・Task作業報告）だけを許可し、正式データはDesktopでの採用まで変えない。
+- replicaは**read-only運用が既定**。MCPは `TASKEN_MCP_READ_ONLY=1` で起動し、write toolsを公開しない。書き込みを許す配備では、Proposal（Feed投稿・Note案・Task案・Task作業報告。採用まで正式データを変えない）、AIが作る新規のTask・Note（create-only）、AI Readyの個人Taskの開始（opt-in。HTTPでは`allowStart`のクライアントだけ）を受け付ける。既存データの編集・削除・完了は受け付けない。
 - DesktopとNASで**同じuserData/stateを同時に開かない**。stateは各nodeのローカルに置き、SQLite/WALをSMB/NFSや同期フォルダへ置かない。
 - 同じuserDataでCoreが稼働中なら `CORE_ALREADY_RUNNING` で拒否される。durableなwriter authorityはPhase 4のwrite有効化と合わせて設計する。
 
