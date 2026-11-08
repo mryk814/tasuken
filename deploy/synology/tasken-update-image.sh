@@ -455,9 +455,12 @@ up_core() {
   compose up -d --no-build --pull never --force-recreate --no-deps "$CORE" > "$DEPLOY_DIR/.compose.log" 2>&1
 }
 # ほかのサービス（入れ替える前に動かすはずだったもの全部）を起こす。起こせて、少し待っても動いていれば 0。
-# 2026-11-08 の本番の切り戻しの試験で、Core を作り直した後に HTTP MCP が止まったまま戻らなかった
-# （compose の出力は次の実行で上書きされ、理由は残っていない）。やり方を変えて 3 回まで試し、
-# 駄目なら各コンテナの状態と compose の出力の末尾を出す（次に踏んだとき理由が分かるように）。
+# --no-deps を付けない。NAS の docker-compose v2.20.1 は、network_mode: service:<Core> のサービスを
+# --no-deps で起こすと「network service:tasken-headless not found」で落ちる（2026-11-08 の本番の切り戻しの
+# 試験で HTTP MCP が戻らなかった原因）。--no-deps が無ければ、compose は依存の Core を確かめるだけで、
+# 設定が同じなら作り直さない（--force-recreate は名指ししたサービスにだけ効く）。docker start も使わない。
+# 止まっていたコンテナは作り直す前の Core の network を指したままで、起こせない。
+# やり方を変えて 3 回まで試し、駄目なら各コンテナの状態と compose の出力の末尾を出す。
 others_running() {
   local i
   for i in "${!services[@]}"; do
@@ -472,13 +475,14 @@ up_others() {
   [ "${#others[@]}" -gt 0 ] || return 0
   for try in 1 2 3; do
     case "$try" in
-      1) compose up -d --no-build --pull never --force-recreate --no-deps "${others[@]}" >> "$DEPLOY_DIR/.compose.log" 2>&1 ;;
-      2) compose up -d --no-build --pull never --no-deps "${others[@]}" >> "$DEPLOY_DIR/.compose.log" 2>&1 ;;
-      3) compose start "${others[@]}" >> "$DEPLOY_DIR/.compose.log" 2>&1 ;;
+      1) compose up -d --no-build --pull never --force-recreate "${others[@]}" >> "$DEPLOY_DIR/.compose.log" 2>&1 ;;
+      2) compose up -d --no-build --pull never "${others[@]}" >> "$DEPLOY_DIR/.compose.log" 2>&1 ;;
+      3) compose up -d --no-build --pull never --force-recreate "$CORE" "${others[@]}" >> "$DEPLOY_DIR/.compose.log" 2>&1 ;;
     esac
     rc=$?
     "$SLEEP" 3
-    if [ "$rc" = 0 ] && others_running; then return 0; fi
+    # 3 回目は Core も作り直すので、Core の応答も確かめ直す
+    if [ "$rc" = 0 ] && others_running && { [ "$try" != 3 ] || core_healthy "$old"; }; then return 0; fi
     echo "UP_OTHERS_RETRY try=$try rc=$rc $(tail -2 "$DEPLOY_DIR/.compose.log" | tr '\n' ' ' | cut -c1-200)"
   done
   for i in "${!services[@]}"; do

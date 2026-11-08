@@ -160,7 +160,11 @@ case "${1:-}" in
     shift
     echo "start $*" >> "$F/calls"
     [ -f "$F/up_fails_others" ] && exit 1
-    for s in "$@"; do rm -f "$F/down_$(container_of "$s")"; done ;;
+    for s in "$@"; do
+      # 作り直す前の Core の network を指したままのコンテナは起こせない（本物と同じ）
+      [ -f "$F/stale_$(container_of "$s")" ] && { echo "Error response from daemon: joining network namespace of container: No such container" >&2; exit 1; }
+      rm -f "$F/down_$(container_of "$s")"
+    done ;;
   config)
     cat << JSON
 {"name":"tasken","services":{
@@ -180,13 +184,42 @@ JSON
     [ "${#svcs[@]}" -gt 0 ] || svcs=(tasken-headless tunnel-client mcp-http)
     echo "up $TASKEN_IMAGE ${svcs[*]} $args" >> "$F/calls"
     [ -f "$F/up_fails" ] && { echo "偽の compose の失敗" >&2; exit 1; }
-    # 戻しの段で、Core の後にほかのサービスを起こす最初の 1 回だけ失敗させる（本番の 2026-11-08 の再現の代わり）
-    if { [ -f "$F/up_others_fail_once" ] || [ -f "$F/up_fails_others" ]; } && [[ " ${svcs[*]} " != *" tasken-headless "* ]]; then
-      rm -f "$F/up_others_fail_once"
-      echo "偽の compose の失敗（ほかのサービス）" >&2
+    deps_listed=0
+    for s in "${svcs[@]}"; do [ "$s" = tunnel-client ] || [ "$s" = mcp-http ] && deps_listed=1; done
+    # NAS の docker-compose v2.20.1: network_mode: service:<Core> のサービスを --no-deps で起こすと落ちる
+    # （2026-11-08 に本番で確かめた。--force-recreate を足しても同じ）
+    if [ "$deps_listed" = 1 ] && [[ " $args " == *" --no-deps "* ]]; then
+      echo "Error response from daemon: network service:tasken-headless not found" >&2
       exit 1
     fi
-    for s in "${svcs[@]}"; do rm -f "$F/down_$(container_of "$s")"; done
+    # 作り直さずに起こすと、作り直す前の Core の network を指したままで起きない
+    if [[ " $args " != *" --force-recreate "* ]]; then
+      for s in "${svcs[@]}"; do
+        c=$(container_of "$s")
+        [ "$c" = tasken-headless ] && continue
+        want="$TASKEN_IMAGE"
+        [ "$s" = mcp-http ] && want="${TASKEN_IMAGE_MCP_HTTP:-$TASKEN_IMAGE}"
+        if [ -f "$F/stale_$c" ] && [ "$(cat "$F/img_$c" 2>/dev/null || cat "$F/running")" = "$want" ]; then
+          echo "Error response from daemon: joining network namespace of container: No such container" >&2
+          exit 1
+        fi
+      done
+    fi
+    # 試験のための失敗: ほかのサービスを起こす最初の 1 回だけ（once）、またはいつも（others）
+    if [ "$deps_listed" = 1 ] && { [ -f "$F/up_others_fail_once" ] || [ -f "$F/up_fails_others" ]; }; then
+      if [ -f "$F/up_fails_others" ] || [[ " ${svcs[*]} " != *" tasken-headless "* ]]; then
+        rm -f "$F/up_others_fail_once"
+        echo "偽の compose の失敗（ほかのサービス）" >&2
+        exit 1
+      fi
+    fi
+    for s in "${svcs[@]}"; do rm -f "$F/down_$(container_of "$s")" "$F/stale_$(container_of "$s")"; done
+    # Core を作り直すと、一緒に作り直さなかった Core の network を使うコンテナは古い network を指したまま
+    if [[ " ${svcs[*]} " == *" tasken-headless "* ]]; then
+      for s in tunnel-client mcp-http; do
+        [[ " ${svcs[*]} " == *" $s "* ]] || touch "$F/stale_$(container_of "$s")"
+      done
+    fi
     # Core だけを作り直すと、compose は Core の network を使うサービスを止める（本番の見立て）
     if [ "${svcs[*]}" = tasken-headless ]; then
       for c in tasken-tunnel tasken-mcp-http; do touch "$F/down_$c"; done
