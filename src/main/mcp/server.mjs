@@ -17,7 +17,11 @@ import {
 } from "../../shared/contracts/mobile/public.mjs";
 import { TASK_CONTRACT_SCHEMA_VERSION } from "../../shared/contracts/task/public.ts";
 import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
-import { mcpToolAvailability, parseMcpToolsets } from "./toolAvailability.mjs";
+import {
+  MCP_TOOL_REQUIREMENTS,
+  mcpToolAvailability,
+  parseMcpToolsets,
+} from "./toolAvailability.mjs";
 import { compactToolDiscovery } from "./compactSchema.mjs";
 import { MCP_GUIDES } from "./guides.mjs";
 
@@ -163,6 +167,24 @@ function withTaskLocators(result) {
   };
 }
 
+/**
+ * 書き込みtoolの作成者を、認証で確かめたclient名に固定する。AIが引数で名乗る`caller`は
+ * 自己申告で、tailnet上の別のclientを装えてしまうため。その欄をschemaに持つtoolだけ上書きする。
+ * `source_app`は作成IDとProposal IDの材料なので、冪等性の鍵もclientごとに分かれる
+ * （別clientが同じidempotency_keyを使っても衝突しない）。
+ * 保存の形（`ai_creation`など）には欄を足さず、既存の`caller`・`source_app`の値だけを変える。
+ */
+function withVerifiedCreator([config, handler, ...others], clientName) {
+  const fields = config?.inputSchema?.shape ?? config?.inputSchema ?? {};
+  const forced = {};
+  if ("caller" in fields) forced.caller = clientName;
+  if ("source_app" in fields) forced.source_app = `http:${clientName}`;
+  if (Object.keys(forced).length === 0 || typeof handler !== "function") {
+    return [config, handler, ...others];
+  }
+  return [config, (args, ...more) => handler({ ...args, ...forced }, ...more), ...others];
+}
+
 function sourceApp(args) {
   return args.source_app || "mcp-client";
 }
@@ -182,9 +204,12 @@ export function mcpReadOnlyMode(env = process.env) {
  *   coreClient?: TaskenCoreClient,
  *   capabilities?: readonly string[],
  *   toolsets?: string[] | string,
+ *   verifiedClient?: string,
  * }} [options]
  *   `capabilities`は起動時に読めたCoreのcapability。渡した場合だけ、この接続で使えない
  *   書き込みtoolを一覧から外す。読めなかった場合もtoolsetsとreadOnlyの制限は適用する。
+ *   `verifiedClient`は認証済みのHTTP client名。渡した場合だけ、書き込みtoolの作成者を
+ *   この名前に上書きする（stdioは渡さないので何も変わらない）。
  */
 export function createTaskenMcpServer(options = {}) {
   const toolsets = parseMcpToolsets(
@@ -223,6 +248,9 @@ export function createTaskenMcpServer(options = {}) {
   const registeredTools = new Map();
   const registerTool = server.registerTool.bind(server);
   server.registerTool = (name, ...rest) => {
+    if (options.verifiedClient && MCP_TOOL_REQUIREMENTS[name]?.access !== "read") {
+      rest = withVerifiedCreator(rest, options.verifiedClient);
+    }
     const registered = registerTool(name, ...rest);
     registeredTools.set(name, registered);
     return registered;

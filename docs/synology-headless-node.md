@@ -238,9 +238,42 @@ NASの`deploy/synology/secrets/mcp_http_clients`へ次の形のJSONを保存し�
 - tokenはクライアントごとに32byteの暗号学的乱数からbase64urlで生成し、クライアント側のsecret管理へ安全な経路で渡す。JSONはgit管理外とし、コンテナ実行UID所有、mode 600にする。ログ・チャット・`.env`・Exportに値を出さない。
 - これはHTTP bridge専用のtokenであり、Core discoveryの全権token、既存Core読み取り専用クライアントtokenとは別。`grokbot`という表示名は到達端末の検証を代替しない。
 - `readOnly`省略時はtrue。`TASKEN_MCP_READ_ONLY=1`なら`readOnly:false`でも書き込みを許可しない。
-- 書き込みを明示的に許す場合だけ、Coreの`proposals`または`create-only`、`TASKEN_MCP_READ_ONLY=0`、該当クライアントの`readOnly:false`を揃える。汎用編集・削除・完了・直接開始はHTTP側へ公開しない。
-- Coreが直接開始も許可するprofile、`full`や不明なprofileの場合、HTTPの書き込み接続は503で拒否する。読み取り専用接続は利用できるため、既存tunnelの開始権限を保つ配備ではHTTP側を読み取り専用にする。
+- 書き込みを明示的に許す場合だけ、Coreの`proposals`または`create-only`（開始付きの`proposals-and-start`・`create-and-start`・`start-only`も可）、`TASKEN_MCP_READ_ONLY=0`、該当クライアントの`readOnly:false`を揃える。汎用編集・削除・完了はHTTP側へ公開しない。
+- 既存Taskの直接の書き換えになる`start_task_work`（開始）は、`"allowStart": true`を書いた書き込みクライアントにだけ出す。省略はfalseで、開始付きprofileのCoreでも一覧に出ず、`/api/v1/start_task_work`は403になる。`readOnly`のクライアントでは`allowStart`を書いても書き込みは出ない。
+- Coreが`full`や不明なprofileの場合、HTTPの書き込み接続は503で拒否する。読み取り専用接続は利用できる。
+- 書き込みの作成者（`caller`）はクライアントの表示名、`source_app`は`http:<表示名>`に固定され、AIが引数で名乗った値は上書きされる。冪等性の鍵（`idempotency_key`）もクライアントごとに別になる。
 - tokenの追加・ローテーション・取り消しはsecretを更新して`mcp-http`を再作成する。再作成まで古い設定が有効なため、取り消し時も再作成の成功を確認する。
+
+### `/api/v1/<tool>`（stdio MCPを使えないAI向け）
+
+MCPのセッションを張れないAI（HTTPだけ呼べるBot）は、同じport・同じBearer tokenで`POST /api/v1/<tool>`を呼べます。`<tool>`は`tasken.`を除いたtool名です（`/api/v1/search_items`は`tasken.search_items`）。
+認証・Origin拒否・本文の上限・`/health`は`/mcp`と同じです。クライアントごとの`readOnly`・`toolsets`・`allowStart`とCoreのprofileも`/mcp`と同じ範囲に絞られます。
+
+```bash
+curl -sS -X POST "https://<NAS>.<tailnet>.ts.net:8444/api/v1/search_items" \
+  -H "Authorization: Bearer $TASKEN_MCP_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "実験ノート"}'
+```
+
+- 本文はtoolの引数のJSONオブジェクトです。オブジェクト以外は400になります。
+- 成功は200で、toolの結果のJSONを返します。NAS replicaでは結果に`source`（同期の鮮度）が付きます。
+- 本文の最上位に、そのtoolの引数に無いキーがあると400`{"error":"unknown_arguments","arguments":[...]}`で断ります（`idempotencyKey`のような綴り違いを黙って捨てないため）。
+- 書き込みのtoolで`idempotency_key`を持つものは、本文に`idempotency_key`が無いと400`{"error":"idempotency_key_required"}`です。再送でFeed投稿やProposalが増えるのを防ぎます。
+- このクライアント・配備で使えないtoolは403`{"error":"tool_not_allowed"}`、存在しないtoolは404`{"error":"unknown_tool"}`です。Coreに繋がらないときは503`{"error":"mcp_unavailable"}`です。
+- toolがエラーを返したときも本文はtoolの結果のJSONで、statusは`error.code`で決まります。
+
+| `error.code`                                                                            | status |
+| --------------------------------------------------------------------------------------- | ------ |
+| `VALIDATION_FAILED`・`INVALID_JSON`・引数の型の誤りなど入力検証の失敗                   | 400    |
+| `WRITE_NOT_ALLOWED`                                                                     | 403    |
+| `NOT_FOUND`を含むもの                                                                   | 404    |
+| `IDEMPOTENCY_CONFLICT`・`CONFLICT`・`STALE_VERSION`                                     | 409    |
+| `PROPOSAL_TOO_LARGE`・`BODY_TOO_LARGE`                                                  | 413    |
+| `CORE_UNAVAILABLE`・`CAPABILITY_UNAVAILABLE`・`VERSION_MISMATCH`・`CORE_REQUEST_FAILED` | 503    |
+| 上以外                                                                                  | 422    |
+
+`caller`が必須のtool（`report_work`など）も、`/api/v1`では本文に`caller`を書かなくて構いません。
 
 ### 起動・Serve route追加
 
