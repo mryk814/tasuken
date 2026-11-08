@@ -17,13 +17,16 @@ import {
   type MobileGatewayStatePort,
 } from "../gateway/mobile/runtimePublic.ts";
 
+interface McpPackageSmokePersistence {
+  ensureMcpPackageSmokeFixture(): unknown;
+  verifyMcpPackageSmokeProposal(id: string): unknown;
+}
+
 type DesktopPersistence = ConstructorParameters<typeof TaskenCoreRuntime>[1] &
   ConstructorParameters<typeof ApplicationCommandService>[0] &
-  MobileDevicePersistence & {
+  MobileDevicePersistence &
+  McpPackageSmokePersistence & {
     mobileGatewayState(): ReturnType<MobileGatewayStatePort["current"]>;
-    ensureMcpPackageSmokeFixture(): unknown;
-    verifyMcpPackageSmokeProposal(id: string): unknown;
-    db: { close(): void };
   };
 
 export interface McpPackageSmokeRootOptions {
@@ -56,6 +59,47 @@ export interface TaskenDesktopCompositionOptions<
   feedWriter?: NonNullable<ConstructorParameters<typeof TaskenCoreRuntime>[8]>["feedWriter"];
   /** Androidからの続けること・手入れの記録を保存する口（#454）。 */
   routineWriter?: NonNullable<ConstructorParameters<typeof TaskenCoreRuntime>[8]>["routineWriter"];
+}
+
+/** packaged MCP smokeのfixtureを用意し、Proposal IDがあれば検証結果を書き出す。 */
+function prepareMcpPackageSmokeData(
+  repository: McpPackageSmokePersistence,
+  options: McpPackageSmokeOptions,
+): void {
+  repository.ensureMcpPackageSmokeFixture();
+  if (!options.proposalId) return;
+  if (!/^[0-9a-f-]{36}$/i.test(options.proposalId)) {
+    throw new Error("MCP package smoke Proposal IDが不正です。");
+  }
+  const verification = repository.verifyMcpPackageSmokeProposal(options.proposalId);
+  if (options.resultPath) {
+    fs.writeFileSync(path.resolve(options.resultPath), JSON.stringify(verification), {
+      flag: "w",
+    });
+  }
+}
+
+/**
+ * verify-onlyの検証を、Desktopの起動処理（composition・protocol・session・window）を通さずに行う。
+ *
+ * 呼んだ側はこのあとすぐapp.exitする。起動処理を進めてからexitすると、Chromiumが
+ * protocol登録などを機に始めた子プロセス（network service）の起動をlauncher threadで
+ * 走らせている最中にmainが後片付けを始め、SandboxWin::StartSandboxedProcessの中で
+ * access violation（0xC0000005）になることがある（FAILURES.md 2026-11-09）。
+ * そのため、子プロセスの起動を呼ぶものより前、app.whenReady()の直後で呼ぶ。
+ */
+export function runMcpPackageSmokeVerifyOnly<
+  TPersistence extends McpPackageSmokePersistence & { db: { close(): void } },
+>(openPersistence: () => TPersistence, options: McpPackageSmokeOptions): void {
+  if (!options.enabled || !options.verifyOnly) {
+    throw new Error("MCP package smokeのverify-only指定がありません。");
+  }
+  const repository = openPersistence();
+  try {
+    prepareMcpPackageSmokeData(repository, options);
+  } finally {
+    repository.db.close();
+  }
 }
 
 export function applyMcpPackageSmokeUserData(
@@ -104,7 +148,6 @@ export class TaskenDesktopComposition<
   readonly coreRuntime: TaskenCoreRuntime;
   readonly mobileGateway: MobileGatewayRuntime;
   private readonly userDataPath: string;
-  private verifyOnlyCompleted = false;
 
   constructor(options: TaskenDesktopCompositionOptions<TPersistence>) {
     this.userDataPath = options.userDataPath;
@@ -149,16 +192,11 @@ export class TaskenDesktopComposition<
     return this.coreRuntime.taskCapability;
   }
 
-  get packageSmokeVerifyOnlyCompleted(): boolean {
-    return this.verifyOnlyCompleted;
-  }
-
   createCoreClient() {
     return this.coreRuntime.createClient(this.userDataPath);
   }
 
   async start(): Promise<void> {
-    if (this.verifyOnlyCompleted) throw new Error("verify-only compositionは起動できません。");
     await this.coreRuntime.start();
     await this.mobileGateway.start();
   }
@@ -181,21 +219,9 @@ export class TaskenDesktopComposition<
 
   private prepareMcpPackageSmoke(options?: McpPackageSmokeOptions): void {
     if (!options?.enabled) return;
-    this.repository.ensureMcpPackageSmokeFixture();
-    if (options.proposalId) {
-      if (!/^[0-9a-f-]{36}$/i.test(options.proposalId)) {
-        throw new Error("MCP package smoke Proposal IDが不正です。");
-      }
-      const verification = this.repository.verifyMcpPackageSmokeProposal(options.proposalId);
-      if (options.resultPath) {
-        fs.writeFileSync(path.resolve(options.resultPath), JSON.stringify(verification), {
-          flag: "w",
-        });
-      }
-    }
     if (options.verifyOnly) {
-      this.repository.db.close();
-      this.verifyOnlyCompleted = true;
+      throw new Error("verify-onlyはrunMcpPackageSmokeVerifyOnlyで行います。");
     }
+    prepareMcpPackageSmokeData(this.repository, options);
   }
 }
