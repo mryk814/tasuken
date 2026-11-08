@@ -17,7 +17,11 @@ import {
 } from "../../shared/contracts/mobile/public.mjs";
 import { TASK_CONTRACT_SCHEMA_VERSION } from "../../shared/contracts/task/public.ts";
 import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
-import { mcpToolAvailability, parseMcpToolsets } from "./toolAvailability.mjs";
+import {
+  MCP_TOOL_REQUIREMENTS,
+  mcpToolAvailability,
+  parseMcpToolsets,
+} from "./toolAvailability.mjs";
 import { compactToolDiscovery } from "./compactSchema.mjs";
 import { MCP_GUIDES } from "./guides.mjs";
 
@@ -163,6 +167,28 @@ function withTaskLocators(result) {
   };
 }
 
+/**
+ * 書き込みtoolの作成者を、認証で確かめたclient名に固定する。AIが引数で名乗る`caller`は
+ * 自己申告で、tailnet上の別のclientを装えてしまうため。その欄をschemaに持つtoolだけ上書きする。
+ * `source_app`は作成IDとProposal IDの材料なので、冪等性の鍵もclientごとに分かれる
+ * （別clientが同じidempotency_keyを使っても衝突しない）。
+ * ただし`start_task_work`のcommand_idは`source_app`を含まず（workspaceとidempotency_keyだけから作る）、
+ * 別clientが同じ鍵を使うとCONFLICTになる。データは壊れないのでCoreの導出は変えない。
+ * 保存の形（`ai_creation`など）には欄を足さず、既存の`caller`・`source_app`の値だけを変える。
+ */
+function withVerifiedCreator([config, handler, ...others], clientName) {
+  const fields = config?.inputSchema?.shape ?? config?.inputSchema ?? {};
+  const forced = {};
+  if ("caller" in fields) forced.caller = clientName;
+  if ("source_app" in fields) forced.source_app = `http:${clientName}`;
+  // Feedの返信のスレッドに出る表示名。自己申告のままだと本人の名前を名乗れてしまう。
+  if ("author_label" in fields) forced.author_label = clientName;
+  if (Object.keys(forced).length === 0 || typeof handler !== "function") {
+    return [config, handler, ...others];
+  }
+  return [config, (args, ...more) => handler({ ...args, ...forced }, ...more), ...others];
+}
+
 function sourceApp(args) {
   return args.source_app || "mcp-client";
 }
@@ -182,9 +208,15 @@ export function mcpReadOnlyMode(env = process.env) {
  *   coreClient?: TaskenCoreClient,
  *   capabilities?: readonly string[],
  *   toolsets?: string[] | string,
+ *   verifiedClient?: string,
+ *   withheldCapabilities?: readonly string[],
  * }} [options]
  *   `capabilities`は起動時に読めたCoreのcapability。渡した場合だけ、この接続で使えない
  *   書き込みtoolを一覧から外す。読めなかった場合もtoolsetsとreadOnlyの制限は適用する。
+ *   `verifiedClient`は認証済みのHTTP client名。渡した場合だけ、書き込みtoolの作成者を
+ *   この名前に上書きする（stdioは渡さないので何も変わらない）。
+ *   `withheldCapabilities`はこの接続に見せないcapability。起動時の絞り込みと
+ *   `tasken.get_capabilities`の読み直しの両方で、判定の前にこれを除く。
  */
 export function createTaskenMcpServer(options = {}) {
   const toolsets = parseMcpToolsets(
@@ -223,13 +255,22 @@ export function createTaskenMcpServer(options = {}) {
   const registeredTools = new Map();
   const registerTool = server.registerTool.bind(server);
   server.registerTool = (name, ...rest) => {
+    if (options.verifiedClient && MCP_TOOL_REQUIREMENTS[name]?.access !== "read") {
+      rest = withVerifiedCreator(rest, options.verifiedClient);
+    }
     const registered = registerTool(name, ...rest);
     registeredTools.set(name, registered);
     return registered;
   };
 
+  const withheld = new Set(options.withheldCapabilities ?? []);
+  const withhold = (capabilities) =>
+    Array.isArray(capabilities)
+      ? capabilities.filter((value) => !withheld.has(value))
+      : capabilities;
+
   const filterAvailableTools = () => {
-    const { tools } = mcpToolAvailability(options.capabilities, { readOnly, toolsets });
+    const { tools } = mcpToolAvailability(withhold(options.capabilities), { readOnly, toolsets });
     for (const [name, registered] of registeredTools) {
       const tool = tools[name];
       // Coreの読み取りcapability未公開でも、既存のread一覧は維持する。
@@ -658,7 +699,10 @@ export function createTaskenMcpServer(options = {}) {
     },
     withCoreClient(async () => {
       const status = await coreClient.status();
-      const availability = mcpToolAvailability(status.capabilities, { readOnly, toolsets });
+      const availability = mcpToolAvailability(withhold(status.capabilities), {
+        readOnly,
+        toolsets,
+      });
       const tools = Object.entries(availability.tools).map(([name, tool]) => ({
         name,
         access: tool.access,

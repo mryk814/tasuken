@@ -121,7 +121,10 @@ test("explicit creation-only headless and actual stdio MCP: scope, persistence, 
     const caps = (await client.callTool({ name: "tasken.get_capabilities", arguments: {} }))
       .structuredContent;
     assert.equal(caps.core.write_profile, "create-only");
-    assert.equal(caps.writes.note_edit, false);
+    // Note編集は「提案」としてだけ受ける（#701 段階1 の 5）。採用まで正式データは変わらず、
+    // 既存データを直接変える道具が出ないことは上の一覧で確かめている。
+    assert.equal(caps.writes.note_edit, true);
+    assert.equal(caps.writes.feed_reply, true);
     const coreClient = new TaskenCoreClient({ userDataPath: dir });
     for (const extra of [
       { workspace_id: "other" },

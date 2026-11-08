@@ -58,7 +58,7 @@ ACL、sudoers、ネットワーク、Tunnel資格情報、保存場所、DB sche
 
 停止の目安は1〜3分。backup量、image load、起動・確認に依存し、NAS所要時間は今回未計測。
 停止対象は更新するCore/MCPと必要ならTunnel sidecar。Desktop/Androidや他アプリの停止は不要。
-有効化後にtask.commandなし、task_start=true、note_edit/feed_reply/note_images=falseを読み取り確認し、利用者が指定したReady Taskだけで開始を試す。
+有効化後にtask.commandなし、task_start=true、note_images=falseを読み取り確認し、利用者が指定したReady Taskだけで開始を試す。
 
 不具合時はopt-inを無効にして新規claimを停止する。
 必要なら更新前のimage/Composeへ戻し、現在のDB・同期履歴を保持する。schema変更がないため、通常の撤回にDB restoreは不要。

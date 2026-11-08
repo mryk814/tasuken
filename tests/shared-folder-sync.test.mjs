@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { aiItemPacketFlags } from "../src/shared/contracts/sync/aiItemPacketContract.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 import {
   SharedFolderSyncService,
@@ -937,6 +938,8 @@ test("各端末は公開の進みを status.json に置き、進みが無けれ�
       role: "desktop",
       publishedThrough: published,
       at: new Date(T0).toISOString(),
+      // この版の Desktop が取り込める形（印の最後）。replica が書き込みを断る判定に使う。
+      syncShape: aiItemPacketFlags.at(-1).shape_sha256,
     });
 
     now = T0 + 5 * MINUTE;
@@ -973,6 +976,44 @@ test("replica は Desktop の status.json から as_of を出し、取り込め�
       as_of: new Date(T0).toISOString(),
       desktop_seen_at: new Date(T0).toISOString(),
     });
+  } finally {
+    pair.close();
+  }
+});
+
+test("replica は syncShape を出す Desktop の status だけを数え、syncShape の無い Desktop は数えない", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-a", "Desktop task"));
+    await pair.firstSync.configure(pair.shared);
+
+    // この仕組みより前の版の Desktop が置く、syncShape の無い status.json。
+    const legacy = path.join(pair.shared, "devices", "legacy-desktop");
+    fs.mkdirSync(legacy, { recursive: true });
+    fs.writeFileSync(
+      path.join(legacy, "status.json"),
+      JSON.stringify({
+        format: "tasken-device-status",
+        formatVersion: 1,
+        deviceId: "legacy-desktop",
+        role: "desktop",
+        publishedThrough: 0,
+        at: new Date().toISOString(),
+      }),
+    );
+    await pair.secondSync.configure(pair.shared);
+
+    const counted = pair.secondSync.desktopStatuses();
+    assert.deepEqual(
+      counted.map((status) => status.deviceId),
+      [pair.first.deviceId],
+    );
+    assert.equal(counted[0].syncShape, aiItemPacketFlags.at(-1).shape_sha256);
+    assert.equal(
+      "syncShape" in readStatus(pair, pair.second),
+      false,
+      "replica の status には付けない",
+    );
   } finally {
     pair.close();
   }
@@ -1380,6 +1421,33 @@ test("status.json を書けなかったら、1分は書きに行かない", asyn
     now = T0 + 70_000;
     await pair.firstSync.syncNow();
     assert.equal(readStatus(pair, pair.first).role, "desktop");
+  } finally {
+    pair.close();
+  }
+});
+
+test("同期の途中で呼ばれた syncNow は、呼ばれる前に保存した変更も公開してから終わる", async () => {
+  const pair = createPair();
+  try {
+    await pair.firstSync.configure(pair.shared);
+    // 定期の同期が、新しい変更を保存する前に始まり、取り込みの段で止まっている状況を作る。
+    let release;
+    const gate = new Promise((resolve) => (release = resolve));
+    const receive = pair.firstSync.receiveChanges.bind(pair.firstSync);
+    pair.firstSync.receiveChanges = async (directory) => {
+      await gate;
+      return receive(directory);
+    };
+    const inFlight = pair.firstSync.syncNow();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    pair.first.save("task", task("task-late", "同期の途中で保存したTask"));
+    const requested = pair.firstSync.syncNow();
+    release();
+    await inFlight;
+    await requested;
+    pair.firstSync.receiveChanges = receive;
+    await pair.secondSync.configure(pair.shared);
+    assert.equal(pair.second.get("task", "task-late")?.title, "同期の途中で保存したTask");
   } finally {
     pair.close();
   }

@@ -3,7 +3,7 @@ import {
   AiTaskStartService,
   type AiItemCreationPort,
 } from "../core/public.ts";
-import { TaskenCoreHost } from "../infrastructure/http/taskenCoreHost.ts";
+import { TaskenCoreHost, type WriteGate } from "../infrastructure/http/taskenCoreHost.ts";
 import { entityIdSchema } from "../../shared/kernel/public.ts";
 import { createMobileActivityReadPort } from "./mobileActivityReadPort.ts";
 import { createMobileRelatedDocumentReadPort } from "./mobileRelatedDocumentReadPort.ts";
@@ -728,6 +728,11 @@ export class TaskenCoreRuntime {
     this.host.enableSourceStatus({
       execute: () => getSourceStatusResponseSchema.parse({ source: read() }),
     });
+  }
+
+  /** NAS replica専用。Desktopのcompositionでは呼ばない。 */
+  enableWriteGate(check: WriteGate) {
+    this.host.enableWriteGate(check);
   }
 
   async start() {

@@ -46,6 +46,14 @@ const CORE_ERROR_GUIDANCE = Object.freeze({
     next_action:
       "この接続先では許可されていない書き込みです。テキストのFeed投稿・Note案・Task案・Task作業報告だけを送り、それ以外は利用者へ依頼してください。",
   },
+  DESKTOP_BEHIND: {
+    retryable: true,
+    next_action: "Desktop の Tasken を最新版に上げてから再試行してください。",
+  },
+  REPLICA_BEHIND: {
+    retryable: true,
+    next_action: "NAS の Tasken が Desktop の変更を取り込み終えてから再試行してください。",
+  },
   UNAUTHORIZED: { retryable: false, next_action: RESTART_ACTION },
   INVALID_DISCOVERY: { retryable: false, next_action: RESTART_ACTION },
   DISCOVERY_OWNER_MISMATCH: { retryable: false, next_action: RESTART_ACTION },

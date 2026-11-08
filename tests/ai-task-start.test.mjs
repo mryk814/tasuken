@@ -167,8 +167,8 @@ test("start is an independent opt-in; defaults, read-only and legacy full stay i
   }
   assert.equal(writes.core.write_profile, "create-and-start");
   assert.equal(writes.writes.task_start, true);
-  assert.equal(writes.writes.note_edit, false);
-  assert.equal(writes.writes.feed_reply, false);
+  assert.equal(writes.writes.note_edit, true);
+  assert.equal(writes.writes.feed_reply, true);
   assert.equal(writes.writes.note_images, false);
   assert.equal(coreWriteProfile(["task.start_work"]).profile, "start-only");
   assert.equal(
@@ -658,7 +658,8 @@ test("actual MCP start syncs to Desktop; reports await human adoption and never 
     const tools = (await mcp.listTools()).tools.map((x) => x.name);
     assert(tools.includes("tasken.start_task_work"));
     assert(tools.includes("tasken.create_task"));
-    assert(!tools.includes("tasken.propose_note_edit"));
+    assert(tools.includes("tasken.propose_note_edit"));
+    assert(tools.includes("tasken.answer_feed_question"));
     const read = new TaskenCoreClient({ userDataPath: replicaDir });
     const ready = await assignment(read);
     const selected = await read.getTaskContext({ task_id: ready.id });

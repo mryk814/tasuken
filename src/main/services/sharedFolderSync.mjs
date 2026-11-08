@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
+import { currentSyncShape } from "../../shared/contracts/sync/aiItemPacketContract.mjs";
 import {
   countMarkdownImageAttachments,
   syncMarkdownImageAttachments,
@@ -108,7 +109,10 @@ function isDeviceStatus(value, deviceId) {
     Number.isInteger(value.publishedThrough) &&
     value.publishedThrough >= 0 &&
     typeof value.at === "string" &&
-    Number.isFinite(Date.parse(value.at))
+    Number.isFinite(Date.parse(value.at)) &&
+    // Desktop は取り込める差分の形を必ず出す。replica が書き込みを断るかの判定に使う。
+    (value.role !== "desktop" ||
+      (typeof value.syncShape === "string" && /^[0-9a-f]{64}$/.test(value.syncShape)))
   );
 }
 
@@ -148,6 +152,7 @@ export class SharedFolderSyncService {
     this.captureImageDirectory = captureImageDirectory;
     this.timer = null;
     this.running = null;
+    this.queued = null;
     this.state = "off";
     this.attachmentStats = { published: 0, received: 0 };
     this.waitingFor = null;
@@ -168,6 +173,7 @@ export class SharedFolderSyncService {
     this.knownStatuses = new Map();
     this.deviceAsOf = new Map();
     this.freshness = { asOf: null, desktopSeenAt: null };
+    this.countedDesktops = [];
   }
 
   start() {
@@ -279,7 +285,18 @@ export class SharedFolderSyncService {
   }
 
   async syncNow() {
-    if (this.running) return this.running;
+    if (this.running) {
+      // 走っている回は、呼ばれる前に保存された変更をもう公開し終えているかもしれない。
+      // その回を待つだけだと、呼び出し側が「同期した」と思った変更が共有フォルダに出ないので、
+      // 終わった後にもう一回だけ回す（重ねて呼ばれても、待ちの回は一つにまとめる）。
+      this.queued ??= this.running
+        .catch(() => {})
+        .then(() => {
+          this.queued = null;
+          return this.syncNow();
+        });
+      return this.queued;
+    }
     this.running = this.runSync().finally(() => {
       this.running = null;
     });
@@ -424,6 +441,9 @@ export class SharedFolderSyncService {
       role: this.role,
       publishedThrough,
       at: new Date(at).toISOString(),
+      // この版の Desktop が取り込める AI 作成の差分の形。replica はこれより後に
+      // desktop_first の印があると書き込みを断る。replica 自身は取り込む側ではないので付けない。
+      ...(this.role === "desktop" ? { syncShape: currentSyncShape } : {}),
     };
     try {
       await fs.promises.writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
@@ -512,6 +532,7 @@ export class SharedFolderSyncService {
     }
     const asOfs = counted.map((status) => this.deviceAsOf.get(status.deviceId) ?? null);
     const times = (values) => values.map((value) => Date.parse(value));
+    this.countedDesktops = counted;
     this.freshness = {
       asOf:
         unknownBehind || counted.length === 0 || asOfs.includes(null)
@@ -521,6 +542,14 @@ export class SharedFolderSyncService {
         ? new Date(Math.max(...times(counted.map((status) => status.at)))).toISOString()
         : null,
     };
+  }
+
+  /**
+   * replica が数えている Desktop の status（同期のたびに計算した値）。共有フォルダは読まない。
+   * 書き込みを断るかの判定に使う。
+   */
+  desktopStatuses() {
+    return this.countedDesktops;
   }
 
   /**

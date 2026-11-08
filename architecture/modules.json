@@ -385,5 +385,5 @@
       }
     }
   },
-  "ignoreUnresolved": []
+  "ignoreUnresolved": ["../../../../contracts/sync/ai-item-packets.json"]
 }

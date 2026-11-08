@@ -8,6 +8,8 @@ import { WorkspaceDatabase } from "../repositories/workspaceRepository.mjs";
 import { ApplicationCommandService } from "../services/applicationCommandService.ts";
 import { createReadOnlyCaptureImagePort } from "../services/captureImageStore.ts";
 import { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
+import { aiItemPacketFlags } from "../../shared/contracts/sync/aiItemPacketContract.mjs";
+import { desktopWriteBlock } from "../../shared/contracts/sync/desktopWriteBlock.mjs";
 import { resolveTaskenDatabasePath, resolveTaskenUserDataPath } from "../../shared/taskenPaths.mjs";
 
 export interface TaskenHeadlessCoreOptions {
@@ -22,8 +24,13 @@ export interface TaskenHeadlessCoreOptions {
   writeMode?: TaskenHeadlessWriteMode;
   /** Independent opt-in. Does not expose task.command or enable delegation. */
   allowAiTaskStart?: boolean;
+  /** 書き込みを断る判定に使う、AI作成の差分の形の印。試験で差し替える。既定は契約ファイルの値。 */
+  syncShapeFlags?: ReadonlyArray<{ shape_sha256: string; desktop_first?: boolean }>;
   env?: NodeJS.ProcessEnv;
 }
+
+/** 既存Taskを直接書き換える経路。replicaの取り込みが追いついていないと断る。 */
+const STARTING_PATHS = new Set(["/v1/commands/start-ai-task-work", "/v1/task/command"]);
 
 export type TaskenHeadlessWriteMode = "read-only" | "proposals" | "create-only";
 
@@ -169,6 +176,17 @@ export async function startTaskenHeadlessCore(
   if (syncService) {
     const sync = syncService;
     runtime.enableSourceStatus(() => sync.sourceStatus("replica"));
+    // 古いDesktopが取り込めない差分を、replicaが書かないようにする。読み取りは止めない。
+    const flags = options.syncShapeFlags || aiItemPacketFlags;
+    runtime.enableWriteGate((requestPath) => {
+      if (desktopWriteBlock({ flags, desktops: sync.desktopStatuses() }) === "desktop_behind")
+        return "DESKTOP_BEHIND";
+      // 開始は既存Taskの直接の書き換えで、replicaの手元の版との照合は、replicaが遅れていても通ってしまう。
+      // 取り込みが追いついている（state ok）ときだけ受け付ける。
+      if (STARTING_PATHS.has(requestPath) && sync.sourceStatus("replica").state !== "ok")
+        return "REPLICA_BEHIND";
+      return null;
+    });
   }
   try {
     const started = await runtime.start();

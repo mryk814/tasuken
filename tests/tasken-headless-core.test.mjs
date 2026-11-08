@@ -11,6 +11,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { build } from "esbuild";
 
+import { markdownSignature } from "../src/shared/canonicalMarkdown.mjs";
 import {
   TASKEN_MCP_REQUIRED_CORE_CAPABILITIES,
   TaskenCoreClient,
@@ -19,7 +20,10 @@ import {
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
 import { issueCoreClientToken } from "../src/main/infrastructure/http/coreClientTokens.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
-import { SharedFolderSyncService } from "../src/main/services/sharedFolderSync.mjs";
+import {
+  SharedFolderSyncService,
+  SYNC_PACKET_FILE_PATTERN,
+} from "../src/main/services/sharedFolderSync.mjs";
 
 const bundleDirectory = fs.mkdtempSync(path.join(process.cwd(), ".tasken-headless-core-test-"));
 after(() => fs.rmSync(bundleDirectory, { recursive: true, force: true }));
@@ -61,6 +65,25 @@ const { parseTaskenHeadlessCoreArgs } = await bundleEntry(
 const { ApplicationCommandService } = await bundleEntry(
   "src/main/services/applicationCommandService.ts",
   "applicationCommandService.mjs",
+);
+
+/** Desktop役の採用経路（Note編集案の版照合と本文の反映）。 */
+const { AiProposalAcceptanceService } = await bundleEntry(
+  "src/main/services/aiProposalAcceptanceService.ts",
+  "aiProposalAcceptanceService.mjs",
+);
+const { WorkspaceService } = await bundleEntry(
+  "src/main/services/workspaceService.ts",
+  "workspaceService.mjs",
+);
+/** Desktop役がFeedの返信を読む経路。 */
+const { FeedContextQueryService } = await bundleEntry(
+  "src/main/core/services/feedContextQueryService.ts",
+  "feedContextQueryService.mjs",
+);
+const { WorkspaceFeedContextReadAdapter } = await bundleEntry(
+  "src/main/infrastructure/sqlite/workspaceFeedContextReadAdapter.ts",
+  "workspaceFeedContextReadAdapter.mjs",
 );
 
 function temporaryUserData() {
@@ -512,6 +535,185 @@ test("replicaが受けたTask作業報告はDesktopの採用でWork Receiptに�
   }
 });
 
+test("replicaが受けたNote編集案とFeedの返信はDesktopへ届き、古い版のNote編集案は採用で断られる", async (t) => {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "tasken-headless-noteedit-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const shared = path.join(root, "shared");
+  const hostUserData = path.join(root, "host");
+  const replicaUserData = path.join(root, "replica");
+  fs.mkdirSync(shared, { recursive: true });
+  fs.mkdirSync(path.join(hostUserData, "managed"), { recursive: true });
+  const host = new WorkspaceDatabase(path.join(hostUserData, "research-desk.sqlite"));
+  host.loadWorkspace();
+  host.setPreference("artifactDirectory", path.join(hostUserData, "managed"));
+  const hostSync = new SharedFolderSyncService(
+    host,
+    () => {},
+    path.join(hostUserData, "attachments", "markdown-images"),
+    path.join(hostUserData, "attachments", "capture-images"),
+  );
+  const workspace = new WorkspaceService(host, hostUserData, () => "2026-11-08T00:00:00.000Z");
+  const acceptance = new AiProposalAcceptanceService(
+    new ApplicationCommandService(host),
+    workspace,
+    host,
+  );
+  const originalBody = "a\nold\nsame";
+  const createNote = (id) =>
+    workspace.saveCanonicalNote({
+      entity: { id, title: id, body_markdown: originalBody },
+      snapshot: {
+        owner: { recordType: "note", entityId: id },
+        body: originalBody,
+        expectedRevision: 0,
+      },
+    });
+  // Desktopの採用操作と同じ形。編集元の署名は、利用者がPreviewで見た本文から作る。
+  const acceptCommand = (proposal, note) => ({
+    commandId: `${proposal.id}:accept:v${proposal.version}`,
+    name: "ApplyAiProposal",
+    payload: {
+      proposal: { ...proposal, status: "accepted" },
+      decision: "accept",
+      decisions: [
+        {
+          entryIndex: 0,
+          type: "note",
+          action: "accept",
+          acceptedHunks: [0],
+          beforeSignature: markdownSignature(originalBody),
+        },
+      ],
+      candidates: [{ type: "note", entity: { id: note.id, version: note.version } }],
+    },
+    actor: { kind: "user" },
+    source: "main_ui",
+    expectedVersions: [
+      { type: "ai_proposal", id: proposal.id, version: proposal.version },
+      { type: "note", id: note.id, version: Number(note.version) },
+    ],
+    issuedAt: proposal.received_at,
+  });
+  let client;
+  try {
+    bootstrapWorkspace(host);
+    const fresh = createNote("note-fresh");
+    const stale = createNote("note-stale");
+    host.save("feed_reply", {
+      id: "reply-question",
+      post_id: "post-question",
+      author_kind: "self",
+      body: "この手法の限界は？",
+      created_at: "2026-11-08T00:00:00.000Z",
+      ai_requested_at: "2026-11-08T00:00:01.000Z",
+    });
+    await hostSync.configure(shared);
+    const handle = await startTaskenHeadlessCore({
+      userDataPath: replicaUserData,
+      syncDirectory: shared,
+      writeMode: "proposals",
+    });
+    try {
+      client = await connectMcp(replicaUserData);
+      const edit = async (note, key) => {
+        const queued = await client.callTool({
+          name: "tasken.propose_note_edit",
+          arguments: {
+            idempotency_key: key,
+            caller: "NAS replica test",
+            source_app: "nas-replica",
+            note_id: note.id,
+            base_version: Number(note.version),
+            title: note.id,
+            body: "a\nnew\nsame",
+            reason: "NASで読んだ版からの編集案",
+          },
+        });
+        assert.equal(queued.isError, undefined, JSON.stringify(queued));
+        return String(queued.structuredContent.proposal_id);
+      };
+      const freshProposalId = await edit(fresh, "replica-edit-fresh");
+      const staleProposalId = await edit(stale, "replica-edit-stale");
+      const answered = await client.callTool({
+        name: "tasken.answer_feed_question",
+        arguments: {
+          idempotency_key: "replica-reply",
+          caller: "NAS replica test",
+          source_app: "nas-replica",
+          post_id: "post-question",
+          reply_to: "reply-question",
+          body: "限界は三つある。",
+        },
+      });
+      assert.equal(answered.isError, undefined, JSON.stringify(answered));
+      const replyProposalId = String(answered.structuredContent.proposal_id);
+
+      await handle.syncNow();
+      await hostSync.syncNow();
+      for (const id of [freshProposalId, staleProposalId, replyProposalId]) {
+        assert.equal(host.get("ai_proposal", id)?.status, "pending", id);
+      }
+      assert.equal(host.listSyncConflicts().length, 0, JSON.stringify(host.listSyncConflicts()));
+
+      // Feedの返信: Desktop側のFeed文脈で、質問が回答済みとして読める。
+      const feed = new FeedContextQueryService(new WorkspaceFeedContextReadAdapter(host)).execute({
+        include_answered: true,
+      });
+      const question = feed.questions.find(({ id }) => id === "reply-question");
+      assert.equal(question?.answered, true);
+      const reply = host.get("ai_proposal", replyProposalId);
+      assert.equal(reply.payload_type, "feed_replies");
+      assert.equal(reply.payload.feed_replies[0].body, "限界は三つある。");
+      assert.equal(reply.payload.feed_replies[0].reply_to, "reply-question");
+
+      // Note編集案: 受領しただけではNoteは変わらない。
+      assert.equal(host.get("note", fresh.id).body_markdown, originalBody);
+
+      // Desktopが先にNoteを変えていた場合、古い版からの編集案は採用で断られ、Noteは変わらない。
+      const localBody = `${originalBody}\nlocal`;
+      const edited = workspace.saveCanonicalNote({
+        entity: { ...host.get("note", stale.id), body_markdown: localBody },
+        snapshot: {
+          owner: { recordType: "note", entityId: stale.id },
+          body: localBody,
+          expectedRevision: 1,
+        },
+      });
+      assert.ok(Number(edited.version) > Number(stale.version));
+      assert.throws(
+        () => acceptance.execute(acceptCommand(host.get("ai_proposal", staleProposalId), edited)),
+        /base_version|更新済み/,
+      );
+      assert.equal(host.get("note", stale.id).body_markdown, localBody);
+      assert.equal(host.get("ai_proposal", staleProposalId).status, "pending");
+
+      // 版が進んでいなければ採用でき、Noteが変わる。
+      acceptance.execute(
+        acceptCommand(host.get("ai_proposal", freshProposalId), host.get("note", fresh.id)),
+      );
+      assert.equal(host.get("note", fresh.id).body_markdown, "a\nnew\nsame");
+      assert.equal(host.get("ai_proposal", freshProposalId).status, "accepted");
+
+      // 採否はreplicaへ戻る。
+      await hostSync.syncNow();
+      await handle.syncNow();
+      assert.equal(host.listSyncConflicts().length, 0, JSON.stringify(host.listSyncConflicts()));
+      const status = await client.callTool({
+        name: "tasken.get_proposal_status",
+        arguments: { proposal_id: freshProposalId },
+      });
+      assert.equal(status.structuredContent.status, "accepted");
+    } finally {
+      await client?.close().catch(() => {});
+      client = undefined;
+      await handle.stop();
+    }
+  } finally {
+    await hostSync.stop();
+    if (host.db.open) host.db.close();
+  }
+});
+
 test("proposalsモードのHeadless Coreは許可した種類だけを受け付ける", async (t) => {
   const userDataPath = temporaryUserData();
   t.after(() => fs.rmSync(userDataPath, { recursive: true, force: true }));
@@ -521,7 +723,7 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
   try {
     client = await connectMcp(userDataPath);
 
-    // 許可: テキストの読み物投稿・Note案・Task作業報告。
+    // 許可: テキストの読み物投稿・Feedの返信・Note案・Note編集案・Task作業報告。
     for (const [name, args] of [
       [
         "tasken.propose_feed_post",
@@ -541,6 +743,30 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
           source_app: "gate-test",
           title: "許可されたNote案",
           body: "本文。",
+        },
+      ],
+      [
+        "tasken.propose_note_edit",
+        {
+          idempotency_key: "restricted-note-edit",
+          caller: "gate test",
+          source_app: "gate-test",
+          note_id: "note-existing",
+          base_version: 1,
+          title: "許可されたNote編集案",
+          body: "本文。",
+          reason: "確認",
+        },
+      ],
+      [
+        "tasken.answer_feed_question",
+        {
+          idempotency_key: "restricted-reply",
+          caller: "gate test",
+          source_app: "gate-test",
+          post_id: "post-1",
+          reply_to: "reply-1",
+          body: "許可された返信。",
         },
       ],
       [
@@ -568,12 +794,11 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
 
     // 非公開: 使えない書き込みtoolは一覧に出さず、get_capabilitiesが理由を返す。
     const listedNames = new Set((await client.listTools()).tools.map((tool) => tool.name));
-    for (const name of [
-      "tasken.propose_note_edit",
-      "tasken.answer_feed_question",
-      "tasken.start_task_work",
-    ]) {
+    for (const name of ["tasken.start_task_work"]) {
       assert.equal(listedNames.has(name), false, `${name}は一覧に出さない`);
+    }
+    for (const name of ["tasken.propose_note_edit", "tasken.answer_feed_question"]) {
+      assert.equal(listedNames.has(name), true, `${name}は一覧に出す`);
     }
     const capabilities = await client.callTool({ name: "tasken.get_capabilities", arguments: {} });
     assert.equal(capabilities.isError, undefined, JSON.stringify(capabilities));
@@ -582,10 +807,10 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
       task_create: false,
       note_direct_create: false,
       feed_post: true,
-      feed_reply: false,
+      feed_reply: true,
       note_create: true,
       note_images: false,
-      note_edit: false,
+      note_edit: true,
       task_work_report: true,
       task_start: false,
     });
@@ -602,27 +827,11 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
         reason: "toolset_not_enabled",
         listed: false,
       })),
-      { name: "tasken.propose_note_edit", reason: "kind_not_allowed:note_edit", listed: false },
-      {
-        name: "tasken.answer_feed_question",
-        reason: "kind_not_allowed:feed_reply",
-        listed: false,
-      },
     ]);
 
     // 拒否: bridgeを経由しない要求も、許可範囲外の種類はCore自身がWRITE_NOT_ALLOWEDで止める。
     const coreClient = new TaskenCoreClient({ userDataPath });
-    for (const request of [
-      {
-        kind: "note_edit",
-        note_id: "note-existing",
-        base_version: 1,
-        title: "編集案",
-        body: "本文。",
-        reason: "確認",
-      },
-      { kind: "feed_reply", post_id: "post-1", reply_to: "reply-1", body: "返信。" },
-    ]) {
+    for (const request of [{ kind: "knowledge_create", title: "知識" }]) {
       await assert.rejects(
         coreClient.proposeContent({
           ...request,
@@ -635,11 +844,11 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
           error instanceof TaskenCoreClientError &&
           error.code === "WRITE_NOT_ALLOWED" &&
           JSON.stringify(error.details.allowed_kinds) ===
-            JSON.stringify(["feed_post", "note_create"]),
+            JSON.stringify(["feed_post", "feed_reply", "note_create", "note_edit"]),
       );
     }
 
-    // 拒否: 一覧に残る種類でも、画像付きNoteはCoreがWRITE_NOT_ALLOWEDで止める。
+    // 拒否: 一覧に残る種類でも、画像付きの提案はCoreがWRITE_NOT_ALLOWEDで止める。
     for (const [name, args] of [
       [
         "tasken.propose_note",
@@ -658,6 +867,27 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
           ],
         },
       ],
+      [
+        "tasken.propose_feed_post",
+        {
+          idempotency_key: "restricted-feed-image",
+          caller: "gate test",
+          topic: "insight",
+          body: ["画像付きの記事。"],
+          article: {
+            title: "画像付き記事",
+            body: "![alt](tasken-upload://shot)",
+            images: [
+              {
+                reference_id: "shot",
+                file_name: "shot.png",
+                media_type: "image/png",
+                data_base64: "aGVsbG8=",
+              },
+            ],
+          },
+        },
+      ],
     ]) {
       const refused = await client.callTool({ name, arguments: args });
       assert.equal(refused.isError, true, `${name}は拒否される`);
@@ -670,7 +900,9 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
       // 文言と詳細は同じ一覧から作る。作業報告は別経路として分けて示す。
       assert.deepEqual(refused.structuredContent.error.details.allowed_kinds, [
         "feed_post",
+        "feed_reply",
         "note_create",
+        "note_edit",
       ]);
       assert.equal(refused.structuredContent.error.details.task_work_allowed, true);
     }
@@ -705,7 +937,7 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
     await client?.close().catch(() => {});
     await stopAndInspect(handle, userDataPath, (database) => {
       // 拒否された要求はProposalもTask変更も残さない。作業報告はProposalとしてだけ残る。
-      assert.equal(database.list("ai_proposal").length, 3);
+      assert.equal(database.list("ai_proposal").length, 5);
       assert.equal(database.list("work_receipt").length, 0);
       assert.notEqual(database.get("task", "task-headless")?.work_state, "in_progress");
     });
@@ -816,6 +1048,179 @@ test("Headless replica serves synced capture and task images over Core HTTP (MCP
   } finally {
     await hostSync.stop();
     if (host.db.open) host.db.close();
+  }
+});
+
+/** 書き込みの門を試す共有フォルダ。Desktop役が status.json を置き、replicaが参加する。 */
+async function writeGateFixture(t) {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "tasken-headless-gate-"));
+  const shared = path.join(root, "shared");
+  const hostUserData = path.join(root, "host");
+  const replicaUserData = path.join(root, "replica");
+  fs.mkdirSync(shared, { recursive: true });
+  const host = new WorkspaceDatabase(path.join(hostUserData, "research-desk.sqlite"));
+  const hostSync = new SharedFolderSyncService(
+    host,
+    () => {},
+    path.join(hostUserData, "attachments", "markdown-images"),
+    path.join(hostUserData, "attachments", "capture-images"),
+  );
+  t.after(async () => {
+    await hostSync.stop();
+    if (host.db.open) host.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  bootstrapWorkspace(host);
+  await hostSync.configure(shared);
+  const statusPath = path.join(shared, "devices", host.deviceId, "status.json");
+  const hostShape = JSON.parse(fs.readFileSync(statusPath, "utf8")).syncShape;
+  const sha = (letter) => letter.repeat(64);
+  const mark = (shape, desktopFirst) => ({ shape_sha256: shape, desktop_first: desktopFirst });
+  const startReplica = (syncShapeFlags) =>
+    startTaskenHeadlessCore({
+      userDataPath: replicaUserData,
+      syncDirectory: shared,
+      writeMode: "create-only",
+      allowAiTaskStart: true,
+      env: {},
+      syncShapeFlags,
+    });
+  return {
+    shared,
+    host,
+    hostSync,
+    statusPath,
+    hostShape,
+    sha,
+    mark,
+    startReplica,
+    replicaUserData,
+  };
+}
+
+const gateCreateRequest = (key) => ({
+  kind: "task",
+  title: "NASで作る",
+  body: "本文",
+  caller: "gate-test",
+  source_app: "gate-test",
+  source_session: "gate-session",
+  idempotency_key: key,
+  reason: "書き込みの門の試験",
+});
+
+const gateStartRequest = {
+  task_id: "task-headless",
+  expected_version: 1,
+  idempotency_key: "gate-start",
+  caller: "gate-test",
+  started_at: "2026-11-08T00:00:00.000Z",
+  work_attempt_id: "12c9a3df-084a-4314-8a80-de844b512fad",
+  source_session: "gate-session",
+};
+
+/** 断られたら { code, status }、通ったら "passed"（通ったあとの失敗は問わない）。 */
+async function gateOutcome(call) {
+  try {
+    await call();
+    return "passed";
+  } catch (error) {
+    if (
+      error instanceof TaskenCoreClientError &&
+      ["DESKTOP_BEHIND", "REPLICA_BEHIND"].includes(error.code)
+    )
+      return { code: error.code, status: error.status };
+    return "passed";
+  }
+}
+
+test("replicaは、取り込めないDesktopがいる間は書き込みを断る。読み取りは止めない", async (t) => {
+  const f = await writeGateFixture(t);
+  // Desktopの形が、desktop_firstの印より前を指す。
+  const behind = await f.startReplica([f.mark(f.hostShape, false), f.mark(f.sha("b"), true)]);
+  try {
+    const core = new TaskenCoreClient({ userDataPath: f.replicaUserData });
+    const blocked = { code: "DESKTOP_BEHIND", status: 409 };
+    assert.deepEqual(await gateOutcome(() => core.createAiItem(gateCreateRequest("a"))), blocked);
+    assert.deepEqual(await gateOutcome(() => core.proposeContent({})), blocked);
+    assert.deepEqual(await gateOutcome(() => core.startAiTaskWork(gateStartRequest)), blocked);
+    const searched = await core.searchItems({ query: "Headless context" });
+    assert.ok(
+      searched.items.some((item) => item.id === "task-headless"),
+      "読み取りは止めない",
+    );
+    await assert.rejects(
+      () => core.createAiItem(gateCreateRequest("a")),
+      (error) => error.retryable === true && /Desktop の Tasken を最新版/u.test(error.next_action),
+    );
+  } finally {
+    await behind.stop();
+  }
+
+  // Desktopが新しい形を出している（印の最後を指す）と通る。
+  const current = await f.startReplica([f.mark(f.sha("a"), false), f.mark(f.hostShape, true)]);
+  try {
+    const core = new TaskenCoreClient({ userDataPath: f.replicaUserData });
+    const created = await core.createAiItem(gateCreateRequest("b"));
+    assert.equal(created.status, "created");
+  } finally {
+    await current.stop();
+  }
+});
+
+test("replicaは取り込みが遅れている間、既存Taskを書き換える開始を断る。新規作成は通す", async (t) => {
+  const f = await writeGateFixture(t);
+  const handle = await f.startReplica([f.mark(f.hostShape, false)]);
+  try {
+    const core = new TaskenCoreClient({ userDataPath: f.replicaUserData });
+    assert.notDeepEqual(
+      await gateOutcome(() => core.startAiTaskWork(gateStartRequest)),
+      { code: "REPLICA_BEHIND", status: 409 },
+      "取り込めている間は断らない",
+    );
+
+    // Desktopが差分を足し、途中の一つが共有フォルダから欠ける。
+    f.host.save("task", { id: "task-late-1", title: "late 1", state: "todo", priority: "normal" });
+    f.host.save("task", { id: "task-late-2", title: "late 2", state: "todo", priority: "normal" });
+    await f.hostSync.syncNow();
+    const directory = path.join(f.shared, "devices", f.host.deviceId);
+    const packets = fs
+      .readdirSync(directory)
+      .filter((name) => SYNC_PACKET_FILE_PATTERN.test(name))
+      .sort();
+    fs.unlinkSync(path.join(directory, packets.at(-2)));
+    await assert.rejects(() => handle.syncNow(), /を待っています/u);
+
+    assert.deepEqual(await gateOutcome(() => core.startAiTaskWork(gateStartRequest)), {
+      code: "REPLICA_BEHIND",
+      status: 409,
+    });
+    // 新規作成は既存Taskを書き換えないので通す。
+    assert.equal((await core.createAiItem(gateCreateRequest("c"))).status, "created");
+  } finally {
+    await handle.stop();
+  }
+});
+
+test("replicaはDesktopのstatusが無いとき、desktop_firstの印があれば断り、無ければ通す", async (t) => {
+  const f = await writeGateFixture(t);
+  fs.rmSync(f.statusPath);
+  const first = await f.startReplica([f.mark(f.sha("a"), false), f.mark(f.sha("b"), true)]);
+  try {
+    const core = new TaskenCoreClient({ userDataPath: f.replicaUserData });
+    assert.deepEqual(await gateOutcome(() => core.createAiItem(gateCreateRequest("d"))), {
+      code: "DESKTOP_BEHIND",
+      status: 409,
+    });
+  } finally {
+    await first.stop();
+  }
+  const second = await f.startReplica([f.mark(f.sha("a"), false)]);
+  try {
+    const core = new TaskenCoreClient({ userDataPath: f.replicaUserData });
+    assert.equal((await core.createAiItem(gateCreateRequest("d"))).status, "created");
+  } finally {
+    await second.stop();
   }
 });
 
