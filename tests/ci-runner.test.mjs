@@ -49,7 +49,15 @@ function runCi({ platform = process.platform, npmCli = "", failAt = -1, failure 
       ["--import", pathToFileURL(preloadPath).href, "scripts/run-ci.mjs"],
       {
         encoding: "utf8",
-        env: { ...process.env, npm_execpath: npmCli, ComSpec: "fixture-cmd.exe" },
+        // Windows env names are case-insensitive: Git Bash passes COMSPEC, and a second
+        // ComSpec key would lose to it when the child env is built. Drop every variant first.
+        env: {
+          ...Object.fromEntries(
+            Object.entries(process.env).filter(([key]) => key.toLowerCase() !== "comspec"),
+          ),
+          npm_execpath: npmCli,
+          ComSpec: "fixture-cmd.exe",
+        },
         timeout: 15_000,
       },
     );

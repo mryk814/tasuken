@@ -58,3 +58,4 @@
 - 原因: Git Bash の環境では `COMSPEC`（大文字）で渡る。テストは `{ ...process.env, ComSpec: "fixture-cmd.exe" }` で差し替えるが、Windows の子プロセスでは大文字小文字違いの同名が並び、元の `COMSPEC` が勝つ。
 - 直し方: 手元の品質ゲートは PowerShell から流した（2,213件中 fail 0）。
 - 再発防止: 記録だけ。テストを直すなら、差し替える前に `COMSPEC` と `ComSpec` の両方を env から消す。
+- 追記（2026-11-09）: v0.1.85 のリリース作業で同じ2件にまた当たったため、テストを直した。子の env を作る前に、大文字小文字を問わず `comspec` のキーを全部除いてから `ComSpec` を入れる。Git Bash から流しても通る。
