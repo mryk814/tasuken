@@ -10,6 +10,14 @@
 - 直し方: 終わりの印を見出しより後から探し、見つかった名前が 10 件以上あることも assert する。
 - 再発防止: 試験の中のコメントに理由を書いた。文書や出力から項目を拾って確かめる試験は、拾えた件数の下限も確かめる（空のループで通らないように）。
 
+## 2026-11-08 GitHub の windows-quality で、replica が作った Note が Desktop に届いていない試験が落ちた
+
+- しようとしたこと: PR #708 の CI。`tests/ai-item-creation.test.mjs` の「creation-only replica joins while empty and publishes personal Task/Note to Desktop」。
+- 起きたこと: `host.get("note", …)` が null で `Cannot read properties of null (reading body_markdown)`。Task は届いていた。手元では何度も通っていた。
+- 原因: `SharedFolderSyncService#syncNow` は、同期が走っている最中に呼ばれると、その回を待つだけだった。定期の同期が Note の保存より前に始まっていると、`syncNow()` が返っても Note は公開されていない。#704 で同期の一回に status.json の読み書きが増え、隙間が広がった見込み。
+- 直し方: 走っている最中に呼ばれたら、終わった後にもう一回だけ回す（重ねて呼ばれても一つにまとめる）。
+- 再発防止: `tests/shared-folder-sync.test.mjs` に、取り込みの段で止めた回の途中で保存し `syncNow()` を呼ぶ試験を足した（直す前は必ず落ちる）。
+
 ## 2026-11-08 worktree の `npm ci` が ffmpeg-static の取得で落ちた
 
 - しようとしたこと: 新しい worktree（`.claude/worktrees/replica-freshness`）で `npm ci` を流す。
