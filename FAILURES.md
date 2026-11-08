@@ -10,6 +10,14 @@
 - 直し方: `npm ci --ignore-scripts` の後、本体のチェックアウトの `node_modules/ffmpeg-static/ffmpeg.exe`（と `.LICENSE`・`.README`、同じ 5.2.0）を写した。install.js は既にファイルがあれば取得を飛ばすので、続けて `npm rebuild` と `npm run postinstall` を流した。`npm rebuild` は Electron の本体を入れなかったので、`node node_modules/electron/install.js` を流した（`%LOCALAPPDATA%\electron\Cache` から入る）。
 - 再発防止: 記録だけ。同じ手順で数分で戻せるため、仕組みは足していない。
 
+## 2026-11-08 `npm run ci` の全体実行で agent-interactive-launch の後片付けが EBUSY で落ちた
+
+- しようとしたこと: ドロワー保存の修正（#703 手順0）の後、PowerShell から `npm run ci` を流す。
+- 起きたこと: 2,222 件中 1 件だけ、`tests/agent-interactive-launch.test.mjs` の「Windows実プロセスへ日本語・引用符・改行を含むargvをそのまま渡す」が `EBUSY: resource busy or locked, rmdir 'C:\Users\ootan\AppData\Local\Temp\Tasken 日本語 & 空白-5Q1CDh'` で落ちた。同じファイルだけを流すと 6 件とも通った。
+- 原因: 不明。テストはその場で csc.exe で作った exe を動かし、1.1 秒待ってから一時フォルダを消す。全体実行で重いときに、作ったばかりの exe をまだ誰か（Defender などの推測）が掴んでいたと見ている。
+- 直し方: 単独で流し直して通ることを確かめた。修正の範囲外なのでテストは変えていない。
+- 再発防止: 記録だけ。もう一度起きたら、後片付けの `rm` に `maxRetries`・`retryDelay` を付ける。
+
 ## 2026-11-07 better-sqlite3 に全体の型宣言を足したら、src/main/index.ts の型検査が落ちた
 
 - しようとしたこと: headless の replica-check（`src/main/headless/replicaCheck.ts`）で better-sqlite3 を TypeScript から直に使うため、`src/main/types/better-sqlite3.d.ts` に `declare module "better-sqlite3"` を足した。
