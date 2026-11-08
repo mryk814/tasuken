@@ -65,6 +65,7 @@ import {
 import { hasAiMetadataContract } from "../../../../shared/aiMetadata.mjs";
 import { aiMetadataFromForm, themeDefaultAiVisibilityFromForm } from "./lib/aiMetadataForm";
 import { buildDomainDrawerFormPlan, themeIntentFromForm } from "./lib/drawerFormPlans";
+import { describeOverwrittenFields, rebaseDrawerTaskOperations } from "./lib/drawerTaskRebase";
 import type { SaveOperation } from "./types";
 import { buildWorkspaceDomain } from "./domain-model/compat/legacyAdapter";
 import {
@@ -238,6 +239,8 @@ export function WorkspaceApp() {
   const drawerFormInitialSignature = useRef("");
   const drawerFormInitialChecklistSignature = useRef("");
   const drawerFormInitialNonChecklistSignature = useRef("");
+  // 前回の保存（または開いた時点）のフォームの値。Task保存で、利用者が変えた欄を見分ける。
+  const drawerFormSavedValues = useRef<FormData | null>(null);
   const [drawerFormDirty, setDrawerFormDirty] = useState(false);
   const drawerAutosavePromise = useRef<Promise<boolean> | null>(null);
   const updateCheckStarted = useRef(false);
@@ -834,6 +837,7 @@ export function WorkspaceApp() {
       drawerFormInitialNonChecklistSignature.current = form
         ? formSignature(form, "non-checklist")
         : "";
+      drawerFormSavedValues.current = form ? new FormData(form) : null;
       setDrawerFormDirty(false);
       if (form) form.addEventListener("input", handleDrawerFormInput);
     },
@@ -858,6 +862,15 @@ export function WorkspaceApp() {
     const form = drawerFormRef.current;
     if (!form || form.dataset.entityType !== "task") return;
     drawerFormInitialChecklistSignature.current = formSignature(form, "checklist");
+    // チェックリストは別の経路で保存済み。次のフォーム保存で変更に数え直さない。
+    const savedValues = new FormData();
+    for (const [key, value] of drawerFormSavedValues.current?.entries() || []) {
+      if (!isChecklistFormField(key)) savedValues.append(key, value);
+    }
+    for (const [key, value] of new FormData(form).entries()) {
+      if (isChecklistFormField(key)) savedValues.append(key, value);
+    }
+    drawerFormSavedValues.current = savedValues;
     setDrawerFormDirty(
       formSignature(form, "non-checklist") !== drawerFormInitialNonChecklistSignature.current,
     );
@@ -1699,6 +1712,7 @@ export function WorkspaceApp() {
       drawerFormInitialSignature.current = "";
       drawerFormInitialChecklistSignature.current = "";
       drawerFormInitialNonChecklistSignature.current = "";
+      drawerFormSavedValues.current = null;
       drawerGeneration.current += 1;
       setDrawer(null);
       requestAnimationFrame(() => drawerTrigger.current?.focus?.());
@@ -1737,8 +1751,10 @@ export function WorkspaceApp() {
   ): Promise<boolean> {
     const closeAfterSave = options.closeAfterSave ?? true;
     const submittedSignature = formSignature(form);
+    const values = new FormData(form);
     const finishSave = (saved?: Entity) => {
       if (drawerFormRef.current === form) {
+        drawerFormSavedValues.current = values;
         drawerFormInitialSignature.current = submittedSignature;
         drawerFormInitialChecklistSignature.current = formSignature(form, "checklist");
         drawerFormInitialNonChecklistSignature.current = formSignature(form, "non-checklist");
@@ -1756,7 +1772,6 @@ export function WorkspaceApp() {
             : current,
         );
     };
-    const values = new FormData(form);
     const type = form.dataset.entityType as DrawerEntityType | undefined;
     if (!type) return false;
     const named = (name: string) => form.elements.namedItem(name) as HTMLElement | null;
@@ -1777,7 +1792,33 @@ export function WorkspaceApp() {
       return false;
     }
     if (domainPlan?.kind === "operations") {
-      await saveEntities(domainPlan.operations, domainPlan.successMessage);
+      let operations = domainPlan.operations;
+      let overwritten: string[] = [];
+      const savedValues = drawerFormRef.current === form ? drawerFormSavedValues.current : null;
+      if (type === "task" && base.id && savedValues) {
+        const initialPlan = buildDomainDrawerFormPlan({
+          type,
+          values: savedValues,
+          base,
+          data,
+          domain,
+          hasField: (name) => Boolean(named(name)),
+        });
+        if (initialPlan?.kind === "operations") {
+          const rebased = rebaseDrawerTaskOperations({
+            initial: initialPlan.operations,
+            edited: operations,
+            currentTask: fullDomain.tasks.find((task) => task.id === base.id) as Entity | undefined,
+            currentSchedule: fullDomain.schedules.find(
+              (schedule) => schedule.owner_type === "task" && schedule.owner_id === base.id,
+            ) as Entity | undefined,
+          });
+          operations = rebased.operations;
+          overwritten = rebased.overwritten;
+        }
+      }
+      await saveEntities(operations, domainPlan.successMessage);
+      if (overwritten.length) setToast(describeOverwrittenFields(overwritten), "warning");
       finishSave();
       if (domainPlan.navigateTo && closeAfterSave) navigate(domainPlan.navigateTo);
       return true;

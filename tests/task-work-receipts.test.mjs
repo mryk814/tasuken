@@ -695,7 +695,8 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
   );
   const drawer = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
   assert.match(todo, /buildCompleteTaskOperations/);
-  assert.match(app, /saveEntities\(domainPlan\.operations/);
+  // ドロワーの保存は、変えた欄だけに絞った計画（drawerTaskRebase）も同じsaveEntitiesへ渡す。
+  assert.match(app, /saveEntities\(operations, domainPlan\.successMessage\)/);
   assert.match(
     domain,
     /input\.intended_executor === "ai_agent"\s*&&\s*input\.state === "done"\s*&&\s*input\.work_state !== "accepted"/,

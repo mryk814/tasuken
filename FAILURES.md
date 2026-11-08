@@ -2,6 +2,14 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-08 新しい worktree の `npm ci` が ffmpeg-static のダウンロードで落ちた
+
+- しようとしたこと: `git worktree add` で作った worktree で `npm ci --no-audit --no-fund` を流す。
+- 起きたこと: `node_modules\ffmpeg-static` の `node install.js` が `Error: Request timed out after 30004ms` で落ち、`npm ci` が exit 1 で終わった。
+- 原因: ffmpeg-static は install のたびに GitHub の release からバイナリを取る。この時はその取得がタイムアウトした（回線側の一時的なものか、続くものかは不明）。
+- 直し方: `npm ci --ignore-scripts` の後、本体のチェックアウトの `node_modules/ffmpeg-static/ffmpeg.exe`（と `.LICENSE`・`.README`、同じ 5.2.0）を写した。install.js は既にファイルがあれば取得を飛ばすので、続けて `npm rebuild` と `npm run postinstall` を流した。`npm rebuild` は Electron の本体を入れなかったので、`node node_modules/electron/install.js` を流した（`%LOCALAPPDATA%\electron\Cache` から入る）。
+- 再発防止: 記録だけ。同じ手順で数分で戻せるため、仕組みは足していない。
+
 ## 2026-11-07 better-sqlite3 に全体の型宣言を足したら、src/main/index.ts の型検査が落ちた
 
 - しようとしたこと: headless の replica-check（`src/main/headless/replicaCheck.ts`）で better-sqlite3 を TypeScript から直に使うため、`src/main/types/better-sqlite3.d.ts` に `declare module "better-sqlite3"` を足した。
