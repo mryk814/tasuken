@@ -4,6 +4,9 @@ import {
   type AiTaskStartRequest,
   type AiItemCreationRequest,
   type AiItemCreationResponse,
+  getSourceStatusRequestSchema,
+  type GetSourceStatusRequest,
+  type GetSourceStatusResponse,
 } from "../../../shared/contracts/task/public.ts";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs/promises";
@@ -137,6 +140,7 @@ import {
   TASKEN_CORE_PROPOSAL_STATUS_CAPABILITY,
   TASKEN_CORE_LIST_PROPOSALS_CAPABILITY,
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
+  TASKEN_CORE_SOURCE_STATUS_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
@@ -182,6 +186,7 @@ interface QueryProvider<Request, Response> {
 export interface TaskenCoreHostOptions {
   userDataPath: string;
   createAiItem?: QueryProvider<AiItemCreationRequest, AiItemCreationResponse>;
+  getSourceStatus?: QueryProvider<GetSourceStatusRequest, GetSourceStatusResponse>;
   startAiTaskWork?: QueryProvider<AiTaskStartRequest, TaskCommandResponse>;
   taskQuery?: QueryProvider<unknown, TaskQueryResponse>;
   taskCommand?: QueryProvider<unknown, TaskCommandResponse>;
@@ -272,6 +277,11 @@ class RequestValidationError extends Error {
 }
 
 function parseOperationRequest(url: string, body: unknown): unknown {
+  if (url === "/v1/queries/get-source-status") {
+    const result = getSourceStatusRequestSchema.safeParse(body);
+    if (!result.success) throw new RequestValidationError(result.error.issues);
+    return result.data;
+  }
   const schema =
     url === "/v1/commands/create-ai-item"
       ? aiItemCreationRequestSchema
@@ -551,8 +561,15 @@ export class TaskenCoreHost {
     this.options.createAiItem = provider;
   }
 
+  /** NAS replicaだけが、同期の状態と鮮度を読み取りに公開する。Core起動前に一度だけ呼ぶ。 */
+  enableSourceStatus(provider: QueryProvider<GetSourceStatusRequest, GetSourceStatusResponse>) {
+    if (this.server) throw new Error("Core起動後の権限変更はできません。");
+    this.options.getSourceStatus = provider;
+  }
+
   private capabilities() {
     return [
+      ...(this.options.getSourceStatus ? [TASKEN_CORE_SOURCE_STATUS_CAPABILITY] : []),
       ...(this.options.createAiItem ? ["create_ai_item"] : []),
       ...(this.options.startAiTaskWork ? [TASKEN_CORE_TASK_START_WORK_CAPABILITY] : []),
       ...(this.options.taskQuery ? [TASKEN_CORE_TASK_QUERY_CAPABILITY] : []),
@@ -714,6 +731,7 @@ export class TaskenCoreHost {
         ...(this.options.getProposalStatus ? ["/v1/queries/get-proposal-status"] : []),
         ...(this.options.listProposals ? ["/v1/queries/list-proposals"] : []),
         ...(this.options.exportAiContext ? ["/v1/queries/export-ai-context"] : []),
+        ...(this.options.getSourceStatus ? ["/v1/queries/get-source-status"] : []),
       ]);
       const commandPaths = new Set([
         ...(this.options.createAiItem ? ["/v1/commands/create-ai-item"] : []),
@@ -925,6 +943,12 @@ export class TaskenCoreHost {
           );
         } else if (request.url === "/v1/queries/list-proposals") {
           json(response, 200, this.options.listProposals!.execute(body as ListProposalsRequest));
+        } else if (request.url === "/v1/queries/get-source-status") {
+          json(
+            response,
+            200,
+            this.options.getSourceStatus!.execute(body as GetSourceStatusRequest),
+          );
         } else if (request.url === "/v1/queries/export-ai-context") {
           json(
             response,

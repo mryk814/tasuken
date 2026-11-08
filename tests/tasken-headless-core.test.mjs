@@ -17,6 +17,7 @@ import {
   TaskenCoreClientError,
 } from "../src/main/mcp/taskenCoreClient.mjs";
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
+import { issueCoreClientToken } from "../src/main/infrastructure/http/coreClientTokens.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 import { SharedFolderSyncService } from "../src/main/services/sharedFolderSync.mjs";
 
@@ -848,4 +849,115 @@ test("Headless Core CLI requires valid explicit arguments", () => {
   assert.throws(() => parseTaskenHeadlessCoreArgs(["--user-data-dir="]));
   assert.throws(() => parseTaskenHeadlessCoreArgs(["--sync-directory="]));
   assert.throws(() => parseTaskenHeadlessCoreArgs(["--unknown"]));
+});
+
+test("replicaは同期の鮮度を source_status で返し、MCPの結果にsourceを添える。syncDirectoryなしでは出さない", async (t) => {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "tasken-headless-source-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const shared = path.join(root, "shared");
+  const hostUserData = path.join(root, "host");
+  const replicaUserData = path.join(root, "replica");
+  const plainUserData = path.join(root, "plain");
+  fs.mkdirSync(shared, { recursive: true });
+  const host = new WorkspaceDatabase(path.join(hostUserData, "research-desk.sqlite"));
+  const hostSync = new SharedFolderSyncService(
+    host,
+    () => {},
+    path.join(hostUserData, "attachments", "markdown-images"),
+    path.join(hostUserData, "attachments", "capture-images"),
+  );
+  let client;
+  let plainClient;
+  try {
+    bootstrapWorkspace(host);
+    await hostSync.configure(shared);
+    const hostStatus = JSON.parse(
+      fs.readFileSync(path.join(shared, "devices", host.deviceId, "status.json"), "utf8"),
+    );
+
+    const handle = await startTaskenHeadlessCore({
+      userDataPath: replicaUserData,
+      syncDirectory: shared,
+    });
+    try {
+      const core = new TaskenCoreClient({ userDataPath: replicaUserData });
+      assert.ok((await core.status()).capabilities.includes("source_status"));
+      assert.deepEqual(await core.getSourceStatus(), {
+        source: {
+          node: "replica",
+          state: "ok",
+          as_of: hostStatus.at,
+          desktop_seen_at: hostStatus.at,
+        },
+      });
+
+      // 読み取り専用のclient tokenからも呼べる。
+      const { token } = await issueCoreClientToken(replicaUserData, "awai");
+      const endpoint = JSON.parse(
+        fs.readFileSync(
+          path.join(replicaUserData, "core-endpoint", "tasken-core-endpoint.json"),
+          "utf8",
+        ),
+      );
+      const response = await fetch(`${endpoint.origin}/v1/queries/get-source-status`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: "{}",
+      });
+      assert.equal(response.status, 200);
+      assert.equal((await response.json()).source.state, "ok");
+      const strict = await fetch(`${endpoint.origin}/v1/queries/get-source-status`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ extra: 1 }),
+      });
+      assert.equal(strict.status, 400);
+
+      client = await connectMcp(replicaUserData, { TASKEN_MCP_READ_ONLY: "1" });
+      assert.match(client.getInstructions() || "", /`source`/u);
+      const searched = await client.callTool({
+        name: "tasken.search_items",
+        arguments: { query: "Headless context" },
+      });
+      assert.equal(searched.isError, undefined, JSON.stringify(searched));
+      assert.ok(searched.structuredContent.items.some((item) => item.id === "task-headless"));
+      assert.equal(searched.structuredContent.source.state, "ok");
+      assert.equal(searched.structuredContent.source.as_of, hostStatus.at);
+      assert.deepEqual(Object.keys(searched.structuredContent.source).sort(), [
+        "as_of",
+        "desktop_seen_at",
+        "node",
+        "state",
+      ]);
+    } finally {
+      await client?.close().catch(() => {});
+      await handle.stop();
+    }
+
+    // Desktop役（syncDirectoryなし）には出さず、MCPの結果も変えない。
+    seedWorkspace(plainUserData);
+    const plain = await startTaskenHeadlessCore({ userDataPath: plainUserData });
+    try {
+      const core = new TaskenCoreClient({ userDataPath: plainUserData });
+      assert.equal((await core.status()).capabilities.includes("source_status"), false);
+      await assert.rejects(
+        () => core.getSourceStatus(),
+        (error) =>
+          error instanceof TaskenCoreClientError && error.code === "CAPABILITY_UNAVAILABLE",
+      );
+      plainClient = await connectMcp(plainUserData);
+      assert.doesNotMatch(plainClient.getInstructions() || "", /`source`/u);
+      const searched = await plainClient.callTool({
+        name: "tasken.search_items",
+        arguments: { query: "Headless context" },
+      });
+      assert.equal("source" in searched.structuredContent, false);
+    } finally {
+      await plainClient?.close().catch(() => {});
+      await plain.stop();
+    }
+  } finally {
+    await hostSync.stop();
+    if (host.db.open) host.db.close();
+  }
 });

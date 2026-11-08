@@ -1,5 +1,8 @@
 import { assertEntityType, validateEntity } from "./domain.mjs";
 
+/** 差分の検査で拒否された失敗の code。文言ではなくこの code で「拒否」と「通信の失敗」を区別する。 */
+export const SYNC_PACKET_REJECTED = "SYNC_PACKET_REJECTED";
+
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -13,6 +16,16 @@ function isPlainObject(value) {
  * （src/main/headless/replicaCheck.ts）が同じ規則を使うため、ここ以外に検査を足さない。
  */
 export function assertSyncPacket(packet, workspaceId) {
+  try {
+    checkSyncPacket(packet, workspaceId);
+  } catch (error) {
+    // 文言はそのまま保つ（replica-checkが理由として表示する）。code だけを足す。
+    const message = error instanceof Error ? error.message : String(error);
+    throw Object.assign(new Error(message, { cause: error }), { code: SYNC_PACKET_REJECTED });
+  }
+}
+
+function checkSyncPacket(packet, workspaceId) {
   if (
     !isPlainObject(packet) ||
     packet.format !== "tasken-sync-change" ||

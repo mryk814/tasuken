@@ -14,7 +14,10 @@ import {
   runReplicaCheck,
 } from "../src/main/headless/replicaCheck.ts";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
-import { SharedFolderSyncService } from "../src/main/services/sharedFolderSync.mjs";
+import {
+  SharedFolderSyncService,
+  SYNC_PACKET_FILE_PATTERN,
+} from "../src/main/services/sharedFolderSync.mjs";
 
 // NASのreplicaを入れ替えるときの版ずれの検査。Desktop役とreplica役を同じ共有フォルダで
 // 本物の同期にかけ、取り込めない差分を「この版では読めない」と判定できるかを確かめる。
@@ -50,7 +53,9 @@ async function createDesktopAndReplica() {
     deviceDirectory,
     /** Desktopの最新の差分ファイル（未来の版が書いたことにして中身を変える）。 */
     latestDesktopPacket() {
-      const files = fs.readdirSync(deviceDirectory).filter((name) => name.endsWith(".json"));
+      const files = fs
+        .readdirSync(deviceDirectory)
+        .filter((name) => SYNC_PACKET_FILE_PATTERN.test(name));
       return path.join(deviceDirectory, files.sort().at(-1));
     },
     close() {
@@ -104,7 +109,7 @@ test("packets: 取り込み済みの古い差分の拒否では止めず、数�
     // いちばん古い差分（task-a）を、この版では読めない形にする
     const oldest = fs
       .readdirSync(world.deviceDirectory)
-      .filter((name) => name.endsWith(".json"))
+      .filter((name) => SYNC_PACKET_FILE_PATTERN.test(name))
       .sort()[0];
     for (let i = 0; i < 3; i += 1) world.desktop.database.save("task", task(`task-n${i}`, "架空"));
     await world.desktop.service.syncNow();
@@ -128,7 +133,9 @@ test("packets: replica 自身の端末は見ない。ほかの端末を一つも
     world.replica.database.save("task", task("task-r", "replica が作った"));
     await world.replica.service.syncNow();
     const replicaDirectory = path.join(world.shared, "devices", world.replica.database.deviceId);
-    for (const name of fs.readdirSync(replicaDirectory).filter((n) => n.endsWith(".json"))) {
+    for (const name of fs
+      .readdirSync(replicaDirectory)
+      .filter((n) => SYNC_PACKET_FILE_PATTERN.test(n))) {
       rewriteJson(path.join(replicaDirectory, name), (packet) => {
         packet.entityType = "retired_kind";
       });
@@ -139,7 +146,9 @@ test("packets: replica 自身の端末は見ない。ほかの端末を一つも
     });
     assert.equal(excluded.compatible, true);
     assert.equal(excluded.excluded_device, world.replica.database.deviceId.slice(0, 8));
-    for (const name of fs.readdirSync(world.deviceDirectory).filter((n) => n.endsWith(".json"))) {
+    for (const name of fs
+      .readdirSync(world.deviceDirectory)
+      .filter((n) => SYNC_PACKET_FILE_PATTERN.test(n))) {
       fs.writeFileSync(path.join(world.deviceDirectory, name), "{");
     }
     const unreadable = checkSyncPackets(world.shared, {
@@ -258,7 +267,7 @@ test("state: 差分の連番が抜けて待っているだけなら waiting", as
     await world.desktop.service.syncNow();
     const files = fs
       .readdirSync(world.deviceDirectory)
-      .filter((name) => name.endsWith(".json"))
+      .filter((name) => SYNC_PACKET_FILE_PATTERN.test(name))
       .sort();
     // 二つ届いたうちの先の一つが、まだ共有フォルダに来ていない
     fs.rmSync(path.join(world.deviceDirectory, files.at(-2)));

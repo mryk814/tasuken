@@ -6,7 +6,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod/v4";
 
 import { localDate } from "../../shared/activityProjection.mjs";
-import { TASKEN_CORE_TASK_START_WORK_CAPABILITY } from "../../shared/contracts/core/public.mjs";
+import {
+  TASKEN_CORE_SOURCE_STATUS_CAPABILITY,
+  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
+} from "../../shared/contracts/core/public.mjs";
 import {
   formatTaskLocator,
   parseCanonicalTaskId,
@@ -105,10 +108,31 @@ function hasErrorEnvelope(value) {
   );
 }
 
-function withCoreClient(handler) {
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Tool結果の包み。`attachSource`のときだけ、結果へNAS replicaの同期状態`source`を添える。
+ * 並行に呼ばれるため、`source`は呼び出しごとに引き、共有の変数に持たない。
+ * 取れなくてもTool自体は失敗させず、`source`を付けないだけにする。
+ */
+function createWithCoreClient(coreClient, attachSource) {
+  const withSource = async (value) => {
+    if (!attachSource || !isPlainObject(value)) return value;
+    try {
+      return { ...value, source: (await coreClient.getSourceStatus()).source };
+    } catch {
+      return value;
+    }
+  };
+  return (handler) => withCoreClientResult(handler, withSource);
+}
+
+function withCoreClientResult(handler, withSource) {
   return async (args) => {
     try {
-      const value = await handler(args);
+      const value = await withSource(await handler(args));
       return hasErrorEnvelope(value) ? { ...toolResult(value), isError: true } : toolResult(value);
     } catch (error) {
       if (!(error instanceof TaskenCoreClientError)) throw error;
@@ -166,15 +190,25 @@ export function createTaskenMcpServer(options = {}) {
   const readOnly = options.readOnly ?? mcpReadOnlyMode(options.env || process.env);
   const coreClient =
     options.coreClient || new TaskenCoreClient({ env: options.env || process.env });
+  // NAS replicaのCoreに繋いだときだけ、結果に同期の鮮度を添える（Desktopの出力は変えない）。
+  const hasSourceStatus = Boolean(
+    options.capabilities?.includes(TASKEN_CORE_SOURCE_STATUS_CAPABILITY),
+  );
+  const withCoreClient = createWithCoreClient(coreClient, hasSourceStatus);
+  const sourceInstruction = hasSourceStatus
+    ? " Results from a NAS replica carry `source`: `as_of` means Desktop changes up to that time are included (null = unknown); `state` other than ok means sync is behind."
+    : "";
   const server = new McpServer(
     {
       name: "tasken",
       version: "1.0.0",
     },
     {
-      instructions: readOnly
-        ? "Tasken is read-only; use the listed bounded context and detail tools. No writes or Proposals are exposed."
-        : "Tasken manages work and knowledge. Check tasken.get_capabilities before writes when listed; Core may still refuse them. Proposals stay unofficial until human adoption; done reports never complete Tasks. Feed posts/replies appear immediately; direct create/start tools require explicit grants. Reuse idempotency_key with identical content on retries and use dry_run for validation. Read tasken://guide/{feed_post,note_article,work_report,proposals} for details; never expose secrets or publish outside Tasken.",
+      instructions: `${
+        readOnly
+          ? "Tasken is read-only; use the listed bounded context and detail tools. No writes or Proposals are exposed."
+          : "Tasken manages work and knowledge. Check tasken.get_capabilities before writes when listed; Core may still refuse them. Proposals stay unofficial until human adoption; done reports never complete Tasks. Feed posts/replies appear immediately; direct create/start tools require explicit grants. Reuse idempotency_key with identical content on retries and use dry_run for validation. Read tasken://guide/{feed_post,note_article,work_report,proposals} for details; never expose secrets or publish outside Tasken."
+      }${sourceInstruction}`,
     },
   );
 

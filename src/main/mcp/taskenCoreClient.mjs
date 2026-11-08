@@ -22,6 +22,7 @@ import {
   getActivityResponseSchema,
   getContextSubgraphResponseSchema,
   getFeedContextResponseSchema,
+  getSourceStatusResponseSchema,
   proposalStatusResponseSchema,
   listProposalsResponseSchema,
   exportAiContextResponseSchema,
@@ -58,6 +59,7 @@ import {
   TASKEN_CORE_PROPOSAL_STATUS_CAPABILITY,
   TASKEN_CORE_LIST_PROPOSALS_CAPABILITY,
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
+  TASKEN_CORE_SOURCE_STATUS_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
@@ -433,6 +435,16 @@ export class TaskenCoreClient {
       TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY,
       request,
       getFeedContextResponseSchema,
+    );
+  }
+
+  /** NAS replicaのCoreだけが応える。応答は`{ source }`。 */
+  async getSourceStatus() {
+    return this.query(
+      "get-source-status",
+      TASKEN_CORE_SOURCE_STATUS_CAPABILITY,
+      {},
+      getSourceStatusResponseSchema,
     );
   }
 
