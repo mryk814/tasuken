@@ -151,6 +151,14 @@ test("production HTTP and stdio bridges share the isolated Headless Core; restar
       assert.ok(searched.structuredContent.items.some(({ id }) => id === taskId));
     }
     assert.deepEqual((await httpClient.listTools()).tools, (await stdioClient.listTools()).tools);
+    // 同じ入口の /api/v1/<tool> も、実際のHeadless Coreに対して同じ結果を返す。
+    const api = await fetch(new URL("/api/v1/search_items", http.url), {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: "isolated task" }),
+    });
+    assert.equal(api.status, 200);
+    assert.ok((await api.json()).items.some(({ id }) => id === taskId));
     const discoveryBefore = fs.readFileSync(core.discoveryPath, "utf8");
     await httpClient.close();
     httpClient = undefined;
