@@ -153,7 +153,9 @@ test("explicit per-client write opt-in is capped by the Core profile and other c
   assert.ok(readerTools.every(({ annotations }) => annotations.readOnlyHint));
   const names = (await writer.listTools()).tools.map(({ name }) => name);
   assert.ok(names.includes("tasken.propose_note"));
-  assert.ok(!names.includes("tasken.propose_note_edit"));
+  // Note編集案とFeedの返信も、proposals配備では受ける種類になった。
+  assert.ok(names.includes("tasken.propose_note_edit"));
+  assert.ok(names.includes("tasken.answer_feed_question"));
   assert.ok(!names.includes("tasken.start_task_work"));
   assert.ok(!names.includes("tasken.create_task"));
   assert.equal(
@@ -494,6 +496,40 @@ test("writes record the verified client as caller and http:<client> as source_ap
   for (const request of requests) {
     assert.equal(request.caller, "writer");
     assert.equal(request.source_app, "http:writer");
+  }
+});
+
+test("answer_feed_question の author_label も、名乗らせず検証済みの client 名にする", async (t) => {
+  const requests = [];
+  const { url } = await fixture(t, {
+    clients: apiClients,
+    env: { TASKEN_MCP_READ_ONLY: "0" },
+    coreClient: {
+      proposeContent: async (request) => {
+        requests.push(request);
+        return { proposal_id: "p1" };
+      },
+    },
+  });
+  const answer = { post_id: "post-1", reply_to: "reply-1", body: "答え。", idempotency_key: "k" };
+  const viaApi = await api(
+    url,
+    "answer_feed_question",
+    { ...answer, author_label: "本人" },
+    otherToken,
+  );
+  assert.equal(viaApi.status, 200, JSON.stringify(viaApi.body));
+  const writer = await connect(t, url, otherToken);
+  await writer.callTool({
+    name: "tasken.answer_feed_question",
+    arguments: { ...answer, caller: "x", author_label: "本人" },
+  });
+  // 名乗りを省いた場合も、返信のスレッドには client 名が出る。
+  await api(url, "answer_feed_question", { ...answer, idempotency_key: "k2" }, otherToken);
+  assert.equal(requests.length, 3);
+  for (const request of requests) {
+    assert.equal(request.kind, "feed_reply");
+    assert.equal(request.author_label, "writer");
   }
 });
 

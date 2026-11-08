@@ -121,26 +121,29 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 
 ### 投稿・提案を受け付ける（`--write-mode=proposals`）
 
-既定では読み取りだけです。`deploy/synology/.env`で`TASKEN_CORE_WRITE_MODE=proposals`にすると、CoreはテキストのFeed投稿・Note案・Task案・Task作業報告だけを提案として受け付けます。さらにtunnel側で`TASKEN_MCP_READ_ONLY=0`にすると、外部AIからこれらの提案を送れます（**両方の設定が必要**）。
+既定では読み取りだけです。`deploy/synology/.env`で`TASKEN_CORE_WRITE_MODE=proposals`にすると、CoreはテキストのFeed投稿・Feedの返信・Note案・Note編集案・Task案・Task作業報告だけを提案として受け付けます。さらにtunnel側で`TASKEN_MCP_READ_ONLY=0`にすると、外部AIからこれらの提案を送れます（**両方の設定が必要**）。
 
-- Core側が許可範囲を強制します。範囲外の種類（`note_edit`・`feed_reply`・画像付きNote・`repository_context`・直接開始など）は`WRITE_NOT_ALLOWED`で拒否されます。
+- Core側が許可範囲を強制します。範囲外の種類（画像付きの提案・`knowledge_create`などの未対応の種類・`repository_context`・直接開始など）は`WRITE_NOT_ALLOWED`で拒否されます。
 - Task作業報告（`report_work(status=progress)`・`report_work(status=done)`・`report_work(status=blocked)`）はProposalなので、NASでも正式データはDesktopでの採用まで変わりません。開始（`start_task_work`）は直接書き込みのため公開しません。Desktopから開始するか、完了報告の採用時に開始も記録させてください。
 - 作ったProposalは正式データではなく、DesktopのAgent Desk・Feedで人が確認して採用します。
 - 1つの`idempotency_key`は1つのnodeだけへ送ってください。DesktopとNASの両方へ同じkeyを送ると競合になります。
-- 画像付きProposalのstageはNASにはないため、画像付きNote案は受け付けられません。
+- 画像付きProposalのstageはNASにはないため、種類を問わず画像付きの提案（Note案・Feed投稿の記事の画像）は受け付けられません。
+- Note編集案（`propose_note_edit`）はDesktopで採用するときにDesktopの今の版と照合されます。NASで読んだ版から作った案は、Desktopで先にNoteが変わっていれば採用で断られ、Noteは変わりません。
 - 設定は`nas-install.sh`の再実行でも保持されます。`.env`を直接編集したあとは、`docker-compose ... up -d`で`tasken-headless`と`tasken-tunnel`を作り直してください。
 
 #### MCP client（ChatGPT等）から見える範囲
 
-`TASKEN_MCP_READ_ONLY=0`のbridgeは、起動時にCoreのcapabilityを読み、この配備で使える書き込みtoolだけを一覧に出します。`proposals`配備で一覧に出るwrite toolsは次の3つです。
+`TASKEN_MCP_READ_ONLY=0`のbridgeは、起動時にCoreのcapabilityを読み、この配備で使える書き込みtoolだけを一覧に出します。`proposals`配備で一覧に出るwrite toolsは次の5つです。
 
-| tool                       | Coreの判定                                                      |
-| -------------------------- | --------------------------------------------------------------- |
-| `tasken.propose_feed_post` | 受け付ける（`feed_post`）                                       |
-| `tasken.propose_note`      | 受け付ける（画像なしの`note_create`）                           |
-| `tasken.report_work`       | 受け付ける（`propose_task_work`、status=progress/done/blocked） |
+| tool                          | Coreの判定                                                      |
+| ----------------------------- | --------------------------------------------------------------- |
+| `tasken.propose_feed_post`    | 受け付ける（`feed_post`）                                       |
+| `tasken.propose_note`         | 受け付ける（画像なしの`note_create`）                           |
+| `tasken.propose_note_edit`    | 受け付ける（`note_edit`。採用時にDesktopの版と照合）            |
+| `tasken.answer_feed_question` | 受け付ける（`feed_reply`。返信の表示名は検証済みのclient名）    |
+| `tasken.report_work`          | 受け付ける（`propose_task_work`、status=progress/done/blocked） |
 
-`propose_note_edit`（`kind_not_allowed:note_edit`）・`answer_feed_question`（`kind_not_allowed:feed_reply`）・`start_task_work`（`missing_capability:task.command`）は一覧に出ません。AIは`tasken.get_capabilities`で、使えないtoolとその理由を一度に確認できます。一覧から外すのは案内のためで、Core自身の`WRITE_NOT_ALLOWED`による拒否が引き続き最終の境界です（画像付きNote案は`propose_note`が一覧に残るため、Coreが拒否します）。bridgeの起動時にCoreへ接続できなかった場合もtoolsetsとreadOnlyによる制限を適用し、残りのtoolを登録して、呼び出し時にCoreが拒否します。
+`start_task_work`（`missing_capability:task.command`）は一覧に出ません。AIは`tasken.get_capabilities`で、使えないtoolとその理由を一度に確認できます。一覧から外すのは案内のためで、Core自身の`WRITE_NOT_ALLOWED`による拒否が引き続き最終の境界です（画像付きの提案は`propose_note`・`propose_feed_post`が一覧に残るため、Coreが拒否します）。bridgeの起動時にCoreへ接続できなかった場合もtoolsetsとreadOnlyによる制限を適用し、残りのtoolを登録して、呼び出し時にCoreが拒否します。
 
 Task**案**を作るtoolは現行のMCP bridgeには登録されていません（`propose_repository_task` capabilityはCore側にあります）。ChatGPTへTaskを作らせたい場合は、Feed投稿かNote案として送り、DesktopでTaskへ昇格させてください。
 
@@ -154,7 +157,7 @@ sudo docker run --rm --network container:tasken-headless --user 1026:100 \
   --entrypoint node tasken-headless:local /check/nas-read-check.mjs
 ```
 
-- 期待値（`proposals`配備）: `TOOL_COUNT 19`（read 16 + write 3）・`HAS_WRITE true`。`-e TASKEN_MCP_READ_ONLY=0`を外すと`TOOL_COUNT 16`・`HAS_WRITE false`。Coreが`read-only`配備なら、`TASKEN_MCP_READ_ONLY=0`でも使える書き込みtoolがないため`TOOL_COUNT 16`です。
+- 期待値（`proposals`配備）: `TOOL_COUNT 21`（read 16 + write 5）・`HAS_WRITE true`。`-e TASKEN_MCP_READ_ONLY=0`を外すと`TOOL_COUNT 16`・`HAS_WRITE false`。Coreが`read-only`配備なら、`TASKEN_MCP_READ_ONLY=0`でも使える書き込みtoolがないため`TOOL_COUNT 16`です。
 - `tasken-headless:local`の代わりに固定tagのimageを使うと、配置版を明示できます。
 
 ## Phase 3: Secure MCP Tunnelで外部AIへ公開

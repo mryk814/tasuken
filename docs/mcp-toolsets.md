@@ -39,7 +39,7 @@ HTTPでは`TASKEN_MCP_HTTP_CLIENTS_FILE`の既存の各クライアント項目�
 
 共通で`task_id`・`expected_version`・`idempotency_key`・`caller`・`executor_label`が必要です。人に質問するときは`request_id`に安定したUUIDを付けます。従来どおり任意欄であり、単なる障害報告には必須ではありません。再送時は日時・版・内容・キーを保持します。Proposalの保存形式、旧requestのtool識別子、採用・再送判定は変更しません。`done`も人が採用する報告であり、Taskの完了は別の人間操作です。
 
-旧3名は既定の一覧から外しました。移行期間に必要なら`TASKEN_MCP_TOOLSETS=all,legacy`、HTTPなら`"toolsets": ["all", "legacy"]`で追加できます。外部クライアントのツールキャッシュは再読み込みしてください。読み取り専用の既定は16個を維持します。書き込みあり・capabilities未指定の既定は、3入口を1入口に統合したため26個から24個になります。`all,legacy`では27個です。NASの`proposals`配備はread 16 + write 3の19個です。
+旧3名は既定の一覧から外しました。移行期間に必要なら`TASKEN_MCP_TOOLSETS=all,legacy`、HTTPなら`"toolsets": ["all", "legacy"]`で追加できます。外部クライアントのツールキャッシュは再読み込みしてください。読み取り専用の既定は16個を維持します。書き込みあり・capabilities未指定の既定は、3入口を1入口に統合したため26個から24個になります。`all,legacy`では27個です。NASの`proposals`配備はread 16 + write 5の21個です。
 
 ## 必要時に読むガイド
 

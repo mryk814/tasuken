@@ -11,7 +11,7 @@ import {
  * 配備ごとに許可する書き込みの範囲。
  *
  * - `full`: Desktopと同じ。すべてのProposalを作れる。
- * - `proposals`: 常時稼働node向け。テキストの読み物投稿・Note案・Task案だけを種類単位で絞る。
+ * - `proposals`: 常時稼働node向け。テキストの読み物投稿・Feedの返信・Note案・Note編集案・Task案だけを種類単位で絞る。
  *   Task作業報告は種類を絞らず`propose_task_work`として公開する（正式データの変更は人の採用後）。
  * - `read-only`: 書き込みcapabilityを公開しない。
  *
@@ -54,13 +54,20 @@ function refusedContentDetails(kind: string) {
   };
 }
 
+/**
+ * replicaには画像をdecodeしてstageする口が無いので、種類を問わず画像付きの提案は断る。
+ * 画像の欄は種類ごとに違う（note_createは`images`、feed_postは記事の`article.images`）ため、両方を見る。
+ */
+function hasImages(request: ProposeContentRequest): boolean {
+  const candidate = request as { images?: unknown; article?: { images?: unknown } | null };
+  return [candidate.images, candidate.article?.images].some(
+    (images) => Array.isArray(images) && images.length > 0,
+  );
+}
+
 function refusedContentMessage(request: ProposeContentRequest): string {
-  if (
-    request.kind === "note_create" &&
-    Array.isArray(request.images) &&
-    request.images.length > 0
-  ) {
-    return "この接続では画像付きNoteを受け付けません。画像のないNote案を送ってください。";
+  if (RESTRICTED_CONTENT_KINDS.has(request.kind) && hasImages(request)) {
+    return "この接続では画像付きの提案を受け付けません。画像のない提案を送ってください。";
   }
   return `この接続では${request.kind}のProposalを受け付けません。この経路で送れるのは${[...RESTRICTED_CONTENT_KINDS].join("・")}（画像なし）だけです。Task作業報告はtasken.report_workへstatus=progress・done・blockedを指定して送れます。`;
 }
@@ -84,11 +91,7 @@ export function restrictContentProposals(
           refusedContentDetails(request.kind),
         );
       }
-      if (
-        request.kind === "note_create" &&
-        Array.isArray(request.images) &&
-        request.images.length > 0
-      ) {
+      if (hasImages(request)) {
         throw new CoreWriteNotAllowedError(
           refusedContentMessage(request),
           refusedContentDetails(request.kind),

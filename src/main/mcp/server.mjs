@@ -181,6 +181,8 @@ function withVerifiedCreator([config, handler, ...others], clientName) {
   const forced = {};
   if ("caller" in fields) forced.caller = clientName;
   if ("source_app" in fields) forced.source_app = `http:${clientName}`;
+  // Feedの返信のスレッドに出る表示名。自己申告のままだと本人の名前を名乗れてしまう。
+  if ("author_label" in fields) forced.author_label = clientName;
   if (Object.keys(forced).length === 0 || typeof handler !== "function") {
     return [config, handler, ...others];
   }

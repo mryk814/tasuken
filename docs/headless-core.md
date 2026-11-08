@@ -51,12 +51,12 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 
 常時稼働nodeは既定で書き込みを公開しない。`--write-mode=proposals`（または `TASKEN_CORE_WRITE_MODE=proposals`）を選んだ場合だけ、次を公開する。
 
-| 公開する                                                                 | 公開しない                                                   |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------ |
-| `propose_content`（`feed_post`・画像なしの`note_create`）                | `note_edit`、`feed_reply`、`artifact`、`sketch`、`knowledge` |
-| `propose_repository_task`（`task`）                                      | `repository_context`                                         |
-| `propose_task_work`（`append_receipt`・`report_done`・`report_blocked`） | `task.command`（`start_task_work`）、`propose_agent_session` |
-| 既存の読み取りcapability                                                 |                                                              |
+| 公開する                                                                                   | 公開しない                                                   |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
+| `propose_content`（`feed_post`・`feed_reply`・`note_create`・`note_edit`。どれも画像なし） | 画像付きの提案、`artifact`、`sketch`、`knowledge`            |
+| `propose_repository_task`（`task`）                                                        | `repository_context`                                         |
+| `propose_task_work`（`append_receipt`・`report_done`・`report_blocked`）                   | `task.command`（`start_task_work`）、`propose_agent_session` |
+| 既存の読み取りcapability                                                                   |                                                              |
 
 - Task作業報告もProposalなので、`proposals`配備でも正式データは人の採用まで変わらない。開始（`start_task_work`）は直接書き込みであり、write-modeの指定だけでは公開しない。本人の個人業務のAI Ready Taskについて開始を許可するには、独立した`--allow-ai-task-start` / `TASKEN_CORE_AI_TASK_START=1`が必要。汎用`task.command`は公開しない。
 - 範囲外の種類は、capabilityを残したまま実行時に `WRITE_NOT_ALLOWED`（HTTP 403）で拒否する。AIは `next_action` から送り直し方を判断できる。
@@ -128,7 +128,7 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 
 - 2026-09-21に追加した検証:
   - `tests/tasken-headless-core.test.mjs`の「Headless replicaが受けたProposalはDesktopへ届き、採否はreplicaへ戻る」が、`proposals`モードのreplica→Desktop役→採否の戻りを一時DBで確認。
-  - 「proposalsモードのHeadless Coreは許可した種類だけを受け付ける」が、Feed投稿・Note案・Task案の許可と、`note_edit`・`feed_reply`・`repository_context`・画像付きNote・直接開始の拒否を確認。拒否された要求はProposalもTask変更も残さない。
+  - 「proposalsモードのHeadless Coreは許可した種類だけを受け付ける」が、Feed投稿・Feedの返信・Note案・Note編集案・Task案の許可と、`knowledge_create`・`repository_context`・画像付きの`note_create`と`feed_post`・直接開始の拒否を確認。replicaが受けた`note_edit`と`feed_reply`がDesktopへ届き、Desktopで先にNoteが変わっていれば`note_edit`の採用が断られることも確認。拒否された要求はProposalもTask変更も残さない。
   - 既定のHeadless Coreは書き込みcapabilityを公開しない。
   - `scripts/mcp-doctor.mjs`は`read-only`・`proposals`配備を正常として診断し、既知でない書き込みcapabilityの組み合わせだけを不足として報告する。
   - 上記は**実Synologyでの実測ではない**。実環境の確認は別途行う。
