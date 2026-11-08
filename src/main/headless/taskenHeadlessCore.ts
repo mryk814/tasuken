@@ -2,7 +2,6 @@ import { WorkspaceService } from "../services/workspaceService.ts";
 import { createAiItemCreationPort } from "../composition/taskenCoreRuntime.ts";
 import path from "node:path";
 
-import type { SourceStatus } from "../../shared/contracts/task/public.ts";
 import { TaskenCoreRuntime } from "../composition/taskenCoreRuntime.ts";
 import { TaskenCoreClient, TaskenCoreClientError } from "../mcp/taskenCoreClient.mjs";
 import { WorkspaceDatabase } from "../repositories/workspaceRepository.mjs";
@@ -133,7 +132,7 @@ export async function startTaskenHeadlessCore(
         () => {},
         path.join(userDataPath, "attachments", "markdown-images"),
         path.join(userDataPath, "attachments", "capture-images"),
-        { trackFreshness: true },
+        { role: "replica" },
       );
       if (!(await syncService.readManifest(syncDirectory))) {
         throw new TaskenHeadlessCoreError(
@@ -169,9 +168,7 @@ export async function startTaskenHeadlessCore(
   // replicaだけが、取り込みの鮮度をAIへ返す。Desktopのcompositionでは有効にしない。
   if (syncService) {
     const sync = syncService;
-    runtime.enableSourceStatus({
-      execute: () => ({ source: sync.sourceStatus("replica") as SourceStatus }),
-    });
+    runtime.enableSourceStatus(() => sync.sourceStatus("replica"));
   }
   try {
     const started = await runtime.start();

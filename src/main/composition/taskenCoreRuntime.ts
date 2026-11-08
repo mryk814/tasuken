@@ -13,10 +13,9 @@ import { createMobileRoutinePort, type RoutineWriterPort } from "./mobileRoutine
 import { createMobileWorkLogPort, type WorkLogWriterPort } from "./mobileWorkLogPort.ts";
 import type { NoteProposalImagePort } from "../core/public.ts";
 import type { CaptureImagePort } from "../core/public.ts";
-import type {
-  GetSourceStatusRequest,
-  GetSourceStatusResponse,
-  NoteProposalImage,
+import {
+  getSourceStatusResponseSchema,
+  type NoteProposalImage,
 } from "../../shared/contracts/task/public.ts";
 import {
   createTaskenCore,
@@ -724,10 +723,11 @@ export class TaskenCoreRuntime {
   }
 
   /** NAS replica専用。Desktopのcompositionでは呼ばない。 */
-  enableSourceStatus(provider: {
-    execute(request: GetSourceStatusRequest): GetSourceStatusResponse;
-  }) {
-    this.host.enableSourceStatus(provider);
+  enableSourceStatus(read: () => unknown) {
+    // 返す値はここでschemaに通す（端末ID・エラー文などが紛れても外へ出さない）。
+    this.host.enableSourceStatus({
+      execute: () => getSourceStatusResponseSchema.parse({ source: read() }),
+    });
   }
 
   async start() {

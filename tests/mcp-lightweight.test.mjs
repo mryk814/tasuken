@@ -275,3 +275,26 @@ test("source_status が無いCoreでは、tool結果とinstructionsは変わら�
   assert.deepEqual(result.structuredContent, { items: [] });
   assert.equal(result.content[0].text, JSON.stringify({ items: [] }, null, 2));
 });
+
+test("source はデータを読む前に引く。読んでいる間に進んだ as_of を、古いデータに付けない", async (t) => {
+  let asOf = "2026-11-01T00:00:00.000Z";
+  const coreClient = {
+    status: async () => ({ capabilities: [...capabilities, "source_status"] }),
+    // 同期が、データを読んでいる最中に進む。
+    searchItems: async () => {
+      const result = { items: [] };
+      asOf = "2026-11-01T00:10:00.000Z";
+      return result;
+    },
+    getSourceStatus: async () => ({
+      source: { node: "replica", state: "ok", as_of: asOf, desktop_seen_at: asOf },
+    }),
+  };
+  const client = await connect(t, {
+    readOnly: true,
+    coreClient,
+    capabilities: [...capabilities, "source_status"],
+  });
+  const result = await client.callTool({ name: "tasken.search_items", arguments: {} });
+  assert.equal(result.structuredContent.source.as_of, "2026-11-01T00:00:00.000Z");
+});

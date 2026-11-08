@@ -41,7 +41,7 @@ function createPair() {
     secondAttachments,
     secondPhotos,
     {
-      trackFreshness: true,
+      role: "replica",
     },
   );
   return {
@@ -343,6 +343,7 @@ test("photo sync reports missing bytes and recovers on the next poll", async () 
     await assert.rejects(pair.secondSync.syncNow(), /到着/);
     assert.equal(pair.second.get("task", "delayed-photo").title, "Keep original");
     assert.equal(pair.secondSync.status().state, "error");
+    assert.equal(pair.secondSync.sourceStatus().state, "waiting_image");
     assert.ok(notifications.some((entry) => entry.title === "Updated without photo"));
     assert.ok(notifications.some((entry) => entry.photos === 1));
     notifications.length = 0;
@@ -933,6 +934,7 @@ test("各端末は公開の進みを status.json に置き、進みが無けれ�
       format: "tasken-device-status",
       formatVersion: 1,
       deviceId: pair.first.deviceId,
+      role: "desktop",
       publishedThrough: published,
       at: new Date(T0).toISOString(),
     });
@@ -1187,6 +1189,197 @@ test("読めない・形が違う status.json は無視し、status.json があ�
     const source = pair.secondSync.sourceStatus();
     assert.equal(source.state, "ok");
     assert.ok(source.as_of, "壊れた status.json があっても Desktop の as_of は出る");
+  } finally {
+    pair.close();
+  }
+});
+
+// ---- 鮮度の取りこぼし（reviewer の指摘） ----
+
+/** createPair の共有フォルダに、もう一台参加させる。 */
+function extraNode(pair, name, options) {
+  const dir = path.join(pair.root, name);
+  const db = new WorkspaceDatabase(path.join(dir, "research-desk.sqlite"));
+  const sync = new SharedFolderSyncService(
+    db,
+    () => {},
+    path.join(dir, "attachments", "markdown-images"),
+    path.join(dir, "attachments", "capture-images"),
+    options,
+  );
+  return { db, sync };
+}
+
+test("追いついていない Desktop の status.json が一度読めなくても、as_of は進まない", async () => {
+  const pair = createPair();
+  const b = extraNode(pair, "desktop-b");
+  try {
+    pair.firstSync.clock = () => T0;
+    b.sync.clock = () => T0;
+    pair.secondSync.clock = () => T0 + MINUTE;
+    pair.first.save("task", task("task-a", "A"));
+    await pair.firstSync.configure(pair.shared);
+    await b.sync.configure(pair.shared);
+    // B は replica がまだ受け取っていない差分まで公開した、と status.json が言う。
+    const bStatusPath = path.join(pair.shared, "devices", b.db.deviceId, "status.json");
+    const bStatus = JSON.parse(fs.readFileSync(bStatusPath, "utf8"));
+    fs.writeFileSync(
+      bStatusPath,
+      JSON.stringify({ ...bStatus, publishedThrough: bStatus.publishedThrough + 5 }),
+    );
+    await pair.secondSync.configure(pair.shared);
+    assert.equal(pair.secondSync.sourceStatus().as_of, null);
+
+    fs.writeFileSync(bStatusPath, "{partial");
+    await pair.secondSync.syncNow();
+    assert.equal(
+      pair.secondSync.sourceStatus().as_of,
+      null,
+      "前に読めた status で遅れを覚えている",
+    );
+  } finally {
+    b.db.db.close();
+    pair.close();
+  }
+});
+
+test("status.json を出さない端末に取り込めていない差分があれば as_of は null、取り込めば数えない", async () => {
+  const pair = createPair();
+  const old = extraNode(pair, "old-desktop");
+  try {
+    pair.firstSync.clock = () => T0;
+    pair.secondSync.clock = () => T0;
+    old.sync.clock = () => T0;
+    pair.first.save("task", task("task-a", "A"));
+    await pair.firstSync.configure(pair.shared);
+    await old.sync.configure(pair.shared);
+    // 旧版の Desktop のように status.json を出さない（replica は一度も読めていない）。
+    fs.rmSync(path.join(pair.shared, "devices", old.db.deviceId, "status.json"));
+    await pair.secondSync.configure(pair.shared);
+    assert.equal(pair.secondSync.sourceStatus().as_of, new Date(T0).toISOString());
+
+    old.db.save("task", task("task-o1", "O1"));
+    old.db.save("task", task("task-o2", "O2"));
+    await old.sync.syncNow();
+    const directory = path.join(pair.shared, "devices", old.db.deviceId);
+    const published = fs.readdirSync(directory).filter((n) => SYNC_PACKET_FILE_PATTERN.test(n));
+    const cursor = pair.second.syncCursor(old.db.deviceId);
+    const ahead = published.filter((n) => Number(n.slice(0, 12)) > cursor).sort();
+    assert.ok(ahead.length >= 2);
+    fs.renameSync(path.join(directory, ahead[0]), path.join(directory, `${ahead[0]}.away`));
+    fs.rmSync(path.join(directory, "status.json"));
+
+    await assert.rejects(() => pair.secondSync.syncNow(), /を待っています/);
+    assert.equal(pair.secondSync.sourceStatus().as_of, null);
+
+    fs.renameSync(path.join(directory, `${ahead[0]}.away`), path.join(directory, ahead[0]));
+    await pair.secondSync.syncNow();
+    assert.equal(pair.secondSync.sourceStatus().as_of, new Date(T0).toISOString());
+  } finally {
+    old.db.db.close();
+    pair.close();
+  }
+});
+
+test("replica の status.json は数えない。残った replica の個体が as_of を張り付かせない", async () => {
+  const pair = createPair();
+  const other = extraNode(pair, "other-replica", { role: "replica" });
+  try {
+    pair.firstSync.clock = () => T0;
+    pair.secondSync.clock = () => T0 + MINUTE;
+    other.sync.clock = () => T0 + 2 * MINUTE;
+    pair.first.save("task", task("task-a", "A"));
+    await pair.firstSync.configure(pair.shared);
+    await pair.secondSync.configure(pair.shared);
+    await other.sync.configure(pair.shared);
+    pair.second.save("task", task("task-s1", "S1"));
+    pair.second.save("task", task("task-s2", "S2"));
+    await pair.secondSync.syncNow();
+    const directory = path.join(pair.shared, "devices", pair.second.deviceId);
+    const own = fs.readdirSync(directory).filter((n) => SYNC_PACKET_FILE_PATTERN.test(n));
+    assert.equal(readStatus(pair, pair.second).role, "replica");
+    // other はまだ replica の差分を受け取っていない（status.json は先へ進んでいる）。
+    fs.rmSync(path.join(directory, own.sort()[0]));
+    await assert.rejects(() => other.sync.syncNow(), /を待っています/);
+
+    assert.deepEqual(other.sync.sourceStatus(), {
+      node: "replica",
+      state: "waiting_packet",
+      as_of: new Date(T0).toISOString(),
+      desktop_seen_at: new Date(T0).toISOString(),
+    });
+  } finally {
+    other.db.db.close();
+    pair.close();
+  }
+});
+
+test("14日を超えた status.json でも、追いついていなければ as_of は null", async () => {
+  const pair = createPair();
+  try {
+    pair.firstSync.clock = () => T0;
+    pair.secondSync.clock = () => T0 + 15 * 24 * 60 * MINUTE;
+    pair.first.save("task", task("task-a", "A"));
+    pair.first.save("task", task("task-b", "B"));
+    await pair.firstSync.configure(pair.shared);
+    const directory = path.join(pair.shared, "devices", pair.first.deviceId);
+    fs.rmSync(path.join(directory, packetFiles(pair, pair.first)[0]));
+    await assert.rejects(() => pair.secondSync.configure(pair.shared), /を待っています/);
+
+    const source = pair.secondSync.sourceStatus();
+    assert.equal(source.as_of, null);
+    assert.equal(source.desktop_seen_at, new Date(T0).toISOString());
+  } finally {
+    pair.close();
+  }
+});
+
+test("この版で取り込めない差分は、code の無い例外でも blocked。DBの失敗は io_error", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-a", "A"));
+    await pair.firstSync.configure(pair.shared);
+    const apply = pair.second.applySyncPacket.bind(pair.second);
+    pair.second.applySyncPacket = () => {
+      throw new Error("append-only の規則に反します");
+    };
+    await assert.rejects(() => pair.secondSync.configure(pair.shared), /append-only/);
+    assert.equal(pair.secondSync.sourceStatus().state, "blocked");
+
+    pair.second.applySyncPacket = () => {
+      throw Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
+    };
+    await assert.rejects(() => pair.secondSync.syncNow(), /locked/);
+    assert.equal(pair.secondSync.sourceStatus().state, "io_error");
+
+    pair.second.applySyncPacket = apply;
+    await pair.secondSync.syncNow();
+    assert.equal(pair.secondSync.sourceStatus().state, "ok");
+  } finally {
+    pair.close();
+  }
+});
+
+test("status.json を書けなかったら、1分は書きに行かない", async () => {
+  const pair = createPair();
+  try {
+    let now = T0;
+    pair.firstSync.clock = () => now;
+    pair.first.save("task", task("task-a", "A"));
+    await pair.firstSync.configure(pair.shared);
+    const target = statusFile(pair, pair.first);
+    fs.rmSync(target);
+    fs.mkdirSync(target); // rename が失敗する
+    pair.first.save("task", task("task-b", "B"));
+    now = T0 + 5_000;
+    await pair.firstSync.syncNow();
+    fs.rmSync(target, { recursive: true });
+    now = T0 + 20_000;
+    await pair.firstSync.syncNow();
+    assert.equal(fs.existsSync(target), false, "1分たつまで書き直さない");
+    now = T0 + 70_000;
+    await pair.firstSync.syncNow();
+    assert.equal(readStatus(pair, pair.first).role, "desktop");
   } finally {
     pair.close();
   }

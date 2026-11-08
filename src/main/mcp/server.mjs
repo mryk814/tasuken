@@ -116,23 +116,28 @@ function isPlainObject(value) {
  * Tool結果の包み。`attachSource`のときだけ、結果へNAS replicaの同期状態`source`を添える。
  * 並行に呼ばれるため、`source`は呼び出しごとに引き、共有の変数に持たない。
  * 取れなくてもTool自体は失敗させず、`source`を付けないだけにする。
+ *
+ * `source`はデータを読む前に引く。`as_of`は単調に進むので、先に取った値は後から読んだデータについても真になる
+ * （後で取ると、間に取り込まれた変更の分だけ新しい時刻を、古いデータに付けてしまう）。
  */
 function createWithCoreClient(coreClient, attachSource) {
-  const withSource = async (value) => {
-    if (!attachSource || !isPlainObject(value)) return value;
+  const readSource = async () => {
+    if (!attachSource) return null;
     try {
-      return { ...value, source: (await coreClient.getSourceStatus()).source };
+      return (await coreClient.getSourceStatus()).source;
     } catch {
-      return value;
+      return null;
     }
   };
-  return (handler) => withCoreClientResult(handler, withSource);
+  return (handler) => withCoreClientResult(handler, readSource);
 }
 
-function withCoreClientResult(handler, withSource) {
+function withCoreClientResult(handler, readSource) {
   return async (args) => {
     try {
-      const value = await withSource(await handler(args));
+      const source = await readSource();
+      const result = await handler(args);
+      const value = source && isPlainObject(result) ? { ...result, source } : result;
       return hasErrorEnvelope(value) ? { ...toolResult(value), isError: true } : toolResult(value);
     } catch (error) {
       if (!(error instanceof TaskenCoreClientError)) throw error;

@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
-import { SYNC_PACKET_REJECTED } from "../repositories/syncPacketContract.mjs";
 import {
   countMarkdownImageAttachments,
   syncMarkdownImageAttachments,
@@ -14,6 +13,8 @@ const DEVICE_DIRECTORY = "devices";
 /** 共有フォルダの差分のファイル名（<12桁の連番>-<change id>.json）。replica-checkも同じものを使う。 */
 export const SYNC_PACKET_FILE_PATTERN = /^\d{12}-[0-9a-f-]+\.json$/i;
 const SYNC_PACKET_WAITING = "SYNC_PACKET_WAITING";
+// syncPacketContract（repositories）と同じ値。application層からinfrastructureを読まないよう文字列で比べる。
+const SYNC_PACKET_REJECTED = "SYNC_PACKET_REJECTED";
 const SYNC_INTERVAL_MS = 10_000;
 /**
  * 各端末が自分のディレクトリへ置く公開の進み具合。差分ではないので連番のファイル名にしない。
@@ -22,6 +23,7 @@ const SYNC_INTERVAL_MS = 10_000;
 export const DEVICE_STATUS_FILE = "status.json";
 // OneDrive経由の共有フォルダもあるため、進みが無いのに頻繁には書き直さない。
 const DEVICE_STATUS_REWRITE_MS = 10 * 60_000;
+const DEVICE_STATUS_RETRY_MS = 60_000;
 // これより長く status.json が更新されていない端末は「Desktop」として数えない（使われなくなった端末）。
 const DEVICE_ACTIVE_WINDOW_MS = 14 * 24 * 60 * 60_000;
 
@@ -102,6 +104,7 @@ function isDeviceStatus(value, deviceId) {
     value.format === "tasken-device-status" &&
     value.formatVersion === 1 &&
     value.deviceId === deviceId &&
+    (value.role === "desktop" || value.role === "replica") &&
     Number.isInteger(value.publishedThrough) &&
     value.publishedThrough >= 0 &&
     typeof value.at === "string" &&
@@ -138,7 +141,7 @@ export class SharedFolderSyncService {
     this.clock = options.now || (() => Date.now());
     // 他端末のstatus.jsonを読んで鮮度を出すのはNAS replicaだけ。Desktopは自分の分を書くだけで、
     // 10秒ごとの共有フォルダ(SMB)の読み込みを増やさない。
-    this.trackFreshness = Boolean(options.trackFreshness);
+    this.role = options.role === "replica" ? "replica" : "desktop";
     this.repository = repository;
     this.notifyWorkspaceChanged = notifyWorkspaceChanged;
     this.attachmentDirectory = attachmentDirectory;
@@ -160,6 +163,9 @@ export class SharedFolderSyncService {
     this.lastFailure = null;
     this.publishedStatus = null;
     this.lastStatusError = null;
+    this.statusRetryAt = 0;
+    // 端末ごとの「最後に読めた正しいstatus.json」。その回に読めなくても前の値で遅れを判定する。
+    this.knownStatuses = new Map();
     this.deviceAsOf = new Map();
     this.freshness = { asOf: null, desktopSeenAt: null };
   }
@@ -286,6 +292,10 @@ export class SharedFolderSyncService {
     if (!directory) throw new Error("同期フォルダが設定されていません。");
     this.state = "syncing";
     try {
+      // status.jsonの`at`。ensureSyncBaseline（Snapshot取り込みをこの回で送信キューへ入れる）や
+      // 画像の同期より前に取る。後ろで取ると、その間に確定した変更の時刻が`at`より前なのに
+      // 連番は publishedThrough より後になり、「at より前の変更は全部入っている」が偽になる。
+      const passStartedAt = this.clock();
       this.waitingFor = null;
       this.waitingImage = null;
       const manifest = await this.readManifest(directory);
@@ -305,14 +315,12 @@ export class SharedFolderSyncService {
         published: attachments.published,
         received: attachments.received,
       };
-      // この時刻より前に確定した変更は、publishPendingの成功後にすべて公開済みになる。
-      const passStartedAt = this.clock();
       const publishedThrough = await this.publishPending(directory);
       await this.publishDeviceStatus(directory, publishedThrough, passStartedAt);
       // 取り込みが途中で失敗しても鮮度は出せるよう、取り込みとは別に読んでおく。
-      const deviceStatuses = this.trackFreshness ? await this.readDeviceStatuses(directory) : null;
+      const deviceScan = this.role === "replica" ? await this.scanDevices(directory) : null;
       const incoming = await this.receiveChanges(directory).finally(() =>
-        this.updateFreshness(deviceStatuses),
+        this.updateFreshness(deviceScan),
       );
       // Database changes are already committed, even if a photo arrives later.
       if (incoming.applied || incoming.conflicts || attachments.received)
@@ -394,6 +402,8 @@ export class SharedFolderSyncService {
   async publishDeviceStatus(directory, publishedThrough, at) {
     const now = this.clock();
     const previous = this.publishedStatus;
+    // 書けない状態が続くとき（OneDrive等が掴んでいる）に、10秒ごとに叩かない。
+    if (now < this.statusRetryAt) return;
     if (
       previous &&
       previous.publishedThrough === publishedThrough &&
@@ -411,6 +421,7 @@ export class SharedFolderSyncService {
       format: "tasken-device-status",
       formatVersion: 1,
       deviceId: this.repository.deviceId,
+      role: this.role,
       publishedThrough,
       at: new Date(at).toISOString(),
     };
@@ -418,7 +429,9 @@ export class SharedFolderSyncService {
       await fs.promises.writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
       await fs.promises.rename(temporaryPath, filePath);
       this.publishedStatus = { publishedThrough, writtenAt: now };
+      this.statusRetryAt = 0;
     } catch (error) {
+      this.statusRetryAt = now + DEVICE_STATUS_RETRY_MS;
       // 差分と違い、このファイルは同じ名前へ何度も置き直す。Windowsでは OneDrive やウイルス対策が
       // 掴んでいると上書きの rename が EPERM/EBUSY で失敗する。鮮度は補助の情報なので、
       // ここで差分の同期まで止めない。publishedStatus を進めず、次の同期でもう一度書く。
@@ -434,44 +447,74 @@ export class SharedFolderSyncService {
     this.lastStatusError = null;
   }
 
-  /** 他端末の status.json。読めない・形が違うものは無視し、共有フォルダ自体が読めなければ null。 */
-  async readDeviceStatuses(directory) {
+  /**
+   * 他端末のディレクトリを見て、status.jsonを読み直す。読めた正しいものは端末ごとに覚える。
+   * 一度も読めていない端末（旧版・壊れた・書き込みが失敗し続ける）だけ、差分の連番を調べる。
+   * 共有フォルダのdevices自体が読めなければ null（前の鮮度を保つ）。
+   */
+  async scanDevices(directory) {
     try {
       const devicesRoot = path.join(directory, DEVICE_DIRECTORY);
-      if (!(await exists(devicesRoot))) return [];
-      const statuses = [];
+      if (!(await exists(devicesRoot))) return { ids: [], packetMax: new Map() };
+      const ids = [];
+      const packetMax = new Map();
       for (const entry of await fs.promises.readdir(devicesRoot, { withFileTypes: true })) {
         if (!entry.isDirectory() || entry.name === this.repository.deviceId) continue;
+        ids.push(entry.name);
         try {
           const value = await readJson(path.join(devicesRoot, entry.name, DEVICE_STATUS_FILE));
-          if (isDeviceStatus(value, entry.name)) statuses.push(value);
+          if (isDeviceStatus(value, entry.name)) this.knownStatuses.set(entry.name, value);
         } catch {
           // 古い版の端末にはない。壊れていても差分の取り込みには影響させない。
         }
+        if (this.knownStatuses.has(entry.name)) continue;
+        try {
+          const names = await fs.promises.readdir(path.join(devicesRoot, entry.name));
+          packetMax.set(
+            entry.name,
+            names
+              .filter((name) => SYNC_PACKET_FILE_PATTERN.test(name))
+              .reduce((max, name) => Math.max(max, Number(name.slice(0, 12))), 0),
+          );
+        } catch {
+          // 読めない端末は遅れを判定できない。取り込み側の失敗として扱われる。
+        }
       }
-      return statuses;
+      return { ids, packetMax };
     } catch {
       return null;
     }
   }
 
   /**
-   * 端末ごとの「その時刻までの変更は入っている」を進める。カーソルが公開の進みに届いていない間は
-   * 前に追いついた時刻を保つ（その時刻までの変更が入っているのは今も真）。
+   * as_of は「この時刻より前に確定したDesktopの変更は全部入っている」でなければならない。
+   * そのため、追いついていないDesktopや、遅れているかもしれない端末を数え落とさない。
+   * 端末ごとの追いついた時刻は、カーソルが公開の進みに届いた時のstatusの`at`を保つ
+   * （その時刻までの変更が入っているのは、後で遅れても真のまま）。
    */
-  updateFreshness(statuses) {
-    if (!statuses) return;
+  updateFreshness(scan) {
+    if (!scan) return;
     const horizon = this.clock() - DEVICE_ACTIVE_WINDOW_MS;
-    const counted = statuses.filter((status) => Date.parse(status.at) >= horizon);
-    for (const status of counted) {
-      if (this.repository.syncCursor(status.deviceId) >= status.publishedThrough)
-        this.deviceAsOf.set(status.deviceId, status.at);
+    let unknownBehind = false;
+    const counted = [];
+    for (const id of scan.ids) {
+      const cursor = this.repository.syncCursor(id);
+      const status = this.knownStatuses.get(id);
+      if (!status) {
+        if ((scan.packetMax.get(id) ?? 0) > cursor) unknownBehind = true;
+        continue;
+      }
+      // replicaが出すstatusは数えない（replicaはDesktopの変更の出どころではない）。
+      if (status.role !== "desktop") continue;
+      if (cursor >= status.publishedThrough) this.deviceAsOf.set(id, status.at);
+      if (Date.parse(status.at) >= horizon || cursor < status.publishedThrough)
+        counted.push(status);
     }
     const asOfs = counted.map((status) => this.deviceAsOf.get(status.deviceId) ?? null);
     const times = (values) => values.map((value) => Date.parse(value));
     this.freshness = {
       asOf:
-        counted.length === 0 || asOfs.includes(null)
+        unknownBehind || counted.length === 0 || asOfs.includes(null)
           ? null
           : new Date(Math.min(...times(asOfs))).toISOString(),
       desktopSeenAt: counted.length
@@ -580,7 +623,17 @@ export class SharedFolderSyncService {
         if (packet.deviceId !== deviceId || Number(packet.deviceSequence) !== sequence) {
           throw codedError(`同期差分 ${fileName} の端末情報が一致しません。`, SYNC_PACKET_REJECTED);
         }
-        const result = this.repository.applySyncPacket(packet);
+        let result;
+        try {
+          result = this.repository.applySyncPacket(packet);
+        } catch (error) {
+          // codeを持たない失敗は、この版では取り込めない差分（検査や保存規則の違反）。
+          // SQLITE_BUSYなどcodeのある失敗は通信・DBの失敗なのでそのまま投げる。
+          if (error?.code) throw error;
+          throw Object.assign(new Error(syncErrorMessage(error), { cause: error }), {
+            code: SYNC_PACKET_REJECTED,
+          });
+        }
         this.repository.setSyncCursor(deviceId, sequence);
         cursor = sequence;
         if (result.status === "applied") applied += 1;
