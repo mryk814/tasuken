@@ -268,7 +268,7 @@ curl -sS -X POST "https://<NAS>.<tailnet>.ts.net:8444/api/v1/search_items" \
 | `VALIDATION_FAILED`・`INVALID_JSON`・引数の型の誤りなど入力検証の失敗                                                              | 400    |
 | `WRITE_NOT_ALLOWED`・`FORBIDDEN`                                                                                                   | 403    |
 | `NOT_FOUND`を含むもの                                                                                                              | 404    |
-| `IDEMPOTENCY_CONFLICT`・`CONFLICT`・`STALE_VERSION`・`INVALID_TRANSITION`                                                          | 409    |
+| `IDEMPOTENCY_CONFLICT`・`CONFLICT`・`STALE_VERSION`・`INVALID_TRANSITION`・`DESKTOP_BEHIND`・`REPLICA_BEHIND`                      | 409    |
 | `PROPOSAL_TOO_LARGE`・`BODY_TOO_LARGE`                                                                                             | 413    |
 | `CORE_UNAVAILABLE`・`CAPABILITY_UNAVAILABLE`・`VERSION_MISMATCH`・`CORE_REQUEST_FAILED`                                            | 503    |
 | `UNAUTHORIZED`・`INVALID_RESPONSE`・`INVALID_DISCOVERY`・`DISCOVERY_OWNER_MISMATCH`・`DISCOVERY_PERMISSION_INVALID`・`UNAVAILABLE` | 503    |

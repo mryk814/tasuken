@@ -521,6 +521,9 @@ test("/api/v1 maps Core error codes to HTTP statuses", async (t) => {
     ["INTERNAL_ERROR", 500],
     ["FORBIDDEN", 403],
     ["INVALID_TRANSITION", 409],
+    // retryableだが、状態の食い違いなので503ではなく409。
+    ["DESKTOP_BEHIND", 409],
+    ["REPLICA_BEHIND", 409],
     ["INVALID_JSON", 400],
     ["UNAUTHORIZED", 503],
     ["INVALID_RESPONSE", 503],

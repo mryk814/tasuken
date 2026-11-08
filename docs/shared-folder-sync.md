@@ -26,7 +26,7 @@ SQLiteファイルそのものは共有フォルダへ置かない。
   - 中継差分は元のRevision IDを保ち、親には中継端末が公開した同じEntityのRevisionを並べる。同じRevisionを持つ端末では重複として扱われる。
   - 受信側は、Entityが無いときの補充と、親に含まれるheadからの早送りだけに使う。手元が別のRevisionへ進んでいれば上書きも競合登録もしない。
   - 一度中継したRevisionは再送しない。
-- 各端末は、差分とは別に`devices/{deviceId}/status.json`（`format: "tasken-device-status"`、`deviceId`、`role`＝`desktop`か`replica`、`publishedThrough`＝公開済みの最大連番、`at`）を置く。他端末はこれと自分の受信位置を比べ、「その端末の変更が何時までに入っているか」を知る。`publishedThrough`が進んだときと、前回から10分以上たったときだけ書き直す（OneDrive経由でも負荷にならないように）。連番のファイル名ではないため、古い版は差分として読み飛ばす。書けなかった場合も差分の同期は止めず、次の同期で書き直す。他端末の`status.json`を読むのはNAS replicaだけ。
+- 各端末は、差分とは別に`devices/{deviceId}/status.json`（`format: "tasken-device-status"`、`deviceId`、`role`＝`desktop`か`replica`、`publishedThrough`＝公開済みの最大連番、`at`、Desktopだけ`syncShape`）を置く。他端末はこれと自分の受信位置を比べ、「その端末の変更が何時までに入っているか」を知る。`publishedThrough`が進んだときと、前回から10分以上たったときだけ書き直す（OneDrive経由でも負荷にならないように）。連番のファイル名ではないため、古い版は差分として読み飛ばす。書けなかった場合も差分の同期は止めず、次の同期で書き直す。他端末の`status.json`を読むのはNAS replicaだけ。`syncShape`は、その版のDesktopが取り込めるAI作成の差分の形（`contracts/sync/ai-item-packets.json`の`flags`の最後の`shape_sha256`）で、`role`が`desktop`のstatusには必須（無いstatusはDesktopとして数えない）。replicaはこれより後に`desktop_first: true`の印があると書き込みを断る。
 - 削除は`deleted_at`を持つTombstoneとして同期する。
 - 受信適用と受信位置の更新はSQLite transactionで行う。
 - 受け取った差分の親Revisionが、いま持っているheadと一致するときは**後継Revisionとして適用する**。

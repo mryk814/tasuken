@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
+import { currentSyncShape } from "../../shared/contracts/sync/aiItemPacketContract.mjs";
 import {
   countMarkdownImageAttachments,
   syncMarkdownImageAttachments,
@@ -108,7 +109,10 @@ function isDeviceStatus(value, deviceId) {
     Number.isInteger(value.publishedThrough) &&
     value.publishedThrough >= 0 &&
     typeof value.at === "string" &&
-    Number.isFinite(Date.parse(value.at))
+    Number.isFinite(Date.parse(value.at)) &&
+    // Desktop は取り込める差分の形を必ず出す。replica が書き込みを断るかの判定に使う。
+    (value.role !== "desktop" ||
+      (typeof value.syncShape === "string" && /^[0-9a-f]{64}$/.test(value.syncShape)))
   );
 }
 
@@ -168,6 +172,7 @@ export class SharedFolderSyncService {
     this.knownStatuses = new Map();
     this.deviceAsOf = new Map();
     this.freshness = { asOf: null, desktopSeenAt: null };
+    this.countedDesktops = [];
   }
 
   start() {
@@ -424,6 +429,9 @@ export class SharedFolderSyncService {
       role: this.role,
       publishedThrough,
       at: new Date(at).toISOString(),
+      // この版の Desktop が取り込める AI 作成の差分の形。replica はこれより後に
+      // desktop_first の印があると書き込みを断る。replica 自身は取り込む側ではないので付けない。
+      ...(this.role === "desktop" ? { syncShape: currentSyncShape } : {}),
     };
     try {
       await fs.promises.writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
@@ -512,6 +520,7 @@ export class SharedFolderSyncService {
     }
     const asOfs = counted.map((status) => this.deviceAsOf.get(status.deviceId) ?? null);
     const times = (values) => values.map((value) => Date.parse(value));
+    this.countedDesktops = counted;
     this.freshness = {
       asOf:
         unknownBehind || counted.length === 0 || asOfs.includes(null)
@@ -521,6 +530,14 @@ export class SharedFolderSyncService {
         ? new Date(Math.max(...times(counted.map((status) => status.at)))).toISOString()
         : null,
     };
+  }
+
+  /**
+   * replica が数えている Desktop の status（同期のたびに計算した値）。共有フォルダは読まない。
+   * 書き込みを断るかの判定に使う。
+   */
+  desktopStatuses() {
+    return this.countedDesktops;
   }
 
   /**

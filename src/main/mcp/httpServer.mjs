@@ -49,7 +49,17 @@ export function apiErrorStatus(value) {
   if (["VALIDATION_FAILED", "INVALID_JSON"].includes(upper)) return 400;
   if (["WRITE_NOT_ALLOWED", "FORBIDDEN"].includes(upper)) return 403;
   if (upper.includes("NOT_FOUND")) return 404;
-  if (["IDEMPOTENCY_CONFLICT", "CONFLICT", "STALE_VERSION", "INVALID_TRANSITION"].includes(upper))
+  // DESKTOP_BEHIND・REPLICA_BEHINDはretryableだが、既定の503ではなく状態の食い違いの409にする。
+  if (
+    [
+      "IDEMPOTENCY_CONFLICT",
+      "CONFLICT",
+      "STALE_VERSION",
+      "INVALID_TRANSITION",
+      "DESKTOP_BEHIND",
+      "REPLICA_BEHIND",
+    ].includes(upper)
+  )
     return 409;
   if (["PROPOSAL_TOO_LARGE", "BODY_TOO_LARGE"].includes(upper)) return 413;
   if (

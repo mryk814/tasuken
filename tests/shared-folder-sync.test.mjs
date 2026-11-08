@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
+import { aiItemPacketFlags } from "../src/shared/contracts/sync/aiItemPacketContract.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 import {
   SharedFolderSyncService,
@@ -937,6 +938,8 @@ test("各端末は公開の進みを status.json に置き、進みが無けれ�
       role: "desktop",
       publishedThrough: published,
       at: new Date(T0).toISOString(),
+      // この版の Desktop が取り込める形（印の最後）。replica が書き込みを断る判定に使う。
+      syncShape: aiItemPacketFlags.at(-1).shape_sha256,
     });
 
     now = T0 + 5 * MINUTE;
@@ -973,6 +976,44 @@ test("replica は Desktop の status.json から as_of を出し、取り込め�
       as_of: new Date(T0).toISOString(),
       desktop_seen_at: new Date(T0).toISOString(),
     });
+  } finally {
+    pair.close();
+  }
+});
+
+test("replica は syncShape を出す Desktop の status だけを数え、syncShape の無い Desktop は数えない", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-a", "Desktop task"));
+    await pair.firstSync.configure(pair.shared);
+
+    // この仕組みより前の版の Desktop が置く、syncShape の無い status.json。
+    const legacy = path.join(pair.shared, "devices", "legacy-desktop");
+    fs.mkdirSync(legacy, { recursive: true });
+    fs.writeFileSync(
+      path.join(legacy, "status.json"),
+      JSON.stringify({
+        format: "tasken-device-status",
+        formatVersion: 1,
+        deviceId: "legacy-desktop",
+        role: "desktop",
+        publishedThrough: 0,
+        at: new Date().toISOString(),
+      }),
+    );
+    await pair.secondSync.configure(pair.shared);
+
+    const counted = pair.secondSync.desktopStatuses();
+    assert.deepEqual(
+      counted.map((status) => status.deviceId),
+      [pair.first.deviceId],
+    );
+    assert.equal(counted[0].syncShape, aiItemPacketFlags.at(-1).shape_sha256);
+    assert.equal(
+      "syncShape" in readStatus(pair, pair.second),
+      false,
+      "replica の status には付けない",
+    );
   } finally {
     pair.close();
   }

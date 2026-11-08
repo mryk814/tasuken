@@ -1,5 +1,5 @@
 {
-  "description": "Desktop と NAS の replica が読み合う、AI 作成の Task・Note の同期差分の形（tests/ai-item-creation.test.mjs が replica の実際の出力と比べる）。形を変えたら、入れる前に flags の末尾へ一行足す。replica は main に入ってから 5 分で新しい形を書き始め、Desktop は本人が上げるまで古いまま。desktop_first は、古い Desktop がこの形を取り込めず、Desktop を先に上げる必要があるか。",
+  "description": "Desktop と NAS の replica が読み合う、AI 作成の Task・Note の同期差分の形（tests/ai-item-creation.test.mjs が replica の実際の出力と比べる）。形を変えたら、入れる前に flags の末尾へ一行足す。replica は main に入ってから 5 分で新しい形を書き始め、Desktop は本人が上げるまで古いまま。desktop_first は、古い Desktop がこの形を取り込めず、Desktop を先に上げる必要があるか。replica は、Desktop の status.json の syncShape より後に desktop_first: true の印があると、書き込みを断る。",
   "shape": {
     "task": [
       "$.changeId: string",

@@ -84,6 +84,7 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 - 添付画像は共有フォルダ同期の対象で、受信後に`get_capture_image`・`get_task_image`で読める。`ContentDetailQueryService`がmanifestの`size`・`sha256`と照合するため、欠落・不一致はnot_foundになる。
 - Note Proposal画像のstage（`nativeImage`によるdecode）は含まないため、画像付きProposalの作成はできない。
 - 取り込みの鮮度は、MCPの各tool結果の`source`（`node`・`state`・`as_of`・`desktop_seen_at`）で返す。`as_of`は「この時刻までのDesktopの変更は取り込み済み」で、`null`は不明（14日以内に公開したDesktopが無い、または追いついていない端末がある）。`state`は`ok`のほか、`starting`（未同期）・`conflict`・`waiting_packet`（差分の欠け）・`waiting_image`（写真の未着）・`blocked`（この版が読めない差分）・`io_error`（それ以外の失敗）・`off`があり、`ok`以外は取り込みが遅れている。`source`はreplica（`--sync-directory`あり）のCoreだけが`source_status` capabilityで公開し、Desktopの出力は変わらない。14日以内に公開したDesktopが複数あるときは、いちばん遅れている端末の時刻になる（使っていない端末があると古く見える）。
+- replicaは、古いDesktopが取り込めない差分を書かないよう、書き込みを処理の前に断る（読み取りは止めない）。Desktopが`status.json`の`syncShape`で出す取り込める形より後に、`contracts/sync/ai-item-packets.json`の`desktop_first: true`の印があると`DESKTOP_BEHIND`（409）で、書き込みの経路すべて（`dry_run`を含む）を断る。数える Desktop が一台も無いときも、その印があれば断る。開始（`start-ai-task-work`・`task/command`）は、`source`の`state`が`ok`でなければ`REPLICA_BEHIND`（409）で断る。既存Taskを直接書き換えるため、replicaが遅れたままだと手元の版との照合が通ってしまうから。どちらも`retryable`で、`next_action`に従って再試行する。
 
 ```text
 [データ端末 Tasken] ──共有フォルダへ差分公開──▶ [共有フォルダ] ──replicaが受信──▶ [Headless replica]

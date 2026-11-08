@@ -266,6 +266,14 @@ function errorResponse(code: string, message: string, extra: Record<string, unkn
   return { error: taskenCorePublicError(code, message, extra) };
 }
 
+export type WriteGateCode = "DESKTOP_BEHIND" | "REPLICA_BEHIND";
+export type WriteGate = (path: string) => WriteGateCode | null;
+
+const WRITE_GATE_MESSAGES: Record<WriteGateCode, string> = {
+  DESKTOP_BEHIND: "Desktopが古く、この書き込みの差分を取り込めないため受け付けません。",
+  REPLICA_BEHIND: "NASのreplicaがDesktopの変更を取り込み終えていないため受け付けません。",
+};
+
 class RequestValidationError extends Error {
   readonly issues: unknown[];
 
@@ -545,6 +553,7 @@ export class TaskenCoreHost {
   private readonly discoveryPath: string;
   private readonly endpointPath: string;
   private server: http.Server | null = null;
+  private writeGate: WriteGate | null = null;
 
   constructor(options: TaskenCoreHostOptions) {
     this.options = options;
@@ -565,6 +574,15 @@ export class TaskenCoreHost {
   enableSourceStatus(provider: QueryProvider<GetSourceStatusRequest, GetSourceStatusResponse>) {
     if (this.server) throw new Error("Core起動後の権限変更はできません。");
     this.options.getSourceStatus = provider;
+  }
+
+  /**
+   * NAS replicaだけが、書き込みの経路を処理の前に断れるようにする。Core起動前に一度だけ呼ぶ。
+   * checkは経路ごとに呼ばれ、nullなら通し、コードを返したら409で断る。読み取りの経路は対象外。
+   */
+  enableWriteGate(check: WriteGate) {
+    if (this.server) throw new Error("Core起動後の権限変更はできません。");
+    this.writeGate = check;
   }
 
   private capabilities() {
@@ -787,6 +805,12 @@ export class TaskenCoreHost {
             415,
             errorResponse("UNSUPPORTED_MEDIA_TYPE", "application/jsonを指定してください。"),
           );
+          return;
+        }
+        // 古いDesktopが取り込めない差分を書かないよう、書き込みは処理の前に断る（dry_runも含む）。
+        const blocked = commandPaths.has(url) ? this.writeGate?.(url) : null;
+        if (blocked) {
+          json(response, 409, errorResponse(blocked, WRITE_GATE_MESSAGES[blocked]));
           return;
         }
         const allowsNoteProposalImages =

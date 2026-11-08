@@ -19,7 +19,10 @@ import {
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
 import { issueCoreClientToken } from "../src/main/infrastructure/http/coreClientTokens.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
-import { SharedFolderSyncService } from "../src/main/services/sharedFolderSync.mjs";
+import {
+  SharedFolderSyncService,
+  SYNC_PACKET_FILE_PATTERN,
+} from "../src/main/services/sharedFolderSync.mjs";
 
 const bundleDirectory = fs.mkdtempSync(path.join(process.cwd(), ".tasken-headless-core-test-"));
 after(() => fs.rmSync(bundleDirectory, { recursive: true, force: true }));
@@ -816,6 +819,179 @@ test("Headless replica serves synced capture and task images over Core HTTP (MCP
   } finally {
     await hostSync.stop();
     if (host.db.open) host.db.close();
+  }
+});
+
+/** 書き込みの門を試す共有フォルダ。Desktop役が status.json を置き、replicaが参加する。 */
+async function writeGateFixture(t) {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "tasken-headless-gate-"));
+  const shared = path.join(root, "shared");
+  const hostUserData = path.join(root, "host");
+  const replicaUserData = path.join(root, "replica");
+  fs.mkdirSync(shared, { recursive: true });
+  const host = new WorkspaceDatabase(path.join(hostUserData, "research-desk.sqlite"));
+  const hostSync = new SharedFolderSyncService(
+    host,
+    () => {},
+    path.join(hostUserData, "attachments", "markdown-images"),
+    path.join(hostUserData, "attachments", "capture-images"),
+  );
+  t.after(async () => {
+    await hostSync.stop();
+    if (host.db.open) host.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  bootstrapWorkspace(host);
+  await hostSync.configure(shared);
+  const statusPath = path.join(shared, "devices", host.deviceId, "status.json");
+  const hostShape = JSON.parse(fs.readFileSync(statusPath, "utf8")).syncShape;
+  const sha = (letter) => letter.repeat(64);
+  const mark = (shape, desktopFirst) => ({ shape_sha256: shape, desktop_first: desktopFirst });
+  const startReplica = (syncShapeFlags) =>
+    startTaskenHeadlessCore({
+      userDataPath: replicaUserData,
+      syncDirectory: shared,
+      writeMode: "create-only",
+      allowAiTaskStart: true,
+      env: {},
+      syncShapeFlags,
+    });
+  return {
+    shared,
+    host,
+    hostSync,
+    statusPath,
+    hostShape,
+    sha,
+    mark,
+    startReplica,
+    replicaUserData,
+  };
+}
+
+const gateCreateRequest = (key) => ({
+  kind: "task",
+  title: "NASで作る",
+  body: "本文",
+  caller: "gate-test",
+  source_app: "gate-test",
+  source_session: "gate-session",
+  idempotency_key: key,
+  reason: "書き込みの門の試験",
+});
+
+const gateStartRequest = {
+  task_id: "task-headless",
+  expected_version: 1,
+  idempotency_key: "gate-start",
+  caller: "gate-test",
+  started_at: "2026-11-08T00:00:00.000Z",
+  work_attempt_id: "12c9a3df-084a-4314-8a80-de844b512fad",
+  source_session: "gate-session",
+};
+
+/** 断られたら { code, status }、通ったら "passed"（通ったあとの失敗は問わない）。 */
+async function gateOutcome(call) {
+  try {
+    await call();
+    return "passed";
+  } catch (error) {
+    if (
+      error instanceof TaskenCoreClientError &&
+      ["DESKTOP_BEHIND", "REPLICA_BEHIND"].includes(error.code)
+    )
+      return { code: error.code, status: error.status };
+    return "passed";
+  }
+}
+
+test("replicaは、取り込めないDesktopがいる間は書き込みを断る。読み取りは止めない", async (t) => {
+  const f = await writeGateFixture(t);
+  // Desktopの形が、desktop_firstの印より前を指す。
+  const behind = await f.startReplica([f.mark(f.hostShape, false), f.mark(f.sha("b"), true)]);
+  try {
+    const core = new TaskenCoreClient({ userDataPath: f.replicaUserData });
+    const blocked = { code: "DESKTOP_BEHIND", status: 409 };
+    assert.deepEqual(await gateOutcome(() => core.createAiItem(gateCreateRequest("a"))), blocked);
+    assert.deepEqual(await gateOutcome(() => core.proposeContent({})), blocked);
+    assert.deepEqual(await gateOutcome(() => core.startAiTaskWork(gateStartRequest)), blocked);
+    const searched = await core.searchItems({ query: "Headless context" });
+    assert.ok(
+      searched.items.some((item) => item.id === "task-headless"),
+      "読み取りは止めない",
+    );
+    await assert.rejects(
+      () => core.createAiItem(gateCreateRequest("a")),
+      (error) => error.retryable === true && /Desktop の Tasken を最新版/u.test(error.next_action),
+    );
+  } finally {
+    await behind.stop();
+  }
+
+  // Desktopが新しい形を出している（印の最後を指す）と通る。
+  const current = await f.startReplica([f.mark(f.sha("a"), false), f.mark(f.hostShape, true)]);
+  try {
+    const core = new TaskenCoreClient({ userDataPath: f.replicaUserData });
+    const created = await core.createAiItem(gateCreateRequest("b"));
+    assert.equal(created.status, "created");
+  } finally {
+    await current.stop();
+  }
+});
+
+test("replicaは取り込みが遅れている間、既存Taskを書き換える開始を断る。新規作成は通す", async (t) => {
+  const f = await writeGateFixture(t);
+  const handle = await f.startReplica([f.mark(f.hostShape, false)]);
+  try {
+    const core = new TaskenCoreClient({ userDataPath: f.replicaUserData });
+    assert.notDeepEqual(
+      await gateOutcome(() => core.startAiTaskWork(gateStartRequest)),
+      { code: "REPLICA_BEHIND", status: 409 },
+      "取り込めている間は断らない",
+    );
+
+    // Desktopが差分を足し、途中の一つが共有フォルダから欠ける。
+    f.host.save("task", { id: "task-late-1", title: "late 1", state: "todo", priority: "normal" });
+    f.host.save("task", { id: "task-late-2", title: "late 2", state: "todo", priority: "normal" });
+    await f.hostSync.syncNow();
+    const directory = path.join(f.shared, "devices", f.host.deviceId);
+    const packets = fs
+      .readdirSync(directory)
+      .filter((name) => SYNC_PACKET_FILE_PATTERN.test(name))
+      .sort();
+    fs.unlinkSync(path.join(directory, packets.at(-2)));
+    await assert.rejects(() => handle.syncNow(), /を待っています/u);
+
+    assert.deepEqual(await gateOutcome(() => core.startAiTaskWork(gateStartRequest)), {
+      code: "REPLICA_BEHIND",
+      status: 409,
+    });
+    // 新規作成は既存Taskを書き換えないので通す。
+    assert.equal((await core.createAiItem(gateCreateRequest("c"))).status, "created");
+  } finally {
+    await handle.stop();
+  }
+});
+
+test("replicaはDesktopのstatusが無いとき、desktop_firstの印があれば断り、無ければ通す", async (t) => {
+  const f = await writeGateFixture(t);
+  fs.rmSync(f.statusPath);
+  const first = await f.startReplica([f.mark(f.sha("a"), false), f.mark(f.sha("b"), true)]);
+  try {
+    const core = new TaskenCoreClient({ userDataPath: f.replicaUserData });
+    assert.deepEqual(await gateOutcome(() => core.createAiItem(gateCreateRequest("d"))), {
+      code: "DESKTOP_BEHIND",
+      status: 409,
+    });
+  } finally {
+    await first.stop();
+  }
+  const second = await f.startReplica([f.mark(f.sha("a"), false)]);
+  try {
+    const core = new TaskenCoreClient({ userDataPath: f.replicaUserData });
+    assert.equal((await core.createAiItem(gateCreateRequest("d"))).status, "created");
+  } finally {
+    await second.stop();
   }
 });
 
