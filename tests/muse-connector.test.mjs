@@ -10,7 +10,10 @@ import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
 
 import { buildMcpBridge } from "../scripts/build-mcp-bridge.mjs";
-import { MCP_TOOL_REQUIREMENTS } from "../src/main/mcp/toolAvailability.mjs";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+
+import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
 
 // Museの手順書（clients/muse/CONNECTOR.md）の流れを、本物のhelper（clients/muse/tasken.py）と
 // 本物のHeadless Core・HTTP bridgeで一続きに通す。helperは試験用のTASKEN_BASE_URLとTASKEN_TEST_TOKENで、
@@ -33,19 +36,48 @@ function findPython() {
 
 const python = findPython();
 
-test("CONNECTOR.md names only tools that exist", () => {
+/**
+ * bridgeが登録する全ツールの名前（`tasken.`を除く）。capabilityを渡さないと絞り込まずに全部を登録する。
+ * main.mcpの公開口（server.mjs）だけを使い、内部の要件表は読まない。
+ */
+async function bridgeToolNames() {
+  const server = createTaskenMcpServer({
+    coreClient: {},
+    readOnly: false,
+    toolsets: ["all", "legacy"],
+  });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "muse-connector-test", version: "1.0.0" });
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  try {
+    const { tools } = await client.listTools();
+    return new Set(tools.map((tool) => tool.name.replace(/^tasken\./, "")));
+  } finally {
+    await client.close();
+    await server.close();
+  }
+}
+
+test("CONNECTOR.md names only tools that exist", async () => {
   const doc = fs.readFileSync(path.join(museDirectory, "CONNECTOR.md"), "utf8");
+  const tools = await bridgeToolNames();
   const called = [...doc.matchAll(/\b(?:T|tasken\.py) call ([A-Za-z0-9_]+)/g)].map(
     (match) => match[1],
   );
   assert.ok(called.length > 0);
   for (const tool of called) {
-    assert.ok(MCP_TOOL_REQUIREMENTS[`tasken.${tool}`], `CONNECTOR.md calls unknown tool ${tool}`);
+    assert.ok(tools.has(tool), `CONNECTOR.md calls unknown tool ${tool}`);
   }
   // 表に挙げたツール名（バッククォートで囲んだ小文字のsnake_case）も同じ。
-  const table = doc.slice(doc.indexOf("### Which tool for which moment"), doc.indexOf("```text"));
-  for (const [, tool] of table.matchAll(/`([a-z]+(?:_[a-z]+)+)`/g)) {
-    assert.ok(MCP_TOOL_REQUIREMENTS[`tasken.${tool}`], `CONNECTOR.md names unknown tool ${tool}`);
+  // 終わりは見出しより後の最初のコード例。前のコード例で切ると範囲が空になり、何も確かめなくなる。
+  const heading = doc.indexOf("### Which tool for which moment");
+  assert.ok(heading >= 0);
+  const table = doc.slice(heading, doc.indexOf("```text", heading));
+  const named = [...table.matchAll(/`([a-z]+(?:_[a-z]+)+)`/g)].map((match) => match[1]);
+  assert.ok(named.length >= 10, "the table of tools was not found");
+  for (const tool of named) {
+    assert.ok(tools.has(tool), `CONNECTOR.md names unknown tool ${tool}`);
   }
 });
 
