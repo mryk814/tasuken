@@ -14,7 +14,7 @@ Todayの「今日の記録」ではTask完了やCaptureと一緒に[日ごとに
 12,000文字までの入力を原文のまま保存し、上限を超えても入力を切り捨てない。
 Desktopで後から編集されたNoteの表示にはAndroid入力欄の文字数制限を適用しない。
 
-正式記録は[共通RecordWorkLog](work-log-command.md)が保存する通常Noteとcanonical Markdownで、AndroidのRoomは表示用cacheと未同期入力である。
+正式記録は共通RecordWorkLog（`src/shared/workLog.ts`）が保存する通常Noteとcanonical Markdownで、AndroidのRoomは表示用cacheと未同期入力である。
 `commandId = noteId`で、再送時はID・`issuedAt`・本文・実施日・参照を変更しない。
 初回envelopeは受信後もcacheに保持し、Desktop編集後の二重submitを新規保存や巻き戻しへ変換しない。
 Room 20→21は既存のTask/Capture/outboxを保持し、`work_log_cache`とnullableなoutboxの`workLogId`だけを追加する。

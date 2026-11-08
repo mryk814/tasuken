@@ -1,3 +1,10 @@
+// Task ボードと AI 連携の実動監査。task-handoff-audit.mjs の --task-board --integrated から呼ばれる。
+//
+//   rtk node scripts/run-electron-node.mjs scripts/task-handoff-audit.mjs --task-board --integrated --all-features
+//   pwsh -NoProfile -File scripts/preview-task-board.ps1   # 結果を隔離 preview で見る
+//
+// 依存と build は development-environment.md のとおりに用意する。
+// 架空データを持つ一時 profile だけを使う。通常 DB・同期先・個人履歴を指定しない。
 import assert from "node:assert/strict";
 import { _electron as electron } from "playwright";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";

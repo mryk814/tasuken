@@ -57,7 +57,7 @@ fixtureを本番Workspaceへimportしない。
 ## OneDriveとM365 Copilotで確認する
 
 仕事アカウントでの確認はrelease後にユーザーが行う。
-個人OneDriveの既存同期証跡は[日別公開の文書](daily-context-publication.md)に記録済みだが、このfixtureや仕事アカウント、M365 Copilotの成功証拠には流用しない。
+個人OneDriveの既存同期証跡（2026-09-06の日別公開の検証。文書を消したコミットの本文に残してある）はあるが、このfixtureや仕事アカウント、M365 Copilotの成功証拠には流用しない。
 
 1. `verification.json`のローカル成功を確認し、commit、実行日時、出力先を結果テンプレートへ記録する。
 2. ユーザーが選んだ評価専用のOneDrive保存先へ、`current/Tasken Context/`だけをフォルダー構造ごとコピーする。出力root全体、`partial-case/`、`queue-state.json`、期待解答を含む`questions.md`をコピーしない。

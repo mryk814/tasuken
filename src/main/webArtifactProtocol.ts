@@ -1,3 +1,6 @@
+// Preview 用の HTML は、専用 protocol (tasken-web) の iframe にだけ返す。
+// `srcDoc` や `data:` URL で渡さず、`BrowserWindow.loadFile` にも渡さない。
+// Electron 親画面の CSP と Preview 側の CSP が混ざるのを避けるため。
 import { protocol } from "electron";
 
 import {

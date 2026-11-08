@@ -3,6 +3,10 @@ import { projectEntityForAi } from "./aiMetadata.mjs";
 
 export const CONVERSATION_CONTEXT_SCHEMA = "tasken-conversation-context/v1";
 export const CONVERSATION_CONTEXT_PUBLICATION_SCHEMA = "tasken-conversation-context-publication/v1";
+// "AI Pack/Conversations" には置かない。Theme AI Pack は固定 7 ファイルだけを staging swap し、
+// 余分なファイルを拒否する原子的な projection なので、動的な会話ファイルをその配下に置くと
+// 検証で拒否されるか、次回の更新で消える。
+// Theme AI Pack 側は、公開済み projection への参照と要約だけを持ち、会話本文は複製しない。
 export const CONVERSATION_CONTEXT_DIRECTORY = "AI Context/Conversations";
 export const CONVERSATION_CONTEXT_SCOPES = ["full", "selected_turns"];
 

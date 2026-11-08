@@ -16,7 +16,6 @@ import {
 /**
  * Maintenanceの最小実験（#454後半 / O単位）。
  *
- * 正本は `docs/maintenance-experiment.md`。
  * 次の目安は**推奨間隔からの提案**であり、Taskの期限違反ではない。
  * 前回が分からない項目は「次の目安を決める」から始める。
  */

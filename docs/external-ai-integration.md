@@ -163,7 +163,7 @@ node scripts/tasken-core-client.mjs revoke awai                                 
 | -------------------- | ----------------------------------------------------- | -------------------------- |
 | 日報                 | MCP Prompt `daily-report`、Debriefの依頼文            | Note Proposal → Agent Desk |
 | M365へThemeを渡す    | Theme AI Pack（`themeAiPack.mjs`）                    | OneDrive上の読み取り投影   |
-| 選択会話を公開する   | [Conversation AI Context](conversation-ai-context.md) | 明示公開したMarkdown       |
+| 選択会話を公開する   | Conversation AI Context（`conversationContext.mjs`） | 明示公開したMarkdown       |
 | AI作業の履歴を集める | [Agent Session hooks](agent-session-provenance.md)    | Session記録／Debrief       |
 
 Context Packから構造化JSONを貼り戻して既存Taskを更新するUIは、現在のAgent Deskにはありません。
