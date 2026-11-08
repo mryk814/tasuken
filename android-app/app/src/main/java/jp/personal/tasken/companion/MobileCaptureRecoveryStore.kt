@@ -20,7 +20,19 @@ data class MobileRecoveredInput(
     val byteCount: Int get() = raw.toByteArray(Charsets.UTF_8).size
 }
 
-/** Original preference value bytes stay private and are never included in diagnostics. */
+/**
+ * Original preference value bytes stay private and are never included in diagnostics.
+ *
+ * A draft that cannot be restored as input (older than 7 days, future or undefined schema, broken JSON,
+ * contradictory values) is archived as the original bytes instead of being converted by guesswork.
+ * The original draft is removed only after the archive has been written and read back. If archiving
+ * fails the original stays, and later autosave and clear are refused so they cannot overwrite it.
+ * Old and new Store instances can overlap when an Activity is recreated, so work is serialized across
+ * Stores; otherwise removing the archived source could overtake saving a newer input.
+ *
+ * This is verified up to Activity recreation. The boundary of OS process death and restart is checked
+ * in the offline journey (android-offline-journey).
+ */
 internal class MobileCaptureRecoveryStore(
     private val directory: File,
     private val now: () -> Instant,

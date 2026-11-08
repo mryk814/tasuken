@@ -6,6 +6,8 @@ import java.util.UUID
 // Kotlin and the TypeScript wire contract count UTF-16 code units (String.length).
 internal const val MOBILE_CAPTURE_TEXT_MAX_LENGTH = 12000
 internal const val MOBILE_TASK_TITLE_MAX_LENGTH = 500
+// An older Desktop's strict schema rejects this field, so even a short original text never falls into
+// the old trim path.
 internal const val MOBILE_CAPTURE_TEXT_CONTRACT = "verbatim-utf16-12000"
 
 enum class MobileCaptureKind(val wireValue: String) {
@@ -147,6 +149,8 @@ data class MobileCaptureDraft(
         return proposals.mapIndexedNotNull { index, proposal ->
             if (proposal.excluded) return@mapIndexedNotNull null
             copy(
+                // ID は、除外した候補も数えた元の index から作る。除外しても後続の ID が変わらず、
+                // 再試行で重複しない。
                 draftId = if (index == 0) draftId else "$draftId:task:$index",
                 text = proposal.title,
                 projectId = proposal.themeId,

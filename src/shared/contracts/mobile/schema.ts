@@ -1382,6 +1382,8 @@ export const mobileTaskCommandResponseSchema = z
 const mobileCreateCaptureCandidateSchema = z
   .object({
     id: entityIdSchema,
+    // An older Desktop's strict schema rejects this field, so even a short original text never falls into
+    // the old trim path.
     textContract: z.literal("verbatim-utf16-12000").optional(),
     text: z
       .string()

@@ -10,7 +10,12 @@ interface MobileActivityPersistence {
   readWorkspaceSnapshot(includeDeleted?: boolean): Record<string, unknown>;
 }
 
-/** Device authorization belongs to the Gateway; this is the owner's read projection. */
+/**
+ * Device authorization belongs to the Gateway; this is the owner's read projection.
+ *
+ * Android's "today / last 7 days" is the caller's choice of `date` and `timezone`. Do not turn it into a
+ * fixed window that depends on the Gateway's own clock.
+ */
 export function createMobileActivityReadPort(persistence: MobileActivityPersistence) {
   return (request: MobileActivityRequest): MobileActivityData => {
     const workspace = persistence.readWorkspaceSnapshot(true);
