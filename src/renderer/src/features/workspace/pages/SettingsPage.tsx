@@ -13,7 +13,10 @@ import type {
   MobileGatewayDiagnostics,
   MobileGatewayPairingTicket,
 } from "../../../../../shared/mobileGatewayIpc";
-import { copyMcpBridgeConfig } from "../../../../../shared/ipc/contracts";
+import {
+  AI_DIRECT_WRITE_PREFERENCE,
+  copyMcpBridgeConfig,
+} from "../../../../../shared/ipc/contracts";
 import type { CalendarConnectionStatus, CalendarProvider } from "../../../../../shared/calendar";
 import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
 import { AI_AUDIENCES, DEFAULT_AI_VISIBILITY } from "../../../../../shared/aiMetadata.mjs";
@@ -103,6 +106,9 @@ export function SettingsPage({
   const [syncBusy, setSyncBusy] = useState(false);
   const [mcpInfo, setMcpInfo] = useState<McpBridgeInfo | null>(null);
   const [mcpBusy, setMcpBusy] = useState(false);
+  // ローカルのAI（Claude Codeなど）の直接の書き込み（#703）。既定は無効。
+  const [aiDirectWriteEnabled, setAiDirectWriteEnabled] = useState(false);
+  const [aiDirectWriteBusy, setAiDirectWriteBusy] = useState(false);
   const [calendarStatus, setCalendarStatus] = useState<CalendarConnectionStatus | null>(null);
   const [calendarBusy, setCalendarBusy] = useState(false);
   const [calendarRefreshNote, setCalendarRefreshNote] = useState<string | null>(null);
@@ -164,6 +170,35 @@ export function SettingsPage({
     const nextHash = settingsHash(section);
     if (window.location.hash.slice(1) !== nextHash) window.location.hash = nextHash;
     setActiveSection(section);
+  }
+
+  useEffect(() => {
+    workspaceApi
+      .getPreference(AI_DIRECT_WRITE_PREFERENCE)
+      .then((value) => setAiDirectWriteEnabled(value === true))
+      .catch(() => {
+        // 読めないときは無効として表示する（Coreも同じ値を読むので、表示と実際はずれない）。
+      });
+  }, []);
+
+  async function updateAiDirectWrite(enabled: boolean) {
+    setAiDirectWriteEnabled(enabled);
+    setAiDirectWriteBusy(true);
+    try {
+      await workspaceApi.setPreference(AI_DIRECT_WRITE_PREFERENCE, enabled);
+      setToast(
+        enabled ? "ローカルのAIの直接の書き込みを許しました。" : "直接の書き込みを止めました。",
+        "success",
+      );
+    } catch (error) {
+      setAiDirectWriteEnabled(!enabled);
+      setToast(
+        `設定を変更できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    } finally {
+      setAiDirectWriteBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -1386,9 +1421,21 @@ export function SettingsPage({
                 <IntegrationStatus label={mcpSummary.label} tone={mcpSummary.tone} />
               </div>
               <p className="field-help">
-                外部AIはTaskenを読み取り、追加・編集は提案（Pending
-                Proposal）として送ります。正式データは採用するまで変わりません。例外はAI
-                Readyにしたタスクの作業開始と、この接続で許可した個人業務のTask・Noteの新規作成で、どちらもAIによる操作として記録されます。
+                外部AIはTaskenを読み取り、変更は提案として送ります。AI
+                Readyにしたタスクの作業開始は、いつでも受け付けます。
+              </p>
+              <label className="toggle">
+                ローカルのAIに直接の書き込みを許す
+                <input
+                  type="checkbox"
+                  checked={aiDirectWriteEnabled}
+                  disabled={aiDirectWriteBusy}
+                  onChange={(event) => void updateAiDirectWrite(event.target.checked)}
+                />
+              </label>
+              <p className="field-help">
+                Claude
+                CodeなどこのPCのAIが、提案を経ずにTask・Noteを作成できます。AIの操作として記録されます。
               </p>
               <dl className="settings-meta-list">
                 <div>
@@ -1418,7 +1465,9 @@ export function SettingsPage({
                   <dt>AIの書き込み</dt>
                   <dd>
                     {mcpInfo?.coreWriteProfile === "full"
-                      ? "提案と直接開始を受け付ける"
+                      ? aiDirectWriteEnabled
+                        ? "提案・作業開始・直接の書き込みを受け付ける"
+                        : "提案と作業開始を受け付ける"
                       : mcpInfo?.coreWriteProfile === "proposals"
                         ? "Text Proposal（Feed投稿・Note案・Task案・作業報告）のみ受け付ける"
                         : mcpInfo?.coreWriteProfile === "read-only"

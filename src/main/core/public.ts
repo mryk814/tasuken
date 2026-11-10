@@ -1,5 +1,6 @@
 export { AgentReadyTaskAiProjectionPolicy } from "./policies/agentReadyTaskAiProjectionPolicy.ts";
 export { AiTaskStartService, type AiTaskStartPort } from "./services/aiTaskStartService.ts";
+export { CorePublicError, directWriteDisabled } from "./services/corePublicError.ts";
 export { ListAgentReadyTasksService } from "./services/listAgentReadyTasksService.ts";
 export { AgentWorkspaceQueryService } from "./services/agentWorkspaceQueryService.ts";
 export { TaskContextQueryService } from "./services/taskContextQueryService.ts";

@@ -1,4 +1,4 @@
-import { aiItemCreationRequestSchema } from "../../shared/contracts/task/public.ts";
+import { aiNoteCreationFields, aiTaskCreationFields } from "../../shared/contracts/task/public.ts";
 import { randomUUID } from "node:crypto";
 
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -243,7 +243,7 @@ export function createTaskenMcpServer(options = {}) {
       instructions: `${
         readOnly
           ? "Tasken is read-only; use the listed bounded context and detail tools. No writes or Proposals are exposed."
-          : "Tasken manages work and knowledge. Check tasken.get_capabilities before writes when listed; Core may still refuse them. Proposals stay unofficial until human adoption; done reports never complete Tasks. Feed posts/replies appear immediately; direct create/start tools require explicit grants. Reuse idempotency_key with identical content on retries and use dry_run for validation. Read tasken://guide/{feed_post,note_article,work_report,proposals} for details; never expose secrets or publish outside Tasken."
+          : "Tasken manages work and knowledge. Check tasken.get_capabilities before writes when listed; Core may still refuse them. Proposals stay unofficial until human adoption; done reports never complete Tasks. Feed posts/replies appear immediately. Direct create_* tools need the user's grant (on Desktop, a Tasken setting; get_capabilities shows it); start_task_work claims only AI Ready Tasks.Reuse idempotency_key with identical content on retries and use dry_run for validation. Read tasken://guide/{feed_post,note_article,work_report,proposals} for details; never expose secrets or publish outside Tasken."
       }${sourceInstruction}`,
     },
   );
@@ -701,6 +701,7 @@ export function createTaskenMcpServer(options = {}) {
       const availability = mcpToolAvailability(withhold(status.capabilities), {
         readOnly,
         toolsets,
+        directWriteEnabled: status.directWriteEnabled,
       });
       const tools = Object.entries(availability.tools).map(([name, tool]) => ({
         name,
@@ -711,7 +712,14 @@ export function createTaskenMcpServer(options = {}) {
       }));
       return {
         schema: "tasken-mcp-capabilities/v1",
-        core: { api_version: status.apiVersion, write_profile: availability.write_profile },
+        core: {
+          api_version: status.apiVersion,
+          write_profile: availability.write_profile,
+          // Desktopだけが返す。本人が設定で直接の書き込みを許しているか。
+          ...(status.directWriteEnabled === undefined
+            ? {}
+            : { direct_write_enabled: status.directWriteEnabled }),
+        },
         bridge: {
           read_only: readOnly,
           toolsets,
@@ -1034,24 +1042,22 @@ export function createTaskenMcpServer(options = {}) {
     withCoreClient((args) => queueTaskWork(args, "report_blocked")),
   );
 
-  for (const kind of ["task", "note"]) {
-    const { kind: _kind, ...creationFields } = aiItemCreationRequestSchema.shape;
-    const toolName = "tasken.create_" + kind;
+  const creationTools = {
+    task: {
+      fields: aiTaskCreationFields,
+      description:
+        "Save a new Task directly (marked AI-created/unseen); returns the official ID. Theme defaults to 個人業務; schedule, priority, today_date and checklist are optional. Reuse idempotency_key on retries.",
+    },
+    note: {
+      fields: aiNoteCreationFields,
+      description:
+        "Save a new Note directly (marked AI-created/unseen); returns the official ID. Theme defaults to 個人業務. Reuse idempotency_key on retries; see tasken://guide/note_article for Markdown.",
+    },
+  };
+  for (const [kind, { fields, description }] of Object.entries(creationTools)) {
     server.registerTool(
-      toolName,
-      {
-        description:
-          "Create a personal " +
-          kind +
-          " marked AI-created/unseen; returns an official ID. New records only; no edits, deletion, completion or delegation; reuse idempotency_key on retries.",
-        inputSchema: creationFields,
-        annotations: {
-          readOnlyHint: false,
-          destructiveHint: false,
-          idempotentHint: true,
-          openWorldHint: false,
-        },
-      },
+      "tasken.create_" + kind,
+      { description, inputSchema: fields, annotations: DIRECT_WRITE_ANNOTATIONS },
       withCoreClient((args) => coreClient.createAiItem({ ...args, kind })),
     );
   }

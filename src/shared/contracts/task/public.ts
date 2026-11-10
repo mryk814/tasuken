@@ -416,6 +416,13 @@ export {
   aiItemCreationRequestSchema,
   aiItemCreationResponseSchema,
   aiCreationOriginSchema,
+  aiNoteCreationFields,
+  aiTaskCreationFields,
   type AiItemCreationRequest,
   type AiItemCreationResponse,
 } from "./aiItemCreation.ts";
+export {
+  aiTaskScheduleInputSchema,
+  taskScheduleEditFromAiInput,
+  type AiTaskScheduleInput,
+} from "./aiSchedule.ts";

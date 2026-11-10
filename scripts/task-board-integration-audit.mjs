@@ -16,7 +16,7 @@ export async function runIntegratedBoardChecks({
   output,
 }) {
   const checks = [];
-  const env = { ...process.env, TASKEN_USER_DATA_DIR: userData, TASKEN_CORE_AI_ITEM_CREATE: "1" };
+  const env = { ...process.env, TASKEN_USER_DATA_DIR: userData };
   const core = new TaskenCoreClient({ env });
   const request = (kind) => ({
     kind,

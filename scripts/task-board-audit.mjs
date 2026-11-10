@@ -86,16 +86,14 @@ export async function runTaskBoardAudit(WorkspaceDatabase) {
     repeat_rule: { frequency: "weekly", interval: 1, next_from: "completed" },
     project_id: "theme-personal-default",
   });
+  const integrated = process.argv.includes("--integrated");
+  // 統合確認ではAIの新規作成を使う。本人が設定画面で許すのと同じ値を一時DBに入れる。
+  if (integrated) seed.setPreference("aiDirectWriteEnabled", true);
   seed.db.close();
 
-  const integrated = process.argv.includes("--integrated");
   let app = await electron.launch({
     args: [".", "--disable-gpu", "--disable-gpu-compositing", `--user-data-dir=${userData}`],
-    env: {
-      ...process.env,
-      TASKEN_USER_DATA_DIR: userData,
-      ...(integrated ? { TASKEN_CORE_AI_ITEM_CREATE: "1" } : {}),
-    },
+    env: { ...process.env, TASKEN_USER_DATA_DIR: userData },
   });
   const checks = [];
   let page;
