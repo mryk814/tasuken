@@ -112,7 +112,6 @@ import {
   proposeContentRequestSchema,
   proposalStatusRequestSchema,
   listProposalsRequestSchema,
-  taskCommandSchema,
   taskQuerySchema,
 } from "../../../shared/contracts/task/public.ts";
 import {
@@ -153,7 +152,6 @@ import {
   TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
-  TASKEN_CORE_TASK_COMMAND_CAPABILITY,
   TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
   taskenCorePublicError,
@@ -186,7 +184,6 @@ export interface TaskenCoreHostOptions {
   getSourceStatus?: QueryProvider<GetSourceStatusRequest, GetSourceStatusResponse>;
   startAiTaskWork?: QueryProvider<AiTaskStartRequest, TaskCommandResponse>;
   taskQuery?: QueryProvider<unknown, TaskQueryResponse>;
-  taskCommand?: QueryProvider<unknown, TaskCommandResponse>;
   listAgentReadyTasks: ListAgentReadyTasksProvider;
   resolveRepositoryContext?: QueryProvider<
     RepositoryLookupRequest,
@@ -325,13 +322,6 @@ const ROUTES: readonly RouteDefinition[] = [
     provider: "taskQuery",
     capability: TASKEN_CORE_TASK_QUERY_CAPABILITY,
     schema: taskQuerySchema,
-  },
-  {
-    path: "/v1/task/command",
-    kind: "command",
-    provider: "taskCommand",
-    capability: TASKEN_CORE_TASK_COMMAND_CAPABILITY,
-    schema: taskCommandSchema,
   },
   {
     path: "/v1/queries/list-agent-ready-tasks",

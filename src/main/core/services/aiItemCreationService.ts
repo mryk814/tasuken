@@ -38,8 +38,25 @@ export interface AiItemCreationOptions {
    * NAS replicaは配備の書き込み範囲（create-only）を選んだ時点で許しているので渡さない。
    */
   isEnabled?: () => boolean;
+  /**
+   * `any`（Desktop）はThemeと日程などの欄を受ける。`personal`（既定、NAS replica）は今までどおり、
+   * 個人業務への題名と本文だけ。NASのAIはThemeのAI公開範囲を見ずに書けてしまうのと、
+   * replicaが出す同期差分の形を増やさないため。
+   */
+  scope?: "personal" | "any";
   now?: () => string;
 }
+
+/** `personal`の範囲で受けない欄。 */
+const DESKTOP_ONLY_FIELDS = [
+  "theme_id",
+  "priority",
+  "schedule",
+  "today_date",
+  "checklist",
+  "note_type",
+  "report_date",
+] as const;
 
 function stableId(value: string): string {
   const h = createHash("sha256").update(value).digest("hex");
@@ -61,6 +78,16 @@ export class AiItemCreationService {
   execute(input: AiItemCreationRequest): AiItemCreationResponse {
     if (this.options.isEnabled && !this.options.isEnabled()) throw directWriteDisabled();
     const request = aiItemCreationRequestSchema.parse(input);
+    if ((this.options.scope || "personal") === "personal") {
+      const fields = DESKTOP_ONLY_FIELDS.filter((field) => request[field] !== undefined);
+      if (fields.length > 0)
+        throw new CorePublicError(
+          "WRITE_NOT_ALLOWED",
+          "この接続先では、個人業務への題名と本文だけの新規作成を受け付けます。",
+          403,
+          { fields },
+        );
+    }
     if (request.kind === "note") this.port.recoverNotes();
     const commandId = stableId(
       JSON.stringify([
@@ -131,7 +158,10 @@ export class AiItemCreationService {
         : {
             body_markdown: request.body,
             note_type: request.note_type || "memo",
-            ...(request.report_date ? { report_date: request.report_date } : {}),
+            // 日報の日付は、提案の採用と同じくproperties_json.daily_reportに置く（Debriefが読む場所）。
+            ...(request.report_date
+              ? { properties_json: { daily_report: { date: request.report_date } } }
+              : {}),
           }),
     };
     // This event and Entity are committed together, including canonical Note recovery.

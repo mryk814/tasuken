@@ -161,8 +161,7 @@ export function installedTaskenExecutable(moduleUrl = import.meta.url) {
  * Coreに繋がらない。Desktopが動いていないことが多いので、配布版ならTasken.exeの場所を添え、
  * AI（Claude Codeなど）が自分で起動できるようにする（#703 の c0）。
  */
-function coreUnavailable(cause) {
-  const executable = installedTaskenExecutable();
+function coreUnavailable(cause, executable = null) {
   return new TaskenCoreClientError(
     "CORE_UNAVAILABLE",
     "Tasken Coreへ接続できません。Taskenを起動してください。",
@@ -229,7 +228,7 @@ function parseDiscovery(value) {
   return value;
 }
 
-async function readDiscovery(discoveryPath) {
+async function readDiscovery(discoveryPath, taskenExecutable = null) {
   let handle;
   try {
     const linkStat = await fs.lstat(discoveryPath);
@@ -267,7 +266,7 @@ async function readDiscovery(discoveryPath) {
     return parseDiscovery(JSON.parse(await handle.readFile("utf8")));
   } catch (error) {
     if (error instanceof TaskenCoreClientError) throw error;
-    throw coreUnavailable(error);
+    throw coreUnavailable(error, taskenExecutable);
   } finally {
     await handle?.close();
   }
@@ -278,6 +277,8 @@ export class TaskenCoreClient {
     this.discoveryPath = options.discoveryPath || taskenCoreDiscoveryPath(options);
     this.timeoutMs = options.timeoutMs || TASKEN_CORE_CLIENT_TIMEOUT_MS;
     this.fetch = options.fetch || globalThis.fetch;
+    // stdioのbridge（Claude Codeなど同じPCのAI）だけが渡す。HTTPのbridgeは外へ返すので渡さない。
+    this.taskenExecutable = options.taskenExecutable || null;
   }
 
   async listAgentReadyTasks(request = {}) {
@@ -599,7 +600,7 @@ export class TaskenCoreClient {
   }
 
   async inspect() {
-    const discovery = await readDiscovery(this.discoveryPath);
+    const discovery = await readDiscovery(this.discoveryPath, this.taskenExecutable);
     const [health, version, capabilityPayload] = await Promise.all([
       this.get(discovery, "/health"),
       this.get(discovery, "/version"),
@@ -669,7 +670,7 @@ export class TaskenCoreClient {
     extraHeaders = {},
     timeoutMs = this.timeoutMs,
   ) {
-    const discovery = await readDiscovery(this.discoveryPath);
+    const discovery = await readDiscovery(this.discoveryPath, this.taskenExecutable);
     if (!discovery.capabilities.includes(capability)) {
       throw new TaskenCoreClientError(
         "CAPABILITY_UNAVAILABLE",
@@ -747,7 +748,7 @@ export class TaskenCoreClient {
       return parsed.data;
     } catch (error) {
       if (error instanceof TaskenCoreClientError) throw error;
-      throw coreUnavailable(error);
+      throw coreUnavailable(error, this.taskenExecutable);
     } finally {
       clearTimeout(timeout);
     }
@@ -782,7 +783,7 @@ export class TaskenCoreClient {
       return await response.json();
     } catch (error) {
       if (error instanceof TaskenCoreClientError) throw error;
-      throw coreUnavailable(error);
+      throw coreUnavailable(error, this.taskenExecutable);
     } finally {
       clearTimeout(timeout);
     }

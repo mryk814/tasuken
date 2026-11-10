@@ -728,9 +728,15 @@ export class TaskenCoreRuntime {
    * AIのTask・Note新規作成を公開する。`isEnabled`はDesktopだけが渡し、本人の設定を要求のたびに読む。
    * NAS replicaは配備の書き込み範囲（create-only）で許しているので渡さない。
    */
-  enableAiItemCreation(port: AiItemCreationPort, options: { isEnabled?: () => boolean } = {}) {
+  enableAiItemCreation(
+    port: AiItemCreationPort,
+    options: { isEnabled?: () => boolean; scope?: "personal" | "any" } = {},
+  ) {
     this.host.enableAiItemCreation(
-      new AiItemCreationService(this.persistence, port, { isEnabled: options.isEnabled }),
+      new AiItemCreationService(this.persistence, port, {
+        isEnabled: options.isEnabled,
+        scope: options.scope,
+      }),
       options.isEnabled,
     );
   }

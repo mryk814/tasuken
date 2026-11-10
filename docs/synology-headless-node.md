@@ -143,7 +143,7 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 | `tasken.answer_feed_question` | 受け付ける（`feed_reply`。返信の表示名は検証済みのclient名）    |
 | `tasken.report_work`          | 受け付ける（`propose_task_work`、status=progress/done/blocked） |
 
-`start_task_work`（`missing_capability:task.command`）は一覧に出ません。AIは`tasken.get_capabilities`で、使えないtoolとその理由を一度に確認できます。一覧から外すのは案内のためで、Core自身の`WRITE_NOT_ALLOWED`による拒否が引き続き最終の境界です（画像付きの提案は`propose_note`・`propose_feed_post`が一覧に残るため、Coreが拒否します）。bridgeの起動時にCoreへ接続できなかった場合もtoolsetsとreadOnlyによる制限を適用し、残りのtoolを登録して、呼び出し時にCoreが拒否します。
+`start_task_work`（`missing_capability:task.start_work`）は一覧に出ません。AIは`tasken.get_capabilities`で、使えないtoolとその理由を一度に確認できます。一覧から外すのは案内のためで、Core自身の`WRITE_NOT_ALLOWED`による拒否が引き続き最終の境界です（画像付きの提案は`propose_note`・`propose_feed_post`が一覧に残るため、Coreが拒否します）。bridgeの起動時にCoreへ接続できなかった場合もtoolsetsとreadOnlyによる制限を適用し、残りのtoolを登録して、呼び出し時にCoreが拒否します。
 
 Task**案**を作るtoolは現行のMCP bridgeには登録されていません（`propose_repository_task` capabilityはCore側にあります）。ChatGPTへTaskを作らせたい場合は、Feed投稿かNote案として送り、DesktopでTaskへ昇格させてください。
 

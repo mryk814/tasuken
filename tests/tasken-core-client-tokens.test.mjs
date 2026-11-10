@@ -53,7 +53,7 @@ async function withHost(t, run) {
     listAgentReadyTasks: record("list_agent_ready_tasks", () => ({ tasks: [] })),
     searchItems: record("search_items", () => ({ items: [{ id: "fictional-task" }] })),
     getRecentNotes: record("get_recent_notes", () => ({ notes: [{ id: "fictional-note" }] })),
-    taskCommand: record("task_command", () => ({ ok: true })),
+    startAiTaskWork: record("start_ai_task_work", () => ({ ok: true })),
     listProposals: record("list_proposals", () => ({ proposals: [] })),
     proposeContent: record("propose_content", () => ({ proposal_id: "fictional" })),
   });
@@ -85,7 +85,7 @@ test("a read-only client token reaches only read query routes", async (t) => {
 
     for (const route of [
       "/v1/commands/propose-content",
-      "/v1/task/command",
+      "/v1/commands/start-ai-task-work",
       "/v1/queries/list-proposals",
     ]) {
       const denied = await call(token, route, {});
