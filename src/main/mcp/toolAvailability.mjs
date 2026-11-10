@@ -17,7 +17,6 @@ import {
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
   TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
-  TASKEN_CORE_TASK_COMMAND_CAPABILITY,
   TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   coreWriteProfile,
 } from "../../shared/contracts/core/public.mjs";
@@ -119,7 +118,6 @@ export const MCP_TOOL_REQUIREMENTS = Object.freeze({
     toolset: "write",
     access: "direct_write",
     capability: TASKEN_CORE_TASK_START_WORK_CAPABILITY,
-    alternativeCapability: TASKEN_CORE_TASK_COMMAND_CAPABILITY,
   },
   "tasken.report_work": {
     toolset: "write",
@@ -223,8 +221,7 @@ export function mcpToolAvailability(capabilities, options = {}) {
     else if (
       Array.isArray(capabilities) &&
       requirement.capability &&
-      !advertised.has(requirement.capability) &&
-      !(requirement.alternativeCapability && advertised.has(requirement.alternativeCapability))
+      !advertised.has(requirement.capability)
     )
       reason = `missing_capability:${requirement.capability}`;
     else if (requirement.kind && !contentKindAllowed(profile, requirement.kind))
@@ -263,10 +260,7 @@ export function mcpToolAvailability(capabilities, options = {}) {
           "tasken.report_task_blocked",
         ].some((name) => tools[name].available) &&
         advertised.has(TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY),
-      task_start:
-        writeEnabled &&
-        (advertised.has(TASKEN_CORE_TASK_START_WORK_CAPABILITY) ||
-          advertised.has(TASKEN_CORE_TASK_COMMAND_CAPABILITY)),
+      task_start: writeEnabled && advertised.has(TASKEN_CORE_TASK_START_WORK_CAPABILITY),
     },
     tools,
   };

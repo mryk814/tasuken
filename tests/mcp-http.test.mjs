@@ -190,7 +190,8 @@ test("start-enabled Core profiles accept writers but only allowStart clients see
       (await reader.listTools()).tools.every(({ annotations }) => annotations.readOnlyHint),
     );
   }
-  for (const extra of [["task.command"], ["task.command", "task.start_work"]]) {
+  // Desktop（full）と、それに似た一部だけの組み合わせ（partial）は、HTTPの書き込みclientを断る。
+  for (const extra of [["propose_agent_session"], ["propose_agent_session", "task.start_work"]]) {
     const { url } = await fixture(t, {
       env: { TASKEN_MCP_READ_ONLY: "0" },
       clients,

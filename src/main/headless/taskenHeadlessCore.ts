@@ -30,7 +30,7 @@ export interface TaskenHeadlessCoreOptions {
 }
 
 /** 既存Taskを直接書き換える経路。replicaの取り込みが追いついていないと断る。 */
-const STARTING_PATHS = new Set(["/v1/commands/start-ai-task-work", "/v1/task/command"]);
+const STARTING_PATHS = new Set(["/v1/commands/start-ai-task-work"]);
 
 export type TaskenHeadlessWriteMode = "read-only" | "proposals" | "create-only";
 
@@ -129,7 +129,7 @@ export async function startTaskenHeadlessCore(
       {
         proposalAccess: writeMode !== "read-only" ? "proposals" : "read-only",
         ...(allowAiTaskStart
-          ? { executeAiTaskStart: (command) => commands.executeAiTaskStart(command) }
+          ? { executeAiTaskStart: (command) => commands.executeAiTaskStart(command, "personal") }
           : {}),
       },
     );

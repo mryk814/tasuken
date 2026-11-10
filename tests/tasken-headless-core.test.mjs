@@ -18,6 +18,7 @@ import {
   TaskenCoreClientError,
 } from "../src/main/mcp/taskenCoreClient.mjs";
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
+import { TASKEN_CORE_WRITE_CAPABILITIES } from "../src/shared/contracts/core/public.mjs";
 import { issueCoreClientToken } from "../src/main/infrastructure/http/coreClientTokens.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 import {
@@ -49,14 +50,8 @@ const { startTaskenHeadlessCore, TaskenHeadlessCoreError } = await bundleEntry(
   "taskenHeadlessCore.mjs",
 );
 
-/** Headless Coreが既定で公開しない書き込みcapability。 */
-const WRITE_CORE_CAPABILITIES = [
-  "task.command",
-  "propose_task_work",
-  "propose_agent_session",
-  "propose_repository_task",
-  "propose_content",
-];
+/** Headless Coreが既定で公開しない書き込みcapability（汎用のtask.commandはどの配備も出さない）。 */
+const WRITE_CORE_CAPABILITIES = ["task.command", ...TASKEN_CORE_WRITE_CAPABILITIES];
 const { parseTaskenHeadlessCoreArgs } = await bundleEntry(
   "src/main/headless/main.ts",
   "headlessMain.mjs",

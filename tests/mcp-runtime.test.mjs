@@ -124,18 +124,10 @@ test("doctor keeps JSON protocol stdout clean and sends human diagnostics only t
 });
 
 test("doctor accepts a read-only or proposals deployment as ready", async () => {
-  const { TASKEN_CORE_TASK_COMMAND_CAPABILITY } =
+  const { TASKEN_CORE_WRITE_CAPABILITIES } =
     await import("../src/shared/contracts/core/public.mjs");
   const readCapabilities = TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.filter(
-    (capability) => capability !== TASKEN_CORE_TASK_COMMAND_CAPABILITY,
-  ).filter(
-    (capability) =>
-      ![
-        "propose_task_work",
-        "propose_agent_session",
-        "propose_repository_task",
-        "propose_content",
-      ].includes(capability),
+    (capability) => !TASKEN_CORE_WRITE_CAPABILITIES.includes(capability),
   );
 
   // 常時稼働nodeの既定: 読み取りだけを公開しても正常。
@@ -176,20 +168,20 @@ test("doctor accepts a read-only or proposals deployment as ready", async () => 
   assert.equal(partial.checks.at(-1).code, "MCP_CORE_CAPABILITIES_MISSING");
 });
 
-test("doctor requires the Task command capability used by direct start", async () => {
-  const { TASKEN_CORE_TASK_COMMAND_CAPABILITY } =
+test("doctor requires the limited start capability that Desktop always publishes", async () => {
+  const { TASKEN_CORE_TASK_START_WORK_CAPABILITY } =
     await import("../src/shared/contracts/core/public.mjs");
   const report = await buildReport({
     inspect: async () => ({
       api_version: "1",
       capabilities: TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.filter(
-        (capability) => capability !== TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+        (capability) => capability !== TASKEN_CORE_TASK_START_WORK_CAPABILITY,
       ),
     }),
   });
   assert.equal(report.ok, false);
   assert.deepEqual(report.checks.at(-1).missing_capabilities, [
-    TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+    TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   ]);
 });
 
