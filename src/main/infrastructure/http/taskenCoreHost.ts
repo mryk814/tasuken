@@ -13,6 +13,7 @@ import fs from "node:fs/promises";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
+import type { ZodType } from "zod/v4";
 
 import type {
   FindTasksForRepositoryResponse,
@@ -116,6 +117,7 @@ import {
 } from "../../../shared/contracts/task/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
+  TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY,
@@ -166,11 +168,6 @@ const LOOPBACK_HOST = "127.0.0.1";
 // full-token discovery file and the database.
 const TASKEN_CORE_ENDPOINT_DIR = "core-endpoint";
 const TASKEN_CORE_ENDPOINT_FILE = "tasken-core-endpoint.json";
-// Read-only clients may call query routes, but not proposal state.
-const READ_CLIENT_DENIED_QUERY_PATHS = new Set([
-  "/v1/queries/get-proposal-status",
-  "/v1/queries/list-proposals",
-]);
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_NOTE_PROPOSAL_WITH_IMAGES_BODY_BYTES = 34 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 5_000;
@@ -284,88 +281,290 @@ class RequestValidationError extends Error {
   }
 }
 
-function parseOperationRequest(url: string, body: unknown): unknown {
-  if (url === "/v1/queries/get-source-status") {
-    const result = getSourceStatusRequestSchema.safeParse(body);
-    if (!result.success) throw new RequestValidationError(result.error.issues);
-    return result.data;
-  }
-  const schema =
-    url === "/v1/commands/create-ai-item"
-      ? aiItemCreationRequestSchema
-      : url === "/v1/task/query"
-        ? taskQuerySchema
-        : url === "/v1/task/command"
-          ? taskCommandSchema
-          : url === "/v1/commands/propose-task-work"
-            ? proposeTaskWorkRequestSchema
-            : url === "/v1/commands/propose-agent-session"
-              ? proposeAgentSessionRequestSchema
-              : url === "/v1/commands/propose-repository-task"
-                ? proposeRepositoryTaskRequestSchema
-                : url === "/v1/commands/propose-content"
-                  ? proposeContentRequestSchema
-                  : url === "/v1/queries/list-agent-ready-tasks"
-                    ? listAgentReadyTasksRequestSchema
-                    : url === "/v1/queries/resolve-repository-context" ||
-                        url === "/v1/queries/find-tasks-for-repository" ||
-                        url === "/v1/queries/find-themes-for-repository"
-                      ? repositoryLookupRequestSchema
-                      : url === "/v1/queries/get-repository-context"
-                        ? getRepositoryContextRequestSchema
-                        : url === "/v1/queries/get-agent-session-context"
-                          ? getAgentSessionContextRequestSchema
-                          : url === "/v1/queries/get-task-assignment"
-                            ? getTaskAssignmentRequestSchema
-                            : url === "/v1/queries/get-task-context"
-                              ? getTaskContextRequestSchema
-                              : url === "/v1/queries/search-items"
-                                ? searchItemsRequestSchema
-                                : url === "/v1/queries/list-open-items"
-                                  ? listOpenItemsRequestSchema
-                                  : url === "/v1/queries/get-note"
-                                    ? getNoteRequestSchema
-                                    : url === "/v1/queries/get-conversation"
-                                      ? getConversationRequestSchema
-                                      : url === "/v1/queries/get-artifact-metadata"
-                                        ? getArtifactMetadataRequestSchema
-                                        : url === "/v1/queries/get-capture-image"
-                                          ? getCaptureImageRequestSchema
-                                          : url === "/v1/queries/get-task-image"
-                                            ? getTaskImageRequestSchema
-                                            : url === "/v1/queries/get-activity-entries"
-                                              ? getActivityEntriesRequestSchema
-                                              : url === "/v1/queries/get-theme-context"
-                                                ? getThemeContextRequestSchema
-                                                : url === "/v1/queries/get-recent-notes"
-                                                  ? getRecentNotesRequestSchema
-                                                  : url === "/v1/queries/search-knowledge"
-                                                    ? searchKnowledgeRequestSchema
-                                                    : url === "/v1/queries/get-knowledge-context"
-                                                      ? getKnowledgeContextRequestSchema
-                                                      : url === "/v1/queries/get-plan-health"
-                                                        ? getPlanHealthRequestSchema
-                                                        : url === "/v1/queries/get-knowledge-health"
-                                                          ? getKnowledgeHealthRequestSchema
-                                                          : url === "/v1/queries/get-activity"
-                                                            ? getActivityRequestSchema
-                                                            : url ===
-                                                                "/v1/queries/get-context-subgraph"
-                                                              ? getContextSubgraphRequestSchema
-                                                              : url ===
-                                                                  "/v1/queries/get-feed-context"
-                                                                ? getFeedContextRequestSchema
-                                                                : url ===
-                                                                    "/v1/queries/get-proposal-status"
-                                                                  ? proposalStatusRequestSchema
-                                                                  : url ===
-                                                                      "/v1/queries/list-proposals"
-                                                                    ? listProposalsRequestSchema
-                                                                    : url ===
-                                                                        "/v1/commands/start-ai-task-work"
-                                                                      ? aiTaskStartRequestSchema
-                                                                      : exportAiContextRequestSchema;
-  const result = schema.safeParse(body);
+type ProviderKey = Exclude<keyof TaskenCoreHostOptions, "userDataPath">;
+
+interface RouteDefinition {
+  path: string;
+  kind: "query" | "command";
+  provider: ProviderKey;
+  capability: string;
+  schema: ZodType;
+  /** 読み取り専用のclient tokenには見せない読み取り（Proposalの状態）。 */
+  hiddenFromReadClients?: boolean;
+}
+
+/**
+ * Coreのloopback経路の正本。経路・公開するcapability・入力schema・処理するproviderを一行で持つ。
+ * providerを渡された経路だけを公開し、capabilityもそこから導く。
+ */
+const ROUTES: readonly RouteDefinition[] = [
+  {
+    path: "/v1/queries/get-source-status",
+    kind: "query",
+    provider: "getSourceStatus",
+    capability: TASKEN_CORE_SOURCE_STATUS_CAPABILITY,
+    schema: getSourceStatusRequestSchema,
+  },
+  {
+    path: "/v1/commands/create-ai-item",
+    kind: "command",
+    provider: "createAiItem",
+    capability: TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
+    schema: aiItemCreationRequestSchema,
+  },
+  {
+    path: "/v1/commands/start-ai-task-work",
+    kind: "command",
+    provider: "startAiTaskWork",
+    capability: TASKEN_CORE_TASK_START_WORK_CAPABILITY,
+    schema: aiTaskStartRequestSchema,
+  },
+  {
+    path: "/v1/task/query",
+    kind: "query",
+    provider: "taskQuery",
+    capability: TASKEN_CORE_TASK_QUERY_CAPABILITY,
+    schema: taskQuerySchema,
+  },
+  {
+    path: "/v1/task/command",
+    kind: "command",
+    provider: "taskCommand",
+    capability: TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+    schema: taskCommandSchema,
+  },
+  {
+    path: "/v1/queries/list-agent-ready-tasks",
+    kind: "query",
+    provider: "listAgentReadyTasks",
+    capability: TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
+    schema: listAgentReadyTasksRequestSchema,
+  },
+  {
+    path: "/v1/queries/resolve-repository-context",
+    kind: "query",
+    provider: "resolveRepositoryContext",
+    capability: TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
+    schema: repositoryLookupRequestSchema,
+  },
+  {
+    path: "/v1/queries/find-tasks-for-repository",
+    kind: "query",
+    provider: "findTasksForRepository",
+    capability: TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
+    schema: repositoryLookupRequestSchema,
+  },
+  {
+    path: "/v1/queries/find-themes-for-repository",
+    kind: "query",
+    provider: "findThemesForRepository",
+    capability: TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY,
+    schema: repositoryLookupRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-repository-context",
+    kind: "query",
+    provider: "getRepositoryContext",
+    capability: TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY,
+    schema: getRepositoryContextRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-agent-session-context",
+    kind: "query",
+    provider: "getAgentSessionContext",
+    capability: TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY,
+    schema: getAgentSessionContextRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-task-assignment",
+    kind: "query",
+    provider: "getTaskAssignment",
+    capability: TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
+    schema: getTaskAssignmentRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-task-context",
+    kind: "query",
+    provider: "getTaskContext",
+    capability: TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
+    schema: getTaskContextRequestSchema,
+  },
+  {
+    path: "/v1/queries/search-items",
+    kind: "query",
+    provider: "searchItems",
+    capability: TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
+    schema: searchItemsRequestSchema,
+  },
+  {
+    path: "/v1/queries/list-open-items",
+    kind: "query",
+    provider: "listOpenItems",
+    capability: TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
+    schema: listOpenItemsRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-note",
+    kind: "query",
+    provider: "getNote",
+    capability: TASKEN_CORE_GET_NOTE_CAPABILITY,
+    schema: getNoteRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-conversation",
+    kind: "query",
+    provider: "getConversation",
+    capability: TASKEN_CORE_GET_CONVERSATION_CAPABILITY,
+    schema: getConversationRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-artifact-metadata",
+    kind: "query",
+    provider: "getArtifactMetadata",
+    capability: TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY,
+    schema: getArtifactMetadataRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-capture-image",
+    kind: "query",
+    provider: "getCaptureImage",
+    capability: TASKEN_CORE_GET_CAPTURE_IMAGE_CAPABILITY,
+    schema: getCaptureImageRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-task-image",
+    kind: "query",
+    provider: "getTaskImage",
+    capability: TASKEN_CORE_GET_TASK_IMAGE_CAPABILITY,
+    schema: getTaskImageRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-activity-entries",
+    kind: "query",
+    provider: "getActivityEntries",
+    capability: TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY,
+    schema: getActivityEntriesRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-theme-context",
+    kind: "query",
+    provider: "getThemeContext",
+    capability: TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY,
+    schema: getThemeContextRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-recent-notes",
+    kind: "query",
+    provider: "getRecentNotes",
+    capability: TASKEN_CORE_GET_RECENT_NOTES_CAPABILITY,
+    schema: getRecentNotesRequestSchema,
+  },
+  {
+    path: "/v1/queries/search-knowledge",
+    kind: "query",
+    provider: "searchKnowledge",
+    capability: TASKEN_CORE_SEARCH_KNOWLEDGE_CAPABILITY,
+    schema: searchKnowledgeRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-knowledge-context",
+    kind: "query",
+    provider: "getKnowledgeContext",
+    capability: TASKEN_CORE_GET_KNOWLEDGE_CONTEXT_CAPABILITY,
+    schema: getKnowledgeContextRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-plan-health",
+    kind: "query",
+    provider: "getPlanHealth",
+    capability: TASKEN_CORE_GET_PLAN_HEALTH_CAPABILITY,
+    schema: getPlanHealthRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-knowledge-health",
+    kind: "query",
+    provider: "getKnowledgeHealth",
+    capability: TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY,
+    schema: getKnowledgeHealthRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-activity",
+    kind: "query",
+    provider: "getActivity",
+    capability: TASKEN_CORE_GET_ACTIVITY_CAPABILITY,
+    schema: getActivityRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-context-subgraph",
+    kind: "query",
+    provider: "getContextSubgraph",
+    capability: TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY,
+    schema: getContextSubgraphRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-feed-context",
+    kind: "query",
+    provider: "getFeedContext",
+    capability: TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY,
+    schema: getFeedContextRequestSchema,
+  },
+  {
+    path: "/v1/queries/get-proposal-status",
+    kind: "query",
+    provider: "getProposalStatus",
+    capability: TASKEN_CORE_PROPOSAL_STATUS_CAPABILITY,
+    schema: proposalStatusRequestSchema,
+    hiddenFromReadClients: true,
+  },
+  {
+    path: "/v1/queries/list-proposals",
+    kind: "query",
+    provider: "listProposals",
+    capability: TASKEN_CORE_LIST_PROPOSALS_CAPABILITY,
+    schema: listProposalsRequestSchema,
+    hiddenFromReadClients: true,
+  },
+  {
+    path: "/v1/queries/export-ai-context",
+    kind: "query",
+    provider: "exportAiContext",
+    capability: TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
+    schema: exportAiContextRequestSchema,
+  },
+  {
+    path: "/v1/commands/propose-task-work",
+    kind: "command",
+    provider: "proposeTaskWork",
+    capability: TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+    schema: proposeTaskWorkRequestSchema,
+  },
+  {
+    path: "/v1/commands/propose-agent-session",
+    kind: "command",
+    provider: "proposeAgentSession",
+    capability: TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
+    schema: proposeAgentSessionRequestSchema,
+  },
+  {
+    path: "/v1/commands/propose-repository-task",
+    kind: "command",
+    provider: "proposeRepositoryTask",
+    capability: TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
+    schema: proposeRepositoryTaskRequestSchema,
+  },
+  {
+    path: "/v1/commands/propose-content",
+    kind: "command",
+    provider: "proposeContent",
+    capability: TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
+    schema: proposeContentRequestSchema,
+  },
+];
+
+const META_PATHS = new Set(["/health", "/version", "/capabilities"]);
+
+function parseRouteRequest(route: RouteDefinition, body: unknown): unknown {
+  const result = route.schema.safeParse(body);
   if (!result.success) throw new RequestValidationError(result.error.issues);
   return result.data;
 }
@@ -554,6 +753,7 @@ export class TaskenCoreHost {
   private readonly endpointPath: string;
   private server: http.Server | null = null;
   private writeGate: WriteGate | null = null;
+  private routes = new Map<string, RouteDefinition>();
 
   constructor(options: TaskenCoreHostOptions) {
     this.options = options;
@@ -586,59 +786,15 @@ export class TaskenCoreHost {
   }
 
   private capabilities() {
-    return [
-      ...(this.options.getSourceStatus ? [TASKEN_CORE_SOURCE_STATUS_CAPABILITY] : []),
-      ...(this.options.createAiItem ? ["create_ai_item"] : []),
-      ...(this.options.startAiTaskWork ? [TASKEN_CORE_TASK_START_WORK_CAPABILITY] : []),
-      ...(this.options.taskQuery ? [TASKEN_CORE_TASK_QUERY_CAPABILITY] : []),
-      ...(this.options.taskCommand ? [TASKEN_CORE_TASK_COMMAND_CAPABILITY] : []),
-      TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
-      ...(this.options.resolveRepositoryContext
-        ? [TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY]
-        : []),
-      ...(this.options.findTasksForRepository
-        ? [TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY]
-        : []),
-      ...(this.options.findThemesForRepository
-        ? [TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY]
-        : []),
-      ...(this.options.getRepositoryContext ? [TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY] : []),
-      ...(this.options.getAgentSessionContext
-        ? [TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY]
-        : []),
-      ...(this.options.getTaskAssignment ? [TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY] : []),
-      ...(this.options.getTaskContext ? [TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY] : []),
-      ...(this.options.searchItems ? [TASKEN_CORE_SEARCH_ITEMS_CAPABILITY] : []),
-      ...(this.options.listOpenItems ? [TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY] : []),
-      ...(this.options.getNote ? [TASKEN_CORE_GET_NOTE_CAPABILITY] : []),
-      ...(this.options.getConversation ? [TASKEN_CORE_GET_CONVERSATION_CAPABILITY] : []),
-      ...(this.options.getArtifactMetadata ? [TASKEN_CORE_GET_ARTIFACT_METADATA_CAPABILITY] : []),
-      ...(this.options.getCaptureImage ? [TASKEN_CORE_GET_CAPTURE_IMAGE_CAPABILITY] : []),
-      ...(this.options.getTaskImage ? [TASKEN_CORE_GET_TASK_IMAGE_CAPABILITY] : []),
-      ...(this.options.getActivityEntries ? [TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY] : []),
-      ...(this.options.getThemeContext ? [TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY] : []),
-      ...(this.options.getRecentNotes ? [TASKEN_CORE_GET_RECENT_NOTES_CAPABILITY] : []),
-      ...(this.options.searchKnowledge ? [TASKEN_CORE_SEARCH_KNOWLEDGE_CAPABILITY] : []),
-      ...(this.options.getKnowledgeContext ? [TASKEN_CORE_GET_KNOWLEDGE_CONTEXT_CAPABILITY] : []),
-      ...(this.options.getPlanHealth ? [TASKEN_CORE_GET_PLAN_HEALTH_CAPABILITY] : []),
-      ...(this.options.getKnowledgeHealth ? [TASKEN_CORE_GET_KNOWLEDGE_HEALTH_CAPABILITY] : []),
-      ...(this.options.getActivity ? [TASKEN_CORE_GET_ACTIVITY_CAPABILITY] : []),
-      ...(this.options.getContextSubgraph ? [TASKEN_CORE_GET_CONTEXT_SUBGRAPH_CAPABILITY] : []),
-      ...(this.options.getFeedContext ? [TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY] : []),
-      ...(this.options.getProposalStatus ? [TASKEN_CORE_PROPOSAL_STATUS_CAPABILITY] : []),
-      ...(this.options.listProposals ? [TASKEN_CORE_LIST_PROPOSALS_CAPABILITY] : []),
-      ...(this.options.exportAiContext ? [TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY] : []),
-      ...(this.options.proposeTaskWork ? [TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY] : []),
-      ...(this.options.proposeAgentSession ? [TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY] : []),
-      ...(this.options.proposeRepositoryTask
-        ? [TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY]
-        : []),
-      ...(this.options.proposeContent ? [TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY] : []),
-    ];
+    return [...new Set([...this.routes.values()].map((route) => route.capability))];
   }
 
   async start() {
     if (this.server) throw new Error("Tasken Core hostは起動済みです。");
+    // providerを渡された経路だけを公開する。起動時に一度だけ決め、稼働中は変えない。
+    this.routes = new Map(
+      ROUTES.filter((route) => this.options[route.provider]).map((route) => [route.path, route]),
+    );
     const server = http.createServer((request, response) => void this.handle(request, response));
     server.requestTimeout = REQUEST_TIMEOUT_MS;
     server.headersTimeout = REQUEST_TIMEOUT_MS;
@@ -717,65 +873,14 @@ export class TaskenCoreHost {
         json(response, 401, errorResponse("UNAUTHORIZED", "認証できません。"));
         return;
       }
-      const queryPaths = new Set([
-        ...(this.options.taskQuery ? ["/v1/task/query"] : []),
-        "/v1/queries/list-agent-ready-tasks",
-        ...(this.options.resolveRepositoryContext
-          ? ["/v1/queries/resolve-repository-context"]
-          : []),
-        ...(this.options.findTasksForRepository ? ["/v1/queries/find-tasks-for-repository"] : []),
-        ...(this.options.findThemesForRepository ? ["/v1/queries/find-themes-for-repository"] : []),
-        ...(this.options.getRepositoryContext ? ["/v1/queries/get-repository-context"] : []),
-        ...(this.options.getAgentSessionContext ? ["/v1/queries/get-agent-session-context"] : []),
-        ...(this.options.getTaskAssignment ? ["/v1/queries/get-task-assignment"] : []),
-        ...(this.options.getTaskContext ? ["/v1/queries/get-task-context"] : []),
-        ...(this.options.searchItems ? ["/v1/queries/search-items"] : []),
-        ...(this.options.listOpenItems ? ["/v1/queries/list-open-items"] : []),
-        ...(this.options.getNote ? ["/v1/queries/get-note"] : []),
-        ...(this.options.getConversation ? ["/v1/queries/get-conversation"] : []),
-        ...(this.options.getArtifactMetadata ? ["/v1/queries/get-artifact-metadata"] : []),
-        ...(this.options.getCaptureImage ? ["/v1/queries/get-capture-image"] : []),
-        ...(this.options.getTaskImage ? ["/v1/queries/get-task-image"] : []),
-        ...(this.options.getActivityEntries ? ["/v1/queries/get-activity-entries"] : []),
-        ...(this.options.getThemeContext ? ["/v1/queries/get-theme-context"] : []),
-        ...(this.options.getRecentNotes ? ["/v1/queries/get-recent-notes"] : []),
-        ...(this.options.searchKnowledge ? ["/v1/queries/search-knowledge"] : []),
-        ...(this.options.getKnowledgeContext ? ["/v1/queries/get-knowledge-context"] : []),
-        ...(this.options.getPlanHealth ? ["/v1/queries/get-plan-health"] : []),
-        ...(this.options.getKnowledgeHealth ? ["/v1/queries/get-knowledge-health"] : []),
-        ...(this.options.getActivity ? ["/v1/queries/get-activity"] : []),
-        ...(this.options.getContextSubgraph ? ["/v1/queries/get-context-subgraph"] : []),
-        ...(this.options.getFeedContext ? ["/v1/queries/get-feed-context"] : []),
-        ...(this.options.getProposalStatus ? ["/v1/queries/get-proposal-status"] : []),
-        ...(this.options.listProposals ? ["/v1/queries/list-proposals"] : []),
-        ...(this.options.exportAiContext ? ["/v1/queries/export-ai-context"] : []),
-        ...(this.options.getSourceStatus ? ["/v1/queries/get-source-status"] : []),
-      ]);
-      const commandPaths = new Set([
-        ...(this.options.createAiItem ? ["/v1/commands/create-ai-item"] : []),
-        ...(this.options.taskCommand ? ["/v1/task/command"] : []),
-        ...(this.options.startAiTaskWork ? ["/v1/commands/start-ai-task-work"] : []),
-        ...(this.options.proposeTaskWork ? ["/v1/commands/propose-task-work"] : []),
-        ...(this.options.proposeAgentSession ? ["/v1/commands/propose-agent-session"] : []),
-        ...(this.options.proposeRepositoryTask ? ["/v1/commands/propose-repository-task"] : []),
-        ...(this.options.proposeContent ? ["/v1/commands/propose-content"] : []),
-      ]);
-      const operationPaths = new Set([...queryPaths, ...commandPaths]);
-      const knownPaths = new Set(["/health", "/version", "/capabilities", ...operationPaths]);
-      if (
-        knownPaths.has(request.url || "") &&
-        request.method !== (operationPaths.has(request.url || "") ? "POST" : "GET")
-      ) {
-        response.setHeader("allow", operationPaths.has(request.url || "") ? "POST" : "GET");
+      const url = request.url || "";
+      const route = this.routes.get(url);
+      if ((route || META_PATHS.has(url)) && request.method !== (route ? "POST" : "GET")) {
+        response.setHeader("allow", route ? "POST" : "GET");
         json(response, 405, errorResponse("METHOD_NOT_ALLOWED", "methodが許可されていません。"));
         return;
       }
-      const url = request.url || "";
-      if (
-        readClient &&
-        operationPaths.has(url) &&
-        (!queryPaths.has(url) || READ_CLIENT_DENIED_QUERY_PATHS.has(url))
-      ) {
+      if (readClient && route && (route.kind === "command" || route.hiddenFromReadClients)) {
         json(
           response,
           403,
@@ -783,19 +888,19 @@ export class TaskenCoreHost {
         );
         return;
       }
-      if (request.method === "GET" && request.url === "/health") {
+      if (request.method === "GET" && url === "/health") {
         json(response, 200, { status: "ok", api_version: TASKEN_CORE_API_VERSION });
         return;
       }
-      if (request.method === "GET" && request.url === "/version") {
+      if (request.method === "GET" && url === "/version") {
         json(response, 200, { api_version: TASKEN_CORE_API_VERSION });
         return;
       }
-      if (request.method === "GET" && request.url === "/capabilities") {
+      if (request.method === "GET" && url === "/capabilities") {
         json(response, 200, { capabilities: this.capabilities() });
         return;
       }
-      if (request.method === "POST" && operationPaths.has(request.url || "")) {
+      if (request.method === "POST" && route) {
         if (
           request.headers["content-type"]?.split(";", 1)[0].trim().toLowerCase() !==
           "application/json"
@@ -808,184 +913,23 @@ export class TaskenCoreHost {
           return;
         }
         // 古いDesktopが取り込めない差分を書かないよう、書き込みは処理の前に断る（dry_runも含む）。
-        const blocked = commandPaths.has(url) ? this.writeGate?.(url) : null;
+        const blocked = route.kind === "command" ? this.writeGate?.(url) : null;
         if (blocked) {
           json(response, 409, errorResponse(blocked, WRITE_GATE_MESSAGES[blocked]));
           return;
         }
         const allowsNoteProposalImages =
-          request.url === "/v1/commands/propose-content" &&
+          url === "/v1/commands/propose-content" &&
           request.headers["x-tasken-proposal-images"] === "1";
-        const body = parseOperationRequest(
-          request.url || "",
+        const body = parseRouteRequest(
+          route,
           await requestBody(
             request,
             allowsNoteProposalImages ? MAX_NOTE_PROPOSAL_WITH_IMAGES_BODY_BYTES : MAX_BODY_BYTES,
           ),
         );
-        if (request.url === "/v1/commands/create-ai-item") {
-          json(response, 200, this.options.createAiItem!.execute(body as AiItemCreationRequest));
-        } else if (request.url === "/v1/commands/start-ai-task-work") {
-          json(response, 200, this.options.startAiTaskWork!.execute(body as AiTaskStartRequest));
-        } else if (request.url === "/v1/task/query") {
-          json(response, 200, this.options.taskQuery!.execute(body));
-        } else if (request.url === "/v1/task/command") {
-          json(response, 200, this.options.taskCommand!.execute(body));
-        } else if (request.url === "/v1/commands/propose-task-work") {
-          json(
-            response,
-            200,
-            this.options.proposeTaskWork!.execute(body as ProposeTaskWorkRequest),
-          );
-        } else if (request.url === "/v1/commands/propose-agent-session") {
-          json(
-            response,
-            200,
-            this.options.proposeAgentSession!.execute(body as ProposeAgentSessionRequest),
-          );
-        } else if (request.url === "/v1/commands/propose-repository-task") {
-          json(
-            response,
-            200,
-            this.options.proposeRepositoryTask!.execute(body as ProposeRepositoryTaskRequest),
-          );
-        } else if (request.url === "/v1/commands/propose-content") {
-          json(response, 200, this.options.proposeContent!.execute(body as ProposeContentRequest));
-        } else if (request.url === "/v1/queries/list-agent-ready-tasks") {
-          json(
-            response,
-            200,
-            this.options.listAgentReadyTasks.execute(body as ListAgentReadyTasksRequest),
-          );
-        } else if (request.url === "/v1/queries/resolve-repository-context") {
-          json(
-            response,
-            200,
-            this.options.resolveRepositoryContext!.execute(body as RepositoryLookupRequest),
-          );
-        } else if (request.url === "/v1/queries/find-tasks-for-repository") {
-          json(
-            response,
-            200,
-            this.options.findTasksForRepository!.execute(body as RepositoryLookupRequest),
-          );
-        } else if (request.url === "/v1/queries/find-themes-for-repository") {
-          json(
-            response,
-            200,
-            this.options.findThemesForRepository!.execute(body as RepositoryLookupRequest),
-          );
-        } else if (request.url === "/v1/queries/get-repository-context") {
-          json(
-            response,
-            200,
-            this.options.getRepositoryContext!.execute(body as GetRepositoryContextRequest),
-          );
-        } else if (request.url === "/v1/queries/get-agent-session-context") {
-          json(
-            response,
-            200,
-            this.options.getAgentSessionContext!.execute(body as GetAgentSessionContextRequest),
-          );
-        } else if (request.url === "/v1/queries/get-task-context") {
-          json(response, 200, this.options.getTaskContext!.execute(body as GetTaskContextRequest));
-        } else if (request.url === "/v1/queries/search-items") {
-          json(response, 200, this.options.searchItems!.execute(body as SearchItemsRequest));
-        } else if (request.url === "/v1/queries/list-open-items") {
-          json(response, 200, this.options.listOpenItems!.execute(body as ListOpenItemsRequest));
-        } else if (request.url === "/v1/queries/get-note") {
-          json(response, 200, this.options.getNote!.execute(body as GetNoteRequest));
-        } else if (request.url === "/v1/queries/get-conversation") {
-          json(
-            response,
-            200,
-            this.options.getConversation!.execute(body as GetConversationRequest),
-          );
-        } else if (request.url === "/v1/queries/get-artifact-metadata") {
-          json(
-            response,
-            200,
-            this.options.getArtifactMetadata!.execute(body as GetArtifactMetadataRequest),
-          );
-        } else if (request.url === "/v1/queries/get-capture-image") {
-          json(
-            response,
-            200,
-            this.options.getCaptureImage!.execute(body as GetCaptureImageRequest),
-          );
-        } else if (request.url === "/v1/queries/get-task-image") {
-          json(response, 200, this.options.getTaskImage!.execute(body as GetTaskImageRequest));
-        } else if (request.url === "/v1/queries/get-activity-entries") {
-          json(
-            response,
-            200,
-            this.options.getActivityEntries!.execute(body as GetActivityEntriesRequest),
-          );
-        } else if (request.url === "/v1/queries/get-theme-context") {
-          json(
-            response,
-            200,
-            this.options.getThemeContext!.execute(body as GetThemeContextRequest),
-          );
-        } else if (request.url === "/v1/queries/get-recent-notes") {
-          json(response, 200, this.options.getRecentNotes!.execute(body as GetRecentNotesRequest));
-        } else if (request.url === "/v1/queries/search-knowledge") {
-          json(
-            response,
-            200,
-            this.options.searchKnowledge!.execute(body as SearchKnowledgeRequest),
-          );
-        } else if (request.url === "/v1/queries/get-knowledge-context") {
-          json(
-            response,
-            200,
-            this.options.getKnowledgeContext!.execute(body as GetKnowledgeContextRequest),
-          );
-        } else if (request.url === "/v1/queries/get-plan-health") {
-          json(response, 200, this.options.getPlanHealth!.execute(body as GetPlanHealthRequest));
-        } else if (request.url === "/v1/queries/get-knowledge-health") {
-          json(
-            response,
-            200,
-            this.options.getKnowledgeHealth!.execute(body as GetKnowledgeHealthRequest),
-          );
-        } else if (request.url === "/v1/queries/get-activity") {
-          json(response, 200, this.options.getActivity!.execute(body as GetActivityRequest));
-        } else if (request.url === "/v1/queries/get-context-subgraph") {
-          json(
-            response,
-            200,
-            this.options.getContextSubgraph!.execute(body as GetContextSubgraphRequest),
-          );
-        } else if (request.url === "/v1/queries/get-feed-context") {
-          json(response, 200, this.options.getFeedContext!.execute(body as GetFeedContextRequest));
-        } else if (request.url === "/v1/queries/get-proposal-status") {
-          json(
-            response,
-            200,
-            this.options.getProposalStatus!.execute(body as ProposalStatusRequest),
-          );
-        } else if (request.url === "/v1/queries/list-proposals") {
-          json(response, 200, this.options.listProposals!.execute(body as ListProposalsRequest));
-        } else if (request.url === "/v1/queries/get-source-status") {
-          json(
-            response,
-            200,
-            this.options.getSourceStatus!.execute(body as GetSourceStatusRequest),
-          );
-        } else if (request.url === "/v1/queries/export-ai-context") {
-          json(
-            response,
-            200,
-            this.options.exportAiContext!.execute(body as ExportAiContextRequest),
-          );
-        } else {
-          json(
-            response,
-            200,
-            this.options.getTaskAssignment!.execute(body as GetTaskAssignmentRequest),
-          );
-        }
+        const provider = this.options[route.provider] as unknown as QueryProvider<unknown, unknown>;
+        json(response, 200, provider.execute(body));
         return;
       }
       json(response, 404, errorResponse("NOT_FOUND", "endpointがありません。"));
