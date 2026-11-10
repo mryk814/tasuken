@@ -141,7 +141,8 @@ test("Settings copies the exact typed MCP client config generated for the runtim
   assert.match(settings, /AIの書き込み/);
   // 契約が許す4状態すべてに異なる表示がある。Core停止時は未確認に落ちる。
   for (const [profile, label] of [
-    ["full", "提案と直接開始を受け付ける"],
+    // fullは、設定で直接の書き込みを許しているかで二通りに出す（#703）。
+    ["full", "提案と作業開始を受け付ける"],
     ["proposals", "Text Proposal（Feed投稿・Note案・Task案・作業報告）のみ受け付ける"],
     ["read-only", "読み取りのみ（書き込みは公開していない）"],
     ["partial", "一部だけ公開（上書き可能な構成ではない）"],

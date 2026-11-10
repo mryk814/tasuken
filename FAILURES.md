@@ -2,6 +2,14 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-11 `npm run ci` の全体実行で agent-session-hook-collector の並行書き込みが timeout した
+
+- しようとしたこと: #703 の PR（#712）の前に、Git Bash から `npm run ci` を流す。
+- 起きたこと: 2,272 件中、`tests/agent-session-hook-collector.test.mjs` の「concurrent hook processes merge by observation time without corrupting state」が `OBSERVATION_LOCK_TIMEOUT`（session observationの排他待ちがtimeoutしました）で落ちた。同じファイルだけを流すと通った。
+- 原因: 不明。PR は hook collector に触れていない。全体実行で重いときに、並行の子プロセスが排他を待ちきれなかったと見ている（EBUSY の件と同じく負荷の推測）。
+- 直し方: 単独で流し直して通ることを確かめた。
+- 再発防止: 記録だけ。もう一度起きたら、試験の排他待ちの上限を見直す。
+
 ## 2026-11-09 `smoke:mcp-package` の verify-only 起動が、ときどき access violation で落ちた
 
 - しようとしたこと: v0.1.85 のリリース workflow（run 42494518644）で `npm run smoke:mcp-package` を流す。

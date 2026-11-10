@@ -1,4 +1,4 @@
-import { aiItemCreationRequestSchema } from "../../shared/contracts/task/public.ts";
+import { aiNoteCreationFields, aiTaskCreationFields } from "../../shared/contracts/task/public.ts";
 import { randomUUID } from "node:crypto";
 
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -15,8 +15,11 @@ import {
   parseCanonicalTaskId,
   parseTaskLocator,
 } from "../../shared/contracts/mobile/public.mjs";
-import { TASK_CONTRACT_SCHEMA_VERSION } from "../../shared/contracts/task/public.ts";
-import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
+import {
+  TaskenCoreClient,
+  TaskenCoreClientError,
+  installedTaskenExecutable,
+} from "./taskenCoreClient.mjs";
 import {
   MCP_TOOL_REQUIREMENTS,
   mcpToolAvailability,
@@ -244,7 +247,7 @@ export function createTaskenMcpServer(options = {}) {
       instructions: `${
         readOnly
           ? "Tasken is read-only; use the listed bounded context and detail tools. No writes or Proposals are exposed."
-          : "Tasken manages work and knowledge. Check tasken.get_capabilities before writes when listed; Core may still refuse them. Proposals stay unofficial until human adoption; done reports never complete Tasks. Feed posts/replies appear immediately; direct create/start tools require explicit grants. Reuse idempotency_key with identical content on retries and use dry_run for validation. Read tasken://guide/{feed_post,note_article,work_report,proposals} for details; never expose secrets or publish outside Tasken."
+          : "Tasken manages work and knowledge. Check tasken.get_capabilities before writes when listed; Core may still refuse them. Proposals stay unofficial until human adoption; done reports never complete Tasks. Feed posts/replies appear immediately. Direct create_* tools need the user's grant (on Desktop, a Tasken setting; get_capabilities shows it); start_task_work claims only AI Ready Tasks.Reuse idempotency_key with identical content on retries and use dry_run for validation. Read tasken://guide/{feed_post,note_article,work_report,proposals} for details; never expose secrets or publish outside Tasken."
       }${sourceInstruction}`,
     },
   );
@@ -702,6 +705,7 @@ export function createTaskenMcpServer(options = {}) {
       const availability = mcpToolAvailability(withhold(status.capabilities), {
         readOnly,
         toolsets,
+        directWriteEnabled: status.directWriteEnabled,
       });
       const tools = Object.entries(availability.tools).map(([name, tool]) => ({
         name,
@@ -712,7 +716,14 @@ export function createTaskenMcpServer(options = {}) {
       }));
       return {
         schema: "tasken-mcp-capabilities/v1",
-        core: { api_version: status.apiVersion, write_profile: availability.write_profile },
+        core: {
+          api_version: status.apiVersion,
+          write_profile: availability.write_profile,
+          // Desktopだけが返す。本人が設定で直接の書き込みを許しているか。
+          ...(status.directWriteEnabled === undefined
+            ? {}
+            : { direct_write_enabled: status.directWriteEnabled }),
+        },
         bridge: {
           read_only: readOnly,
           toolsets,
@@ -822,47 +833,17 @@ export function createTaskenMcpServer(options = {}) {
     });
   const startTaskWork = async (args) => {
     try {
-      if (typeof coreClient.startAiTaskWork === "function") {
-        try {
-          return await coreClient.startAiTaskWork({
-            task_id: args.task_id,
-            expected_version: args.expected_version,
-            idempotency_key: args.idempotency_key,
-            caller: args.caller,
-            started_at: args.started_at,
-            ...(args.work_attempt_id ? { work_attempt_id: args.work_attempt_id } : {}),
-            ...(args.source_session ? { source_session: args.source_session } : {}),
-          });
-        } catch (error) {
-          // Legacy Desktop Core advertises task.command. A refusal from the
-          // limited operation must never fall back to a broader operation.
-          if (
-            !(error instanceof TaskenCoreClientError) ||
-            error.code !== "CAPABILITY_UNAVAILABLE"
-          ) {
-            throw error;
-          }
-        }
-      }
-      return await coreClient.executeTaskCommand({
-        schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
-        command_id: args.idempotency_key,
-        name: "StartTaskWork",
-        actor: { kind: "ai_agent", id: args.caller },
-        source: "mcp",
-        entrypoint: "mcp",
-        issued_at: args.started_at,
-        payload: {
-          task_id: args.task_id,
-          expected_version: args.expected_version,
-          executor_identity: args.caller,
-          started_at: args.started_at,
-          ...(args.source_session ? { source_session: args.source_session } : {}),
-          ...(args.work_attempt_id ? { work_attempt_id: args.work_attempt_id } : {}),
-        },
+      return await coreClient.startAiTaskWork({
+        task_id: args.task_id,
+        expected_version: args.expected_version,
+        idempotency_key: args.idempotency_key,
+        caller: args.caller,
+        started_at: args.started_at,
+        ...(args.work_attempt_id ? { work_attempt_id: args.work_attempt_id } : {}),
+        ...(args.source_session ? { source_session: args.source_session } : {}),
       });
     } catch (error) {
-      // 提案だけを公開する配備では直接開始のcapabilityがない。既定の「更新してください」は
+      // 提案だけを公開する配備では開始のcapabilityがない。既定の「更新してください」は
       // その場合に当てはまらないため、配備の境界として案内し直す。
       if (error instanceof TaskenCoreClientError && error.code === "CAPABILITY_UNAVAILABLE") {
         throw new TaskenCoreClientError(
@@ -1065,24 +1046,23 @@ export function createTaskenMcpServer(options = {}) {
     withCoreClient((args) => queueTaskWork(args, "report_blocked")),
   );
 
-  for (const kind of ["task", "note"]) {
-    const { kind: _kind, ...creationFields } = aiItemCreationRequestSchema.shape;
+  const creationTools = {
+    task: {
+      fields: aiTaskCreationFields,
+      description:
+        "Save a new Task directly (marked AI-created/unseen); returns the official ID. Theme defaults to 個人業務; schedule, priority, today_date and checklist are optional. Reuse idempotency_key on retries.",
+    },
+    note: {
+      fields: aiNoteCreationFields,
+      description:
+        "Save a new Note directly (marked AI-created/unseen); returns the official ID. Theme defaults to 個人業務. Reuse idempotency_key on retries; see tasken://guide/note_article for Markdown.",
+    },
+  };
+  for (const [kind, { fields, description }] of Object.entries(creationTools)) {
     const toolName = "tasken.create_" + kind;
     server.registerTool(
       toolName,
-      {
-        description:
-          "Create a personal " +
-          kind +
-          " marked AI-created/unseen; returns an official ID. New records only; no edits, deletion, completion or delegation; reuse idempotency_key on retries.",
-        inputSchema: creationFields,
-        annotations: {
-          readOnlyHint: false,
-          destructiveHint: false,
-          idempotentHint: true,
-          openWorldHint: false,
-        },
-      },
+      { description, inputSchema: fields, annotations: DIRECT_WRITE_ANNOTATIONS },
       withCoreClient((args) => coreClient.createAiItem({ ...args, kind })),
     );
   }
@@ -1311,7 +1291,11 @@ async function startupCapabilities(coreClient) {
 }
 
 export async function startTaskenMcpServer() {
-  const coreClient = new TaskenCoreClient({ env: process.env });
+  // 同じPCのAIだけに、Desktopが止まっているときのTasken.exeの場所を案内する（#703 c0）。
+  const coreClient = new TaskenCoreClient({
+    env: process.env,
+    taskenExecutable: installedTaskenExecutable(),
+  });
   const server = createTaskenMcpServer({
     coreClient,
     capabilities: await startupCapabilities(coreClient),

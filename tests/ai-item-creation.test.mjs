@@ -29,6 +29,7 @@ await build({
     export { ApplicationCommandService } from "./src/main/services/applicationCommandService.ts";
     export { AiItemCreationService } from "./src/main/core/services/aiItemCreationService.ts";
     export { createAiItemCreationPort } from "./src/main/composition/aiItemCreationPort.ts";
+    export { TaskenCoreRuntime } from "./src/main/composition/taskenCoreRuntime.ts";
   `,
     resolveDir: process.cwd(),
   },
@@ -46,6 +47,7 @@ const {
   ApplicationCommandService,
   AiItemCreationService,
   createAiItemCreationPort,
+  TaskenCoreRuntime,
 } = await import(pathToFileURL(path.join(bundles, "core.mjs")));
 
 const request = (kind, key = kind) => ({
@@ -255,6 +257,191 @@ test("canonical Note, file failure, DB-after-file recovery and existing delete/U
     assert.equal(recovered.status, "duplicate");
     assert.equal(recovered.entity.canonical_sync_state, "in_sync");
     assert.equal(db.list("note").length, 3);
+  } finally {
+    db.db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Desktop: 直接の書き込みは設定をその場で読み、Theme・期限・優先度・チェックリスト・今日を受ける", async () => {
+  const dir = temporary();
+  const db = open(dir);
+  db.save("theme", { id: "theme-work", name: "仕事" });
+  const workspace = new WorkspaceService(db, dir, undefined, undefined, () => {
+    throw Error("no images");
+  });
+  const commands = new ApplicationCommandService(db);
+  // Desktopと同じ配線: 入口は常に公開し、使えるかは本人の設定を要求のたびに読む。
+  const runtime = new TaskenCoreRuntime(
+    dir,
+    db,
+    (command) => commands.execute(command),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { executeAiTaskStart: (command) => commands.executeAiTaskStart(command, "any") },
+  );
+  runtime.enableAiItemCreation(createAiItemCreationPort(commands, workspace), {
+    isEnabled: () => db.readPreference("aiDirectWriteEnabled") === true,
+    scope: "any",
+  });
+  await runtime.start();
+  let transport, client;
+  const capabilities = async () =>
+    (await client.callTool({ name: "tasken.get_capabilities", arguments: {} })).structuredContent;
+  try {
+    const core = new TaskenCoreClient({ userDataPath: dir });
+    assert.equal((await core.inspect()).direct_write_enabled, false);
+    await assert.rejects(
+      core.createAiItem(request("task", "while-off")),
+      (e) => e.code === "DIRECT_WRITE_DISABLED" && e.status === 403 && /設定/.test(e.next_action),
+    );
+    assert.equal(db.list("task").length, 0);
+    transport = new StdioClientTransport({
+      command: process.env.TASKEN_NODE_EXEC_PATH || process.execPath,
+      args: [path.join(mcpDirectory, "server.mjs")],
+      env: { ...process.env, TASKEN_USER_DATA_DIR: dir, TASKEN_MCP_READ_ONLY: "0" },
+      stderr: "pipe",
+    });
+    client = new Client({ name: "desktop-direct-write-test", version: "1" });
+    await client.connect(transport);
+    // 設定を変えても接続し直さずに使えるよう、無効の間も一覧には出し、使えない理由を返す。
+    const names = (await client.listTools()).tools.map((tool) => tool.name);
+    assert(names.includes("tasken.create_task") && names.includes("tasken.create_note"));
+    let caps = await capabilities();
+    assert.equal(caps.core.write_profile, "full");
+    assert.equal(caps.core.direct_write_enabled, false);
+    assert.equal(caps.writes.task_create, false);
+    assert.equal(
+      caps.tools.find((tool) => tool.name === "tasken.create_task").reason,
+      "disabled_in_settings",
+    );
+
+    db.setPreference("aiDirectWriteEnabled", true);
+    caps = await capabilities();
+    assert.equal(caps.core.direct_write_enabled, true);
+    assert.equal(caps.writes.task_create, true);
+    const { kind: _kind, ...taskArgs } = {
+      ...request("task", "rich-task"),
+      theme_id: "theme-work",
+      priority: "high",
+      schedule: { end_date: "2026-11-20" },
+      today_date: "2026-11-11",
+      checklist: ["下書き", "見直し"],
+    };
+    const created = await client.callTool({ name: "tasken.create_task", arguments: taskArgs });
+    assert(!created.isError, JSON.stringify(created));
+    assert.equal(created.structuredContent.entity.theme_id, "theme-work");
+    const task = db.get("task", created.structuredContent.entity.id);
+    assert.equal(task.project_id, "theme-work");
+    assert.equal(task.priority, "high");
+    assert.equal(task.today_date, "2026-11-11");
+    assert.deepEqual(
+      task.checklist_items.map((item) => [item.title, item.done]),
+      [
+        ["下書き", false],
+        ["見直し", false],
+      ],
+    );
+    assert.equal(task.ai_authority, "ai_generated");
+    assert.equal(task.intended_executor, "self");
+    const schedule = db.list("schedule").find((entry) => entry.owner_id === task.id);
+    assert.equal(schedule.end_date, "2026-11-20");
+    assert.equal(schedule.start_date, null);
+    assert.equal(schedule.date_kind, "deadline");
+    const again = await client.callTool({ name: "tasken.create_task", arguments: taskArgs });
+    assert.equal(again.structuredContent.status, "duplicate");
+    assert.equal(db.list("schedule").length, 1);
+
+    const missingTheme = await client.callTool({
+      name: "tasken.create_task",
+      arguments: { ...taskArgs, idempotency_key: "missing-theme", theme_id: "no-such-theme" },
+    });
+    assert.equal(missingTheme.isError, true);
+    assert.equal(missingTheme.structuredContent.error.code, "INVALID_REFERENCE");
+
+    const note = await core.createAiItem({
+      ...request("note", "themed-note"),
+      theme_id: "theme-work",
+      note_type: "prompt",
+    });
+    assert.equal(db.get("note", note.entity.id).project_id, "theme-work");
+    assert.equal(db.get("note", note.entity.id).note_type, "prompt");
+    // 日報の日付は、提案の採用と同じ場所（Debriefが読むproperties_json.daily_report）に置く。
+    const report = await core.createAiItem({
+      ...request("note", "daily-report"),
+      note_type: "report",
+      report_date: "2026-11-10",
+    });
+    const reportNote = db.get("note", report.entity.id);
+    assert.equal(reportNote.note_type, "report");
+    assert.deepEqual(reportNote.properties_json.daily_report, { date: "2026-11-10" });
+    assert.equal(reportNote.report_date, undefined);
+    for (const extra of [{ priority: "high" }, { schedule: { end_date: "2026-11-20" } }])
+      await assert.rejects(
+        core.createAiItem({ ...request("note", "wrong-kind"), ...extra }),
+        (e) => e.code === "VALIDATION_FAILED",
+      );
+    await assert.rejects(
+      core.createAiItem({ ...request("task", "wrong-kind"), note_type: "memo" }),
+      (e) => e.code === "VALIDATION_FAILED",
+    );
+
+    // 本人が止めたら、その場で断る（Coreは作り直さない）。
+    db.setPreference("aiDirectWriteEnabled", false);
+    await assert.rejects(
+      core.createAiItem(request("task", "after-off")),
+      (e) => e.code === "DIRECT_WRITE_DISABLED",
+    );
+    // 汎用のTask変更口はloopbackに出さない。
+    const discovery = JSON.parse(fs.readFileSync(path.join(dir, "tasken-core.json"), "utf8"));
+    const broad = await fetch(discovery.origin + "/v1/task/command", {
+      method: "POST",
+      headers: { authorization: `Bearer ${discovery.token}`, "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(broad.status, 404);
+  } finally {
+    await client?.close();
+    await transport?.close();
+    await runtime.stop();
+    db.db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("NAS replica（personal）は今までどおり、個人業務への題名と本文だけを作る", () => {
+  const dir = temporary();
+  const db = open(dir);
+  db.save("theme", { id: "theme-work", name: "仕事" });
+  const workspace = new WorkspaceService(db, dir, undefined, undefined, () => {
+    throw Error("no images");
+  });
+  const service = new AiItemCreationService(
+    db,
+    createAiItemCreationPort(new ApplicationCommandService(db), workspace),
+  );
+  try {
+    for (const extra of [
+      { theme_id: "theme-work" },
+      { priority: "high" },
+      { schedule: { end_date: "2026-11-20" } },
+      { today_date: "2026-11-11" },
+      { checklist: ["a"] },
+    ])
+      assert.throws(
+        () => service.execute({ ...request("task", "nas-wide"), ...extra }),
+        (e) => e.code === "WRITE_NOT_ALLOWED" && e.status === 403,
+      );
+    assert.throws(
+      () => service.execute({ ...request("note", "nas-wide"), note_type: "prompt" }),
+      (e) => e.code === "WRITE_NOT_ALLOWED",
+    );
+    assert.equal(db.list("task").length, 0);
+    const saved = service.execute(request("task", "nas-basic"));
+    assert.equal(db.get("task", saved.entity.id).project_id, "theme-personal-default");
   } finally {
     db.db.close();
     fs.rmSync(dir, { recursive: true, force: true });

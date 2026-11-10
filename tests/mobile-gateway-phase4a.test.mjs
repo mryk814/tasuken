@@ -4162,7 +4162,8 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
     const status = await client.status();
     assert.equal(status.apiVersion, "1");
     assert.equal(status.capabilities.includes("task.query"), true);
-    assert.equal(status.capabilities.includes("task.command"), true);
+    // 汎用のTask変更はloopbackに出さない（#703）。actorを呼び出し側が書くため。
+    assert.equal(status.capabilities.includes("task.command"), false);
 
     const themeCatalog = await adapter.handle({
       method: "GET",
@@ -4214,12 +4215,13 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
         error?.code === "INVALID_RESPONSE" && !JSON.stringify(error).includes("must-not-pass"),
     );
 
+    // Desktopの変更は同じTask serviceをin-processで通り、Core HTTPの読み取りとMobileが同じ結果を見る。
     const update = {
       schemaVersion: 2,
       command_id: "command-core-http-update",
       name: "UpdateTask",
       actor: { kind: "user", id: "desktop-user" },
-      source: "http",
+      source: "desktop",
       issued_at: now,
       payload: {
         task_id: "task-mobile-create",
@@ -4227,9 +4229,13 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
         changes: { title: "Updated through Core HTTP" },
       },
     };
-    const updated = await client.executeTaskCommand(update);
+    const updated = runtime.taskCapability.executeCommand(update);
     assert.equal(updated.ok, true);
     assert.equal(updated.value.task.title, "Updated through Core HTTP");
+    assert.equal(
+      (await client.executeTaskQuery(query)).value.task.title,
+      "Updated through Core HTTP",
+    );
 
     const mobileRead = await adapter.handle({
       method: "GET",
@@ -4239,7 +4245,7 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
     });
     assert.equal(mobileRead.status, 200);
     assert.equal(mobileRead.body.data.items[0].title, "Updated through Core HTTP");
-    assert.deepEqual(await client.executeTaskCommand(update), updated);
+    assert.deepEqual(runtime.taskCapability.executeCommand(update), updated);
     assert.equal(repository.list("change_event").length, 2);
 
     await runtime.stop();
@@ -4248,16 +4254,12 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
       (error) => error?.code === "CORE_UNAVAILABLE",
     );
     const mcpServer = readFileSync("src/main/mcp/server.mjs", "utf8");
-    // 開始専用Coreを優先し、未対応の旧Desktopだけtyped commandへ進む。
-    // 開始専用Coreの拒否は広い権限へfallbackしない。
+    // 開始は開始専用の入口だけを通り、拒否を広い権限へfallbackしない。
     assert.match(
       mcpServer,
       /const startTaskWork = async \(args\) => \{[\s\S]{0,200}coreClient\.startAiTaskWork/,
     );
-    assert.match(
-      mcpServer,
-      /error\.code !== "CAPABILITY_UNAVAILABLE"[\s\S]{0,200}throw error;[\s\S]{0,200}coreClient\.executeTaskCommand/,
-    );
+    assert.doesNotMatch(mcpServer, /coreClient\.executeTaskCommand/);
     assert.doesNotMatch(
       mcpServer,
       /server\.registerTool\(\s*"tasken\.(?:create|update|delete|complete)_task"/,

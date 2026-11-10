@@ -67,6 +67,7 @@ import { createTaskenRootController, type TaskenRootController } from "./taskenR
 import { screenRecordingOriginsMatch } from "../shared/screenRecording.mjs";
 import type { CommandReceipt } from "../shared/applicationCommand";
 import {
+  AI_DIRECT_WRITE_PREFERENCE,
   IPC,
   type RootOpenRequest,
   type SatelliteWindowStatePayload,
@@ -2747,13 +2748,17 @@ async function startDesktopApp(): Promise<void> {
     undefined,
     composition.createCoreClient(),
   );
-  if (process.env.TASKEN_CORE_AI_ITEM_CREATE === "1") {
-    composition.coreRuntime.enableAiItemCreation(
-      createAiItemCreationPort(applicationCommands, workspaceService, () => {
-        notifyMainWindowRefresh();
-      }),
-    );
-  }
+  // ローカルのAI（Claude Codeなど）の直接の書き込み。入口は常に公開し、使えるかは本人の設定
+  // （設定 → AI & Context）を要求のたびに読む。既定は無効。
+  composition.coreRuntime.enableAiItemCreation(
+    createAiItemCreationPort(applicationCommands, workspaceService, () => {
+      notifyMainWindowRefresh();
+    }),
+    {
+      isEnabled: () => workspaceRepository.readPreference(AI_DIRECT_WRITE_PREFERENCE) === true,
+      scope: "any",
+    },
+  );
   await composition.start();
   const backupDatabase = workspaceRepository;
   automaticSnapshotBackup = new AutomaticSnapshotBackupService({

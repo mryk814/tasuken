@@ -6,7 +6,6 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
 import { TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
-import { TASK_CONTRACT_SCHEMA_VERSION } from "../src/shared/contracts/task/public.ts";
 
 const charter = {
   schema: "tasken-theme-charter/v1",
@@ -117,17 +116,17 @@ function fakeCoreClient({ ambiguous = false, sessionsPerClient = 1 } = {}) {
         })),
       };
     },
-    async executeTaskCommand(args) {
-      calls.push(["executeTaskCommand", args]);
+    async startAiTaskWork(args) {
+      calls.push(["startAiTaskWork", args]);
       return {
         ok: true,
         value: {
-          command_id: args.command_id,
-          name: args.name,
+          command_id: args.idempotency_key,
+          name: "StartTaskWork",
           status: "applied",
           task: {
-            id: args.payload.task_id,
-            version: args.payload.expected_version + 1,
+            id: args.task_id,
+            version: args.expected_version + 1,
             work_state: "in_progress",
           },
         },
@@ -199,25 +198,18 @@ test("start_task_work directly claims an AI Ready Task without creating a Propos
     assert.equal(result.structuredContent.ok, true);
   });
 
-  const call = core.calls.find(([name]) => name === "executeTaskCommand");
+  // 開始はCoreの限定の入口だけを通る。actor・source・command名はCoreが決め、bridgeは渡さない。
+  const call = core.calls.find(([name]) => name === "startAiTaskWork");
   assert.deepEqual(call, [
-    "executeTaskCommand",
+    "startAiTaskWork",
     {
-      schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
-      command_id: "start-task-ready",
-      name: "StartTaskWork",
-      actor: { kind: "ai_agent", id: "Codex" },
-      source: "mcp",
-      entrypoint: "mcp",
-      issued_at: "2026-08-26T10:00:00.000Z",
-      payload: {
-        task_id: "task-ready",
-        expected_version: 4,
-        executor_identity: "Codex",
-        started_at: "2026-08-26T10:00:00.000Z",
-        source_session: "codex-session-1",
-        work_attempt_id: "12c9a3df-084a-4314-8a80-de844b512fad",
-      },
+      task_id: "task-ready",
+      expected_version: 4,
+      idempotency_key: "start-task-ready",
+      caller: "Codex",
+      started_at: "2026-08-26T10:00:00.000Z",
+      work_attempt_id: "12c9a3df-084a-4314-8a80-de844b512fad",
+      source_session: "codex-session-1",
     },
   ]);
 });

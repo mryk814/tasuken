@@ -124,18 +124,10 @@ test("doctor keeps JSON protocol stdout clean and sends human diagnostics only t
 });
 
 test("doctor accepts a read-only or proposals deployment as ready", async () => {
-  const { TASKEN_CORE_TASK_COMMAND_CAPABILITY } =
+  const { TASKEN_CORE_WRITE_CAPABILITIES } =
     await import("../src/shared/contracts/core/public.mjs");
   const readCapabilities = TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.filter(
-    (capability) => capability !== TASKEN_CORE_TASK_COMMAND_CAPABILITY,
-  ).filter(
-    (capability) =>
-      ![
-        "propose_task_work",
-        "propose_agent_session",
-        "propose_repository_task",
-        "propose_content",
-      ].includes(capability),
+    (capability) => !TASKEN_CORE_WRITE_CAPABILITIES.includes(capability),
   );
 
   // 常時稼働nodeの既定: 読み取りだけを公開しても正常。
@@ -176,20 +168,20 @@ test("doctor accepts a read-only or proposals deployment as ready", async () => 
   assert.equal(partial.checks.at(-1).code, "MCP_CORE_CAPABILITIES_MISSING");
 });
 
-test("doctor requires the Task command capability used by direct start", async () => {
-  const { TASKEN_CORE_TASK_COMMAND_CAPABILITY } =
+test("doctor requires the limited start capability that Desktop always publishes", async () => {
+  const { TASKEN_CORE_TASK_START_WORK_CAPABILITY } =
     await import("../src/shared/contracts/core/public.mjs");
   const report = await buildReport({
     inspect: async () => ({
       api_version: "1",
       capabilities: TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.filter(
-        (capability) => capability !== TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+        (capability) => capability !== TASKEN_CORE_TASK_START_WORK_CAPABILITY,
       ),
     }),
   });
   assert.equal(report.ok, false);
   assert.deepEqual(report.checks.at(-1).missing_capabilities, [
-    TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+    TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   ]);
 });
 
@@ -296,5 +288,39 @@ test("doctor distinguishes a running MCP bridge from an unavailable Core", async
     assert.doesNotMatch(JSON.stringify(report), /tasken-doctor-offline-|tasken-core.json/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("配布版のbridgeは、Coreに繋がらないときTasken.exeの場所を案内する（#703 c0）", async () => {
+  const { buildMcpBridge } = await import("../scripts/build-mcp-bridge.mjs");
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+  // 配布版と同じ置き方: <導入先>/Tasken.exe と <導入先>/resources/mcp/server.mjs
+  const install = fs.mkdtempSync(path.join(process.cwd(), ".mcp-install-layout-"));
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-no-core-"));
+  let client;
+  try {
+    await buildMcpBridge({ outDir: path.join(install, "resources", "mcp") });
+    const executable = path.join(install, "Tasken.exe");
+    fs.writeFileSync(executable, "");
+    client = new Client({ name: "core-unavailable-hint", version: "1" });
+    await client.connect(
+      new StdioClientTransport({
+        command: process.env.TASKEN_NODE_EXEC_PATH || process.execPath,
+        args: [path.join(install, "resources", "mcp", "server.mjs")],
+        env: { ...process.env, TASKEN_USER_DATA_DIR: userData },
+        stderr: "pipe",
+      }),
+    );
+    const result = await client.callTool({ name: "tasken.search_items", arguments: {} });
+    assert.equal(result.isError, true);
+    const { error } = result.structuredContent;
+    assert.equal(error.code, "CORE_UNAVAILABLE");
+    assert.equal(error.details.tasken_executable, executable);
+    assert.ok(error.next_action.includes(executable), error.next_action);
+  } finally {
+    await client?.close();
+    fs.rmSync(install, { recursive: true, force: true });
+    fs.rmSync(userData, { recursive: true, force: true });
   }
 });

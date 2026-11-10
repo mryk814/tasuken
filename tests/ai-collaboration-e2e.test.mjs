@@ -45,8 +45,10 @@ const { ApplicationCommandService } = await importBundled(
   "src/main/services/applicationCommandService.ts",
 );
 const { TaskenCoreHost } = await importBundled("src/main/infrastructure/http/taskenCoreHost.ts");
+const { createAiTaskStartProvider } = await importBundled(
+  "src/main/composition/taskenCoreRuntime.ts",
+);
 const { createTaskenCore } = await importBundled("src/main/infrastructure/sqlite/public.ts");
-const { TaskCapabilityService } = await importBundled("src/main/modules/task/public.ts");
 const { TaskenDesktopComposition } = await importBundled(
   "src/main/composition/taskenDesktopComposition.ts",
 );
@@ -391,13 +393,15 @@ async function runProviderScenario(provider, explicitStart = false) {
         },
       })
     : null;
-  const taskCapability =
-    composition?.taskCapability ||
-    new TaskCapabilityService(fixture.database, (envelope) => fixture.service.execute(envelope));
+  // Desktopと同じく、開始はCoreの限定の入口（Themeと依頼者を問わない`any`）を通す。
+  const executeAiTaskStart = (envelope) =>
+    composition
+      ? composition.executeAiTaskStart(envelope)
+      : fixture.service.executeAiTaskStart(envelope, "any");
   let host = new TaskenCoreHost({
     userDataPath: fixture.root,
     ...createTaskenCore(fixture.database),
-    taskCommand: { execute: taskCapability.executeCommand.bind(taskCapability) },
+    startAiTaskWork: createAiTaskStartProvider(fixture.database, executeAiTaskStart),
   });
   await host.start();
   assertDiscoveryOwnerOnly(fixture.root);

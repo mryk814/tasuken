@@ -785,6 +785,9 @@ export class WorkspaceDatabase {
     }
     if (key === "automaticSnapshotBackupEnabled")
       return this.ensureMeta("automatic_snapshot_backup_enabled", "true") === "true";
+    // ローカルのAIに直接の書き込みを許すか（#703）。端末ごとの設定で、同期しない。既定は無効。
+    if (key === "aiDirectWriteEnabled")
+      return this.ensureMeta("ai_direct_write_enabled", "false") === "true";
     if (key === "automaticSnapshotBackupDirectory")
       return this.ensureMeta("automatic_snapshot_backup_directory", "");
     if (key === "automaticSnapshotBackupGenerations") {
@@ -844,6 +847,8 @@ export class WorkspaceDatabase {
     }
     if (key === "activeGroup") return readMeta("active_group") ?? "";
     if (key === "artifactDirectory") return readMeta("artifact_directory") ?? "";
+    // Coreが書き込みのたびに読む。既定（無効）を書き出さない。
+    if (key === "aiDirectWriteEnabled") return readMeta("ai_direct_write_enabled") === "true";
     if (key === "aiVisibilityDefault") {
       const value = readMeta("ai_visibility_default");
       if (value === undefined) return [...DEFAULT_AI_VISIBILITY];
@@ -1032,6 +1037,18 @@ export class WorkspaceDatabase {
         )
         .run(JSON.stringify(usage));
       return usage;
+    }
+    if (key === "aiDirectWriteEnabled") {
+      if (typeof value !== "boolean") throw new Error("直接の書き込みの設定の値が不正です。");
+      this.db
+        .prepare(
+          `
+        INSERT INTO workspace_meta(key, value) VALUES('ai_direct_write_enabled', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `,
+        )
+        .run(value ? "true" : "false");
+      return value;
     }
     if (key === "automaticSnapshotBackupEnabled") {
       const enabled = Boolean(value);

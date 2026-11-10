@@ -4,27 +4,34 @@ import {
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
-  TASKEN_CORE_TASK_COMMAND_CAPABILITY,
   TASKEN_CORE_TASK_START_WORK_CAPABILITY,
 } from "./protocol.mjs";
 
-/**
- * 書き込みcapability。配備によって公開範囲が変わるため、読み取りとは別に扱う。
- * `proposals`配備はテキストのFeed投稿・Note案・Task案・Task作業報告だけを公開する。
- * 直接書き込み（`task.command`）とAgent Sessionは`full`だけが公開する。
- */
-export const TASKEN_CORE_WRITE_CAPABILITIES = Object.freeze([
-  TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
-  TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
+/** テキストの提案（Feed投稿・Note案・Task案・Task作業報告）。NAS replicaの`proposals`配備はこれだけを公開する。 */
+const PROPOSAL_CAPABILITIES = Object.freeze([
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
-  TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+  TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
 ]);
 
-const PROPOSALS_ONLY_CAPABILITIES = Object.freeze([
-  TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
-  TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
-  TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+/**
+ * Desktop（`full`）が必ず公開する書き込み。Agent Sessionの提案とAI Ready Taskの開始は`full`だけが持つ。
+ * 足りない分は`partial`の`missingWrites`として報告する。
+ */
+const FULL_CAPABILITIES = Object.freeze([
+  ...PROPOSAL_CAPABILITIES,
+  TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
+  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
+]);
+
+/**
+ * 書き込みcapabilityの全部。配備によって公開範囲が変わるため、読み取りとは別に扱う
+ * （doctorは、ここに無いものを読み取りの必須として確かめる）。
+ * Task・Noteの新規作成は、それだけでは配備の形を決めない追加の許可。
+ */
+export const TASKEN_CORE_WRITE_CAPABILITIES = Object.freeze([
+  ...FULL_CAPABILITIES,
+  TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
 ]);
 
 /**
@@ -35,48 +42,25 @@ const PROPOSALS_ONLY_CAPABILITIES = Object.freeze([
 /**
  * Coreが公開している書き込みの範囲。
  * `partial`は既知の配備と一致しない組み合わせで、更新や設定の不一致として扱う。
+ * 汎用のTask変更（`task.command`）はloopbackに出さないので、どの配備の判定にも使わない。
  * @param {unknown} capabilities
  * @returns {CoreWriteProfileResult}
  */
 export function coreWriteProfile(capabilities) {
   const advertised = Array.isArray(capabilities) ? capabilities : [];
-  // This additive capability never satisfies the generic task.command grant.
-  if (advertised.includes(TASKEN_CORE_TASK_START_WORK_CAPABILITY)) {
-    const base = coreWriteProfile(
-      advertised.filter((value) => value !== TASKEN_CORE_TASK_START_WORK_CAPABILITY),
-    );
-    /** @type {Partial<Record<CoreWriteProfile, CoreWriteProfile>>} */
-    const profiles = {
-      "read-only": "start-only",
-      proposals: "proposals-and-start",
-      "create-only": "create-and-start",
-    };
-    return { ...base, profile: profiles[base.profile] || base.profile };
-  }
-  if (advertised.includes(TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY)) {
-    const legacy = coreWriteProfile(
-      advertised.filter((value) => value !== TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY),
-    );
-    return {
-      profile:
-        legacy.profile === "full"
-          ? "full"
-          : legacy.profile === "proposals"
-            ? "create-only"
-            : "partial",
-      missingWrites: legacy.missingWrites,
-    };
-  }
-  const present = (capability) => advertised.includes(capability);
-  const presentWrites = TASKEN_CORE_WRITE_CAPABILITIES.filter(present);
-  const missingWrites = TASKEN_CORE_WRITE_CAPABILITIES.filter((capability) => !present(capability));
-  if (presentWrites.length === 0) return { profile: "read-only", missingWrites };
-  if (missingWrites.length === 0) return { profile: "full", missingWrites };
-  if (
-    presentWrites.length === PROPOSALS_ONLY_CAPABILITIES.length &&
-    PROPOSALS_ONLY_CAPABILITIES.every(present)
-  ) {
-    return { profile: "proposals", missingWrites };
-  }
-  return { profile: "partial", missingWrites };
+  const has = (capability) => advertised.includes(capability);
+  const missingWrites = FULL_CAPABILITIES.filter((capability) => !has(capability));
+  const proposals = PROPOSAL_CAPABILITIES.every(has);
+  const anyProposal = PROPOSAL_CAPABILITIES.some(has);
+  const agentSession = has(TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY);
+  const start = has(TASKEN_CORE_TASK_START_WORK_CAPABILITY);
+  const create = has(TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY);
+  /** @param {CoreWriteProfile} profile */
+  const result = (profile) => ({ profile, missingWrites });
+  if (missingWrites.length === 0) return result("full");
+  if (!anyProposal && !agentSession && !create) return result(start ? "start-only" : "read-only");
+  // Agent Sessionの提案は`full`だけが公開する。一部だけ揃っていれば更新・設定の食い違い。
+  if (!proposals || agentSession) return result("partial");
+  if (create) return result(start ? "create-and-start" : "create-only");
+  return result(start ? "proposals-and-start" : "proposals");
 }

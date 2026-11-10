@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   aiItemCreationRequestSchema,
   aiItemCreationResponseSchema,
+  taskScheduleEditFromAiInput,
   type AiItemCreationRequest,
   type AiItemCreationResponse,
 } from "../../../shared/contracts/task/public.ts";
@@ -9,6 +10,7 @@ import { PERSONAL_DEFAULT_THEME_ID } from "../../../shared/themeRef.mjs";
 import { canonicalMarkdownBindingFromProperties } from "../../../shared/canonicalMarkdown.mjs";
 import type { CommandEnvelope, CommandReceipt } from "../../../shared/applicationCommand.ts";
 import type { CanonicalNoteCreationCompanion, Entity } from "../../../shared/types/workspace.ts";
+import { CorePublicError, directWriteDisabled } from "./corePublicError.ts";
 
 interface Persistence {
   readonly workspaceId: string;
@@ -30,6 +32,32 @@ export class AiItemCreationError extends Error {
   }
 }
 
+export interface AiItemCreationOptions {
+  /**
+   * Desktopだけが渡す。本人が設定で直接の書き込みを許しているかを、要求のたびに読む。
+   * NAS replicaは配備の書き込み範囲（create-only）を選んだ時点で許しているので渡さない。
+   */
+  isEnabled?: () => boolean;
+  /**
+   * `any`（Desktop）はThemeと日程などの欄を受ける。`personal`（既定、NAS replica）は今までどおり、
+   * 個人業務への題名と本文だけ。NASのAIはThemeのAI公開範囲を見ずに書けてしまうのと、
+   * replicaが出す同期差分の形を増やさないため。
+   */
+  scope?: "personal" | "any";
+  now?: () => string;
+}
+
+/** `personal`の範囲で受けない欄。 */
+const DESKTOP_ONLY_FIELDS = [
+  "theme_id",
+  "priority",
+  "schedule",
+  "today_date",
+  "checklist",
+  "note_type",
+  "report_date",
+] as const;
+
 function stableId(value: string): string {
   const h = createHash("sha256").update(value).digest("hex");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
@@ -37,14 +65,29 @@ function stableId(value: string): string {
 
 /** The authenticated host supplies one persistence instance; no caller-selected workspace/actor. */
 export class AiItemCreationService {
+  private readonly now: () => string;
+
   constructor(
     private readonly persistence: Persistence,
     private readonly port: AiItemCreationPort,
-    private readonly now: () => string = () => new Date().toISOString(),
-  ) {}
+    private readonly options: AiItemCreationOptions = {},
+  ) {
+    this.now = options.now || (() => new Date().toISOString());
+  }
 
   execute(input: AiItemCreationRequest): AiItemCreationResponse {
+    if (this.options.isEnabled && !this.options.isEnabled()) throw directWriteDisabled();
     const request = aiItemCreationRequestSchema.parse(input);
+    if ((this.options.scope || "personal") === "personal") {
+      const fields = DESKTOP_ONLY_FIELDS.filter((field) => request[field] !== undefined);
+      if (fields.length > 0)
+        throw new CorePublicError(
+          "WRITE_NOT_ALLOWED",
+          "この接続先では、個人業務への題名と本文だけの新規作成を受け付けます。",
+          403,
+          { fields },
+        );
+    }
     if (request.kind === "note") this.port.recoverNotes();
     const commandId = stableId(
       JSON.stringify([
@@ -68,6 +111,11 @@ export class AiItemCreationService {
     }
     if (this.persistence.get(request.kind, entityId, true))
       throw new AiItemCreationError("IDEMPOTENCY_CONFLICT", "同じ作成IDが既に存在します。");
+    const themeId = request.theme_id || PERSONAL_DEFAULT_THEME_ID;
+    if (!this.persistence.get("theme", themeId))
+      throw new CorePublicError("INVALID_REFERENCE", "指定したThemeがありません。", 400, {
+        field: "theme_id",
+      });
     const receivedAt = this.now();
     const origin = {
       schema: "tasken-ai-creation/v1" as const,
@@ -78,10 +126,12 @@ export class AiItemCreationService {
       received_at: receivedAt,
       reason: request.reason,
     };
+    // 指定されなかった欄は足さない。NAS replicaの同期差分の形（contracts/sync/ai-item-packets.json）を、
+    // 欄を使わない作成では変えないため。
     const entity: Entity = {
       id: entityId,
       title: request.title,
-      project_id: PERSONAL_DEFAULT_THEME_ID,
+      project_id: themeId,
       ai_authority: "ai_generated",
       ai_creation: origin,
       ai_seen_at: null,
@@ -89,12 +139,30 @@ export class AiItemCreationService {
         ? {
             description: request.body,
             state: "todo",
-            priority: "normal",
+            priority: request.priority || "normal",
             requester: "self",
             intended_executor: "self",
             work_state: "not_delegated",
+            ...(request.today_date ? { today_date: request.today_date } : {}),
+            ...(request.checklist?.length
+              ? {
+                  checklist_items: request.checklist.map((title, index) => ({
+                    id: stableId(`${commandId}:checklist:${index}`),
+                    title,
+                    done: false,
+                    sort_order: index,
+                  })),
+                }
+              : {}),
           }
-        : { body_markdown: request.body, note_type: "memo" }),
+        : {
+            body_markdown: request.body,
+            note_type: request.note_type || "memo",
+            // 日報の日付は、提案の採用と同じくproperties_json.daily_reportに置く（Debriefが読む場所）。
+            ...(request.report_date
+              ? { properties_json: { daily_report: { date: request.report_date } } }
+              : {}),
+          }),
     };
     // This event and Entity are committed together, including canonical Note recovery.
     const event: Entity = {
@@ -120,6 +188,16 @@ export class AiItemCreationService {
       metadata: { ai_creation: origin },
     };
     if (request.kind === "task") {
+      const schedule = request.schedule
+        ? {
+            ...taskScheduleEditFromAiInput(request.schedule),
+            id: stableId(`${commandId}:schedule`),
+            owner_type: "task",
+            owner_id: entityId,
+            version: 0,
+            updated_at: receivedAt,
+          }
+        : null;
       this.port.executeTask(
         {
           commandId,
@@ -128,7 +206,7 @@ export class AiItemCreationService {
           source: "mcp",
           issuedAt: receivedAt,
           expectedVersions: [],
-          payload: { task: entity },
+          payload: { task: entity, ...(schedule ? { schedule } : {}) },
         },
         event,
       );
@@ -161,6 +239,7 @@ export class AiItemCreationService {
         version: Number(entity.version),
         title: String(entity.title),
         body: String((kind === "note" ? entity.body_markdown : entity.description) || ""),
+        theme_id: typeof entity.project_id === "string" ? entity.project_id : null,
         deleted_at: entity.deleted_at || null,
         ai_creation: entity.ai_creation,
         ai_seen_at: entity.ai_seen_at || null,

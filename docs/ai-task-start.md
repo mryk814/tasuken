@@ -1,24 +1,24 @@
 # MCPの開始専用権限
 
-`task.start_work`は、人がAI Readyにした本人の個人Taskについて、外部AIの着手を直接記録する独立した権限。
+`task.start_work`は、人がAI ReadyにしたTaskについて、外部AIの着手を直接記録する独立した権限。
 新規作成権限や`create-only`から暗黙に許可しない。
+DesktopはAI Readyを本人の許可として常に公開し、Themeと依頼者を問わない（仕事のTaskも開始できる）。NASは下の明示opt-inで、本人の個人業務に限る。
 
 ## 操作・対象・保存
 
-| 項目           | 契約                                                                                                                                      |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| MCP / Core     | 既存`tasken.start_task_work` / `POST /v1/commands/start-ai-task-work`                                                                     |
-| 対象           | 固定Workspaceのtheme-personal-default、requester=self、intended_executor=ai_agent、work_state=ready_for_agent。削除・完了・中止済みは拒否 |
-| 保存           | work_state、work_started_at、executor_identity、work_attempt_idと既存監査イベント。通常のversion/updated_atも更新                         |
-| 保存先         | Coreの既存SQLite正本と既存の共有フォルダ同期。schema・保存場所は変更しない                                                                |
-| 禁止入力       | actor、source、command名、本文、題名、完了、削除、採用、委任、Workspaceや保存path                                                         |
-| actor / source | Coreがai_agent / mcpに固定。callerは表示・監査名で、本人認証や特定AIへの排他的grantとは別                                                 |
-| 再送           | キー・version・caller・時刻・UUID・sessionを保持。内容違いの同一キーはfingerprint競合                                                     |
-| 作業中         | 新しい要求を拒否。同じ要求の再送だけ認め、他executorのclaimを取り直さない                                                                 |
-| 作業単位       | UUID必須。この経路で開始済みのUUIDを同じTaskで再利用しない。開始イベントを識別記録として使う                                              |
+| 項目           | 契約                                                                                                                                                 |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCP / Core     | 既存`tasken.start_task_work` / `POST /v1/commands/start-ai-task-work`                                                                                |
+| 対象           | 固定Workspaceのintended_executor=ai_agent、work_state=ready_for_agent。NASはさらにtheme-personal-defaultとrequester=self。削除・完了・中止済みは拒否 |
+| 保存           | work_state、work_started_at、executor_identity、work_attempt_idと既存監査イベント。通常のversion/updated_atも更新                                    |
+| 保存先         | Coreの既存SQLite正本と既存の共有フォルダ同期。schema・保存場所は変更しない                                                                           |
+| 禁止入力       | actor、source、command名、本文、題名、完了、削除、採用、委任、Workspaceや保存path                                                                    |
+| actor / source | Coreがai_agent / mcpに固定。callerは表示・監査名で、本人認証や特定AIへの排他的grantとは別                                                            |
+| 再送           | キー・version・caller・時刻・UUID・sessionを保持。内容違いの同一キーはfingerprint競合                                                                |
+| 作業中         | 新しい要求を拒否。同じ要求の再送だけ認め、他executorのclaimを取り直さない                                                                            |
+| 作業単位       | UUID必須。この経路で開始済みのUUIDを同じTaskで再利用しない。開始イベントを識別記録として使う                                                         |
 
-汎用`task.command`を公開しない。
-旧Desktopの汎用経路は互換用に残るが、開始専用経路からの拒否を迂回させない。
+汎用`task.command`はDesktopでもNASでもloopbackに出さない。MCPの`start_task_work`は開始専用経路だけを使い、拒否を別の経路で迂回しない。
 このCoreの開始toolを許可された接続は、上記条件を満たす本人のTaskを開始できる。
 caller名を「こもり」等に固定しても特定AIだけの認可にはならないため、接続単位のtool許可はclient側で管理する。
 
