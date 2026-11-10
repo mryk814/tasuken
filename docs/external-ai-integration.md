@@ -152,19 +152,19 @@ node scripts/tasken-core-client.mjs list                                        
 node scripts/tasken-core-client.mjs revoke awai                                         # 次の要求から401
 ```
 
-- 通るのは`/v1/queries/*`と`/v1/task/query`の読み取りだけです。Proposalの状態（`get-proposal-status`、`list-proposals`）と、書き込み・Proposal作成の`/v1/commands/*`・`/v1/task/command`は`403 READ_ONLY_CLIENT`になります。
+- 通るのは`/v1/queries/*`と`/v1/task/query`の読み取りだけです。Proposalの状態（`get-proposal-status`、`list-proposals`）と、書き込み・Proposal作成の`/v1/commands/*`は`403 READ_ONLY_CLIENT`になります。汎用のTask変更（`/v1/task/command`）は、どのtokenにも公開していません。
 - Coreのポートは起動ごとに変わります。接続先は、tokenを含まない`<userData>/core-endpoint/tasken-core-endpoint.json`の`origin`から読みます。全権tokenを含む`tasken-core.json`は読まないでください。別のコンテナの読み手（NAS の awai）には、`core-endpoint/`のフォルダだけを読み取りで渡します（Coreはファイルをrenameで置き直すので、ファイルだけを渡すと古い中身が見え続けます）。
 - tokenはuserDataの`tasken-core-clients.json`にSHA-256だけが保存されます。取り消しはCoreの再起動なしで反映されます。再発行は取り消してから行います。
 - Windows PowerShell 5の`>`はUTF-16で書くため、Git BashかPowerShell 7で実行してください。
 
 ## その他の入口
 
-| 目的                 | 入口                                                  | 返り先                     |
-| -------------------- | ----------------------------------------------------- | -------------------------- |
-| 日報                 | MCP Prompt `daily-report`、Debriefの依頼文            | Note Proposal → Agent Desk |
-| M365へThemeを渡す    | Theme AI Pack（`themeAiPack.mjs`）                    | OneDrive上の読み取り投影   |
+| 目的                 | 入口                                                 | 返り先                     |
+| -------------------- | ---------------------------------------------------- | -------------------------- |
+| 日報                 | MCP Prompt `daily-report`、Debriefの依頼文           | Note Proposal → Agent Desk |
+| M365へThemeを渡す    | Theme AI Pack（`themeAiPack.mjs`）                   | OneDrive上の読み取り投影   |
 | 選択会話を公開する   | Conversation AI Context（`conversationContext.mjs`） | 明示公開したMarkdown       |
-| AI作業の履歴を集める | [Agent Session hooks](agent-session-provenance.md)    | Session記録／Debrief       |
+| AI作業の履歴を集める | [Agent Session hooks](agent-session-provenance.md)   | Session記録／Debrief       |
 
 Context Packから構造化JSONを貼り戻して既存Taskを更新するUIは、現在のAgent Deskにはありません。
 新規Taskの作成には、Today・ToDoの[外部AI取り込み](mobile-capture-organizer-providers.md)で自然文を外部AIへ渡し、返ってきたJSONをプレビューして採用できます。

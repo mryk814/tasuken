@@ -209,7 +209,7 @@ function contentKindAllowed(profile, kind) {
 
 /**
  * Coreが公開するcapabilityから、各toolを実際に使えるかを判定する。
- * 使えない理由は機械が読める短い文字列で返す（例: `missing_capability:task.command`）。
+ * 使えない理由は機械が読める短い文字列で返す（例: `missing_capability:task.start_work`）。
  * @param {readonly string[] | undefined} capabilities
  * @param {{ readOnly?: boolean, toolsets?: string[] | string, directWriteEnabled?: boolean }} [options]
  *   `directWriteEnabled`はDesktop Coreが返す本人の設定。falseのときだけ`setting`付きのtoolを使えないとする。

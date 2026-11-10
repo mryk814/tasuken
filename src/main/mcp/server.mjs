@@ -15,7 +15,11 @@ import {
   parseCanonicalTaskId,
   parseTaskLocator,
 } from "../../shared/contracts/mobile/public.mjs";
-import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
+import {
+  TaskenCoreClient,
+  TaskenCoreClientError,
+  installedTaskenExecutable,
+} from "./taskenCoreClient.mjs";
 import {
   MCP_TOOL_REQUIREMENTS,
   mcpToolAvailability,
@@ -1287,7 +1291,11 @@ async function startupCapabilities(coreClient) {
 }
 
 export async function startTaskenMcpServer() {
-  const coreClient = new TaskenCoreClient({ env: process.env });
+  // 同じPCのAIだけに、Desktopが止まっているときのTasken.exeの場所を案内する（#703 c0）。
+  const coreClient = new TaskenCoreClient({
+    env: process.env,
+    taskenExecutable: installedTaskenExecutable(),
+  });
   const server = createTaskenMcpServer({
     coreClient,
     capabilities: await startupCapabilities(coreClient),

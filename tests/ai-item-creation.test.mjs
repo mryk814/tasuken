@@ -285,6 +285,7 @@ test("Desktop: 直接の書き込みは設定をその場で読み、Theme・期
   );
   runtime.enableAiItemCreation(createAiItemCreationPort(commands, workspace), {
     isEnabled: () => db.readPreference("aiDirectWriteEnabled") === true,
+    scope: "any",
   });
   await runtime.start();
   let transport, client;
@@ -368,6 +369,16 @@ test("Desktop: 直接の書き込みは設定をその場で読み、Theme・期
     });
     assert.equal(db.get("note", note.entity.id).project_id, "theme-work");
     assert.equal(db.get("note", note.entity.id).note_type, "prompt");
+    // 日報の日付は、提案の採用と同じ場所（Debriefが読むproperties_json.daily_report）に置く。
+    const report = await core.createAiItem({
+      ...request("note", "daily-report"),
+      note_type: "report",
+      report_date: "2026-11-10",
+    });
+    const reportNote = db.get("note", report.entity.id);
+    assert.equal(reportNote.note_type, "report");
+    assert.deepEqual(reportNote.properties_json.daily_report, { date: "2026-11-10" });
+    assert.equal(reportNote.report_date, undefined);
     for (const extra of [{ priority: "high" }, { schedule: { end_date: "2026-11-20" } }])
       await assert.rejects(
         core.createAiItem({ ...request("note", "wrong-kind"), ...extra }),
@@ -396,6 +407,42 @@ test("Desktop: 直接の書き込みは設定をその場で読み、Theme・期
     await client?.close();
     await transport?.close();
     await runtime.stop();
+    db.db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("NAS replica（personal）は今までどおり、個人業務への題名と本文だけを作る", () => {
+  const dir = temporary();
+  const db = open(dir);
+  db.save("theme", { id: "theme-work", name: "仕事" });
+  const workspace = new WorkspaceService(db, dir, undefined, undefined, () => {
+    throw Error("no images");
+  });
+  const service = new AiItemCreationService(
+    db,
+    createAiItemCreationPort(new ApplicationCommandService(db), workspace),
+  );
+  try {
+    for (const extra of [
+      { theme_id: "theme-work" },
+      { priority: "high" },
+      { schedule: { end_date: "2026-11-20" } },
+      { today_date: "2026-11-11" },
+      { checklist: ["a"] },
+    ])
+      assert.throws(
+        () => service.execute({ ...request("task", "nas-wide"), ...extra }),
+        (e) => e.code === "WRITE_NOT_ALLOWED" && e.status === 403,
+      );
+    assert.throws(
+      () => service.execute({ ...request("note", "nas-wide"), note_type: "prompt" }),
+      (e) => e.code === "WRITE_NOT_ALLOWED",
+    );
+    assert.equal(db.list("task").length, 0);
+    const saved = service.execute(request("task", "nas-basic"));
+    assert.equal(db.get("task", saved.entity.id).project_id, "theme-personal-default");
+  } finally {
     db.db.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }

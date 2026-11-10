@@ -2748,7 +2748,10 @@ async function startDesktopApp(): Promise<void> {
     createAiItemCreationPort(applicationCommands, workspaceService, () => {
       notifyMainWindowRefresh();
     }),
-    { isEnabled: () => workspaceRepository.readPreference(AI_DIRECT_WRITE_PREFERENCE) === true },
+    {
+      isEnabled: () => workspaceRepository.readPreference(AI_DIRECT_WRITE_PREFERENCE) === true,
+      scope: "any",
+    },
   );
   await composition.start();
   const backupDatabase = workspaceRepository;
