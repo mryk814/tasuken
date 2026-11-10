@@ -1055,8 +1055,9 @@ export function createTaskenMcpServer(options = {}) {
     },
   };
   for (const [kind, { fields, description }] of Object.entries(creationTools)) {
+    const toolName = "tasken.create_" + kind;
     server.registerTool(
-      "tasken.create_" + kind,
+      toolName,
       { description, inputSchema: fields, annotations: DIRECT_WRITE_ANNOTATIONS },
       withCoreClient((args) => coreClient.createAiItem({ ...args, kind })),
     );
