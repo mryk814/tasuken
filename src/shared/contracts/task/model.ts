@@ -1,4 +1,4 @@
-import { aiCreationOriginSchema } from "./aiItemCreation.ts";
+import { aiCreationOriginSchema } from "./aiCreationOrigin.ts";
 import * as z from "zod/v4";
 
 import {

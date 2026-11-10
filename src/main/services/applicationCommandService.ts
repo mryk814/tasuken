@@ -1066,7 +1066,10 @@ export class ApplicationCommandService {
     );
   }
 
-  /** Called only by Core's explicitly enabled, creation-only service. */
+  /**
+   * Called only by Core's creation-only service. 新規の未着手・本人実行のTaskだけを作り、
+   * Themeの存在と日程の形はTask moduleの保存がそのまま確かめる。
+   */
   executeAiTaskCreation(input: unknown, creationEvent: Entity): CommandReceipt {
     const command = parseCommandEnvelope(input);
     const task = (command.payload as { task?: Entity }).task;
@@ -1076,13 +1079,13 @@ export class ApplicationCommandService {
       command.actor.kind !== "ai_agent" ||
       command.source !== "mcp" ||
       !task ||
-      task.project_id !== "theme-personal-default" ||
+      typeof task.project_id !== "string" ||
       task.state !== "todo" ||
       task.requester !== "self" ||
       task.intended_executor !== "self" ||
       task.work_state !== "not_delegated" ||
       origin?.command_id !== command.commandId ||
-      Object.keys(command.payload).some((key) => key !== "task") ||
+      Object.keys(command.payload).some((key) => key !== "task" && key !== "schedule") ||
       Object.keys(task).some(
         (key) =>
           ![
@@ -1098,6 +1101,8 @@ export class ApplicationCommandService {
             "requester",
             "intended_executor",
             "work_state",
+            "today_date",
+            "checklist_items",
           ].includes(key),
       ) ||
       creationEvent.entity_id !== task.id ||

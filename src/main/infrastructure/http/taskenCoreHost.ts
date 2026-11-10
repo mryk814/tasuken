@@ -570,6 +570,21 @@ function parseRouteRequest(route: RouteDefinition, body: unknown): unknown {
 }
 
 function publicRequestError(error: unknown) {
+  if (
+    error instanceof Error &&
+    error.name === "CorePublicError" &&
+    "code" in error &&
+    "status" in error
+  ) {
+    const details =
+      "details" in error && error.details && typeof error.details === "object"
+        ? (error.details as Record<string, unknown>)
+        : {};
+    return {
+      status: Number(error.status),
+      body: errorResponse(String(error.code), error.message, { details }),
+    };
+  }
   if (error instanceof RequestValidationError) {
     return {
       status: 400,
@@ -754,6 +769,7 @@ export class TaskenCoreHost {
   private server: http.Server | null = null;
   private writeGate: WriteGate | null = null;
   private routes = new Map<string, RouteDefinition>();
+  private directWriteEnabled: (() => boolean) | null = null;
 
   constructor(options: TaskenCoreHostOptions) {
     this.options = options;
@@ -765,9 +781,17 @@ export class TaskenCoreHost {
     );
   }
 
-  enableAiItemCreation(provider: QueryProvider<AiItemCreationRequest, AiItemCreationResponse>) {
+  /**
+   * `directWriteEnabled`はDesktopだけが渡す。経路は常に公開し、使えるかは本人の設定を要求のたびに読む
+   * （設定の切り替えでCoreを作り直さない）。`/capabilities`にも今の値を添え、AIが試す前に分かるようにする。
+   */
+  enableAiItemCreation(
+    provider: QueryProvider<AiItemCreationRequest, AiItemCreationResponse>,
+    directWriteEnabled?: () => boolean,
+  ) {
     if (this.server) throw new Error("Core起動後の権限変更はできません。");
     this.options.createAiItem = provider;
+    this.directWriteEnabled = directWriteEnabled || null;
   }
 
   /** NAS replicaだけが、同期の状態と鮮度を読み取りに公開する。Core起動前に一度だけ呼ぶ。 */
@@ -897,7 +921,12 @@ export class TaskenCoreHost {
         return;
       }
       if (request.method === "GET" && url === "/capabilities") {
-        json(response, 200, { capabilities: this.capabilities() });
+        json(response, 200, {
+          capabilities: this.capabilities(),
+          ...(this.directWriteEnabled
+            ? { direct_write_enabled: this.directWriteEnabled() === true }
+            : {}),
+        });
         return;
       }
       if (request.method === "POST" && route) {

@@ -26,17 +26,21 @@ import { PROPOSALS_PROFILE_CONTENT_KINDS } from "../../shared/contracts/task/pub
  * MCP toolごとに、Coreのどのcapabilityと書き込みの種類を必要とするか。
  * 公開の判定・`tasken.get_capabilities`の報告はどちらもこの表を正本にする。
  * `kind`はpropose_contentの種類で、`proposals`配備はその一部だけを受け付ける。
+ * `setting: "direct_write"`は、Desktopで本人が設定で許したときだけ使えるtool。
+ * 一覧からは外さず（設定を変えても接続し直さずに使えるように）、使えない理由を報告する。
  */
 export const MCP_TOOL_REQUIREMENTS = Object.freeze({
   "tasken.create_task": {
     toolset: "write",
     access: "direct_write",
     capability: TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
+    setting: "direct_write",
   },
   "tasken.create_note": {
     toolset: "write",
     access: "direct_write",
     capability: TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
+    setting: "direct_write",
   },
   "tasken.search_items": {
     toolset: "core",
@@ -207,7 +211,8 @@ function contentKindAllowed(profile, kind) {
  * Coreが公開するcapabilityから、各toolを実際に使えるかを判定する。
  * 使えない理由は機械が読める短い文字列で返す（例: `missing_capability:task.command`）。
  * @param {readonly string[] | undefined} capabilities
- * @param {{ readOnly?: boolean, toolsets?: string[] | string }} [options]
+ * @param {{ readOnly?: boolean, toolsets?: string[] | string, directWriteEnabled?: boolean }} [options]
+ *   `directWriteEnabled`はDesktop Coreが返す本人の設定。falseのときだけ`setting`付きのtoolを使えないとする。
  */
 export function mcpToolAvailability(capabilities, options = {}) {
   const advertised = new Set(Array.isArray(capabilities) ? capabilities : []);
@@ -226,6 +231,8 @@ export function mcpToolAvailability(capabilities, options = {}) {
       reason = `missing_capability:${requirement.capability}`;
     else if (requirement.kind && !contentKindAllowed(profile, requirement.kind))
       reason = `kind_not_allowed:${requirement.kind}`;
+    else if (requirement.setting === "direct_write" && options.directWriteEnabled === false)
+      reason = "disabled_in_settings";
     tools[name] = {
       toolset: requirement.toolset,
       access: requirement.access,
@@ -242,8 +249,8 @@ export function mcpToolAvailability(capabilities, options = {}) {
   return {
     write_profile: profile,
     writes: {
-      task_create: writeEnabled && advertised.has(TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY),
-      note_direct_create: writeEnabled && advertised.has(TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY),
+      task_create: tools["tasken.create_task"].available,
+      note_direct_create: tools["tasken.create_note"].available,
       feed_post: canContent("feed_post"),
       feed_reply: canContent("feed_reply"),
       note_create: canContent("note_create"),

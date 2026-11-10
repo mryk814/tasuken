@@ -724,8 +724,15 @@ export class TaskenCoreRuntime {
     });
   }
 
-  enableAiItemCreation(port: AiItemCreationPort) {
-    this.host.enableAiItemCreation(new AiItemCreationService(this.persistence, port));
+  /**
+   * AIのTask・Note新規作成を公開する。`isEnabled`はDesktopだけが渡し、本人の設定を要求のたびに読む。
+   * NAS replicaは配備の書き込み範囲（create-only）で許しているので渡さない。
+   */
+  enableAiItemCreation(port: AiItemCreationPort, options: { isEnabled?: () => boolean } = {}) {
+    this.host.enableAiItemCreation(
+      new AiItemCreationService(this.persistence, port, { isEnabled: options.isEnabled }),
+      options.isEnabled,
+    );
   }
 
   /** NAS replica専用。Desktopのcompositionでは呼ばない。 */

@@ -1,6 +1,8 @@
 import { aiItemCreationResponseSchema } from "../../shared/contracts/task/public.ts";
+import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { resolveTaskenUserDataPath } from "../../shared/taskenPaths.mjs";
 import {
@@ -137,6 +139,43 @@ export class TaskenCoreClientError extends Error {
   }
 }
 
+/**
+ * 配布版のTasken.exe。bridgeは`<導入先>/resources/mcp/server.mjs`に置かれるので、その二つ上を見る。
+ * 開発中やNASのcontainerには無いので、そのときはnull。
+ */
+export function installedTaskenExecutable(moduleUrl = import.meta.url) {
+  try {
+    const candidate = path.resolve(
+      path.dirname(fileURLToPath(moduleUrl)),
+      "..",
+      "..",
+      "Tasken.exe",
+    );
+    return existsSync(candidate) ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Coreに繋がらない。Desktopが動いていないことが多いので、配布版ならTasken.exeの場所を添え、
+ * AI（Claude Codeなど）が自分で起動できるようにする（#703 の c0）。
+ */
+function coreUnavailable(cause) {
+  const executable = installedTaskenExecutable();
+  return new TaskenCoreClientError(
+    "CORE_UNAVAILABLE",
+    "Tasken Coreへ接続できません。Taskenを起動してください。",
+    executable
+      ? {
+          cause,
+          details: { tasken_executable: executable },
+          next_action: `Taskenを起動してから再試行してください。PowerShellなら Start-Process -FilePath '${executable}' で起動できます（起動まで数秒かかります）。`,
+        }
+      : { cause },
+  );
+}
+
 export function taskenCoreDiscoveryPath(options = {}) {
   const userDataPath = options.userDataPath || resolveTaskenUserDataPath(options);
   return path.join(userDataPath, TASKEN_CORE_DISCOVERY_FILE);
@@ -228,11 +267,7 @@ async function readDiscovery(discoveryPath) {
     return parseDiscovery(JSON.parse(await handle.readFile("utf8")));
   } catch (error) {
     if (error instanceof TaskenCoreClientError) throw error;
-    throw new TaskenCoreClientError(
-      "CORE_UNAVAILABLE",
-      "Tasken Coreへ接続できません。Taskenを起動してください。",
-      { cause: error },
-    );
+    throw coreUnavailable(error);
   } finally {
     await handle?.close();
   }
@@ -599,12 +634,26 @@ export class TaskenCoreClient {
         "Tasken Core discoveryとlive capabilitiesが一致しません。",
       );
     }
-    return { status: "ok", api_version: TASKEN_CORE_API_VERSION, capabilities: live };
+    return {
+      status: "ok",
+      api_version: TASKEN_CORE_API_VERSION,
+      capabilities: live,
+      // Desktopだけが返す、本人が直接の書き込みを許しているか（設定の今の値）。
+      ...(typeof capabilityPayload.direct_write_enabled === "boolean"
+        ? { direct_write_enabled: capabilityPayload.direct_write_enabled }
+        : {}),
+    };
   }
 
   async status() {
     const result = await this.inspect();
-    return { apiVersion: result.api_version, capabilities: result.capabilities };
+    return {
+      apiVersion: result.api_version,
+      capabilities: result.capabilities,
+      ...(result.direct_write_enabled === undefined
+        ? {}
+        : { directWriteEnabled: result.direct_write_enabled }),
+    };
   }
 
   async query(path, capability, request, responseSchema) {
@@ -698,11 +747,7 @@ export class TaskenCoreClient {
       return parsed.data;
     } catch (error) {
       if (error instanceof TaskenCoreClientError) throw error;
-      throw new TaskenCoreClientError(
-        "CORE_UNAVAILABLE",
-        "Tasken Coreへ接続できません。Taskenを起動してください。",
-        { cause: error },
-      );
+      throw coreUnavailable(error);
     } finally {
       clearTimeout(timeout);
     }
@@ -737,11 +782,7 @@ export class TaskenCoreClient {
       return await response.json();
     } catch (error) {
       if (error instanceof TaskenCoreClientError) throw error;
-      throw new TaskenCoreClientError(
-        "CORE_UNAVAILABLE",
-        "Tasken Coreへ接続できません。Taskenを起動してください。",
-        { cause: error },
-      );
+      throw coreUnavailable(error);
     } finally {
       clearTimeout(timeout);
     }

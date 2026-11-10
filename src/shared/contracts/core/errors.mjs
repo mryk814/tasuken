@@ -46,6 +46,16 @@ const CORE_ERROR_GUIDANCE = Object.freeze({
     next_action:
       "この接続先では許可されていない書き込みです。テキストのFeed投稿・Note案・Task案・Task作業報告だけを送り、それ以外は利用者へ依頼してください。",
   },
+  DIRECT_WRITE_DISABLED: {
+    retryable: false,
+    next_action:
+      "Taskenの設定 → AI & Context の「ローカルのAIに直接の書き込みを許す」が無効です。有効にするよう利用者に頼むか、propose_noteなどの提案で送ってください。",
+  },
+  INVALID_REFERENCE: {
+    retryable: false,
+    next_action:
+      "指定したIDをtasken.search_itemsやtasken.get_theme_contextで確かめてから送り直してください。",
+  },
   DESKTOP_BEHIND: {
     retryable: true,
     next_action: "Desktop の Tasken を最新版に上げてから再試行してください。",

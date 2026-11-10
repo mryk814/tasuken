@@ -8,7 +8,7 @@ import { TaskenCoreClient } from "../src/main/mcp/taskenCoreClient.mjs";
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-ai-create-ui-"));
 const screenshots = path.resolve("artifacts", "ai-item-creation");
 fs.mkdirSync(screenshots, { recursive: true });
-const env = { ...process.env, TASKEN_USER_DATA_DIR: root, TASKEN_CORE_AI_ITEM_CREATE: "1" };
+const env = { ...process.env, TASKEN_USER_DATA_DIR: root };
 let app;
 try {
   app = await electron.launch({
@@ -18,6 +18,8 @@ try {
   });
   const page = await app.firstWindow();
   await page.getByText("Today", { exact: true }).first().waitFor();
+  // 本人が設定画面で許すのと同じ値を、一時DBに入れる（AI & Context の切り替え）。
+  await page.evaluate(() => window.api.preferences.set("aiDirectWriteEnabled", true));
   const core = new TaskenCoreClient({ env });
   const request = (kind) => ({
     kind,

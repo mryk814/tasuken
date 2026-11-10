@@ -442,6 +442,12 @@ export type McpCoreWriteProfile =
   | "create-only"
   | "unknown";
 
+/**
+ * 本人が設定（AI & Context）で、ローカルのAI（Claude Codeなど）に直接の書き込みを許したか。
+ * 既定は無効。Desktop Coreは要求のたびにこの値を読む（切り替えてもCoreを作り直さない）。
+ */
+export const AI_DIRECT_WRITE_PREFERENCE = "aiDirectWriteEnabled";
+
 export interface McpBridgeInfo {
   command: string;
   args: string[];
