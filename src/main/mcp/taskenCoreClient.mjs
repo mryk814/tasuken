@@ -35,6 +35,7 @@ import {
 } from "../../shared/contracts/task/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
+  TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY,
@@ -70,7 +71,6 @@ import {
   TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
-  TASKEN_CORE_TASK_COMMAND_CAPABILITY,
   TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
   taskenCorePublicError,
@@ -111,7 +111,8 @@ export const TASKEN_MCP_REQUIRED_CORE_CAPABILITIES = Object.freeze([
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
-  TASKEN_CORE_TASK_COMMAND_CAPABILITY,
+  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
+  TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
 ]);
 
 export class TaskenCoreClientError extends Error {
@@ -507,7 +508,7 @@ export class TaskenCoreClient {
   async createAiItem(request = {}) {
     return this.request(
       "/v1/commands/create-ai-item",
-      "create_ai_item",
+      TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
       request,
       aiItemCreationResponseSchema,
       "create-ai-item",
@@ -549,16 +550,6 @@ export class TaskenCoreClient {
       request,
       taskQueryResponseSchema,
       "task-query",
-    );
-  }
-
-  async executeTaskCommand(request = {}) {
-    return this.request(
-      "/v1/task/command",
-      TASKEN_CORE_TASK_COMMAND_CAPABILITY,
-      request,
-      taskCommandResponseSchema,
-      "task-command",
     );
   }
 

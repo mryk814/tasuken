@@ -80,7 +80,7 @@ export async function buildReport(coreClient = new TaskenCoreClient()) {
                   status: "ok",
                   code: "MCP_CORE_LIMITED_START_READY",
                   message:
-                    "本人の個人業務のAI Ready Taskだけ開始できる専用権限を確認しました。汎用Task変更権限は含みません。",
+                    "人がAI ReadyにしたTaskだけを開始できる専用権限を確認しました。汎用Task変更権限は含みません。",
                 }
               : {
                   status: "ok",

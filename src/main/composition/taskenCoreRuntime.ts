@@ -205,6 +205,36 @@ function delegationFailure(error: ApplicationCommandError): MobileGatewayTaskDel
   return { ok: false, code: "validation_failed" };
 }
 
+/**
+ * AI開始の限定の入口。`executeAiTaskStart`はApplicationCommandServiceの開始専用経路
+ * （Desktopは`any`、NAS replicaは`personal`）を渡す。
+ */
+export function createAiTaskStartProvider(
+  persistence: WorkspaceTaskPersistence & { workspaceId: string },
+  executeAiTaskStart: ExecuteApplicationCommand,
+): AiTaskStartService {
+  const aiTaskStart = new TaskCapabilityService(persistence, executeAiTaskStart);
+  return new AiTaskStartService(persistence.workspaceId, {
+    execute: (command) => {
+      const result = aiTaskStart.executeCommand(command, { immutableRequest: true });
+      if (!result.ok) return result;
+      // A replay is an acknowledgement, not permission to restore an old
+      // assignment. Return the current Task even after review or deletion.
+      const readback = aiTaskStart.executeQuery({
+        schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+        query_id: command.command_id,
+        name: "GetTask",
+        parameters: { task_id: command.payload.task_id, include_deleted: true },
+      });
+      if (!readback.ok) return readback;
+      if (readback.value.name !== "GetTask" || !readback.value.task) {
+        throw new Error("開始済みTaskの正本を読み戻せません。");
+      }
+      return { ...result, value: { ...result.value, task: readback.value.task } };
+    },
+  });
+}
+
 export class TaskenCoreRuntime {
   private readonly host: TaskenCoreHost;
   private readonly persistence: CorePersistence;
@@ -265,39 +295,15 @@ export class TaskenCoreRuntime {
     this.agentSessionContext = core.getAgentSessionContext;
     this.executeTaskDelegation = executeTaskDelegation;
     this.taskCapability = new TaskCapabilityService(persistence, executeApplicationCommand);
-    const aiTaskStart = options.executeAiTaskStart
-      ? new TaskCapabilityService(persistence, options.executeAiTaskStart)
-      : null;
     this.host = new TaskenCoreHost({
       userDataPath,
-      ...(aiTaskStart
-        ? {
-            startAiTaskWork: new AiTaskStartService(persistence.workspaceId, {
-              execute: (command) => {
-                const result = aiTaskStart.executeCommand(command, { immutableRequest: true });
-                if (!result.ok) return result;
-                // A replay is an acknowledgement, not permission to restore an old
-                // assignment. Return the current Task even after review or deletion.
-                const readback = aiTaskStart.executeQuery({
-                  schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
-                  query_id: command.command_id,
-                  name: "GetTask",
-                  parameters: { task_id: command.payload.task_id, include_deleted: true },
-                });
-                if (!readback.ok) return readback;
-                if (readback.value.name !== "GetTask" || !readback.value.task) {
-                  throw new Error("開始済みTaskの正本を読み戻せません。");
-                }
-                return { ...result, value: { ...result.value, task: readback.value.task } };
-              },
-            }),
-          }
+      ...(options.executeAiTaskStart
+        ? { startAiTaskWork: createAiTaskStartProvider(persistence, options.executeAiTaskStart) }
         : {}),
       taskQuery: { execute: this.taskCapability.executeQuery.bind(this.taskCapability) },
-      // start_task_workはProposalではなく直接書き込みなので、書き込みを絞る配備では公開しない。
-      ...(proposalAccess === "full"
-        ? { taskCommand: { execute: this.taskCapability.executeCommand.bind(this.taskCapability) } }
-        : {}),
+      // 汎用のTask変更（task.command）はloopbackに出さない。actorを呼び出し側が書くため、
+      // tokenを読めるAIが本人を名乗れてしまう。AIの書き込みは、Coreがactorを固定し記録を残す
+      // 限定の入口（開始・新規作成・直接編集）だけを通す。AndroidはMobile Gatewayのin-process経路を使う。
       listAgentReadyTasks: core.listAgentReadyTasks,
       resolveRepositoryContext: core.resolveRepositoryContext,
       findTasksForRepository: core.findTasksForRepository,

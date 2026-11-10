@@ -84,8 +84,17 @@ async function createWorkspace() {
   database.save("theme", { id: THEME_ID, name: "往復の確認", ai_visibility: ["coding_agent"] });
   database.setPreference("artifactDirectory", path.join(root, "Canonical"));
   const application = new ApplicationCommandService(database);
-  const runtime = new TaskenCoreRuntime(root, database, (envelope) =>
-    application.execute(envelope),
+  // Desktopと同じく、開始はCoreの限定の入口（Themeと依頼者を問わない`any`）を通す。
+  const runtime = new TaskenCoreRuntime(
+    root,
+    database,
+    (envelope) => application.execute(envelope),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { executeAiTaskStart: (envelope) => application.executeAiTaskStart(envelope, "any") },
   );
   const adapter = runtime.createMobileGateway({
     current: () => ({

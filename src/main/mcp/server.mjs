@@ -15,7 +15,6 @@ import {
   parseCanonicalTaskId,
   parseTaskLocator,
 } from "../../shared/contracts/mobile/public.mjs";
-import { TASK_CONTRACT_SCHEMA_VERSION } from "../../shared/contracts/task/public.ts";
 import { TaskenCoreClient, TaskenCoreClientError } from "./taskenCoreClient.mjs";
 import {
   MCP_TOOL_REQUIREMENTS,
@@ -822,47 +821,17 @@ export function createTaskenMcpServer(options = {}) {
     });
   const startTaskWork = async (args) => {
     try {
-      if (typeof coreClient.startAiTaskWork === "function") {
-        try {
-          return await coreClient.startAiTaskWork({
-            task_id: args.task_id,
-            expected_version: args.expected_version,
-            idempotency_key: args.idempotency_key,
-            caller: args.caller,
-            started_at: args.started_at,
-            ...(args.work_attempt_id ? { work_attempt_id: args.work_attempt_id } : {}),
-            ...(args.source_session ? { source_session: args.source_session } : {}),
-          });
-        } catch (error) {
-          // Legacy Desktop Core advertises task.command. A refusal from the
-          // limited operation must never fall back to a broader operation.
-          if (
-            !(error instanceof TaskenCoreClientError) ||
-            error.code !== "CAPABILITY_UNAVAILABLE"
-          ) {
-            throw error;
-          }
-        }
-      }
-      return await coreClient.executeTaskCommand({
-        schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
-        command_id: args.idempotency_key,
-        name: "StartTaskWork",
-        actor: { kind: "ai_agent", id: args.caller },
-        source: "mcp",
-        entrypoint: "mcp",
-        issued_at: args.started_at,
-        payload: {
-          task_id: args.task_id,
-          expected_version: args.expected_version,
-          executor_identity: args.caller,
-          started_at: args.started_at,
-          ...(args.source_session ? { source_session: args.source_session } : {}),
-          ...(args.work_attempt_id ? { work_attempt_id: args.work_attempt_id } : {}),
-        },
+      return await coreClient.startAiTaskWork({
+        task_id: args.task_id,
+        expected_version: args.expected_version,
+        idempotency_key: args.idempotency_key,
+        caller: args.caller,
+        started_at: args.started_at,
+        ...(args.work_attempt_id ? { work_attempt_id: args.work_attempt_id } : {}),
+        ...(args.source_session ? { source_session: args.source_session } : {}),
       });
     } catch (error) {
-      // 提案だけを公開する配備では直接開始のcapabilityがない。既定の「更新してください」は
+      // 提案だけを公開する配備では開始のcapabilityがない。既定の「更新してください」は
       // その場合に当てはまらないため、配備の境界として案内し直す。
       if (error instanceof TaskenCoreClientError && error.code === "CAPABILITY_UNAVAILABLE") {
         throw new TaskenCoreClientError(

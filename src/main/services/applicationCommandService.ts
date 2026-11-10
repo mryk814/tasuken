@@ -1035,6 +1035,9 @@ function taskCommandRuntime(repository: Repository): TaskCommandRuntime {
   };
 }
 
+/** AI開始の範囲。`personal`はNAS replica、`any`はDesktop。 */
+export type AiTaskStartScope = "personal" | "any";
+
 export class ApplicationCommandService {
   constructor(private readonly repository: Repository) {}
 
@@ -1113,8 +1116,12 @@ export class ApplicationCommandService {
     });
   }
 
-  /** Start only: the opt-in Core route cannot assign, edit or take over a Task. */
-  executeAiTaskStart(input: unknown): CommandReceipt {
+  /**
+   * Start only: the Core route cannot assign, edit or take over a Task.
+   * `personal`（NAS replica）は本人の個人業務のTaskだけ、`any`（Desktop）はThemeと依頼者を問わない。
+   * どちらも、人がAI Readyにした未着手のTaskだけを開始できる。
+   */
+  executeAiTaskStart(input: unknown, scope: AiTaskStartScope = "personal"): CommandReceipt {
     const command = parseCommandEnvelope(input);
     const payload = command.payload as unknown as Record<string, unknown>;
     const expected = command.expectedVersions || [];
@@ -1153,7 +1160,7 @@ export class ApplicationCommandService {
       throw new ApplicationCommandError("INVALID_ENVELOPE", "AI開始専用の範囲外です。");
     }
     return this.repository.runTransaction((transaction) =>
-      new ApplicationCommandService(transaction).executeParsed(command, undefined, false, true),
+      new ApplicationCommandService(transaction).executeParsed(command, undefined, false, scope),
     );
   }
 
@@ -1375,7 +1382,7 @@ export class ApplicationCommandService {
     command: CommandEnvelope,
     taskWorkContext?: { startReadyTask?: boolean; exactReceiptId?: string },
     aiTaskCreation = false,
-    aiTaskStart = false,
+    aiTaskStart: AiTaskStartScope | false = false,
   ): CommandReceipt {
     const previous = readIdempotent(this.repository, command);
     if (previous) return previous;
@@ -1384,13 +1391,19 @@ export class ApplicationCommandService {
       const task = this.repository.get("task", taskId, true);
       if (!task) throw new ApplicationCommandError("NOT_FOUND", "開始対象のTaskがありません。");
       if (
-        task.project_id !== PERSONAL_DEFAULT_THEME_ID ||
-        (task.requester || "self") !== "self" ||
-        !taskAgentState(task).runnable
+        aiTaskStart === "personal" &&
+        (task.project_id !== PERSONAL_DEFAULT_THEME_ID || (task.requester || "self") !== "self")
       ) {
         throw new ApplicationCommandError(
           "INVALID_TRANSITION",
           "本人の個人業務で、人がAI Readyにした未着手のTaskだけ開始できます。",
+          { id: taskId },
+        );
+      }
+      if (!taskAgentState(task).runnable) {
+        throw new ApplicationCommandError(
+          "INVALID_TRANSITION",
+          "人がAI Readyにした未着手のTaskだけ開始できます。作業中・報告済みのTaskは取り直せません。",
           { id: taskId },
         );
       }
@@ -1445,7 +1458,7 @@ export class ApplicationCommandService {
       return this.applyAiProposal(command);
     }
     if (command.name === "ApplyTaskWorkProposal") return this.applyTaskWorkProposal(command);
-    if (command.name === "StartTaskWork") return this.startTaskWork(command, aiTaskStart);
+    if (command.name === "StartTaskWork") return this.startTaskWork(command, Boolean(aiTaskStart));
     if (command.name === "AppendWorkReceipt")
       return this.appendWorkReceipt(command, "continue", taskWorkContext?.startReadyTask === true);
     if (command.name === "ReportTaskDone")

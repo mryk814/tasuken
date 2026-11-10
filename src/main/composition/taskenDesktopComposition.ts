@@ -104,10 +104,12 @@ export class TaskenDesktopComposition<
   readonly coreRuntime: TaskenCoreRuntime;
   readonly mobileGateway: MobileGatewayRuntime;
   private readonly userDataPath: string;
+  private readonly onCoreCommandCommitted?: TaskenDesktopCompositionOptions["onCoreCommandCommitted"];
   private verifyOnlyCompleted = false;
 
   constructor(options: TaskenDesktopCompositionOptions<TPersistence>) {
     this.userDataPath = options.userDataPath;
+    this.onCoreCommandCommitted = options.onCoreCommandCommitted;
     this.repository = options.persistence;
     this.applicationCommands = new ApplicationCommandService(this.repository);
     this.coreRuntime = new TaskenCoreRuntime(
@@ -128,7 +130,11 @@ export class TaskenDesktopComposition<
       createNoteProposalImagePort(options.userDataPath, createNativeImageDecoder(nativeImage)),
       options.workLogWriter,
       createCaptureImagePort(options.userDataPath, createNativeImageDecoder(nativeImage)),
-      { feedWriter: options.feedWriter, routineWriter: options.routineWriter },
+      {
+        feedWriter: options.feedWriter,
+        routineWriter: options.routineWriter,
+        executeAiTaskStart: (command) => this.executeAiTaskStart(command),
+      },
     );
     const mobileState: MobileGatewayStatePort = {
       current: () => this.repository.mobileGatewayState(),
@@ -143,6 +149,16 @@ export class TaskenDesktopComposition<
       persistence: this.repository,
     });
     this.prepareMcpPackageSmoke(options.mcpPackageSmoke);
+  }
+
+  /**
+   * Desktopの開始もCoreの限定の入口を通す。AI Readyが本人の許可なので設定には依らず、
+   * Themeと依頼者は問わない（仕事のTaskも開始できる）。作業中のTaskは取り直せない。
+   */
+  executeAiTaskStart(command: unknown) {
+    const receipt = this.applicationCommands.executeAiTaskStart(command, "any");
+    this.onCoreCommandCommitted?.(receipt);
+    return receipt;
   }
 
   get taskCapability() {
