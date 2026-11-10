@@ -6,7 +6,7 @@
 
 - 実行経路は `React → Zustand → window.api → Preload → IPC → Service → Repository → SQLite/OS`。Renderer から DB・Node.js・OS へ直接アクセスしない。
 - 保存形式と Import/Export 形式を変えるときは、移行と復旧も用意する。秘密情報をログと Export に含めない。
-- AI の書き込みは Proposal が既定で、本人がプレビューして採用するまで正式なデータにならない。例外は本人が明示的に有効にした経路だけで、個人業務への Task/Note の新規作成（AI 由来・未確認として記録する）と、本人が AI Ready にした個人 Task の作業開始。これらの例外で既存データの編集・削除・完了・委任の権限を広げない。
+- AI の書き込みは Proposal が既定で、本人がプレビューして採用するまで正式なデータにならない。例外は二つ。本人が許した Task/Note の新規作成（Desktop は設定「ローカルの AI に直接の書き込みを許す」、NAS は create-only 配備。AI 由来・未確認として記録する）と、本人が AI Ready にした Task の作業開始（Desktop は Theme を問わず、NAS は個人業務だけ）。どちらも Core が actor を固定する限定の入口だけを通し、汎用の Task 変更口は AI に出さない。これらの例外で既存データの編集・削除・完了・委任の権限を広げない。
 - UI は [design-guide](design-standard/design-guide.md) に従い、見た目の値は [tokens.css](design-standard/tokens.css) / [tokens.json](design-standard/tokens.json) を正本にする。エラーのときも入力を消さない。
 - 判断の拠りどころ：Electron・IPC・ウィンドウ・配布は [desktop-app-standard](docs/desktop-app-standard.md)、機能境界・保存・schema・Import/Export・削除と復元・ログは [engineering-contracts](docs/engineering-contracts.md)、MCP・外部 AI 連携は [ai-collaboration-e2e](docs/ai-collaboration-e2e.md) と README の MCP の節、呼び方は [glossary](docs/glossary.md)、アプリの性格は [app-charter](docs/app-charter.md)。
 
