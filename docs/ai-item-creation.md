@@ -1,14 +1,16 @@
-# 本人用Task/Noteの直接新規作成
+# AIによるTask/Noteの直接新規作成
 
-新規作成だけを明示的に有効化する。既存Proposalの受付・採用・却下とpendingは維持し、自動採用や移行は行わない。
+本人が許した接続だけが、Task/Noteを直接新規作成できる。既存Proposalの受付・採用・却下とpendingは維持し、自動採用や移行は行わない。
 
 ## 接続と入力
 
-Headlessの`--write-mode=create-only`は従来のproposals受付に加え、`create_ai_item`だけを公開する。read-only/proposalsの挙動は維持する。汎用`task.command`・直接開始・編集・削除・完了・委任を公開しない。接続先のworkspaceと個人業務に固定し、入力からactor/workspace/既存Entity ID/保存パスを受け付けない。
+Desktop Coreは`create_ai_item`を常に公開し、使えるかは設定「AI & Context → ローカルのAIに直接の書き込みを許す」（preference `aiDirectWriteEnabled`、既定は無効、端末ごとで同期しない）を要求のたびに読む。無効なら`DIRECT_WRITE_DISABLED`（403）で断る。切り替えてもCoreを作り直さず、MCPも接続し直さなくてよい。`GET /capabilities`の`direct_write_enabled`と`tasken.get_capabilities`の`core.direct_write_enabled`で今の値が分かる。MCPは無効の間も作成toolを一覧に残し、理由を`disabled_in_settings`と返す。
 
-MCPは`tasken.create_task`と`tasken.create_note`を追加する。必須入力は`title`・`caller`・`idempotency_key`、任意は`body`・`reason`・`source_app`・`source_session`。Taskは期限なし・本人実行・未委任、Noteは通常のmemo。正式ID/version/本文/削除状態とこのnodeのworkspace IDを読み戻す。NoteのMarkdown保存状態も返し、ファイル保存が未完了なら`internal_ahead`/`unavailable`を明示する。
+Headlessの`--write-mode=create-only`は従来のproposals受付に加え、`create_ai_item`だけを公開する（設定は見ない）。read-only/proposalsの挙動は維持する。汎用`task.command`・編集・削除・完了・委任を公開しない。入力からactor/workspace/既存Entity ID/保存パスを受け付けない。
 
-Desktop Coreは`TASKEN_CORE_AI_ITEM_CREATE=1`を明示した起動だけが新規作成を有効にする。稼働後に権限を差し替えない。
+MCPは`tasken.create_task`と`tasken.create_note`。必須入力は`title`・`caller`・`idempotency_key`、任意は`body`・`reason`・`source_app`・`source_session`・`theme_id`（省略時は個人業務。無いThemeは`INVALID_REFERENCE`）。Taskはさらに`priority`・`schedule`（期限だけなら`end_date`、一日なら`start_date`、期間なら両方。`date_kind`はCoreが導く）・`today_date`・`checklist`（項目名の配列）を受ける。Noteは`note_type`（memo/report/prompt）と、reportなら`report_date`を受ける。他方の種類の欄は断る。Taskは本人実行・未委任・未着手で作る。正式ID/version/本文/Theme/削除状態とこのnodeのworkspace IDを読み戻す。NoteのMarkdown保存状態も返し、ファイル保存が未完了なら`internal_ahead`/`unavailable`を明示する。
+
+指定されなかった欄はEntityに足さない。NAS replicaの同期差分の形（`contracts/sync/ai-item-packets.json`）を、欄を使わない作成では変えないため。
 
 ## 表示・保存
 
@@ -20,7 +22,7 @@ AI作成の由来は`ai_creation`、情報の根拠は`ai_authority`、認識状
 
 NASへの導入はbackup/image交換/再起動の独立した配備作業であり、PCのビルド完了を本番接続確認と扱わない。旧設定値を黙って変更しない。Core/bridge更新と`create-only`の明示指定後、接続を再読込して`get_capabilities`と新ツール一覧を確認する。
 
-`tests/ai-item-creation.test.mjs`は隔離DB、実stdio MCP、権限・入力範囲、同時再送・再起動・内容違い・削除後再送、旧pending共存、Canonical Note失敗復旧とUndoを確認する。
+`tests/ai-item-creation.test.mjs`は隔離DB、実stdio MCP、権限・入力範囲、同時再送・再起動・内容違い・削除後再送、旧pending共存、Canonical Note失敗復旧とUndo、Desktopの設定の即時反映と広げた入力（Theme・日程・優先度・チェックリスト・今日）を確認する。
 
 表示だけの手動確認はbuild後に `rtk node scripts/ai-item-creation-ui-smoke.mjs` を使う。
 Tempの専用profileでTask/Noteを作成し、由来アイコンと未確認の点、説明の表示、既読の保存、Task状態の保持を確認する。通常データや本番同期先は使わない。
