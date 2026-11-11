@@ -49,20 +49,21 @@ Every read and every write goes through two commands (`T` = `python3 ~/workspace
 
 - Do not guess argument names. Read `T describe <tool>` before the first use of a tool in a conversation. A misspelled argument is refused with 400 `unknown_arguments` and nothing happens.
 - The list is what this client may use right now. A tool that is not in it cannot be called (the helper stops before sending). Which tools appear depends on the NAS settings, so a tool you used before may be gone, and a `create_*` tool is present only when the user enabled it.
-- `access` tells what a tool does: `read` only reads; `reading` saves something the user can read at once (a Feed post or reply); `proposal` saves a Proposal that waits for the user; `direct_write` creates an AI-made, unconfirmed Task or Note directly.
+- `access` tells what a tool does: `read` only reads; `reading` saves something the user can read at once (a Feed post or reply); `proposal` saves a Proposal that waits for the user; `direct_write` creates an AI-made, unconfirmed Task or Note directly, or changes an existing Task (`change_task`, `undo_change`).
 - Never put `caller` or `source_app` in the arguments. The server sets them from the credential.
 
 ### Which tool for which moment
 
-| You want to                      | Tools                                                                                                                                                                                                            |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Find something                   | `search_items` (Tasks, waitings and plan nodes), `search_notes` (Notes)                                                                                                                                          |
-| Know the present state           | `list_open_items`, `get_theme_context`                                                                                                                                                                           |
-| Read one thing                   | `get_task_context`, `get_note`                                                                                                                                                                                   |
-| See what changed since last time | `get_activity`: pass `page.next_cursor` from the last answer as `cursor`; when `page.status` says the cursor is invalid or a resync is required, read again without `cursor`                                     |
-| Answer the user's question       | `get_feed_context` to read the open questions, then `answer_feed_question`                                                                                                                                       |
-| Leave something                  | `propose_feed_post` (a finding), `propose_note`, `propose_note_edit` (a change to an existing Note), `report_work` (what you did on a Task), and `create_task` / `create_note` only when `T describe` lists them |
-| Check what you sent              | `get_proposal_status`, `list_proposals`                                                                                                                                                                          |
+| You want to                                | Tools                                                                                                                                                                                                            |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Find something                             | `search_items` (Tasks, waitings and plan nodes), `search_notes` (Notes)                                                                                                                                          |
+| Know the present state                     | `list_open_items`, `get_theme_context`                                                                                                                                                                           |
+| Read one thing                             | `get_task_context`, `get_note`                                                                                                                                                                                   |
+| See what changed since last time           | `get_activity`: pass `page.next_cursor` from the last answer as `cursor`; when `page.status` says the cursor is invalid or a resync is required, read again without `cursor`                                     |
+| Answer the user's question                 | `get_feed_context` to read the open questions, then `answer_feed_question`                                                                                                                                       |
+| Leave something                            | `propose_feed_post` (a finding), `propose_note`, `propose_note_edit` (a change to an existing Note), `report_work` (what you did on a Task), and `create_task` / `create_note` only when `T describe` lists them |
+| Change a Task the user asked you to change | `change_task` (update, complete, reopen, delete or delegate one Task) and `undo_change`, only when `T describe` lists them. Read `get_task_context` first                                                        |
+| Check what you sent                        | `get_proposal_status`, `list_proposals`                                                                                                                                                                          |
 
 ```text
 T describe search_items
@@ -90,7 +91,13 @@ When `state` is not `ok`, or `as_of` is old for the question, say so to the user
 - A Proposal (`propose_note`, `propose_note_edit`, `report_work`) is not data until the user adopts it on the Desktop. Report it as pending, with its Proposal ID, never as a saved Note or a done Task. A work report never completes a Task.
 - A Feed post or reply (`propose_feed_post`, `answer_feed_question`) is readable by the user at once.
 - `create_task` and `create_note`, when listed, create the item directly, marked as AI-made and unconfirmed. Say so.
-- There is no tool that edits, deletes, completes or reassigns an existing Task or Note directly. A change to a Note goes through `propose_note_edit`.
+- `change_task`, when listed, changes an existing Task at once, and the user sees it in Tasken's Activity with your words. Change only what the user asked for, and put the user's own words that asked for it in `said`, quoted as said. When the change is your own judgement, send `why` without `said`; if the answer is `ASK_USER`, nothing was saved: ask the user and send again with `said`.
+  - Use one `source_session` for the whole conversation. After 30 Tasks in one conversation the server asks again; send `confirm_bulk: true` with `said` only after the user agrees.
+  - A 409 `CONFLICT` carries `current_task`: the Task changed after you read it. Read it, decide again, and send the new `expected_version`.
+  - Tasks under delegated work, recurring completions and Tasks in a sync conflict are refused. Report work on a delegated Task with `report_work`.
+  - Every change can be undone with `undo_change`, by the `change_id` it returned or by `undo_session` for the whole conversation. When the user asks you to undo, put their words in `said`.
+  - Tell the user what you changed, as done, with the `change_id`.
+- There is no tool that edits an existing Note directly. A change to a Note goes through `propose_note_edit`.
 - Never write a secret, key or password into anything you save.
 
 ## Retries
