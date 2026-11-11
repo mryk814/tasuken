@@ -2791,8 +2791,13 @@ export class WorkspaceDatabase {
         // 同一内容なら書き込まずheadだけ進め、差分があれば同期取り込みとして適用する。
         // ここで例外にすると、その端末は同じ差分で永久に停止する（#588の実機NASで発生）。
         if (type === "work_receipt" && local && sameReceiptPayload(local, packet.entity)) {
+          // 相手端末の側を選んだ競合の解決もここへ来る（受け手には中身が同じ）。書き換えずに競合を閉じる。
+          // 閉じないと、画面の無いNAS replicaは自分で解決できず、状態がconflictのまま止まる（#688のレビュー）。
           this.setSyncHead(type, id, revisionId);
-          return { status: "duplicate", entity: local };
+          this.db
+            .prepare("DELETE FROM sync_conflicts WHERE entity_type = ? AND entity_id = ?")
+            .run(type, id);
+          return { status: "duplicate", entity: this.get(type, id, true) };
         }
         this.insertImported(type, packet.entity, "sync", local, {
           allowReceiptRevision: type === "work_receipt",
@@ -2875,14 +2880,24 @@ export class WorkspaceDatabase {
       // 解決の結果は、どちらの端末も見たことのない版にする。競合した二つは同じ版の数を持つので、
       // 版を上げずに送ると、競合の前に読んだ版での照合（AIの変更・取り消し、画面の保存）が通り、
       // 本人が選んだ中身を黙って上書きする（#688のレビューで再現）。
-      const versions = [local?.version, packet.entity?.version].map(Number).filter(Number.isFinite);
-      this.insertImported(
-        row.entity_type,
-        { ...chosen, version: Math.max(0, ...versions) + 1 },
-        "sync",
-        local,
-        { allowReceiptRevision: row.entity_type === "work_receipt" },
-      );
+      // 作業報告は手元では追記だけで、版で照合して書き換えることが無いので版を上げない。受け手には
+      // 中身が同じに見え、書き換えずに競合だけを閉じる（applySyncPacket）ので、両端末の版もそろう。
+      if (row.entity_type === "work_receipt") {
+        if (choice === "incoming")
+          this.insertImported(row.entity_type, chosen, "sync", local, {
+            allowReceiptRevision: true,
+          });
+      } else {
+        const versions = [local?.version, packet.entity?.version]
+          .map(Number)
+          .filter(Number.isFinite);
+        this.insertImported(
+          row.entity_type,
+          { ...chosen, version: Math.max(0, ...versions) + 1 },
+          "sync",
+          local,
+        );
+      }
       const parents = [row.local_revision_id, row.incoming_revision_id].filter(Boolean);
       const resolution = this.enqueueSyncEntity(
         row.entity_type,
