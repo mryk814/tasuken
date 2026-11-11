@@ -286,6 +286,14 @@ const WRITE_GATE_MESSAGES: Record<WriteGateCode, string> = {
   REPLICA_BEHIND: "NASのreplicaがDesktopの変更を取り込み終えていないため受け付けません。",
 };
 
+/**
+ * 管理用の口（/v1/admin/...）。discoveryの全権tokenを持つ呼び出し（同じhostの運用者）だけが使え、
+ * 読み取り専用のclient tokenでは403。capabilityには出さない（AIの道具ではない）。
+ * NASのMobile Gatewayのペアリングコードの発行など、稼働中のプロセスの中の状態を操作するために使う。
+ */
+export type AdminHandler = (body: unknown) => unknown;
+const ADMIN_PATH_PREFIX = "/v1/admin/";
+
 class RequestValidationError extends Error {
   readonly issues: unknown[];
 
@@ -806,6 +814,7 @@ export class TaskenCoreHost {
   private writeGate: WriteGate | null = null;
   private routes = new Map<string, RouteDefinition>();
   private directWriteEnabled: (() => boolean) | null = null;
+  private adminRoutes = new Map<string, AdminHandler>();
 
   constructor(options: TaskenCoreHostOptions) {
     this.options = options;
@@ -866,6 +875,15 @@ export class TaskenCoreHost {
   enableWriteGate(check: WriteGate) {
     if (this.server) throw new Error("Core起動後の権限変更はできません。");
     this.writeGate = check;
+  }
+
+  /** 管理用の口を足す。Core起動前に呼ぶ。pathは/v1/admin/で始める。 */
+  enableAdminRoutes(handlers: Record<string, AdminHandler>) {
+    if (this.server) throw new Error("Core起動後の権限変更はできません。");
+    for (const [route, handler] of Object.entries(handlers)) {
+      if (!route.startsWith(ADMIN_PATH_PREFIX)) throw new Error("管理用の口のpathが不正です。");
+      this.adminRoutes.set(route, handler);
+    }
   }
 
   private capabilities() {
@@ -957,6 +975,24 @@ export class TaskenCoreHost {
         return;
       }
       const url = request.url || "";
+      const adminHandler = this.adminRoutes.get(url);
+      if (adminHandler) {
+        if (!fullAccess) {
+          json(
+            response,
+            403,
+            errorResponse("FORBIDDEN", "管理用の口は全権のtokenだけが使えます。"),
+          );
+          return;
+        }
+        if (request.method !== "POST") {
+          response.setHeader("allow", "POST");
+          json(response, 405, errorResponse("METHOD_NOT_ALLOWED", "methodが許可されていません。"));
+          return;
+        }
+        json(response, 200, adminHandler(await requestBody(request)));
+        return;
+      }
       const route = this.routes.get(url);
       if ((route || META_PATHS.has(url)) && request.method !== (route ? "POST" : "GET")) {
         response.setHeader("allow", route ? "POST" : "GET");

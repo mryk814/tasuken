@@ -707,6 +707,29 @@ export class TaskenCoreClient {
     };
   }
 
+  /**
+   * 管理用の口（/v1/admin/...）を呼ぶ。discoveryの全権tokenが要り、capabilityには載らない。
+   * NASのMobile Gatewayのペアリングなど、運用者が同じ端末の中から使う。
+   */
+  async admin(route, body = {}) {
+    const discovery = await readDiscovery(this.discoveryPath, this.taskenExecutable);
+    const response = await this.fetch(`${discovery.origin}/v1/admin/${route}`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${discovery.token}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new TaskenCoreClientError(
+        payload?.error?.code || "CORE_REQUEST_FAILED",
+        payload?.error?.message || `管理用の口が失敗しました（${response.status}）。`,
+        { status: response.status },
+      );
+    }
+    return payload;
+  }
+
   async query(path, capability, request, responseSchema) {
     return this.request(`/v1/queries/${path}`, capability, request, responseSchema, path);
   }

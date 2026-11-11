@@ -109,6 +109,7 @@ import {
   projectTaskContextPreview,
 } from "./taskContextPreview.ts";
 import { createCaptureOrganizerFromEnvironment } from "./captureOrganizer.ts";
+import { guardMobileWrites, type MobileWriteGuard } from "./mobileWriteGuard.ts";
 import { projectAttentionQueue } from "./attentionProjection.ts";
 import { projectFeedPosts } from "./feedProjection.ts";
 const REQUIRED_CORE_CAPABILITIES = [
@@ -198,6 +199,7 @@ export type MobileGatewayTaskDelegationResult =
         | "version_conflict"
         | "not_found"
         | "validation_failed"
+        | "capability_unavailable"
       >;
     };
 
@@ -434,8 +436,15 @@ export class MobileGatewayCoreUnavailableError extends Error {
   }
 }
 
+/** guardの中で呼ぶ。端末のoutboxに残して後で再送させる（503・retryable）。 */
+export function refuseMobileWriteForNow(): never {
+  throw new MobileGatewayCoreUnavailableError();
+}
+
 export interface MobileGatewayOptions {
   core: MobileGatewayCorePort;
+  /** 端末の書き込みを、Coreの口へ渡す前に断る（NASのheadless nodeだけ）。 */
+  writeGuard?: MobileWriteGuard;
   state: MobileGatewayStatePort;
   logger?: MobileGatewayLoggerPort;
   captureOrganizer?: NonNullable<ReturnType<typeof createCaptureOrganizerFromEnvironment>> | null;
@@ -974,7 +983,9 @@ export class MobileGatewayAdapter {
   private readonly organizingDevices = new Set<string>();
 
   constructor(options: MobileGatewayOptions) {
-    this.options = options;
+    this.options = options.writeGuard
+      ? { ...options, core: guardMobileWrites(options.core, options.writeGuard) }
+      : options;
   }
 
   async handle(request: MobileGatewayRequest): Promise<MobileGatewayResponse> {
