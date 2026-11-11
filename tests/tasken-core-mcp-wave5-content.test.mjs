@@ -265,9 +265,11 @@ test("Wave 5 content detail service preserves legacy Note/Conversation/Artifact 
         : request.conversation_id
           ? service.getConversation(request)
           : service.getArtifactMetadata(request);
-      const { next_tools: nextTools, ...legacyFields } = actual;
+      // get_noteの本文の署名は旧来の読み取りに無い欄（#703）。全文のときだけ値を持つ。
+      const { next_tools: nextTools, body_signature: bodySignature, ...legacyFields } = actual;
       assert.deepEqual(legacyFields, expected, JSON.stringify(request));
       assert.equal(nextTools.length > 0, true);
+      if (actual.note) assert.equal(typeof bodySignature === "string", actual.truncated === false);
     }
   } finally {
     legacy.close();

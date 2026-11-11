@@ -180,6 +180,8 @@ function legacyFields(response) {
     page: _page,
     excluded_count: _excludedCount,
     excluded_reasons: _excludedReasons,
+    // get_noteの本文の署名は旧来の読み取りに無い欄（#703 で足した。edit_noteが全文の読みを確かめる）。
+    body_signature: _bodySignature,
     ...rest
   } = response;
   return rest;
