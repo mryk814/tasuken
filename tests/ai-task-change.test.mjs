@@ -426,10 +426,11 @@ test("AIの公開範囲の外のTaskとThemeは無いものとして扱う。本
     "INVALID_REFERENCE",
   );
   // 変えた後に本人がThemeを隠したら、AIはその変更を戻せない。本人は画面から戻せる。
-  const edited = await core.changeTask(
-    change(visible, { changes: { title: "AIの題名" }, said: "題名を変えて" }),
-  );
+  const editRequest = change(visible, { changes: { title: "AIの題名" }, said: "題名を変えて" });
+  const edited = await core.changeTask(editRequest);
   db.save("theme", { ...db.get("theme", "theme-work"), default_ai_visibility: [] });
+  // 同じ要求の再送でも、隠した後の中身は返さない。
+  await refused(core.changeTask(editRequest), "NOT_FOUND");
   const result = await core.undoChange({
     change_id: edited.change_id,
     said: "戻して",
@@ -443,6 +444,34 @@ test("AIの公開範囲の外のTaskとThemeは無いものとして扱う。本
   assert.equal(db.get("task", visible.id).title, "AIの題名");
   assert.equal(changes.undoByUser(edited.change_id).stopped, null);
   assert.equal(db.get("task", visible.id).title, "四半期の資料");
+});
+
+// 会話の名前はAIが付ける。NASではMuseとGrokが同じ名前を使いうるので、呼び出し元ごとに分ける。
+test("会話は呼び出し元（source_app）ごとに分かれ、別のAIのまとめての取り消しに混ざらない", async (t) => {
+  const { db, core } = await desktop(t);
+  const mine = humanTask(db, "task-session-muse");
+  const theirs = humanTask(db, "task-session-grok");
+  const session = { source_session: "chat", said: "題名を変えて" };
+  await core.changeTask(
+    change(mine, { ...session, source_app: "http:muse", changes: { title: "Museの題名" } }),
+  );
+  await core.changeTask(
+    change(theirs, { ...session, source_app: "http:grok", changes: { title: "Grokの題名" } }),
+  );
+  const undone = await core.undoChange({
+    undo_session: "chat",
+    said: "さっきのを戻して",
+    caller: "grok",
+    source_app: "http:grok",
+    source_session: "chat",
+    idempotency_key: "undo-grok-chat",
+  });
+  assert.deepEqual(
+    undone.undone.map((entry) => entry.task_id),
+    [theirs.id],
+  );
+  assert.equal(db.get("task", mine.id).title, "Museの題名");
+  assert.equal(db.get("task", theirs.id).title, "四半期の資料");
 });
 
 test("同期の競合中のTaskは断る", async (t) => {

@@ -104,19 +104,24 @@ function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function sessionKey(session: string): string {
-  return sha256(session).slice(0, 16);
+/**
+ * 会話の鍵。会話の名前はAIが自分で付けるので、呼び出し元（source_app。NASのHTTPでは
+ * 認証したclientごとに固定）と組にする。別のAIが同じ名前を使っても、まとめての取り消しと
+ * 30件の数え方が混ざらない。
+ */
+function sessionKey(app: string, session: string): string {
+  return sha256(JSON.stringify([app, session])).slice(0, 16);
 }
 
 /**
  * AIの直接変更のcommand_id。会話ごとの接頭辞を付け、command_idの索引だけで
  * 「この会話で変えたもの」を引けるようにする（新しい表を作らない）。
  */
-function changePrefix(session: string): string {
-  return `ai-change:${sessionKey(session)}:`;
+function changePrefix(app: string, session: string): string {
+  return `ai-change:${sessionKey(app, session)}:`;
 }
-function undoPrefix(session: string): string {
-  return `ai-undo:${sessionKey(session)}:`;
+function undoPrefix(app: string, session: string): string {
+  return `ai-undo:${sessionKey(app, session)}:`;
 }
 
 function aiDirect(event: Entity | undefined): Record<string, unknown> | null {
@@ -176,7 +181,7 @@ export class AiTaskChangeService {
   change(input: AiTaskChangeRequest): AiTaskChangeResponse {
     if (!this.options.isEnabled()) throw directWriteDisabled();
     const request = aiTaskChangeRequestSchema.parse(input);
-    const changeId = `${changePrefix(request.source_session)}${sha256(
+    const changeId = `${changePrefix(request.source_app, request.source_session)}${sha256(
       JSON.stringify([this.persistence.workspaceId, request.source_app, request.idempotency_key]),
     ).slice(0, 40)}`;
     const fingerprint = sha256(JSON.stringify(request));
@@ -188,6 +193,12 @@ export class AiTaskChangeService {
           "同じidempotency_keyの内容が異なります。",
           409,
         );
+      // 再送でも、今はAIの公開範囲の外になったTaskの中身は返さない。
+      const current = this.persistence.get("task", request.task_id, true);
+      if (!current || !this.aiCanSee("task", current))
+        throw new CorePublicError("NOT_FOUND", "Taskがありません。", 404, {
+          task_id: request.task_id,
+        });
       return this.changeResponse("duplicate", changeId, request.task_id);
     }
     const task = this.persistence.get("task", request.task_id, true);
@@ -228,7 +239,7 @@ export class AiTaskChangeService {
   undo(input: AiChangeUndoRequest): AiChangeUndoResponse {
     if (!this.options.isEnabled()) throw directWriteDisabled();
     const request = aiChangeUndoRequestSchema.parse(input);
-    const undoBase = `${undoPrefix(request.source_session)}${sha256(
+    const undoBase = `${undoPrefix(request.source_app, request.source_session)}${sha256(
       JSON.stringify([this.persistence.workspaceId, request.source_app, request.idempotency_key]),
     ).slice(0, 40)}`;
     const fingerprint = sha256(JSON.stringify(request));
@@ -237,7 +248,7 @@ export class AiTaskChangeService {
 
     const targets = request.change_id
       ? [request.change_id]
-      : this.sessionChanges(request.undo_session as string)
+      : this.sessionChanges(request.source_app, request.undo_session as string)
           .filter((change) => !aiDirect(change.events[0])?.undone_by)
           .map((change) => change.commandId);
     const plans = targets.map((commandId) => this.hideFromAi(this.undoPlan(commandId)));
@@ -362,10 +373,11 @@ export class AiTaskChangeService {
 
   /** この会話の直接変更。新しい順。`confirm_bulk`は変えたTaskの数え直しの起点。 */
   private sessionChanges(
+    app: string,
     session: string,
   ): Array<{ commandId: string; events: Entity[]; at: string; version: number }> {
     return (
-      [...this.persistence.changeEventCommandIdsWithPrefix(changePrefix(session))]
+      [...this.persistence.changeEventCommandIdsWithPrefix(changePrefix(app, session))]
         .map((commandId) => {
           const events = this.persistence
             .listChangeEventsByCommandId(commandId)
@@ -381,7 +393,7 @@ export class AiTaskChangeService {
 
   private checkBulk(request: ReturnType<typeof aiTaskChangeRequestSchema.parse>): void {
     if (request.confirm_bulk) return;
-    const changes = this.sessionChanges(request.source_session);
+    const changes = this.sessionChanges(request.source_app, request.source_session);
     const lastConfirm = changes.findIndex((change) => aiDirect(change.events[0])?.confirm_bulk);
     const window = new Set(
       (lastConfirm >= 0 ? changes.slice(0, lastConfirm + 1) : changes).map((change) =>
