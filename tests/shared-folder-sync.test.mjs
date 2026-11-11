@@ -1584,3 +1584,58 @@ test("同期の途中で呼ばれた syncNow は、呼ばれる前に保存し�
     pair.close();
   }
 });
+
+test("古い写しへ戻したDBは、連番が重なる前に公開と取り込みを止める（blocked）", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-a", "公開済み1"));
+    await pair.firstSync.configure(pair.shared);
+    const deviceIdBefore = pair.first.deviceId;
+    const snapshot = path.join(pair.root, "old-snapshot.sqlite");
+    await pair.first.backupTo(snapshot);
+    // 写しを取った後も、連番は先へ進み、共有フォルダへ公開される。
+    pair.first.save("task", task("task-b", "写しの後の変更"));
+    await pair.firstSync.syncNow();
+    const deviceDirectory = path.join(pair.shared, "devices", pair.first.deviceId);
+    const published = fs
+      .readdirSync(deviceDirectory)
+      .filter((name) => SYNC_PACKET_FILE_PATTERN.test(name));
+    assert.ok(published.length >= 2);
+    const publishedSequence = pair.first.syncDeviceSequence();
+
+    // 本人が古い写しをDBの場所へ戻した状況（同じdevice ID、連番は後戻り）。
+    pair.first.db.close();
+    fs.copyFileSync(snapshot, path.join(pair.root, "first", "research-desk.sqlite"));
+    const restored = new WorkspaceDatabase(path.join(pair.root, "first", "research-desk.sqlite"));
+    const restoredSync = new SharedFolderSyncService(
+      restored,
+      () => {},
+      pair.firstAttachments,
+      pair.firstPhotos,
+      {
+        role: "replica",
+      },
+    );
+    try {
+      assert.equal(restored.deviceId, deviceIdBefore);
+      assert.ok(restored.syncDeviceSequence() < publishedSequence);
+      restored.save("task", task("task-c", "戻した後の別の変更"));
+      await restoredSync.syncNow().then(
+        () => assert.fail("連番の後戻りは止まるはず"),
+        (error) => assert.equal(error.code, "SYNC_SEQUENCE_ROLLBACK"),
+      );
+      assert.equal(restoredSync.isPublishBlocked(), true);
+      assert.equal(restoredSync.sourceStatus("replica").state, "blocked");
+      // 共有フォルダには、連番を使い回した差分を書いていない。
+      const after = fs
+        .readdirSync(deviceDirectory)
+        .filter((name) => SYNC_PACKET_FILE_PATTERN.test(name));
+      assert.deepEqual(after.sort(), published.sort());
+    } finally {
+      await restoredSync.stop();
+      restored.db.close();
+    }
+  } finally {
+    pair.close();
+  }
+});
