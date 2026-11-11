@@ -144,22 +144,16 @@ function sameReceiptPayload(local, incoming) {
   return strip(local) === strip(incoming);
 }
 
+/**
+ * 同期で届いたTaskは、送った端末が保存のときに同じ割り当ての正規化と守りを通したもの、
+ * または本人が競合の解決で選んだもの。受け手がもう一度守りをかけると、正しい差分を
+ * 「作業中の再割当」として断り、その端末は同じ差分で永久に止まる（画面の無いNAS replicaは
+ * 自分で解決もできない）。work_stateの初期化で中身が送り手と食い違うこともあるので、そのまま受け取る。
+ * Snapshotの取り込みなど、ほかの入口では今までどおり正規化する。
+ */
 function normalizeImportedTask(input, previous, fallbackSource) {
-  const syncStartsAiWork =
-    fallbackSource === "sync" &&
-    previous &&
-    previous.intended_executor !== "ai_agent" &&
-    input?.intended_executor === "ai_agent" &&
-    input?.work_state === "in_progress";
-  if (!syncStartsAiWork) return normalizeTaskAssignment(input, previous);
-
-  // The sender committed assignment and work start in one transaction, but publishes only
-  // the final packet. Recreate the trusted assignment boundary in memory before importing it.
-  const assigned = normalizeTaskAssignment(
-    { ...previous, intended_executor: "ai_agent" },
-    previous,
-  );
-  return normalizeTaskAssignment(input, assigned);
+  if (fallbackSource === "sync") return input;
+  return normalizeTaskAssignment(input, previous);
 }
 
 function normalizeTaskenRootUsage(value) {

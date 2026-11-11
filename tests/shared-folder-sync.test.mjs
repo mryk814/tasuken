@@ -565,6 +565,59 @@ test("Markdown images remain local when the shared folder is unavailable and pub
   }
 });
 
+// NASがAI ReadyのTaskを開始するのと同時に、本人がDesktopで依頼先を自分に戻す。本人が「この端末」を
+// 選んだ解決を、作業中のNASが「作業中の再割当」として断ると、NASの同期は同じ差分で止まり続けた。
+test("a conflict resolution that takes back an in-progress AI Task reaches the replica", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save(
+      "task",
+      task("task-delegated", "Delegated", {
+        intended_executor: "ai_agent",
+        work_state: "ready_for_agent",
+      }),
+    );
+    await pair.firstSync.configure(pair.shared);
+    await pair.secondSync.configure(pair.shared);
+
+    // NAS役が開始し、同時にDesktop役が依頼先を自分に戻す。
+    pair.second.save("task", {
+      ...pair.second.get("task", "task-delegated"),
+      work_state: "in_progress",
+      work_started_at: "2026-11-11T09:00:00.000Z",
+    });
+    pair.first.save("task", {
+      ...pair.first.get("task", "task-delegated"),
+      intended_executor: "self",
+    });
+    await pair.firstSync.syncNow();
+    await pair.secondSync.syncNow();
+    await pair.firstSync.syncNow();
+    assert.equal(pair.first.syncConflictCount(), 1);
+
+    const conflict = pair.first.listSyncConflicts()[0];
+    pair.firstSync.resolveConflict(conflict.id, "local");
+    await pair.firstSync.syncNow();
+    await pair.secondSync.syncNow();
+
+    assert.equal(pair.secondSync.status().lastError, "");
+    assert.equal(pair.second.syncConflictCount(), 0);
+    const replica = pair.second.get("task", "task-delegated");
+    const desktop = pair.first.get("task", "task-delegated");
+    assert.equal(replica.intended_executor, "self");
+    assert.equal(replica.work_state, desktop.work_state);
+    assert.equal(replica.version, desktop.version);
+
+    // 止まっていないので、Desktopの後の変更も届く。
+    pair.first.save("task", { ...pair.first.get("task", "task-delegated"), title: "After" });
+    await pair.firstSync.syncNow();
+    await pair.secondSync.syncNow();
+    assert.equal(pair.second.get("task", "task-delegated").title, "After");
+  } finally {
+    pair.close();
+  }
+});
+
 test("shared folder sync detects divergent edits and publishes an explicit resolution", async () => {
   const pair = createPair();
   try {
