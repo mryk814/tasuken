@@ -2006,6 +2006,93 @@ class MobileOutboxDatabaseTest {
             lastError = null,
         )
 
+    @Test
+    fun nodeSwitchResetsThemeRevisionSoTheNewNodesLowerRevisionIsAccepted() = runBlocking {
+        storeThemeCatalog(dao, listOf(ThemeCacheEntity("old-theme", "旧Theme")), revision = 900)
+        val unsentId = enqueueNeverSentCommand("unsent")
+
+        assertTrue(dao.prepareNodeSwitch("server-1"))
+
+        val state = requireNotNull(dao.themeCatalogState())
+        assertNull(state.serverRevision)
+        assertEquals(ThemeCatalogStatus.Loading, state.status)
+        assertEquals(listOf("old-theme"), dao.themeCatalog()?.themes?.map { it.id })
+        assertEquals(OutboxState.Pending, requireNotNull(dao.outbox(unsentId)).state)
+        val refreshId = "refresh-on-new-node"
+        dao.prepareThemeRefresh("server-1", refreshId, "2026-08-22T03:00:00Z")
+        assertTrue(
+            dao.completeThemeRefresh(
+                "server-1", 12, "2026-08-22T03:00:00Z", "2026-08-22T03:00:00Z", refreshId,
+                listOf(ThemeCacheEntity("new-theme", "新Theme")),
+            ),
+        )
+        assertEquals(listOf("new-theme"), dao.themeCatalog()?.themes?.map { it.id })
+    }
+
+    @Test
+    fun nodeSwitchIsRefusedWhileACommandMayAlreadyHaveReachedTheOldNode() = runBlocking {
+        storeThemeCatalog(dao, listOf(ThemeCacheEntity("t", "Theme")), revision = 900)
+        val cases = listOf<Pair<String, (OutboxCommandEntity) -> OutboxCommandEntity>>(
+            "attempted" to { c -> c.copy(attemptCount = 1) },
+            "sending" to { c -> c.copy(state = OutboxState.Sending) },
+            "retry-wait" to { c -> c.copy(state = OutboxState.RetryWait) },
+            "conflict" to { c -> c.copy(state = OutboxState.Conflict) },
+        )
+        cases.forEach { (name, mutate) ->
+            val id = enqueueNeverSentCommand(name)
+            dao.insertOutbox(mutate(requireNotNull(dao.outbox(id))))
+
+            assertTrue("$name must block", !dao.prepareNodeSwitch("server-1"))
+            assertEquals(900, dao.themeCatalogState()?.serverRevision)
+            dao.deleteOutbox(id)
+        }
+        assertTrue(dao.prepareNodeSwitch("server-1"))
+    }
+
+    @Test
+    fun nodeSwitchIsRefusedWhileATaskConflictIsUnresolved() = runBlocking {
+        dao.upsertConflict(
+            TaskConflictEntity(
+                commandId = "conflict-1", taskId = "task-1", intendedAction = "update",
+                expectedVersion = 1, serverVersion = 2, serverState = "open", serverTitle = "server",
+                serverThemeId = null, serverWorkState = null,
+                serverUpdatedAt = "2026-08-22T01:00:00Z", detectedAt = "2026-08-22T01:00:00Z",
+            ),
+        )
+
+        assertTrue(!dao.prepareNodeSwitch("server-1"))
+    }
+
+    @Test
+    fun nodeSwitchIgnoresRejectedCommandsBecauseTheOldNodeNeverAppliedThem() = runBlocking {
+        val id = enqueueNeverSentCommand("rejected")
+        dao.insertOutbox(requireNotNull(dao.outbox(id)).copy(state = OutboxState.Rejected, attemptCount = 1))
+
+        assertTrue(dao.prepareNodeSwitch("server-1"))
+    }
+
+    private suspend fun enqueueNeverSentCommand(name: String): String {
+        val commandId = "command-$name"
+        dao.insertOutbox(
+            OutboxCommandEntity(
+                commandId = commandId,
+                idempotencyKey = commandId,
+                requestId = "request-$name",
+                clientDeviceId = "android-test-device",
+                issuedAt = "2026-08-22T01:02:03Z",
+                commandName = "CreateTask",
+                envelopeJson = "{}",
+                serverId = "server-1",
+                state = OutboxState.Pending,
+                attemptCount = 0,
+                createdAt = "2026-08-22T01:02:03Z",
+                lastAttemptAt = null,
+                lastError = null,
+            ),
+        )
+        return commandId
+    }
+
     private fun activeSyncState(serverId: String = "server-1") = SyncStateEntity(
         serverId = serverId,
         apiVersion = 1,

@@ -876,6 +876,13 @@ abstract class MobileLocalDao {
     @Query("SELECT COUNT(*) FROM outbox_command WHERE serverId = '' OR serverId != :serverId")
     abstract suspend fun incompatibleOutboxCount(serverId: String): Int
 
+    // A command that may already have reached the node we are leaving. Rejected ones were refused, so they never applied.
+    @Query(
+        "SELECT COUNT(*) FROM outbox_command WHERE state != 'rejected' " +
+            "AND (attemptCount > 0 OR state IN ('sending', 'retry_wait', 'conflict'))",
+    )
+    abstract suspend fun maybeSentOutboxCount(): Int
+
     @Query("SELECT COUNT(*) FROM outbox_command WHERE state IN ('pending', 'sending', 'retry_wait')")
     abstract fun observePendingCount(): Flow<Int>
 
@@ -1687,6 +1694,32 @@ abstract class MobileLocalDao {
         val signal = taskNotificationSignal(incoming) ?: return
         if (previous?.workState == incoming.workState && previous?.latestReceiptId == incoming.latestReceiptId) return
         insertTaskNotificationDelivery(incoming.notificationDelivery(serverId, signal, "pending", observedAt))
+    }
+
+    /**
+     * Prepares for pairing with another node of the same workspace (same serverId, different origin).
+     * serverRevision is a per-node sequence, so the old node's value must not gate the new node's catalog:
+     * completeThemeRefresh refuses an older revision, which would freeze the list. Returns false, changing
+     * nothing, while a command that may already have reached the old node is unsettled; replaying it on the
+     * new node would apply it twice. Never-sent pending commands and drafts are untouched and carry over.
+     */
+    @Transaction
+    open suspend fun prepareNodeSwitch(serverId: String): Boolean {
+        require(serverId.isNotBlank())
+        if (syncState()?.serverId != serverId) return true
+        if (maybeSentOutboxCount() != 0 || conflictCount() != 0) return false
+        val current = themeCatalogState()
+        if (current != null && current.serverId == serverId) {
+            upsertThemeCatalogState(
+                current.copy(
+                    serverRevision = null,
+                    status = ThemeCatalogStatus.Loading,
+                    generatedAt = null,
+                    activeRefreshId = null,
+                ),
+            )
+        }
+        return true
     }
 
     @Transaction
