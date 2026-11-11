@@ -558,6 +558,32 @@ export class WorkspaceDatabase {
    * list("change_event", true).map((event) => String(event.command_id || "")).filter(startsWith)
    * と同じ集合（prefix が空でない文字列のとき）。
    */
+  /**
+   * あるEntityのChange Event（削除済みを含む）。索引は無く、data_jsonを走査する。
+   * AIの直接変更で「AIが作って本人がまだ触っていないか」を確かめるときだけ使う（頻度が低い）。
+   */
+  listChangeEventsForEntity(recordType, entityId) {
+    return this.db
+      .prepare(
+        `SELECT * FROM entities
+         WHERE entity_type = 'change_event'
+           AND json_extract(data_json, '$.entity_id') = ?
+           AND coalesce(json_extract(data_json, '$.record_type'), json_extract(data_json, '$.entity_type')) = ?
+         ORDER BY updated_at, rowid`,
+      )
+      .all(String(entityId), String(recordType))
+      .map(parseRow);
+  }
+
+  /** 共有フォルダ同期の競合が、このEntityに未解決で残っているか。 */
+  hasSyncConflict(entityType, entityId) {
+    return Boolean(
+      this.db
+        .prepare("SELECT 1 FROM sync_conflicts WHERE entity_type = ? AND entity_id = ?")
+        .get(String(entityType), String(entityId)),
+    );
+  }
+
   changeEventCommandIdsWithPrefix(prefix) {
     if (!this.performanceIndexes?.changeEventCommandId || typeof prefix !== "string" || !prefix) {
       return new Set(
@@ -1345,6 +1371,11 @@ export class WorkspaceDatabase {
         // このtransactionの書き込みも見える）。渡さないと全Eventの走査に戻る。
         listChangeEventsByCommandId: (commandId) => this.listChangeEventsByCommandId(commandId),
         changeEventCommandIdsWithPrefix: (prefix) => this.changeEventCommandIdsWithPrefix(prefix),
+        listChangeEventsForEntity: (recordType, entityId) =>
+          this.listChangeEventsForEntity(recordType, entityId),
+        hasSyncConflict: (entityType, entityId) => this.hasSyncConflict(entityType, entityId),
+        // better-sqlite3のtransactionは入れ子でsavepointになるので、復元もこのtransactionに入る。
+        restore: (type, id) => this.restore(type, id),
         get: (type, id, includeDeleted = false) => this.get(type, id, includeDeleted),
         save: (type, entity, options = {}) => this.saveWithinTransaction(type, entity, options),
         saveMany: (operations) =>
@@ -2760,8 +2791,13 @@ export class WorkspaceDatabase {
         // 同一内容なら書き込まずheadだけ進め、差分があれば同期取り込みとして適用する。
         // ここで例外にすると、その端末は同じ差分で永久に停止する（#588の実機NASで発生）。
         if (type === "work_receipt" && local && sameReceiptPayload(local, packet.entity)) {
+          // 相手端末の側を選んだ競合の解決もここへ来る（受け手には中身が同じ）。書き換えずに競合を閉じる。
+          // 閉じないと、画面の無いNAS replicaは自分で解決できず、状態がconflictのまま止まる（#688のレビュー）。
           this.setSyncHead(type, id, revisionId);
-          return { status: "duplicate", entity: local };
+          this.db
+            .prepare("DELETE FROM sync_conflicts WHERE entity_type = ? AND entity_id = ?")
+            .run(type, id);
+          return { status: "duplicate", entity: this.get(type, id, true) };
         }
         this.insertImported(type, packet.entity, "sync", local, {
           allowReceiptRevision: type === "work_receipt",
@@ -2841,10 +2877,27 @@ export class WorkspaceDatabase {
       const local = this.get(row.entity_type, row.entity_id, true);
       const chosen = choice === "incoming" ? packet.entity : local;
       if (!chosen) throw new Error("競合を解決するデータがありません。");
-      if (choice === "incoming")
-        this.insertImported(row.entity_type, chosen, "sync", local, {
-          allowReceiptRevision: row.entity_type === "work_receipt",
-        });
+      // 解決の結果は、どちらの端末も見たことのない版にする。競合した二つは同じ版の数を持つので、
+      // 版を上げずに送ると、競合の前に読んだ版での照合（AIの変更・取り消し、画面の保存）が通り、
+      // 本人が選んだ中身を黙って上書きする（#688のレビューで再現）。
+      // 作業報告は手元では追記だけで、版で照合して書き換えることが無いので版を上げない。受け手には
+      // 中身が同じに見え、書き換えずに競合だけを閉じる（applySyncPacket）ので、両端末の版もそろう。
+      if (row.entity_type === "work_receipt") {
+        if (choice === "incoming")
+          this.insertImported(row.entity_type, chosen, "sync", local, {
+            allowReceiptRevision: true,
+          });
+      } else {
+        const versions = [local?.version, packet.entity?.version]
+          .map(Number)
+          .filter(Number.isFinite);
+        this.insertImported(
+          row.entity_type,
+          { ...chosen, version: Math.max(0, ...versions) + 1 },
+          "sync",
+          local,
+        );
+      }
       const parents = [row.local_revision_id, row.incoming_revision_id].filter(Boolean);
       const resolution = this.enqueueSyncEntity(
         row.entity_type,

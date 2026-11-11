@@ -1,4 +1,3 @@
-import { createAiItemCreationPort } from "./composition/taskenCoreRuntime.ts";
 import {
   app,
   BrowserWindow,
@@ -47,6 +46,7 @@ import {
 import { WorkspaceDatabase, inspectWorkspaceBackup } from "./repositories/workspaceRepository.mjs";
 import { BatchTranscriptionRepository } from "./repositories/batchTranscriptionRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
+import { AiProposalAcceptanceService } from "./services/aiProposalAcceptanceService";
 import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBackup";
@@ -67,7 +67,6 @@ import { createTaskenRootController, type TaskenRootController } from "./taskenR
 import { screenRecordingOriginsMatch } from "../shared/screenRecording.mjs";
 import type { CommandReceipt } from "../shared/applicationCommand";
 import {
-  AI_DIRECT_WRITE_PREFERENCE,
   IPC,
   type RootOpenRequest,
   type SatelliteWindowStatePayload,
@@ -2748,17 +2747,11 @@ async function startDesktopApp(): Promise<void> {
     undefined,
     composition.createCoreClient(),
   );
-  // ローカルのAI（Claude Codeなど）の直接の書き込み。入口は常に公開し、使えるかは本人の設定
-  // （設定 → AI & Context）を要求のたびに読む。既定は無効。
-  composition.coreRuntime.enableAiItemCreation(
-    createAiItemCreationPort(applicationCommands, workspaceService, () => {
-      notifyMainWindowRefresh();
-    }),
-    {
-      isEnabled: () => workspaceRepository.readPreference(AI_DIRECT_WRITE_PREFERENCE) === true,
-      scope: "any",
-    },
-  );
+  const aiTaskChanges = composition.enableAiWrites({
+    workspace: workspaceService,
+    onCreated: () => notifyMainWindowRefresh(),
+    onCommitted: (receipt) => notifyCommandApplied(receipt, -1),
+  });
   await composition.start();
   const backupDatabase = workspaceRepository;
   automaticSnapshotBackup = new AutomaticSnapshotBackupService({
@@ -2826,6 +2819,7 @@ async function startDesktopApp(): Promise<void> {
     },
     notifyCommandApplied,
     notifyTodayMiniRefresh,
+    aiTaskChanges,
   );
   registerMobileGatewayIpc(composition.mobileGateway);
   // 切り離しウィンドウの共通基盤（#290）。位置・サイズは端末ごとの見え方なので

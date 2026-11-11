@@ -491,6 +491,8 @@ const VARIABLE_TEXT = [
   /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i, // ID（note:<id> のように途中に含むものも）
   /^\d{4}-\d{2}-\d{2}([T ][\d:.]+(Z|[+-]\d{2}:?\d{2})?)?$/, // 日付・時刻
   /^[0-9a-f]{32,}$/i, // 要約値
+  /[0-9a-f]{16,}/i, // 要約値を含むID（ai-change:<会話>:<鍵> など）
+  /^[[{]/, // Change Event の before_json などに入れた JSON の文
 ];
 /** キーと型の一覧。文字列は、ID・時刻・入力の文・path でなければ値まで写す（列挙の値の変化も拾う）。 */
 function packetShape(value, inputs, prefix = "$", out = new Set()) {
@@ -511,7 +513,7 @@ function packetShape(value, inputs, prefix = "$", out = new Set()) {
   return out;
 }
 
-test("AI 作成の Task・Note の差分の形が変わったら、contracts/sync/ai-item-packets.json に印が要る", async () => {
+test("replica が書く AI の Task・Note の差分の形（作成・直接変更）が変わったら、contracts/sync/ai-item-packets.json に印が要る", async () => {
   const dir = temporary();
   const hostDirectory = path.join(dir, "desktop");
   fs.mkdirSync(hostDirectory);
@@ -525,10 +527,25 @@ test("AI 作成の Task・Note の差分の形が変わったら、contracts/syn
       userDataPath: path.join(dir, "replica"),
       syncDirectory: shared,
       writeMode: "create-only",
+      allowAiTaskChange: true,
     });
     const client = new TaskenCoreClient({ userDataPath: path.join(dir, "replica") });
     const task = await client.createAiItem(request("task", "contract-task"));
     const note = await client.createAiItem(request("note", "contract-note"));
+    // replica の直接変更（#688）も、既存 Task の差分と Change Event を書く。
+    const target = await client.createAiItem(request("task", "contract-change"));
+    const changeRequest = {
+      task_id: target.entity.id,
+      expected_version: target.entity.version,
+      action: "update",
+      changes: { title: "contract changed title" },
+      why: "contract shape check",
+      caller: "dot",
+      source_app: "test-dot",
+      source_session: "conversation-1",
+      idempotency_key: "contract-change-1",
+    };
+    const changed = await client.changeTask(changeRequest);
     await core.syncNow();
     // replica が共有フォルダへ実際に出したファイル（各 Entity の最後の差分）
     const replicaDevice = fs
@@ -544,10 +561,24 @@ test("AI 作成の Task・Note の差分の形が変わったら、contracts/syn
     const inputs = new Set([
       ...Object.values(request("task", "contract-task")),
       ...Object.values(request("note", "contract-note")),
+      ...Object.values(request("task", "contract-change")),
+      ...Object.values(changeRequest),
+      ...Object.values(changeRequest.changes),
     ]);
+    const changeEvent = packets
+      .filter(
+        (packet) =>
+          packet.entityType === "change_event" &&
+          packet.entity?.command_id === changed.change_id &&
+          (packet.entity?.record_type ?? packet.entity?.entity_type) === "task",
+      )
+      .at(-1);
+    assert.ok(changeEvent, "直接変更の Change Event が共有フォルダへ出ている");
     const shape = {
       task: [...packetShape(latest(task.entity.id), inputs)].sort(),
       note: [...packetShape(latest(note.entity.id), inputs)].sort(),
+      task_change: [...packetShape(latest(target.entity.id), inputs)].sort(),
+      task_change_event: [...packetShape(changeEvent, inputs)].sort(),
     };
     const digest = createHash("sha256").update(JSON.stringify(shape)).digest("hex");
     const contract = fs.existsSync(AI_ITEM_CONTRACT)

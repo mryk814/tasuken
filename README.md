@@ -114,7 +114,7 @@ Claude Code / Codex / GitHub Copilot CLIの登録方法、依頼文、着手か�
 
 外部AIは最初に`tasken.get_capabilities`を呼ぶと、接続先がどの書き込みを受け付けるかと、使えないtoolの理由をまとめて確認できます。MCP serverは起動時に接続先を確認し、使えない書き込みtoolを一覧に出しません。
 
-MCPの検索・文脈取得toolは読み取り専用です。Task・待ち・計画は`search_items`、Noteは`search_notes`で探します。Noteの要約一覧で本文を含めるには`include_raw_body: true`を指定し、個別本文は`get_note`で取得します。AIが着手してよいTaskかは、Taskに添える`agent_state.runnable`で判断します。作成・編集・結果報告はProposalとして届き、Taskenで採用するまで正式データは変わりません。例外は`start_task_work`（人がAI ReadyにしたTaskの開始）と、設定の「AI & Context → ローカルのAIに直接の書き込みを許す」を有効にしたときの`create_task`・`create_note`です。どちらもAIの操作として記録します。Taskenが起動していないとき、配布版のMCPはTasken.exeの場所を案内します。
+MCPの検索・文脈取得toolは読み取り専用です。Task・待ち・計画は`search_items`、Noteは`search_notes`で探します。Noteの要約一覧で本文を含めるには`include_raw_body: true`を指定し、個別本文は`get_note`で取得します。AIが着手してよいTaskかは、Taskに添える`agent_state.runnable`で判断します。作成・編集・結果報告はProposalとして届き、Taskenで採用するまで正式データは変わりません。例外は`start_task_work`（人がAI ReadyにしたTaskの開始）と、設定の「AI & Context → ローカルのAIに直接の書き込みを許す」を有効にしたときの`create_task`・`create_note`です。有効にすると、`change_task`で既存Taskの編集・完了・再開・削除・委任も、本人の言葉を根拠に直接行えます（`undo_change`で取り消せます）。`edit_note`でNoteの編集、`decide_proposal`で作業報告とNote案の採否も行えます（採否は本人の言葉が必ず要ります）。どちらもAIの操作として記録します。NASのHTTPでは、配備とクライアントごとに許したときだけ`change_task`・`undo_change`を使えます（`docs/synology-headless-node.md`）。Taskenが起動していないとき、配布版のMCPはTasken.exeの場所を案内します。
 
 Coding Agentは`tasken.get_task_context`へTask IDと現在のworkspace情報を渡すと、Task / assignment / Theme / RepositoryContextと、関係理由付きのNote・Activity・Work Receipt概要をまとめて取得できます。件数と本文長には上限があり、Note全文が必要な場合だけレスポンス内のstable locatorから`tasken.get_note`で取得します。
 

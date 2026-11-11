@@ -255,6 +255,23 @@ function isAiActivityEvent(event: StructuredActivityEvent): boolean {
   );
 }
 
+/** 画面から取り消せるAIの直接変更（Taskの変更だけ。Note編集・採否は取り消しの対象外）。 */
+const AI_UNDOABLE_TASK_ACTIONS = new Set(["update", "complete", "reopen", "delete"]);
+
+/** AIの直接変更（#703）の根拠と取り消しの状態。Activityの公開metadataに残る分だけを読む。 */
+function aiDirectOf(event: StructuredActivityEvent): {
+  action?: string;
+  said?: string;
+  why?: string;
+  by?: string;
+  undone_by?: string;
+} | null {
+  const value = event.metadata?.ai_direct;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, string>)
+    : null;
+}
+
 function localTime(value?: string, fallback = "--:--"): string {
   if (!value) return fallback;
   const date = new Date(value);
@@ -379,6 +396,23 @@ export function ActivityLogPanel({
 }) {
   const [taskToLink, setTaskToLink] = useState("");
   const [savingLink, setSavingLink] = useState(false);
+  const [undoingAiChange, setUndoingAiChange] = useState(false);
+
+  async function undoAiChange(changeId: string) {
+    setUndoingAiChange(true);
+    try {
+      const result = await workspaceApi.undoAiChange(changeId);
+      if (result.stopped) setToast(`取り消せませんでした。${result.stopped.message}`, "danger");
+      else setToast("AIの変更を取り消しました。", "success");
+    } catch (error) {
+      setToast(
+        `取り消せませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    } finally {
+      setUndoingAiChange(false);
+    }
+  }
   async function setTaskLink(sessionId: string, taskId: string, linked: boolean) {
     if (!saveEntities || savingLink) return;
     setSavingLink(true);
@@ -674,6 +708,10 @@ export function ActivityLogPanel({
   const expandedBurstEvents =
     expandedTimelineItem?.item_type === "burst" ? expandedTimelineItem.events : [];
   const expandedEventActor = expandedEvent ? actorLabel(expandedEvent) : null;
+  const expandedAiDirect = expandedEvent ? aiDirectOf(expandedEvent) : null;
+  const expandedCommandId = expandedEvent
+    ? String(expandedEvent.origin?.command_id || expandedEvent.metadata?.command_id || "")
+    : "";
   /**
    * 時刻軸を出すかどうか。カレンダーの予定だけがある日（TaskenのActivityが0件）でも、
    * 予定は時刻軸へ描く（#273）。予定を見ないと空の時刻軸だけが出て、予定が消えて見える。
@@ -1652,6 +1690,28 @@ export function ActivityLogPanel({
                             <span>更新項目</span>
                             <span>{expandedEvent.changed_fields.join(" / ")}</span>
                           </div>
+                        ) : null}
+                        {expandedAiDirect?.said || expandedAiDirect?.why ? (
+                          <div className="activity-timeline-detail-section">
+                            <span>{expandedAiDirect.said ? "本人の言葉" : "AIの理由"}</span>
+                            <span>「{expandedAiDirect.said || expandedAiDirect.why}」</span>
+                          </div>
+                        ) : null}
+                        {expandedAiDirect &&
+                        AI_UNDOABLE_TASK_ACTIONS.has(String(expandedAiDirect.action)) &&
+                        expandedCommandId ? (
+                          expandedAiDirect.undone_by ? (
+                            <span className="activity-event-state">取り消し済み</span>
+                          ) : (
+                            <Button
+                              variant="secondary"
+                              compact
+                              disabled={undoingAiChange}
+                              onClick={() => void undoAiChange(expandedCommandId)}
+                            >
+                              AIの変更を取り消す
+                            </Button>
+                          )
                         ) : null}
                         {expandedEntity && expandedDrawerType ? (
                           <Button

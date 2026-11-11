@@ -4,8 +4,13 @@ import path from "node:path";
 import { nativeImage } from "electron";
 
 import { validateMcpPackageSmokeRoot } from "../../shared/taskenPaths.mjs";
+import { AI_DIRECT_WRITE_PREFERENCE } from "../../shared/ipc/contracts.ts";
+import type { CommandReceipt } from "../../shared/applicationCommand.ts";
 import { TaskenCoreRuntime } from "./taskenCoreRuntime.ts";
+import { createAiItemCreationPort } from "./aiItemCreationPort.ts";
+import { createAiTaskChangeService } from "./aiTaskChangePort.ts";
 import { ApplicationCommandService } from "../services/applicationCommandService";
+import { AiProposalDecisionService } from "../services/aiProposalDecisionService";
 import {
   createNativeImageDecoder,
   createNoteProposalImagePort,
@@ -25,7 +30,10 @@ interface McpPackageSmokePersistence {
 type DesktopPersistence = ConstructorParameters<typeof TaskenCoreRuntime>[1] &
   ConstructorParameters<typeof ApplicationCommandService>[0] &
   MobileDevicePersistence &
-  McpPackageSmokePersistence & {
+  McpPackageSmokePersistence &
+  Parameters<typeof createAiTaskChangeService>[0] &
+  ConstructorParameters<typeof AiProposalDecisionService>[0]["persistence"] & {
+    readPreference(key: typeof AI_DIRECT_WRITE_PREFERENCE): unknown;
     mobileGatewayState(): ReturnType<MobileGatewayStatePort["current"]>;
   };
 
@@ -202,6 +210,44 @@ export class TaskenDesktopComposition<
     const receipt = this.applicationCommands.executeAiTaskStart(command, "any");
     this.onCoreCommandCommitted?.(receipt);
     return receipt;
+  }
+
+  /**
+   * ローカルのAI（Claude Codeなど）の直接の書き込み（#703）。入口は常に公開し、使えるかは本人の設定
+   * （設定 → AI & Context）を要求のたびに読む。既定は無効。Core起動前に一度だけ呼ぶ。
+   * 返すのは、本人がActivityからAIの変更を取り消す口にも使う、Taskの直接変更のservice。
+   */
+  enableAiWrites(options: {
+    workspace: Parameters<typeof createAiItemCreationPort>[1] &
+      ConstructorParameters<typeof AiProposalDecisionService>[0]["artifacts"];
+    /** 新規作成のあとの画面の更新。 */
+    onCreated?: () => void;
+    /** 直接変更・採否のあとの画面の更新。 */
+    onCommitted?: (receipt: CommandReceipt) => void;
+  }) {
+    const isEnabled = () => this.repository.readPreference(AI_DIRECT_WRITE_PREFERENCE) === true;
+    this.coreRuntime.enableAiItemCreation(
+      createAiItemCreationPort(this.applicationCommands, options.workspace, options.onCreated),
+      { isEnabled, scope: "any" },
+    );
+    const aiTaskChanges = createAiTaskChangeService(
+      this.repository,
+      this.applicationCommands,
+      isEnabled,
+      options.onCommitted,
+    );
+    this.coreRuntime.enableAiTaskChange(aiTaskChanges);
+    this.coreRuntime.enableAiDirectWrite(
+      new AiProposalDecisionService({
+        persistence: this.repository,
+        commands: this.applicationCommands,
+        artifacts: options.workspace,
+        proposeContent: (request) => this.coreRuntime.proposeContent(request),
+        isEnabled,
+        onCommitted: options.onCommitted,
+      }),
+    );
+    return aiTaskChanges;
   }
 
   get taskCapability() {

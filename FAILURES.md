@@ -2,6 +2,22 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-11 新しい試験が WorkspaceDatabase を直に使い、アーキテクチャ監査の試験が「24 !== 23」で落ちた
+
+- しようとしたこと: #688 で `tests/core-capability-parity.test.mjs`（Desktop と NAS の Core を本物の DB で組み立てて capability を比べる）を足し、`npm run ci` を流す。
+- 起きたこと: `tests/architecture-audit.test.mjs` の 3 件が `24 !== 23`・`1 !== 0` で落ちた。何が増えたかは assert の文に出ず、`artifacts/architecture/report.md` を読んで、新しい試験が互換の面 `workspace-repository` の利用者として基準に無い（`compatibility.consumer_added`）と分かった。#703（同日）でも新しい試験で同じことが起き、同じ読み方をした。
+- 原因: 互換の面を直に使う新しいファイルは `architecture/compatibility-baseline.json` の consumers に載せる決まりで、試験の数え方は件数だけだった。
+- 直し方: consumers に足した。
+- 再発防止: 監査の試験の件数の assert に、基準に無く抑止も無い指摘を名指しし、直し方（consumers に足す／suppressions に issue 付きで足す）を添える文を付けた（`unexplainedFindings`）。次からは落ちた文だけで直せる。
+
+## 2026-11-11 get_note の応答に欄を足したら、旧来の読み取りとの一致の試験が GitHub で落ちた
+
+- しようとしたこと: #714 で `get_note` の応答に本文の署名（`body_signature`）を足し、関係しそうな試験だけを手元で流して push した。
+- 起きたこと: windows-quality で `tests/tasken-core-mcp-wave5-content.test.mjs` と `tests/tasken-core-mcp-wave5-integration.test.mjs` が落ちた（Core の get_note と、旧来の読み取りの投影 `tests/fixtures/legacyReadOnlyContext.mjs` が deepEqual で一致しない）。
+- 原因: 手元で流す試験を、変えたサービスの名前で選び、読み取りの契約の名前（`getNote`・`toolGetNote`）で選ばなかった。
+- 直し方: 旧来に無い欄として比べる対象から外し、全文のときだけ値を持つことを別に確かめた。
+- 再発防止: 記録だけ。共有の読み取り・書き込みの応答の形を変えたら、`rg -l "<関数名>|<tool名>" tests` で拾った試験を全部流す。
+
 ## 2026-11-11 `npm run ci` の全体実行で agent-session-hook-collector の並行書き込みが timeout した
 
 - しようとしたこと: #703 の PR（#712）の前に、Git Bash から `npm run ci` を流す。

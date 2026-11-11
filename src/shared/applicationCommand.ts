@@ -13,6 +13,8 @@ export const applicationCommandNames = [
   "DelegateTaskToAgent",
   "CompleteTask",
   "ReopenTask",
+  // AIの直接変更の取り消しで、削除したTaskを戻す（#703）。人の画面の復元は従来のentity:restore。
+  "RestoreTask",
   "CompleteTaskWithLearning",
   "EndFocusSession",
   "ApplyAiProposal",
@@ -449,7 +451,10 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
     throw new ApplicationCommandError("INVALID_PAYLOAD", "DeleteCaptureのcaptureIdが不正です。");
   }
   if (
-    (name === "CompleteTask" || name === "ReopenTask" || name === "DeleteTask") &&
+    (name === "CompleteTask" ||
+      name === "ReopenTask" ||
+      name === "DeleteTask" ||
+      name === "RestoreTask") &&
     (typeof value.payload.taskId !== "string" || !value.payload.taskId.trim())
   ) {
     throw new ApplicationCommandError("INVALID_PAYLOAD", `${name}のtaskIdが不正です。`);

@@ -1,4 +1,16 @@
 import {
+  aiNoteEditRequestSchema,
+  aiProposalDecisionRequestSchema,
+  type AiNoteEditRequest,
+  type AiNoteEditResponse,
+  type AiProposalDecisionRequest,
+  type AiProposalDecisionResponse,
+  aiChangeUndoRequestSchema,
+  aiTaskChangeRequestSchema,
+  type AiChangeUndoRequest,
+  type AiChangeUndoResponse,
+  type AiTaskChangeRequest,
+  type AiTaskChangeResponse,
   aiItemCreationRequestSchema,
   aiTaskStartRequestSchema,
   type AiTaskStartRequest,
@@ -115,6 +127,8 @@ import {
   taskQuerySchema,
 } from "../../../shared/contracts/task/public.ts";
 import {
+  TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+  TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
@@ -181,6 +195,10 @@ interface QueryProvider<Request, Response> {
 export interface TaskenCoreHostOptions {
   userDataPath: string;
   createAiItem?: QueryProvider<AiItemCreationRequest, AiItemCreationResponse>;
+  changeTask?: QueryProvider<AiTaskChangeRequest, AiTaskChangeResponse>;
+  undoChange?: QueryProvider<AiChangeUndoRequest, AiChangeUndoResponse>;
+  decideProposal?: QueryProvider<AiProposalDecisionRequest, AiProposalDecisionResponse>;
+  editNote?: QueryProvider<AiNoteEditRequest, AiNoteEditResponse>;
   getSourceStatus?: QueryProvider<GetSourceStatusRequest, GetSourceStatusResponse>;
   startAiTaskWork?: QueryProvider<AiTaskStartRequest, TaskCommandResponse>;
   taskQuery?: QueryProvider<unknown, TaskQueryResponse>;
@@ -308,6 +326,34 @@ const ROUTES: readonly RouteDefinition[] = [
     provider: "createAiItem",
     capability: TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
     schema: aiItemCreationRequestSchema,
+  },
+  {
+    path: "/v1/commands/change-task",
+    kind: "command",
+    provider: "changeTask",
+    capability: TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
+    schema: aiTaskChangeRequestSchema,
+  },
+  {
+    path: "/v1/commands/decide-proposal",
+    kind: "command",
+    provider: "decideProposal",
+    capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+    schema: aiProposalDecisionRequestSchema,
+  },
+  {
+    path: "/v1/commands/edit-note",
+    kind: "command",
+    provider: "editNote",
+    capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+    schema: aiNoteEditRequestSchema,
+  },
+  {
+    path: "/v1/commands/undo-change",
+    kind: "command",
+    provider: "undoChange",
+    capability: TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
+    schema: aiChangeUndoRequestSchema,
   },
   {
     path: "/v1/commands/start-ai-task-work",
@@ -782,6 +828,29 @@ export class TaskenCoreHost {
     if (this.server) throw new Error("Core起動後の権限変更はできません。");
     this.options.createAiItem = provider;
     this.directWriteEnabled = directWriteEnabled || null;
+  }
+
+  /**
+   * 既存Taskの直接変更と取り消し。Desktopと、明示したNAS replicaが公開する。
+   * 使えるかの判定（Desktopは本人の設定）はproviderが持つ。
+   */
+  enableAiTaskChange(providers: {
+    changeTask: QueryProvider<AiTaskChangeRequest, AiTaskChangeResponse>;
+    undoChange: QueryProvider<AiChangeUndoRequest, AiChangeUndoResponse>;
+  }) {
+    if (this.server) throw new Error("Core起動後の権限変更はできません。");
+    this.options.changeTask = providers.changeTask;
+    this.options.undoChange = providers.undoChange;
+  }
+
+  /** Desktopだけが、取り消せない直接の書き込み（Noteの編集と採否）を公開する。 */
+  enableAiDirectWrite(providers: {
+    decideProposal: QueryProvider<AiProposalDecisionRequest, AiProposalDecisionResponse>;
+    editNote: QueryProvider<AiNoteEditRequest, AiNoteEditResponse>;
+  }) {
+    if (this.server) throw new Error("Core起動後の権限変更はできません。");
+    this.options.decideProposal = providers.decideProposal;
+    this.options.editNote = providers.editNote;
   }
 
   /** NAS replicaだけが、同期の状態と鮮度を読み取りに公開する。Core起動前に一度だけ呼ぶ。 */

@@ -1,5 +1,6 @@
 import {
   AiItemCreationService,
+  AiTaskChangeService,
   AiTaskStartService,
   type AiItemCreationPort,
 } from "../core/public.ts";
@@ -15,6 +16,8 @@ import type { NoteProposalImagePort } from "../core/public.ts";
 import type { CaptureImagePort } from "../core/public.ts";
 import {
   getSourceStatusResponseSchema,
+  type AiNoteEditResponse,
+  type AiProposalDecisionResponse,
   type NoteProposalImage,
 } from "../../shared/contracts/task/public.ts";
 import {
@@ -242,6 +245,7 @@ export class TaskenCoreRuntime {
   private readonly routineWriter?: RoutineWriterPort;
   private readonly executeApplicationCommand: ExecuteApplicationCommand;
   private readonly taskContext: ReturnType<typeof createTaskenCore>["getTaskContext"];
+  private readonly contentProposals: ReturnType<typeof createTaskenCore>["proposeContent"];
   private readonly agentSessionContext: ReturnType<
     typeof createTaskenCore
   >["getAgentSessionContext"];
@@ -292,6 +296,7 @@ export class TaskenCoreRuntime {
       captureImagePort: this.captureImagePort,
     });
     this.taskContext = core.getTaskContext;
+    this.contentProposals = core.proposeContent;
     this.agentSessionContext = core.getAgentSessionContext;
     this.executeTaskDelegation = executeTaskDelegation;
     this.taskCapability = new TaskCapabilityService(persistence, executeApplicationCommand);
@@ -741,6 +746,30 @@ export class TaskenCoreRuntime {
     );
   }
 
+  /** 既存Taskの直接変更と取り消し（#703）。Desktopと、明示したNAS replica（#688）が呼ぶ。 */
+  enableAiTaskChange(service: AiTaskChangeService) {
+    this.host.enableAiTaskChange({
+      changeTask: { execute: (request) => service.change(request) },
+      undoChange: { execute: (request) => service.undo(request) },
+    });
+  }
+
+  /** Desktop専用。取り消せない直接の書き込み（Noteの編集と、作業報告・Note案の採否。#703）。 */
+  enableAiDirectWrite(decisions: {
+    decide(request: unknown): AiProposalDecisionResponse;
+    editNote(request: unknown): AiNoteEditResponse;
+  }) {
+    this.host.enableAiDirectWrite({
+      decideProposal: { execute: (request) => decisions.decide(request) },
+      editNote: { execute: (request) => decisions.editNote(request) },
+    });
+  }
+
+  /** Coreの提案の入口（propose_content）。AIの直接のNote編集が、編集のProposalを作るのに使う。 */
+  proposeContent(request: Record<string, unknown>) {
+    return this.contentProposals.execute(request as never);
+  }
+
   /** NAS replica専用。Desktopのcompositionでは呼ばない。 */
   enableSourceStatus(read: () => unknown) {
     // 返す値はここでschemaに通す（端末ID・エラー文などが紛れても外へ出さない）。
@@ -763,3 +792,4 @@ export class TaskenCoreRuntime {
   }
 }
 export { createAiItemCreationPort } from "./aiItemCreationPort.ts";
+export { createAiTaskChangeService } from "./aiTaskChangePort.ts";

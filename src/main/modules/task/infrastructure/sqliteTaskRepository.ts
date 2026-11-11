@@ -35,4 +35,9 @@ export class SqliteTaskRepository implements TaskRepository {
   removeTask(id: string): Entity | null {
     return this.persistence.remove("task", id);
   }
+
+  restoreTask(id: string): Entity | null {
+    if (!this.persistence.restore) throw new Error("この保存先は復元を扱えません。");
+    return this.persistence.restore("task", id);
+  }
 }

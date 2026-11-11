@@ -46,6 +46,9 @@ export const workspaceApi = {
   launchAgent(request: import("../../../shared/agentLaunch").AgentLaunchRequest) {
     return desktopApi().agentLauncher.launch(request);
   },
+  undoAiChange(changeId: string) {
+    return desktopApi().entities.undoAiChange(changeId);
+  },
   markAiItemSeen(type: "task" | "note", id: string) {
     return desktopApi().entities.markAiItemSeen(type, id);
   },

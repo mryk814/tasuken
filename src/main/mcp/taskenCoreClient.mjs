@@ -1,4 +1,10 @@
-import { aiItemCreationResponseSchema } from "../../shared/contracts/task/public.ts";
+import {
+  aiNoteEditResponseSchema,
+  aiProposalDecisionResponseSchema,
+  aiChangeUndoResponseSchema,
+  aiItemCreationResponseSchema,
+  aiTaskChangeResponseSchema,
+} from "../../shared/contracts/task/public.ts";
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -36,6 +42,8 @@ import {
   taskQueryResponseSchema,
 } from "../../shared/contracts/task/public.ts";
 import {
+  TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+  TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
@@ -115,6 +123,8 @@ export const TASKEN_MCP_REQUIRED_CORE_CAPABILITIES = Object.freeze([
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
   TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
+  TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
+  TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
 ]);
 
 export class TaskenCoreClientError extends Error {
@@ -538,6 +548,46 @@ export class TaskenCoreClient {
       request,
       proposeAgentSessionResponseSchema,
       "propose-agent-session",
+    );
+  }
+
+  async changeTask(request = {}) {
+    return this.request(
+      "/v1/commands/change-task",
+      TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
+      request,
+      aiTaskChangeResponseSchema,
+      "change-task",
+    );
+  }
+
+  async decideProposal(request = {}) {
+    return this.request(
+      "/v1/commands/decide-proposal",
+      TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+      request,
+      aiProposalDecisionResponseSchema,
+      "decide-proposal",
+    );
+  }
+
+  async editNote(request = {}) {
+    return this.request(
+      "/v1/commands/edit-note",
+      TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+      request,
+      aiNoteEditResponseSchema,
+      "edit-note",
+    );
+  }
+
+  async undoChange(request = {}) {
+    return this.request(
+      "/v1/commands/undo-change",
+      TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
+      request,
+      aiChangeUndoResponseSchema,
+      "undo-change",
     );
   }
 

@@ -595,6 +595,85 @@ test("shared folder sync detects divergent edits and publishes an explicit resol
   }
 });
 
+// 競合した二つは同じ版の数を持つ。解決で版を上げないと、競合の前の版での照合（AIの取り消しなど）が通り、
+// 本人が選んだ中身を黙って戻してしまう（#688のレビュー）。
+test("a conflict resolution gets a version neither device has seen, on both devices", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-a", "Initial"));
+    await pair.firstSync.configure(pair.shared);
+    await pair.secondSync.configure(pair.shared);
+
+    pair.first.save("task", { ...pair.first.get("task", "task-a"), title: "AI edit" });
+    pair.second.save("task", { ...pair.second.get("task", "task-a"), title: "My edit" });
+    const seen = Math.max(
+      pair.first.get("task", "task-a").version,
+      pair.second.get("task", "task-a").version,
+    );
+    await pair.firstSync.syncNow();
+    await pair.secondSync.syncNow();
+    await pair.firstSync.syncNow();
+
+    const conflict = pair.second.listSyncConflicts()[0];
+    const resolution = pair.secondSync.resolveConflict(conflict.id, "local");
+    assert.equal(resolution.result.entity.title, "My edit");
+    assert.equal(resolution.result.entity.version, seen + 1);
+
+    await pair.secondSync.syncNow();
+    await pair.firstSync.syncNow();
+    assert.equal(pair.first.syncConflictCount(), 0);
+    assert.equal(pair.first.get("task", "task-a").title, "My edit");
+    assert.equal(pair.first.get("task", "task-a").version, seen + 1);
+  } finally {
+    pair.close();
+  }
+});
+
+// 両端末で同じTaskを消すと、連鎖して消える作業報告どうしが競合する。相手端末の側を選んだ解決は、
+// 受け手には「中身が同じ」に見える。そこで競合を閉じないと、画面の無いNASがconflictのまま止まる。
+test("a receipt conflict resolved with the other device's side closes on both devices", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-receipt", "Initial"));
+    pair.first.save("work_receipt", {
+      id: "receipt-a",
+      task_id: "task-receipt",
+      executor_kind: "ai_agent",
+      executor_label: "AI",
+      reported_at: "2026-08-10T00:14:25.900Z",
+      summary: "first",
+      completed_items: [],
+      changed_or_created_items: [],
+      source: "ai",
+    });
+    await pair.firstSync.configure(pair.shared);
+    await pair.secondSync.configure(pair.shared);
+
+    pair.first.remove("work_receipt", "receipt-a");
+    const started = Date.now();
+    while (Date.now() - started < 5);
+    pair.second.remove("work_receipt", "receipt-a");
+    await pair.firstSync.syncNow();
+    await pair.secondSync.syncNow();
+    await pair.firstSync.syncNow();
+    assert.equal(pair.first.syncConflictCount(), 1);
+    assert.equal(pair.second.syncConflictCount(), 1);
+
+    const conflict = pair.first.listSyncConflicts()[0];
+    pair.firstSync.resolveConflict(conflict.id, "incoming");
+    await pair.firstSync.syncNow();
+    await pair.secondSync.syncNow();
+    assert.equal(pair.first.syncConflictCount(), 0);
+    assert.equal(pair.second.syncConflictCount(), 0);
+    assert.equal(
+      pair.second.get("work_receipt", "receipt-a", true).version,
+      pair.first.get("work_receipt", "receipt-a", true).version,
+    );
+  } finally {
+    pair.close();
+  }
+});
+
 test("joining another workspace never overwrites a non-empty local database", async () => {
   const pair = createPair();
   try {

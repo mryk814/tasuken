@@ -71,6 +71,11 @@ const { WorkspaceService } = await bundleEntry(
   "src/main/services/workspaceService.ts",
   "workspaceService.mjs",
 );
+/** Desktop役が、NASのAIの直接変更をActivityから取り消す経路。 */
+const { createAiTaskChangeService } = await bundleEntry(
+  "src/main/composition/aiTaskChangePort.ts",
+  "aiTaskChangePort.mjs",
+);
 /** Desktop役がFeedの返信を読む経路。 */
 const { FeedContextQueryService } = await bundleEntry(
   "src/main/core/services/feedContextQueryService.ts",
@@ -94,7 +99,8 @@ function bootstrapWorkspace(database) {
         title: "Headless context read",
         description: "Read through the headless Core over loopback MCP.",
         state: "todo",
-        // Desktopが保存する形に合わせてcanonicalなTheme IDを持たせる（採用時の検証を通す）。
+        // Desktopが保存する形に合わせてcanonicalなTheme IDと優先度を持たせる（採用・直接変更の検証を通す）。
+        priority: "normal",
         project_id: "theme-headless",
       },
     ],
@@ -801,6 +807,10 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
     assert.deepEqual(capabilities.structuredContent.writes, {
       task_create: false,
       note_direct_create: false,
+      task_edit: false,
+      undo: false,
+      note_edit_direct: false,
+      proposal_decision: false,
       feed_post: true,
       feed_reply: true,
       note_create: true,
@@ -812,6 +822,15 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
     assert.deepEqual(capabilities.structuredContent.unavailable_tools, [
       { name: "tasken.create_task", reason: "missing_capability:create_ai_item", listed: false },
       { name: "tasken.create_note", reason: "missing_capability:create_ai_item", listed: false },
+      // 既存Taskの直接変更はDesktopだけ。NASには出さない（#703）。
+      { name: "tasken.change_task", reason: "missing_capability:task.ai_change", listed: false },
+      {
+        name: "tasken.decide_proposal",
+        reason: "missing_capability:ai_direct_write",
+        listed: false,
+      },
+      { name: "tasken.edit_note", reason: "missing_capability:ai_direct_write", listed: false },
+      { name: "tasken.undo_change", reason: "missing_capability:task.ai_change", listed: false },
       {
         name: "tasken.start_task_work",
         reason: "missing_capability:task.start_work",
@@ -1071,7 +1090,7 @@ async function writeGateFixture(t) {
   const hostShape = JSON.parse(fs.readFileSync(statusPath, "utf8")).syncShape;
   const sha = (letter) => letter.repeat(64);
   const mark = (shape, desktopFirst) => ({ shape_sha256: shape, desktop_first: desktopFirst });
-  const startReplica = (syncShapeFlags) =>
+  const startReplica = (syncShapeFlags, extra = {}) =>
     startTaskenHeadlessCore({
       userDataPath: replicaUserData,
       syncDirectory: shared,
@@ -1079,6 +1098,7 @@ async function writeGateFixture(t) {
       allowAiTaskStart: true,
       env: {},
       syncShapeFlags,
+      ...extra,
     });
   return {
     shared,
@@ -1113,6 +1133,17 @@ const gateStartRequest = {
   work_attempt_id: "12c9a3df-084a-4314-8a80-de844b512fad",
   source_session: "gate-session",
 };
+
+const gateChangeRequest = (key, title) => ({
+  task_id: "task-headless",
+  expected_version: 1,
+  action: "update",
+  changes: { title },
+  said: `題名を「${title}」にして`,
+  caller: "gate-test",
+  source_session: "gate-session",
+  idempotency_key: key,
+});
 
 /** 断られたら { code, status }、通ったら "passed"（通ったあとの失敗は問わない）。 */
 async function gateOutcome(call) {
@@ -1163,9 +1194,9 @@ test("replicaは、取り込めないDesktopがいる間は書き込みを断る
   }
 });
 
-test("replicaは取り込みが遅れている間、既存Taskを書き換える開始を断る。新規作成は通す", async (t) => {
+test("replicaは取り込みが遅れている間、既存Taskを書き換える開始・直接変更・取り消しを断る。新規作成は通す", async (t) => {
   const f = await writeGateFixture(t);
-  const handle = await f.startReplica([f.mark(f.hostShape, false)]);
+  const handle = await f.startReplica([f.mark(f.hostShape, false)], { allowAiTaskChange: true });
   try {
     const core = new TaskenCoreClient({ userDataPath: f.replicaUserData });
     assert.notDeepEqual(
@@ -1190,8 +1221,92 @@ test("replicaは取り込みが遅れている間、既存Taskを書き換える
       code: "REPLICA_BEHIND",
       status: 409,
     });
+    // 手元の版との照合は遅れていても通ってしまうので、直接変更と取り消しも入口で断る。
+    assert.deepEqual(
+      await gateOutcome(() => core.changeTask(gateChangeRequest("late", "遅れて直す"))),
+      {
+        code: "REPLICA_BEHIND",
+        status: 409,
+      },
+    );
+    assert.deepEqual(
+      await gateOutcome(() =>
+        core.undoChange({
+          undo_session: "gate-session",
+          said: "戻して",
+          caller: "gate-test",
+          source_session: "gate-session",
+          idempotency_key: "late-undo",
+        }),
+      ),
+      { code: "REPLICA_BEHIND", status: 409 },
+    );
     // 新規作成は既存Taskを書き換えないので通す。
     assert.equal((await core.createAiItem(gateCreateRequest("c"))).status, "created");
+  } finally {
+    await handle.stop();
+  }
+});
+
+test("replicaは明示したときだけ既存Taskの直接変更を受け、Desktopへ届いた変更は本人が取り消せる", async (t) => {
+  const f = await writeGateFixture(t);
+  // 作れない配備に直接変更だけを持たせない。
+  await assert.rejects(
+    () =>
+      startTaskenHeadlessCore({
+        userDataPath: f.replicaUserData,
+        writeMode: "proposals",
+        allowAiTaskChange: true,
+        env: {},
+      }),
+    (error) => error instanceof TaskenHeadlessCoreError && error.code === "WRITE_MODE_CONFLICT",
+  );
+  const plain = await f.startReplica([f.mark(f.hostShape, false)]);
+  try {
+    const { capabilities } = await new TaskenCoreClient({
+      userDataPath: f.replicaUserData,
+    }).inspect();
+    assert.equal(capabilities.includes("task.ai_change"), false, "明示しないと出さない");
+  } finally {
+    await plain.stop();
+  }
+
+  const handle = await f.startReplica([f.mark(f.hostShape, false)], { allowAiTaskChange: true });
+  try {
+    const core = new TaskenCoreClient({ userDataPath: f.replicaUserData });
+    const { capabilities } = await core.inspect();
+    assert.ok(capabilities.includes("task.ai_change"));
+    // 取り消せない直接の書き込み（Noteの編集と採否）はDesktopだけ。
+    assert.equal(capabilities.includes("ai_direct_write"), false);
+    const changed = await core.changeTask(gateChangeRequest("nas-change", "NASで直した"));
+    assert.equal(changed.status, "applied");
+    assert.equal(changed.task.title, "NASで直した");
+
+    // 変更と本人の言葉がDesktopへ届く（DesktopのActivityに出る）。
+    await handle.syncNow();
+    await f.hostSync.syncNow();
+    assert.equal(f.host.get("task", "task-headless").title, "NASで直した");
+    const said = f.host
+      .listChangeEventsByCommandId(changed.change_id)
+      .map((event) => event.metadata?.ai_direct?.said);
+    assert.ok(said.includes("題名を「NASで直した」にして"), JSON.stringify(said));
+
+    // 本人がDesktopのActivityから取り消すと、NASにも戻る。
+    const desktop = createAiTaskChangeService(
+      f.host,
+      new ApplicationCommandService(f.host),
+      () => false,
+    );
+    const undone = desktop.undoByUser(changed.change_id);
+    assert.equal(undone.stopped, null, JSON.stringify(undone.stopped));
+    assert.equal(f.host.get("task", "task-headless").title, "Headless context read");
+    await f.hostSync.syncNow();
+    await handle.syncNow();
+    const again = await core.changeTask({
+      ...gateChangeRequest("nas-change-after-undo", "もう一度"),
+      expected_version: f.host.get("task", "task-headless").version,
+    });
+    assert.equal(again.status, "applied", "取り消しがNASへ戻り、今の版で変えられる");
   } finally {
     await handle.stop();
   }
@@ -1241,6 +1356,13 @@ test("Headless Core CLI requires valid explicit arguments", () => {
     "proposals",
   );
   assert.equal(parseTaskenHeadlessCoreArgs(["--write-mode=read-only"]).writeMode, "read-only");
+  // 既存Taskの直接変更は、開始と同じく独立の明示だけで出す。
+  assert.equal(parseTaskenHeadlessCoreArgs([]).allowAiTaskChange, undefined);
+  assert.equal(parseTaskenHeadlessCoreArgs(["--allow-ai-task-change"]).allowAiTaskChange, true);
+  assert.equal(
+    parseTaskenHeadlessCoreArgs([], { TASKEN_CORE_AI_TASK_CHANGE: "1" }).allowAiTaskChange,
+    true,
+  );
   assert.equal(
     parseTaskenHeadlessCoreArgs([], { TASKEN_CORE_WRITE_MODE: "unknown" }).writeMode,
     "read-only",

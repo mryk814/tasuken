@@ -47,7 +47,13 @@ const imageTools = [];
  * Proposalを作らず直接書き込む唯一の例外（人がAI ReadyにしたTaskの開始）。
  * 注釈が `PROPOSAL_ANNOTATIONS` ではないので、proposal群とは分けて検査する。
  */
-const directWriteTools = ["tasken.start_task_work"];
+const directWriteTools = [
+  "tasken.start_task_work",
+  "tasken.change_task",
+  "tasken.undo_change",
+  "tasken.decide_proposal",
+  "tasken.edit_note",
+];
 
 function toolBlock(value, toolName) {
   const marker = new RegExp(`server\\.registerTool\\(\\s*"${toolName.replaceAll(".", "\\.")}"`);
@@ -159,7 +165,7 @@ test("#413 all reads and proposals use Core without fallback", () => {
   for (const toolName of directWriteTools) {
     const block = toolBlock(mcpServer, toolName);
     assert.match(block, /withCoreClient/);
-    assert.match(block, /annotations: DIRECT_WRITE_ANNOTATIONS/);
+    assert.match(block, /annotations: (DIRECT_WRITE_ANNOTATIONS|DESTRUCTIVE_WRITE_ANNOTATIONS)/);
   }
   assert.doesNotMatch(mcpServer, /withReadContext|readContextProvider|queueMcpProposal/);
 });

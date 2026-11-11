@@ -56,6 +56,8 @@ export const taskApplicationCommandNames = [
   "DeleteTask",
   "CompleteTask",
   "ReopenTask",
+  // AIの直接変更の取り消しで、削除したTaskを連鎖した子ごと戻す（#703）。
+  "RestoreTask",
 ] as const;
 const taskCommandNames = new Set<ApplicationCommandName>(taskApplicationCommandNames);
 
@@ -90,6 +92,12 @@ export interface TaskCommandRuntime {
     event: Entity,
   ): CommandReceipt;
   persistNoChange(command: CommandEnvelope, taskId: string, current: Entity): CommandReceipt;
+  persistRestore(
+    command: CommandEnvelope,
+    type: EntityType,
+    restored: Entity,
+    event: Entity,
+  ): CommandReceipt;
   now(): string;
 }
 
@@ -113,6 +121,7 @@ export class TaskCommandHandler {
         `Task moduleが所有しないCommandです: ${command.name}`,
       );
     if (command.name === "DeleteTask") return this.deleteTask(command);
+    if (command.name === "RestoreTask") return this.restoreTask(command);
     if (command.name === "CreateTask" || command.name === "UpdateTask")
       return this.saveTask(command, command.name === "CreateTask");
     return this.transitionTask(command, command.name === "CompleteTask");
@@ -305,10 +314,12 @@ export class TaskCommandHandler {
           ...(requestedTask || {}),
           id: taskId,
           state: "done",
+          // 取り消しで前の完了に戻すときだけ、前の完了日時をchangesで受け取る。
           completed_at:
-            command.source === "mobile"
+            (requestedTask?.completed_at as string | null | undefined) ||
+            (command.source === "mobile"
               ? new Date(command.issuedAt).toISOString()
-              : this.runtime.now(),
+              : this.runtime.now()),
           completion_note:
             (command.payload as { completionNote?: string | null }).completionNote ??
             current.completion_note ??
@@ -368,6 +379,34 @@ export class TaskCommandHandler {
       [event.id, ...(scheduleEvent ? [scheduleEvent.id] : [])],
       operations.map((operation) => operation.type).filter((type) => type !== "change_event"),
     );
+  }
+
+  /** 削除したTaskを、連鎖して消えたArtifact・Work Receiptごと戻し、Change Eventに残す。 */
+  private restoreTask(command: CommandEnvelope): CommandReceipt {
+    const taskId = taskIdFromPayload(command.payload);
+    const current = this.repository.get("task", taskId, true);
+    if (!current)
+      throw new ApplicationCommandError("NOT_FOUND", "復元対象のTaskがありません。", {
+        id: taskId,
+      });
+    if (!current.deleted_at)
+      throw new ApplicationCommandError("INVALID_TRANSITION", "削除されていないTaskです。", {
+        id: taskId,
+      });
+    if (!this.runtime.hasExpectedVersion(command, "task", taskId))
+      throw new ApplicationCommandError("CONFLICT", "RestoreTaskにはexpected versionが必要です。", {
+        type: "task",
+        id: taskId,
+        conflictReason: "version_conflict",
+      });
+    this.runtime.assertExpectedVersion(command, "task", taskId, current);
+    const restored = this.repository.restoreTask(taskId);
+    if (!restored) throw new Error("復元したTaskを読み戻せません。");
+    const event = this.runtime.annotateEvent(
+      command,
+      this.runtime.createEvent(command, "task", taskId, "updated", current, restored),
+    );
+    return this.runtime.persistRestore(command, "task", restored, event);
   }
 
   private deleteTask(command: CommandEnvelope): CommandReceipt {

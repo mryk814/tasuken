@@ -9,7 +9,11 @@ import {
 } from "../../shared/entityRegistry.mjs";
 import { normalizeAgentSession } from "../../shared/agentSession.mjs";
 import { deriveAgentWorkState, taskWorkEntry } from "../../shared/contracts/task/public.ts";
-import { buildActivityEvent, changeEventsForCommand } from "../../shared/activityEvent.mjs";
+import {
+  buildActivityEvent,
+  changeEventCommandIdsWithPrefix,
+  changeEventsForCommand,
+} from "../../shared/activityEvent.mjs";
 import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
 import { normalizeRepositoryContext } from "../../shared/repositoryContext.mjs";
 import {
@@ -66,6 +70,8 @@ interface Repository {
   saveMany(operations: SaveOperation[]): Entity[];
   save(type: EntityType, entity: Entity, options?: { skipSync?: boolean }): Entity;
   remove(type: EntityType, id: string): Entity | null;
+  /** 削除したTaskを連鎖した子ごと戻す（RestoreTaskだけが使う）。 */
+  restore?(type: EntityType, id: string): Entity | null;
   runTransaction<T>(callback: (repository: Repository) => T): T;
 }
 
@@ -89,6 +95,18 @@ const aiAgentCommands = new Set<ApplicationCommandName>([
   // These still fail in their own human-review guard, with the specific UI-only error.
   "AcceptTaskWork",
   "ReturnTaskWork",
+]);
+
+/**
+ * AIの直接変更（#703）が使うCommand。根拠・範囲・断る条件はCoreの限定の入口（AiTaskChangeService）が
+ * 先に決め、ここはai_agentにこれらを実行させ、根拠を同じtransactionで全Eventに付けるだけ。
+ */
+const aiDirectChangeCommands = new Set<ApplicationCommandName>([
+  "UpdateTask",
+  "CompleteTask",
+  "ReopenTask",
+  "DeleteTask",
+  "RestoreTask",
 ]);
 
 function workExecutorLabel(task: Entity, receipt?: Entity): string {
@@ -1031,6 +1049,13 @@ function taskCommandRuntime(repository: Repository): TaskCommandRuntime {
       persistDeleteReceipt(repository, command, type, deleted, event, false),
     persistNoChange: (command, taskId, current) =>
       persistNoChange(repository, command, taskId, current),
+    persistRestore: (command, type, restored, event) => {
+      // 復元はrepositoryが済ませている。Eventとreceiptだけを残す。
+      const saved = repository.save("change_event", event);
+      const receipt = receiptFor(command, "applied", [{ type, entity: restored }], [saved.id]);
+      repository.save("change_event", { ...saved, receipt_json: JSON.stringify(receipt) });
+      return { ...receipt, eventChanges: eventChangesFor(repository, [saved.id]) };
+    },
     now,
   };
 }
@@ -1039,7 +1064,65 @@ function taskCommandRuntime(repository: Repository): TaskCommandRuntime {
 export type AiTaskStartScope = "personal" | "any";
 
 export class ApplicationCommandService {
+  /**
+   * 本人の言葉を根拠に、AI（MCP）が取り次ぐProposalの採否（#703 段3）。このinstanceの中だけ、
+   * 人の画面からだけに限っていた作業報告の採用・差し戻しを、ai_agentにも許す。
+   */
+  private relayedDecision = false;
+
   constructor(private readonly repository: Repository) {}
+
+  /**
+   * Core's limited AI proposal decision entry only. 作業報告（ApplyTaskWorkProposal）・その採用に続く
+   * 完了（AcceptTaskWork）・Note案の採否（ApplyAiProposal）だけ。`annotation`を全Change Eventに付ける。
+   */
+  executeAiProposalDecision(input: unknown, annotation: Record<string, unknown>): CommandReceipt {
+    const command = parseCommandEnvelope(input);
+    // 本人の言葉なしで通すのは、AIの直接のNote編集が保存に失敗したときの、その編集案の却下だけ
+    // （Coreが付ける印で、MCPの入力からは付けられない）。
+    const cleanupReject =
+      command.name === "ApplyAiProposal" &&
+      annotation.action === "edit_note_failed" &&
+      (command.payload as { proposal?: { status?: unknown } }).proposal?.status === "rejected";
+    if (
+      !["ApplyTaskWorkProposal", "AcceptTaskWork", "ApplyAiProposal"].includes(command.name) ||
+      command.actor.kind !== "ai_agent" ||
+      command.source !== "mcp" ||
+      ((typeof annotation.said !== "string" || !annotation.said.trim()) && !cleanupReject)
+    )
+      throw new ApplicationCommandError("INVALID_ENVELOPE", "AIが取り次ぐ採否の範囲外です。");
+    return this.repository.runTransaction((transaction) => {
+      const service = new ApplicationCommandService(transaction);
+      service.relayedDecision = true;
+      const receipt = service.executeParsed(command);
+      // 作業報告の採用は、内側でStart・Report・AcceptTaskWorkを`<commandId>:…`として続けて実行する。
+      // その記録にも同じ根拠を付ける。
+      const commandIds = [
+        command.commandId,
+        ...changeEventCommandIdsWithPrefix(transaction, `${command.commandId}:`),
+      ];
+      for (const event of commandIds.flatMap((id) => changeEventsForCommand(transaction, id))) {
+        const metadata =
+          event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+            ? (event.metadata as Record<string, unknown>)
+            : {};
+        transaction.save("change_event", {
+          ...event,
+          metadata: { ...metadata, include_in_activity: true, ai_direct: annotation },
+        });
+      }
+      return receipt.status === "applied"
+        ? { ...receipt, eventChanges: eventChangesFor(transaction, receipt.events) }
+        : receipt;
+    });
+  }
+
+  /** 人の確認（採用・差し戻しなど）は人の画面から。本人の言葉をAIが取り次ぐ採否だけ例外。 */
+  private assertHumanReviewActor(command: CommandEnvelope, action: string): void {
+    if (this.relayedDecision && command.actor.kind === "ai_agent" && command.source === "mcp")
+      return;
+    assertHumanReviewActor(command, action);
+  }
 
   execute(input: unknown): CommandReceipt {
     const command = parseCommandEnvelope(input);
@@ -1064,6 +1147,63 @@ export class ApplicationCommandService {
     return this.repository.runTransaction((transactionRepository) =>
       new ApplicationCommandService(transactionRepository).executeParsed(command),
     );
+  }
+
+  /**
+   * Core's limited AI direct change entry only. `annotation`（根拠・会話・要求の指紋）を
+   * このcommandの全Change Eventの`metadata.ai_direct`に付ける。
+   */
+  executeAiTaskChange(input: unknown, annotation: Record<string, unknown>): CommandReceipt {
+    const command = parseCommandEnvelope(input);
+    // AI（MCP）の直接変更と、その変更を本人がDesktopの画面から取り消す操作だけ。
+    const byAi = command.actor.kind === "ai_agent" && command.source === "mcp";
+    const userUndo =
+      command.actor.kind === "user" &&
+      command.source === "main_ui" &&
+      annotation.action === "undo" &&
+      annotation.by === "user";
+    if (!aiDirectChangeCommands.has(command.name) || !(byAi || userUndo))
+      throw new ApplicationCommandError("INVALID_ENVELOPE", "AIの直接変更の範囲外です。");
+    return this.repository.runTransaction((transaction) => {
+      const receipt = new ApplicationCommandService(transaction).executeParsed(
+        command,
+        undefined,
+        false,
+        false,
+        true,
+      );
+      for (const event of changeEventsForCommand(transaction, command.commandId)) {
+        const metadata =
+          event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+            ? (event.metadata as Record<string, unknown>)
+            : {};
+        // AIの直接変更は、題名だけの変更でもその日のActivityに出す（本人が見て取り消せるように）。
+        transaction.save("change_event", {
+          ...event,
+          metadata: { ...metadata, include_in_activity: true, ai_direct: annotation },
+        });
+      }
+      // 取り消しなら、元の変更に「取り消し済み」の印を同じtransactionで付ける（二重に戻さない）。
+      const undoOf = typeof annotation.undo_of === "string" ? annotation.undo_of : null;
+      for (const event of undoOf ? changeEventsForCommand(transaction, undoOf) : []) {
+        const metadata =
+          event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+            ? (event.metadata as Record<string, unknown>)
+            : {};
+        const previous =
+          metadata.ai_direct && typeof metadata.ai_direct === "object"
+            ? (metadata.ai_direct as Record<string, unknown>)
+            : {};
+        transaction.save("change_event", {
+          ...event,
+          metadata: { ...metadata, ai_direct: { ...previous, undone_by: command.commandId } },
+        });
+      }
+      // 画面へ配るEventは、根拠を付けた後のもの（付ける前のものではActivityに出ない）。
+      return receipt.status === "applied"
+        ? { ...receipt, eventChanges: eventChangesFor(transaction, receipt.events) }
+        : receipt;
+    });
   }
 
   /**
@@ -1388,6 +1528,7 @@ export class ApplicationCommandService {
     taskWorkContext?: { startReadyTask?: boolean; exactReceiptId?: string },
     aiTaskCreation = false,
     aiTaskStart: AiTaskStartScope | false = false,
+    aiDirectChange = false,
   ): CommandReceipt {
     const previous = readIdempotent(this.repository, command);
     if (previous) return previous;
@@ -1433,7 +1574,12 @@ export class ApplicationCommandService {
     if (
       command.actor.kind === "ai_agent" &&
       !aiAgentCommands.has(command.name) &&
-      !aiTaskCreation
+      !aiTaskCreation &&
+      !(aiDirectChange && aiDirectChangeCommands.has(command.name)) &&
+      !(
+        this.relayedDecision &&
+        ["ApplyTaskWorkProposal", "AcceptTaskWork", "ApplyAiProposal"].includes(command.name)
+      )
     ) {
       throw new ApplicationCommandError(
         "INVALID_TRANSITION",
@@ -2501,7 +2647,7 @@ export class ApplicationCommandService {
   }
 
   private acceptTaskWork(command: CommandEnvelope, exactReceiptId?: string): CommandReceipt {
-    assertHumanReviewActor(command, "AcceptTaskWork");
+    this.assertHumanReviewActor(command, "AcceptTaskWork");
     const payload = command.payload as {
       taskId: string;
       receiptId?: string | null;
@@ -2613,7 +2759,7 @@ export class ApplicationCommandService {
   }
 
   private returnTaskWork(command: CommandEnvelope): CommandReceipt {
-    assertHumanReviewActor(command, "ReturnTaskWork");
+    this.assertHumanReviewActor(command, "ReturnTaskWork");
     const payload = command.payload as {
       taskId: string;
       receiptId?: string | null;

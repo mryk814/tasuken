@@ -80,6 +80,8 @@ const PUBLIC_METADATA_KEYS = new Set([
   "reported_via",
   "imported_by",
   "proposal_id",
+  // AIの直接変更の根拠（本人の言葉かAIの理由）と取り消しの状態（#703）。
+  "ai_direct",
   "caller",
   "source_session",
   "idempotency_key",
@@ -115,6 +117,10 @@ const PUBLIC_METADATA_OBJECT_FIELDS = new Map([
     ],
   ],
   ["repository_context", ["repository_context_id", "provider", "repository_slug", "branch"]],
+  [
+    "ai_direct",
+    ["action", "decision", "said", "why", "caller", "source_session", "by", "undo_of", "undone_by"],
+  ],
   [
     "note_ai_command_marker",
     [

@@ -539,6 +539,77 @@ export class AiProposalAcceptanceService {
     );
   }
 
+  /**
+   * Note Proposal（作成・編集の一件）を、全部採用するか却下するcommandをMainで組み立てる（#703）。
+   * Renderer（AiProposalPanel）の組み立てと同じ形で、編集は全部の差分を採用する。
+   * 本人の言葉を根拠にAIが取り次ぐ採否と、AIの直接のNote編集が使う。
+   */
+  noteDecisionCommand(
+    proposalId: string,
+    decision: "accept" | "reject",
+    actor: CommandEnvelope["actor"],
+  ): CommandEnvelope {
+    const proposal = this.repository.get("ai_proposal", proposalId);
+    if (!proposal || text(proposal.payload_type) !== "notes")
+      throw new Error("Note Proposalがありません。");
+    const payload =
+      proposal.payload && typeof proposal.payload === "object" && !Array.isArray(proposal.payload)
+        ? (proposal.payload as Record<string, unknown>)
+        : {};
+    const entries = records(payload.notes);
+    if (entries.length !== 1) throw new Error("Note Proposalは一件ずつ採否します。");
+    const targetId = text(entries[0].target_id);
+    const current = targetId ? this.repository.get("note", targetId) : null;
+    const before = text(current?.body_markdown);
+    const after = text(entries[0].body_markdown) || text(entries[0].body);
+    const decisions: ProposalEntryDecision[] = [
+      {
+        entryIndex: 0,
+        type: "note",
+        action: decision === "accept" ? "accept" : "ignore",
+        ...(current
+          ? {
+              acceptedHunks: Array.from(
+                { length: markdownProposalHunkCount(before, after) },
+                (_, index) => index,
+              ),
+              beforeSignature: markdownSignature(before),
+            }
+          : {}),
+      },
+    ];
+    const candidates =
+      decision === "accept"
+        ? rebuildCanonicalCandidates(this.repository, proposal, payload, decisions).map(
+            (candidate) => ({ type: candidate.type, entity: candidate.entity }),
+          )
+        : [];
+    const version = Number(proposal.version || 0);
+    return {
+      commandId: `${proposal.id}:accept:v${version}`,
+      name: "ApplyAiProposal",
+      payload: {
+        proposal: { ...proposal, status: decision === "accept" ? "accepted" : "rejected" },
+        decision,
+        decisions,
+        candidates,
+      } as never,
+      actor,
+      source: "mcp",
+      expectedVersions: [
+        { type: "ai_proposal", id: proposal.id, version },
+        ...candidates.flatMap(({ type, entity }) =>
+          Number.isInteger(entity.version)
+            ? [{ type, id: entity.id, version: Number(entity.version) }]
+            : [],
+        ),
+      ],
+      issuedAt:
+        text(proposal.received_at || proposal.created_at || proposal.updated_at) ||
+        new Date(0).toISOString(),
+    } as CommandEnvelope;
+  }
+
   execute(input: CommandEnvelope): CommandReceipt {
     if (input.name !== "ApplyAiProposal") return this.commands.execute(input);
     const parsedInput = parseCommandEnvelope(input);

@@ -1435,7 +1435,7 @@ export function SettingsPage({
               </label>
               <p className="field-help">
                 Claude
-                CodeなどこのPCのAIが、提案を経ずにTask・Noteを作成できます。AIの操作として記録されます。
+                CodeなどこのPCのAIが、あなたの言葉を根拠にTask・Noteの作成と編集、Taskの完了・削除、提案の採否を直接行えます。AIの操作として記録され、DebriefのActivityから取り消せます。
               </p>
               <dl className="settings-meta-list">
                 <div>

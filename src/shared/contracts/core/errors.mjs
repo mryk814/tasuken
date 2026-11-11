@@ -51,6 +51,43 @@ const CORE_ERROR_GUIDANCE = Object.freeze({
     next_action:
       "Taskenの設定 → AI & Context の「ローカルのAIに直接の書き込みを許す」が無効です。有効にするよう利用者に頼むか、propose_noteなどの提案で送ってください。",
   },
+  ASK_USER: {
+    retryable: false,
+    next_action:
+      "保存していません。本人に確かめ、良いと言われたらその言葉をそのままsaidに入れて同じ内容で送り直してください（会話で変えたTaskの数の上限なら、confirm_bulk: trueも付ける）。",
+  },
+  DELEGATED_IN_PROGRESS: {
+    retryable: false,
+    next_action:
+      "委任した作業の結果はtasken.report_workで報告し、本人の採用を待ってください。作業を取りやめるなら本人に頼んでください。",
+  },
+  COMPLETE_IN_DESKTOP: {
+    retryable: false,
+    next_action: "本人にDesktopの画面で完了してもらってください。",
+  },
+  BODY_NOT_FULLY_READ: {
+    retryable: false,
+    next_action:
+      "tasken.get_noteをmax_text_lengthを付けずに読み直し（truncated: falseを確かめる）、返ったbody_signatureとversionで送り直してください。",
+  },
+  SAVE_FAILED: {
+    retryable: true,
+    next_action: "保存に失敗しました。少し待って同じ内容で送り直すか、本人に伝えてください。",
+  },
+  DECIDE_IN_DESKTOP: {
+    retryable: false,
+    next_action: "本人にTaskenの画面で採否してもらってください。",
+  },
+  ALREADY_DECIDED: {
+    retryable: false,
+    next_action:
+      "tasken.get_proposal_statusで今の状態を確かめてください。決め直すことはできません。",
+  },
+  SYNC_CONFLICT: {
+    retryable: true,
+    next_action:
+      "本人がTaskenの設定 → Storage & Filesで同期の競合を選んでから、読み直して送り直してください。",
+  },
   INVALID_REFERENCE: {
     retryable: false,
     next_action:

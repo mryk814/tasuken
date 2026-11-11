@@ -44,3 +44,10 @@ export const TASKEN_CORE_TASK_COMMAND_CAPABILITY = "task.command";
 export const TASKEN_CORE_TASK_START_WORK_CAPABILITY = "task.start_work";
 
 export const TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY = "create_ai_item";
+// 本人の言葉を根拠にした既存Taskの直接変更と、その取り消し（#703）。取り消せる書き込みだけなので、
+// Desktopに加えて、私用のWorkspaceのNAS replicaも明示したときだけ公開する（#688）。
+// Desktopでは本人の設定（aiDirectWriteEnabled）を要求のたびに読む。
+export const TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY = "task.ai_change";
+// Desktopだけが公開する、取り消せない直接の書き込み（Noteの編集と、作業報告・Note案の採否。#703）。
+// 使えるかは本人の設定（aiDirectWriteEnabled）を要求のたびに読む。
+export const TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY = "ai_direct_write";

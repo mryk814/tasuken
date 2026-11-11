@@ -160,6 +160,20 @@ sudo docker run --rm --network container:tasken-headless --user 1026:100 \
 - 期待値（`proposals`配備）: `TOOL_COUNT 21`（read 16 + write 5）・`HAS_WRITE true`。`-e TASKEN_MCP_READ_ONLY=0`を外すと`TOOL_COUNT 16`・`HAS_WRITE false`。Coreが`read-only`配備なら、`TASKEN_MCP_READ_ONLY=0`でも使える書き込みtoolがないため`TOOL_COUNT 16`です。
 - `tasken-headless:local`の代わりに固定tagのimageを使うと、配置版を明示できます。
 
+### 既存Taskの直接変更を許す（`--allow-ai-task-change`、#688）
+
+私用のWorkspaceのNASで、Museなどが本人の言葉を根拠に既存のTaskを直接変え（編集・完了・再開・削除・委任）、取り消せるようにします。規則はDesktopの`change_task`・`undo_change`と同じです。Noteの編集と採否は取り消せないので、Desktopだけに残しています。既定は無効です。
+
+1. **先にDesktopを、#703の入った版へ上げる。** 古いDesktopでも同期は止まりませんが、Activityに本人の言葉が出ず、画面から取り消せません。
+2. Coreを`create-only`にし、`TASKEN_CORE_AI_TASK_CHANGE=1`を足す。このrepoのcomposeでは`.env`へ書きます。本番（nas-pull）では、`docker-compose.json`の`tasken-headless`の`environment`へ書きます。`create-only`以外と一緒だと、Coreは`WRITE_MODE_CONFLICT`で起動しません。
+3. HTTPの`mcp_http_clients`で、許すクライアントだけに`"readOnly": false`と`"allowTaskChange": true`を書き、`mcp-http`を作り直す。
+4. そのクライアントで`tasken.get_capabilities`を呼び、`writes.task_edit`と`writes.undo`が`true`なら有効です。
+
+- NASの取り込みが遅れている間は、`REPLICA_BEHIND`（409）で断ります。同期が追いつけば通ります。
+- AIの公開範囲の外のTaskは、無いものとして`NOT_FOUND`を返します。Themeと項目ごとの公開範囲は同期でNASにも届きます。ただし設定の「全体の既定」は端末ごとの設定でNASには届かないので、NASでは既定（AIに見せる）のままです。
+- 変更と本人の言葉は同期でDesktopへ届き、Activityに出ます。DesktopのActivityから取り消すと、NASにも戻ります。
+- やめるときは`TASKEN_CORE_AI_TASK_CHANGE`を外すか`0`にして、`tasken-headless`を作り直します。
+
 ## Phase 3: Secure MCP Tunnelで外部AIへ公開
 
 NASのCoreはloopbackのみなので、ChatGPT/Codex等へはOpenAI Secure MCP Tunnelの`tunnel-client`をNAS側で常駐させ、**outbound HTTPSだけ**で接続します（inboundポートは開けません）。実装は`deploy/synology/docker-compose.tunnel.yml`のサイドカーで、Coreとネットワーク名前空間を共有し、`node /app/mcp-dist/server.mjs`をstdio子プロセスとして起動します（`TASKEN_MCP_READ_ONLY`は既定`1`）。Tasken domain側へtransport固有logicは持ち込みません。
@@ -243,6 +257,7 @@ NASの`deploy/synology/secrets/mcp_http_clients`へ次の形のJSONを保存し�
 - `readOnly`省略時はtrue。`TASKEN_MCP_READ_ONLY=1`なら`readOnly:false`でも書き込みを許可しない。
 - 書き込みを明示的に許す場合だけ、Coreの`proposals`または`create-only`（開始付きの`proposals-and-start`・`create-and-start`・`start-only`も可）、`TASKEN_MCP_READ_ONLY=0`、該当クライアントの`readOnly:false`を揃える。汎用編集・削除・完了はHTTP側へ公開しない。
 - 既存Taskの直接の書き換えになる`start_task_work`（開始）は、`"allowStart": true`を書いた書き込みクライアントにだけ出す。省略はfalseで、開始付きprofileのCoreでも一覧に出ず、`/api/v1/start_task_work`は403になる。`readOnly`のクライアントでは`allowStart`を書いても書き込みは出ない。
+- 既存Taskの直接変更と取り消し（`change_task`・`undo_change`）は、Coreの`create-only`に`TASKEN_CORE_AI_TASK_CHANGE=1`を足し、`"allowTaskChange": true`を書いた書き込みクライアントにだけ出す。省略はfalse。Noteの編集と採否はDesktopだけで、HTTPには出ない。
 - Coreが`full`や不明なprofileの場合、HTTPの書き込み接続は503で拒否する。読み取り専用接続は利用できる。
 - 書き込みの作成者（`caller`）はクライアントの表示名、`source_app`は`http:<表示名>`に固定され、AIが引数で名乗った値は上書きされる。冪等性の鍵（`idempotency_key`）もクライアントごとに別になる（`start_task_work`を除く。開始の鍵はクライアントをまたいで共有されるため、別のクライアントが同じ鍵を使うとCONFLICTになる。データは壊れない）。
 - tokenの追加・ローテーション・取り消しはsecretを更新して`mcp-http`を再作成する。再作成まで古い設定が有効なため、取り消し時も再作成の成功を確認する。
@@ -250,7 +265,7 @@ NASの`deploy/synology/secrets/mcp_http_clients`へ次の形のJSONを保存し�
 ### `/api/v1/<tool>`（stdio MCPを使えないAI向け）
 
 MCPのセッションを張れないAI（HTTPだけ呼べるBot）は、同じport・同じBearer tokenで`POST /api/v1/<tool>`を呼べます。`<tool>`は`tasken.`を除いたtool名です（`/api/v1/search_items`は`tasken.search_items`）。
-認証・Origin拒否・本文の上限・`/health`は`/mcp`と同じです。クライアントごとの`readOnly`・`toolsets`・`allowStart`とCoreのprofileも`/mcp`と同じ範囲に絞られます。
+認証・Origin拒否・本文の上限・`/health`は`/mcp`と同じです。クライアントごとの`readOnly`・`toolsets`・`allowStart`・`allowTaskChange`とCoreのprofileも`/mcp`と同じ範囲に絞られます。
 
 ```bash
 curl -sS -X POST "https://<NAS>.<tailnet>.ts.net:8444/api/v1/search_items" \
@@ -282,7 +297,7 @@ curl -sS -X POST "https://<NAS>.<tailnet>.ts.net:8444/api/v1/search_items" \
 
 #### `GET /api/v1`（describe）
 
-同じ認証・Origin拒否で`GET /api/v1`を呼ぶと、そのクライアントのその時点の`tools/list`に出るtoolだけが返ります（`readOnly`・`toolsets`・`allowStart`・Coreのprofileで絞られた後）。
+同じ認証・Origin拒否で`GET /api/v1`を呼ぶと、そのクライアントのその時点の`tools/list`に出るtoolだけが返ります（`readOnly`・`toolsets`・`allowStart`・`allowTaskChange`・Coreのprofileで絞られた後）。
 
 ```json
 {
@@ -409,7 +424,7 @@ NemoriumのHome Node運用（`deploy/synology/backup.sh` / `NAS_UPDATE_RECOVERY.
 
 ## 二重writerにしない
 
-- replicaは**read-only運用が既定**。MCPは `TASKEN_MCP_READ_ONLY=1` で起動し、write toolsを公開しない。書き込みを許す配備では、Proposal（Feed投稿・Note案・Task案・Task作業報告。採用まで正式データを変えない）、AIが作る新規のTask・Note（create-only）、AI Readyの個人Taskの開始（opt-in。HTTPでは`allowStart`のクライアントだけ）を受け付ける。既存データの編集・削除・完了は受け付けない。
+- replicaは**read-only運用が既定**。MCPは `TASKEN_MCP_READ_ONLY=1` で起動し、write toolsを公開しない。書き込みを許す配備では、Proposal（Feed投稿・Note案・Task案・Task作業報告。採用まで正式データを変えない）、AIが作る新規のTask・Note（create-only）、AI Readyの個人Taskの開始（opt-in。HTTPでは`allowStart`のクライアントだけ）、既存Taskの直接変更と取り消し（opt-in。HTTPでは`allowTaskChange`のクライアントだけ）を受け付ける。Noteの編集・Proposalの採否・汎用の編集は受け付けない。
 - DesktopとNASで**同じuserData/stateを同時に開かない**。stateは各nodeのローカルに置き、SQLite/WALをSMB/NFSや同期フォルダへ置かない。
 - 同じuserDataでCoreが稼働中なら `CORE_ALREADY_RUNNING` で拒否される。durableなwriter authorityはPhase 4のwrite有効化と合わせて設計する。
 

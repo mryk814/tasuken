@@ -1,4 +1,6 @@
 import {
+  TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+  TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
   TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
@@ -28,10 +30,13 @@ const FULL_CAPABILITIES = Object.freeze([
  * 書き込みcapabilityの全部。配備によって公開範囲が変わるため、読み取りとは別に扱う
  * （doctorは、ここに無いものを読み取りの必須として確かめる）。
  * Task・Noteの新規作成は、それだけでは配備の形を決めない追加の許可。
+ * 既存Taskの直接変更も、新規作成の配備に足す追加の許可で、配備の名前は変えない。
  */
 export const TASKEN_CORE_WRITE_CAPABILITIES = Object.freeze([
   ...FULL_CAPABILITIES,
   TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
+  TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
+  TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
 ]);
 
 /**
@@ -58,6 +63,10 @@ export function coreWriteProfile(capabilities) {
   /** @param {CoreWriteProfile} profile */
   const result = (profile) => ({ profile, missingWrites });
   if (missingWrites.length === 0) return result("full");
+  // 取り消せない直接の書き込み（Noteの編集・採否）はDesktop（full）だけが持つ。
+  if (has(TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY)) return result("partial");
+  // 既存Taskの直接変更は、新規作成を許した配備（NASのcreate-only）にだけ足せる。
+  if (has(TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY) && !create) return result("partial");
   if (!anyProposal && !agentSession && !create) return result(start ? "start-only" : "read-only");
   // Agent Sessionの提案は`full`だけが公開する。一部だけ揃っていれば更新・設定の食い違い。
   if (!proposals || agentSession) return result("partial");
