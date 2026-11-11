@@ -1,4 +1,10 @@
 import {
+  aiNoteEditRequestSchema,
+  aiProposalDecisionRequestSchema,
+  type AiNoteEditRequest,
+  type AiNoteEditResponse,
+  type AiProposalDecisionRequest,
+  type AiProposalDecisionResponse,
   aiChangeUndoRequestSchema,
   aiTaskChangeRequestSchema,
   type AiChangeUndoRequest,
@@ -190,6 +196,8 @@ export interface TaskenCoreHostOptions {
   createAiItem?: QueryProvider<AiItemCreationRequest, AiItemCreationResponse>;
   changeTask?: QueryProvider<AiTaskChangeRequest, AiTaskChangeResponse>;
   undoChange?: QueryProvider<AiChangeUndoRequest, AiChangeUndoResponse>;
+  decideProposal?: QueryProvider<AiProposalDecisionRequest, AiProposalDecisionResponse>;
+  editNote?: QueryProvider<AiNoteEditRequest, AiNoteEditResponse>;
   getSourceStatus?: QueryProvider<GetSourceStatusRequest, GetSourceStatusResponse>;
   startAiTaskWork?: QueryProvider<AiTaskStartRequest, TaskCommandResponse>;
   taskQuery?: QueryProvider<unknown, TaskQueryResponse>;
@@ -324,6 +332,20 @@ const ROUTES: readonly RouteDefinition[] = [
     provider: "changeTask",
     capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
     schema: aiTaskChangeRequestSchema,
+  },
+  {
+    path: "/v1/commands/decide-proposal",
+    kind: "command",
+    provider: "decideProposal",
+    capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+    schema: aiProposalDecisionRequestSchema,
+  },
+  {
+    path: "/v1/commands/edit-note",
+    kind: "command",
+    provider: "editNote",
+    capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+    schema: aiNoteEditRequestSchema,
   },
   {
     path: "/v1/commands/undo-change",
@@ -811,10 +833,14 @@ export class TaskenCoreHost {
   enableAiDirectWrite(providers: {
     changeTask: QueryProvider<AiTaskChangeRequest, AiTaskChangeResponse>;
     undoChange: QueryProvider<AiChangeUndoRequest, AiChangeUndoResponse>;
+    decideProposal?: QueryProvider<AiProposalDecisionRequest, AiProposalDecisionResponse>;
+    editNote?: QueryProvider<AiNoteEditRequest, AiNoteEditResponse>;
   }) {
     if (this.server) throw new Error("Core起動後の権限変更はできません。");
     this.options.changeTask = providers.changeTask;
     this.options.undoChange = providers.undoChange;
+    if (providers.decideProposal) this.options.decideProposal = providers.decideProposal;
+    if (providers.editNote) this.options.editNote = providers.editNote;
   }
 
   /** NAS replicaだけが、同期の状態と鮮度を読み取りに公開する。Core起動前に一度だけ呼ぶ。 */

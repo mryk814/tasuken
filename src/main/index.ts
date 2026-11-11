@@ -49,6 +49,8 @@ import {
 import { WorkspaceDatabase, inspectWorkspaceBackup } from "./repositories/workspaceRepository.mjs";
 import { BatchTranscriptionRepository } from "./repositories/batchTranscriptionRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
+import { AiProposalAcceptanceService } from "./services/aiProposalAcceptanceService";
+import { AiProposalDecisionService } from "./services/aiProposalDecisionService";
 import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBackup";
@@ -2761,7 +2763,17 @@ async function startDesktopApp(): Promise<void> {
     aiDirectWriteEnabled,
     (receipt) => notifyCommandApplied(receipt, -1),
   );
-  composition.coreRuntime.enableAiDirectWrite(aiTaskChanges);
+  composition.coreRuntime.enableAiDirectWrite(
+    aiTaskChanges,
+    new AiProposalDecisionService({
+      persistence: workspaceRepository,
+      commands: applicationCommands,
+      artifacts: workspaceService,
+      proposeContent: (request) => composition.coreRuntime.proposeContent(request),
+      isEnabled: aiDirectWriteEnabled,
+      onCommitted: (receipt) => notifyCommandApplied(receipt, -1),
+    }),
+  );
   await composition.start();
   const backupDatabase = workspaceRepository;
   automaticSnapshotBackup = new AutomaticSnapshotBackupService({

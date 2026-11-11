@@ -65,6 +65,15 @@ const CORE_ERROR_GUIDANCE = Object.freeze({
     retryable: false,
     next_action: "本人にDesktopの画面で完了してもらってください。",
   },
+  DECIDE_IN_DESKTOP: {
+    retryable: false,
+    next_action: "本人にTaskenの画面で採否してもらってください。",
+  },
+  ALREADY_DECIDED: {
+    retryable: false,
+    next_action:
+      "tasken.get_proposal_statusで今の状態を確かめてください。決め直すことはできません。",
+  },
   SYNC_CONFLICT: {
     retryable: true,
     next_action:

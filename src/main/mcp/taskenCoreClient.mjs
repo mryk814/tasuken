@@ -1,4 +1,6 @@
 import {
+  aiNoteEditResponseSchema,
+  aiProposalDecisionResponseSchema,
   aiChangeUndoResponseSchema,
   aiItemCreationResponseSchema,
   aiTaskChangeResponseSchema,
@@ -554,6 +556,26 @@ export class TaskenCoreClient {
       request,
       aiTaskChangeResponseSchema,
       "change-task",
+    );
+  }
+
+  async decideProposal(request = {}) {
+    return this.request(
+      "/v1/commands/decide-proposal",
+      TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+      request,
+      aiProposalDecisionResponseSchema,
+      "decide-proposal",
+    );
+  }
+
+  async editNote(request = {}) {
+    return this.request(
+      "/v1/commands/edit-note",
+      TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+      request,
+      aiNoteEditResponseSchema,
+      "edit-note",
     );
   }
 

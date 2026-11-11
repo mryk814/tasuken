@@ -1,4 +1,6 @@
 import {
+  aiNoteEditRequestSchema,
+  aiProposalDecisionRequestSchema,
   aiChangeUndoRequestSchema,
   aiNoteCreationFields,
   aiTaskChangeRequestSchema,
@@ -1083,6 +1085,28 @@ export function createTaskenMcpServer(options = {}) {
       annotations: DESTRUCTIVE_WRITE_ANNOTATIONS,
     },
     withCoreClient((args) => coreClient.changeTask(args)),
+  );
+
+  server.registerTool(
+    "tasken.decide_proposal",
+    {
+      description:
+        "Accept or reject a pending work report or Note Proposal on the user's words (said is required). complete_task also completes the Task. Other kinds: ask the user to decide in Tasken.",
+      inputSchema: aiProposalDecisionRequestSchema,
+      annotations: DESTRUCTIVE_WRITE_ANNOTATIONS,
+    },
+    withCoreClient((args) => coreClient.decideProposal(args)),
+  );
+
+  server.registerTool(
+    "tasken.edit_note",
+    {
+      description:
+        "Directly replace a Note's title/body Markdown with base_version checked; recorded as AI. Put the user's words in said (why alone may get ASK_USER). See tasken://guide/note_article.",
+      inputSchema: aiNoteEditRequestSchema,
+      annotations: DIRECT_WRITE_ANNOTATIONS,
+    },
+    withCoreClient((args) => coreClient.editNote(args)),
   );
 
   server.registerTool(

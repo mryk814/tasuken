@@ -49,6 +49,18 @@ export const MCP_TOOL_REQUIREMENTS = Object.freeze({
     capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
     setting: "direct_write",
   },
+  "tasken.decide_proposal": {
+    toolset: "write",
+    access: "direct_write",
+    capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+    setting: "direct_write",
+  },
+  "tasken.edit_note": {
+    toolset: "write",
+    access: "direct_write",
+    capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+    setting: "direct_write",
+  },
   "tasken.undo_change": {
     toolset: "write",
     access: "direct_write",
@@ -266,6 +278,8 @@ export function mcpToolAvailability(capabilities, options = {}) {
       note_direct_create: tools["tasken.create_note"].available,
       task_edit: tools["tasken.change_task"].available,
       undo: tools["tasken.undo_change"].available,
+      note_edit_direct: tools["tasken.edit_note"].available,
+      proposal_decision: tools["tasken.decide_proposal"].available,
       feed_post: canContent("feed_post"),
       feed_reply: canContent("feed_reply"),
       note_create: canContent("note_create"),

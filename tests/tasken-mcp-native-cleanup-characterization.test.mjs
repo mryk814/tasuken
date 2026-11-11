@@ -47,7 +47,13 @@ const imageTools = [];
  * Proposalを作らず直接書き込む唯一の例外（人がAI ReadyにしたTaskの開始）。
  * 注釈が `PROPOSAL_ANNOTATIONS` ではないので、proposal群とは分けて検査する。
  */
-const directWriteTools = ["tasken.start_task_work", "tasken.change_task", "tasken.undo_change"];
+const directWriteTools = [
+  "tasken.start_task_work",
+  "tasken.change_task",
+  "tasken.undo_change",
+  "tasken.decide_proposal",
+  "tasken.edit_note",
+];
 
 function toolBlock(value, toolName) {
   const marker = new RegExp(`server\\.registerTool\\(\\s*"${toolName.replaceAll(".", "\\.")}"`);
