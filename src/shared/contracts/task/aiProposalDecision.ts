@@ -69,9 +69,20 @@ export const aiNoteEditRequestSchema = z
     note_id: entityIdSchema,
     base_version: entityVersionSchema,
     title: z.string().trim().min(1).max(200).optional(),
+    base_signature: z
+      .string()
+      .min(1)
+      .max(200)
+      .describe(
+        "body_signature from get_note read without truncation (proves you read the full body).",
+      ),
     body: z
       .string()
-      .max(200_000)
+      .max(60_000)
+      .refine((value) => new TextEncoder().encode(value).length <= 56_000, {
+        message:
+          "本文が大きすぎて直接編集できません（約56KB まで）。本人に画面で直してもらってください。",
+      })
       .describe("Full replacement Markdown; keep existing attachment URLs."),
     said: z
       .string()

@@ -24,9 +24,12 @@ import type { Entity } from "../../shared/types/workspace.ts";
 import { AiProposalAcceptanceService } from "./aiProposalAcceptanceService.ts";
 import type { ApplicationCommandService } from "./applicationCommandService.ts";
 import { stableProposalEntityId } from "../../shared/proposalAcceptance.mjs";
+import { markdownSignature } from "../../shared/canonicalMarkdown.mjs";
 
 type Persistence = WorkspaceTaskPersistence & {
   listChangeEventsByCommandId(commandId: string): Entity[];
+  changeEventCommandIdsWithPrefix(prefix: string): Set<string>;
+  hasSyncConflict(entityType: string, entityId: string): boolean;
   listChangeEventsForEntity(recordType: string, entityId: string): Entity[];
 };
 
@@ -59,6 +62,18 @@ function payloadOf(proposal: Entity): Record<string, unknown> {
     : {};
 }
 
+function aiDirectSaid(event: Entity): boolean {
+  const metadata = event.metadata;
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return false;
+  const direct = (metadata as Record<string, unknown>).ai_direct;
+  return Boolean(
+    direct &&
+    typeof direct === "object" &&
+    !Array.isArray(direct) &&
+    (direct as Record<string, unknown>).said,
+  );
+}
+
 /** ApplicationCommandError・採用の検証の失敗を、AIへ返す失敗にする。 */
 function decisionError(error: unknown): never {
   if (error instanceof CorePublicError) throw error;
@@ -75,11 +90,11 @@ function decisionError(error: unknown): never {
       status,
     );
   }
-  // 採用の検証（版・編集元の署名など）はError。読み直して決め直す失敗として返す。
+  // 版や編集元の照合は呼ぶ前に済ませているので、ここに来るのは保存の失敗。
   throw new CorePublicError(
-    "CONFLICT",
-    error instanceof Error ? error.message : "採否できませんでした。",
-    409,
+    "SAVE_FAILED",
+    error instanceof Error ? error.message : "保存できませんでした。",
+    500,
   );
 }
 
@@ -149,14 +164,52 @@ export class AiProposalDecisionService {
         ? `${proposal.id}:ai-decide:${request.decision}`
         : `${proposal.id}:accept:v${request.expected_version}`;
     const decided = this.deps.persistence.listChangeEventsByCommandId(changeId).length > 0;
+    const sameDecision =
+      request.decision === "accept"
+        ? ["accepted", "partially_accepted"].includes(String(proposal.status))
+        : proposal.status === "rejected";
     if (proposal.status !== "pending") {
-      if (!decided)
+      if (!decided || !sameDecision)
         throw new CorePublicError("ALREADY_DECIDED", "このProposalは既に決まっています。", 409, {
           proposal_status: proposal.status,
         });
-      if (type === "task_work" && request.complete_task)
-        this.completeTask(proposal, actor, annotation);
+      try {
+        if (type === "task_work" && request.complete_task)
+          this.completeTask(proposal, actor, annotation);
+      } catch (error) {
+        decisionError(error);
+      }
       return this.decisionResponse("duplicate", proposal.id, changeId);
+    }
+    const workEntry = (payloadOf(proposal).task_work as Entity[] | undefined)?.[0];
+    // 完了まで進められるのは、完了報告か進捗の報告を採用するときだけ（止まった報告などは
+    // 採用しても完了できないので、書く前に断る）。
+    if (
+      request.complete_task &&
+      !["report_done", "append_receipt"].includes(String(workEntry?.action || ""))
+    )
+      throw new CorePublicError(
+        "INVALID_TRANSITION",
+        "この報告の採用ではTaskを完了にできません。complete_taskを外して送ってください。",
+        422,
+        { action: workEntry?.action || null },
+      );
+    const noteEntry = ((payloadOf(proposal).notes as Entity[] | undefined) || [])[0];
+    const targetNoteId = noteEntry ? String(noteEntry.target_id || "") : "";
+    if (targetNoteId && request.decision === "accept") {
+      const target = this.deps.persistence.get("note", targetNoteId);
+      if (!target || Number(target.version || 0) !== Number(noteEntry?.base_version))
+        throw new CorePublicError(
+          "CONFLICT",
+          "編集元のNoteが提案の後に変わっています。本人に画面で確かめてもらってください。",
+          409,
+        );
+      if (this.deps.persistence.hasSyncConflict("note", targetNoteId))
+        throw new CorePublicError(
+          "SYNC_CONFLICT",
+          "このNoteは同期の競合を本人が選ぶ前なので、変えられません。",
+          409,
+        );
     }
     if (Number(proposal.version || 0) !== request.expected_version)
       throw new CorePublicError(
@@ -209,8 +262,7 @@ export class AiProposalDecisionService {
       } else {
         const acceptance = this.acceptance(annotation);
         const command = acceptance.noteDecisionCommand(proposal.id, request.decision, actor);
-        this.commit(acceptance.execute(command));
-        this.annotate(command.commandId, annotation);
+        this.annotateAfter(acceptance.execute(command), command.commandId, annotation);
       }
     } catch (error) {
       decisionError(error);
@@ -247,10 +299,14 @@ export class AiProposalDecisionService {
     );
     const existing = this.deps.persistence.get("ai_proposal", proposalId);
     if (existing && existing.status !== "pending") {
-      const changeId = `${existing.id}:accept:v${Number(existing.version || 0) - 1}`;
-      const accepted = this.deps.persistence
-        .listChangeEventsByCommandId(changeId)
-        .some((event) => (event.record_type || event.entity_type) === "note");
+      const changeId =
+        [...this.deps.persistence.changeEventCommandIdsWithPrefix(`${existing.id}:accept:v`)][0] ||
+        "";
+      const accepted =
+        existing.status === "accepted" &&
+        this.deps.persistence
+          .listChangeEventsByCommandId(changeId)
+          .some((event) => (event.record_type || event.entity_type) === "note");
       if (!accepted)
         throw new CorePublicError(
           "ALREADY_DECIDED",
@@ -265,6 +321,19 @@ export class AiProposalDecisionService {
         "Noteが更新されています。読み直して、今の版で送り直してください。",
         409,
         { current_note: { id: note.id, version: note.version, title: note.title } },
+      );
+    // 本文は全部の置き換えなので、切り詰めた読み取りから書くと残りが消える。全文の署名で確かめる。
+    if (markdownSignature(String(note.body_markdown || "")) !== request.base_signature)
+      throw new CorePublicError(
+        "BODY_NOT_FULLY_READ",
+        "読んだ本文が今の全文と一致しません（切り詰めた読み取りか、後から変わった）。保存していません。",
+        409,
+      );
+    if (this.deps.persistence.hasSyncConflict("note", String(note.id)))
+      throw new CorePublicError(
+        "SYNC_CONFLICT",
+        "このNoteは同期の競合を本人が選ぶ前なので、変えられません。",
+        409,
       );
     if (!request.said && this.needsUserWords(note))
       throw new CorePublicError(
@@ -292,9 +361,25 @@ export class AiProposalDecisionService {
         kind: "ai_agent",
         id: request.caller,
       });
-      this.commit(acceptance.execute(command));
-      this.annotate(command.commandId, annotation);
+      this.annotateAfter(acceptance.execute(command), command.commandId, annotation);
     } catch (error) {
+      // 採用に失敗した編集のProposalを保留のまま残さない（送り直すたびに増えないように）。
+      try {
+        const rejecting = this.acceptance({
+          schema: "tasken-ai-direct/v1",
+          action: "edit_note_failed",
+          caller: request.caller,
+          source_session: request.source_session,
+        });
+        rejecting.execute(
+          rejecting.noteDecisionCommand(proposal.id, "reject", {
+            kind: "ai_agent",
+            id: request.caller,
+          }),
+        );
+      } catch {
+        // 却下にも失敗したら、保留のまま本人の画面に残す。元の失敗を返す。
+      }
       decisionError(error);
     }
     return this.noteResponse("applied", changeId, proposal.id, request.note_id);
@@ -307,6 +392,8 @@ export class AiProposalDecisionService {
       .listChangeEventsForEntity("note", String(note.id))
       .filter((event) => !event.no_change);
     if (events.some((event) => event.actor_kind !== "ai_agent")) return true;
+    // 本人の言葉で一度でも決めたNoteは、本人が手を入れたものとして扱う（Taskと同じ）。
+    if (events.some((event) => aiDirectSaid(event))) return true;
     return events.length !== Number(note.version);
   }
 
@@ -334,6 +421,19 @@ export class AiProposalDecisionService {
         { ...annotation, action: "complete_task" },
       ),
     );
+  }
+
+  /** 根拠を付けてから画面に知らせる（付ける前のEventではActivityに出ない）。 */
+  private annotateAfter(
+    receipt: CommandReceipt,
+    commandId: string,
+    annotation: Record<string, unknown>,
+  ): void {
+    try {
+      this.annotate(commandId, annotation);
+    } finally {
+      this.commit(receipt);
+    }
   }
 
   /** 採用の経路（Note）は根拠を知らないので、出来た記録に後から根拠を付けてActivityに出す。 */

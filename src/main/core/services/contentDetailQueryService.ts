@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { sha256Hex } from "../../../shared/canonicalMarkdown.mjs";
+import { markdownSignature, sha256Hex } from "../../../shared/canonicalMarkdown.mjs";
 
 import { projectEntityForAi } from "../../../shared/aiMetadata.mjs";
 import { noteProjectId } from "../../../shared/themeRef.mjs";
@@ -155,6 +155,8 @@ export class ContentDetailQueryService {
         updated_at: filtered.record.updated_at || null,
       },
       truncated: body.length > maxTextLength,
+      // 切り詰めた本文を全文と取り違えて置き換えないよう、全文のときだけ署名を返す。
+      body_signature: body.length > maxTextLength ? null : markdownSignature(body),
       limits: { max_text_length: maxTextLength },
       read_only: true,
       ai_audience: AUDIENCE,

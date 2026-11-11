@@ -155,6 +155,8 @@ const noteDetailResponseSchema = z
   .object({
     note: noteDetailSchema,
     truncated: z.boolean(),
+    /** 全文を返したときだけの、本文の署名。edit_noteは、全文を読んだ証拠としてこれを求める。 */
+    body_signature: z.string().nullable().optional(),
     limits: z.object({ max_text_length: z.number().int().positive().max(100_000) }).strict(),
     read_only: z.literal(true),
     ai_audience: z.literal("coding_agent"),
