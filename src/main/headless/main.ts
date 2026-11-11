@@ -19,6 +19,8 @@ export interface TaskenHeadlessCoreArgs {
   writeMode: TaskenHeadlessWriteMode;
   allowAiTaskStart?: boolean;
   allowAiTaskChange?: boolean;
+  mobileGateway?: boolean;
+  mobileGatewayPort?: number;
   help: boolean;
 }
 
@@ -52,6 +54,11 @@ Options:
                      取り消せるようにする（Desktopのchange_task・undo_changeと同じ規則）。既定は無効。
                      TASKEN_CORE_AI_TASK_CHANGE=1でも明示できる。create-onlyと一緒にだけ使える。
                      Noteの編集と採否（取り消せない書き込み）はDesktopだけで、ここでは公開しない。
+  --mobile-gateway   端末（Android）のMobile Gatewayを、DesktopのかわりにこのNASで動かす。既定は無効で、
+                     write-modeとは独立。--sync-directoryでの参加が済むまでは待ち受けない。
+                     TASKEN_CORE_MOBILE_GATEWAY=1でも明示できる。127.0.0.1だけで待ち受ける。
+                     ペアリングコードの発行・端末の取り消しは node core-dist/mobile-pair.mjs。
+  --mobile-gateway-port  Mobile Gatewayのport（既定48177）。TASKEN_CORE_MOBILE_GATEWAY_PORT。
   -h, --help         このhelpを表示する。
 
 起動するとstdoutへTASKEN_HEADLESS_CORE_READY、SIGINT/SIGTERMの正常終了時に
@@ -70,6 +77,8 @@ export function parseTaskenHeadlessCoreArgs(
       "write-mode": { type: "string" },
       "allow-ai-task-start": { type: "boolean" },
       "allow-ai-task-change": { type: "boolean" },
+      "mobile-gateway": { type: "boolean" },
+      "mobile-gateway-port": { type: "string" },
       help: { type: "boolean", short: "h" },
     },
     allowPositionals: false,
@@ -98,9 +107,31 @@ export function parseTaskenHeadlessCoreArgs(
   if (syncDirectory !== undefined && !syncDirectory.trim()) {
     throw new TaskenHeadlessCoreUsageError("--sync-directoryへ空のpathは指定できません。");
   }
+  const mobileGatewayPortOption = values["mobile-gateway-port"];
+  const mobileGatewayPortText =
+    mobileGatewayPortOption === undefined
+      ? env.TASKEN_CORE_MOBILE_GATEWAY_PORT
+      : mobileGatewayPortOption;
+  let mobileGatewayPort: number | undefined;
+  if (mobileGatewayPortText !== undefined && mobileGatewayPortText.trim() !== "") {
+    mobileGatewayPort = Number(mobileGatewayPortText);
+    if (
+      !Number.isInteger(mobileGatewayPort) ||
+      mobileGatewayPort < 0 ||
+      mobileGatewayPort > 65_535
+    ) {
+      throw new TaskenHeadlessCoreUsageError(
+        "--mobile-gateway-portには0〜65535の整数を指定してください。",
+      );
+    }
+  }
   return {
     help: false,
     writeMode,
+    ...(values["mobile-gateway"] || env.TASKEN_CORE_MOBILE_GATEWAY === "1"
+      ? { mobileGateway: true }
+      : {}),
+    ...(mobileGatewayPort === undefined ? {} : { mobileGatewayPort }),
     ...(values["allow-ai-task-start"] || env.TASKEN_CORE_AI_TASK_START === "1"
       ? { allowAiTaskStart: true }
       : {}),
@@ -149,6 +180,10 @@ async function run(): Promise<void> {
       writeMode: args.writeMode,
       ...(args.allowAiTaskStart ? { allowAiTaskStart: true } : {}),
       ...(args.allowAiTaskChange ? { allowAiTaskChange: true } : {}),
+      ...(args.mobileGateway ? { mobileGateway: true } : {}),
+      ...(args.mobileGatewayPort === undefined
+        ? {}
+        : { mobileGatewayPort: args.mobileGatewayPort }),
     });
   } catch (error) {
     const code = error instanceof TaskenHeadlessCoreError ? error.code : "CORE_START_FAILED";
@@ -172,6 +207,8 @@ async function run(): Promise<void> {
       sync_directory: handle.syncDirectory,
       write_mode: handle.writeMode,
       ai_task_change: handle.aiTaskChange,
+      // Mobile Gatewayが待ち受けているport。無効なら null。
+      mobile_gateway: handle.mobileGatewayPort,
       pid: handle.pid,
       // NASで作ったimageが埋めるcommit（deploy/synology/Dockerfile.nas）。手元の起動では null。
       source_sha: process.env.TASKEN_SOURCE_SHA || null,

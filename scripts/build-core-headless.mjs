@@ -30,3 +30,5 @@ function headlessBuild(input, entryFileName, emptyOutDir) {
 await headlessBuild("src/main/headless/main.ts", "headless.mjs", true);
 // NASのreplicaを入れ替えるときの検査（deploy/synology/tasken-update-image.sh が呼ぶ）。
 await headlessBuild("src/main/headless/replicaCheck.ts", "replica-check.mjs", false);
+// NASのMobile Gatewayのペアリング・端末の取り消し（docker exec tasken-headless node core-dist/mobile-pair.mjs）。
+await headlessBuild("src/main/headless/mobilePairCli.ts", "mobile-pair.mjs", false);

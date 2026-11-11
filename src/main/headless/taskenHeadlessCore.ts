@@ -2,6 +2,9 @@ import { WorkspaceService } from "../services/workspaceService.ts";
 import {
   createAiItemCreationPort,
   createAiTaskChangeService,
+  createMobileFeedWriter,
+  createMobileRoutineWriter,
+  createMobileWorkLogWriter,
 } from "../composition/taskenCoreRuntime.ts";
 import path from "node:path";
 
@@ -9,7 +12,14 @@ import { TaskenCoreRuntime } from "../composition/taskenCoreRuntime.ts";
 import { TaskenCoreClient, TaskenCoreClientError } from "../mcp/taskenCoreClient.mjs";
 import { WorkspaceDatabase } from "../repositories/workspaceRepository.mjs";
 import { ApplicationCommandService } from "../services/applicationCommandService.ts";
-import { createReadOnlyCaptureImagePort } from "../services/captureImageStore.ts";
+import {
+  createCaptureImagePort,
+  createReadOnlyCaptureImagePort,
+} from "../services/captureImageStore.ts";
+import { AutomaticSnapshotBackupService } from "../services/automaticSnapshotBackup.ts";
+import { createImageHeaderDecoder } from "../services/imageHeaderDecoder.ts";
+import { inspectWorkspaceBackup } from "../repositories/workspaceRepository.mjs";
+import { createHeadlessMobileGateway, DEFAULT_MOBILE_GATEWAY_PORT } from "./mobileGateway.ts";
 import { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
 import { aiItemPacketFlags } from "../../shared/contracts/sync/aiItemPacketContract.mjs";
 import { desktopWriteBlock } from "../../shared/contracts/sync/desktopWriteBlock.mjs";
@@ -32,6 +42,13 @@ export interface TaskenHeadlessCoreOptions {
    * 私用のWorkspaceのNASで、Museなどが本人の言葉を根拠にTaskを直せるようにする。
    */
   allowAiTaskChange?: boolean;
+  /**
+   * 端末（Android）のMobile Gatewayを、DesktopのかわりにこのNASで動かす。既定は無効で、write-modeとは独立。
+   * 共有フォルダ同期への参加（syncDirectory）が済むまでは待ち受けない。127.0.0.1だけで待ち受ける。
+   */
+  mobileGateway?: boolean;
+  /** Mobile Gatewayのport。既定は48177（Desktopと同じ）。試験では0で空きを使う。 */
+  mobileGatewayPort?: number;
   /** 書き込みを断る判定に使う、AI作成の差分の形の印。試験で差し替える。既定は契約ファイルの値。 */
   syncShapeFlags?: ReadonlyArray<{ shape_sha256: string; desktop_first?: boolean }>;
   env?: NodeJS.ProcessEnv;
@@ -71,6 +88,8 @@ export interface TaskenHeadlessCoreHandle {
   readonly syncDirectory: string | null;
   readonly writeMode: TaskenHeadlessWriteMode;
   readonly aiTaskChange: boolean;
+  /** Mobile Gatewayが待ち受けているport。無効なら null。 */
+  readonly mobileGatewayPort: number | null;
   syncNow(): Promise<void>;
   stop(): Promise<void>;
 }
@@ -120,6 +139,17 @@ export async function startTaskenHeadlessCore(
       "AIの直接のTask変更を許可するにはcreate-onlyを明示してください。",
     );
   }
+  const mobileGatewayEnabled = options.mobileGateway ?? env.TASKEN_CORE_MOBILE_GATEWAY === "1";
+  const mobileGatewayPort = resolveMobileGatewayPort(
+    options.mobileGatewayPort ?? env.TASKEN_CORE_MOBILE_GATEWAY_PORT,
+  );
+  // 参加前の空のnodeが端末を受け付けないよう、同期の設定がない配備ではそもそも起動しない。
+  if (mobileGatewayEnabled && !options.syncDirectory) {
+    throw new TaskenHeadlessCoreError(
+      "MOBILE_GATEWAY_REQUIRES_SYNC",
+      "Mobile Gatewayは共有フォルダ同期へ参加したnodeでだけ動かせます。--sync-directoryを指定してください。",
+    );
+  }
   const userDataPath = path.resolve(options.userDataPath || resolveTaskenUserDataPath({ env }));
   const databasePath = path.resolve(
     options.databasePath ||
@@ -137,6 +167,15 @@ export async function startTaskenHeadlessCore(
   }
   let runtime: TaskenCoreRuntime;
   let syncService: InstanceType<typeof SharedFolderSyncService> | null = null;
+  let workspace: WorkspaceService | null = null;
+  let mobileGateway: ReturnType<typeof createHeadlessMobileGateway> | null = null;
+  let backup: AutomaticSnapshotBackupService | null = null;
+  let backupTimer: NodeJS.Timeout | null = null;
+  // WorkLogの書き込みは参加の後に作るWorkspaceServiceを使う。Gatewayは参加の後にしか待ち受けない。
+  const requireWorkspace = () => {
+    if (!workspace) throw new Error("WorkspaceServiceが準備できていません。");
+    return workspace;
+  };
   try {
     const commands = new ApplicationCommandService(repository);
     runtime = new TaskenCoreRuntime(
@@ -146,9 +185,26 @@ export async function startTaskenHeadlessCore(
       undefined,
       undefined,
       undefined,
-      undefined,
-      createReadOnlyCaptureImagePort(userDataPath),
+      mobileGatewayEnabled
+        ? createMobileWorkLogWriter({
+            adoptWorkLogOrganization: (command, actor) =>
+              requireWorkspace().adoptWorkLogOrganization(command, actor),
+            recordWorkLog: (command, actor) => requireWorkspace().recordWorkLog(command, actor),
+            changeWorkLogLifecycle: (command, actor) =>
+              requireWorkspace().changeWorkLogLifecycle(command, actor),
+          })
+        : undefined,
+      // 端末の写真は、Electronなしの寸法検査でDesktopと同じ場所・同じ名前に保存する（共有フォルダ同期で運ぶ）。
+      mobileGatewayEnabled
+        ? createCaptureImagePort(userDataPath, createImageHeaderDecoder())
+        : createReadOnlyCaptureImagePort(userDataPath),
       {
+        ...(mobileGatewayEnabled
+          ? {
+              feedWriter: createMobileFeedWriter(repository),
+              routineWriter: createMobileRoutineWriter(repository),
+            }
+          : {}),
         proposalAccess: writeMode !== "read-only" ? "proposals" : "read-only",
         ...(allowAiTaskStart
           ? { executeAiTaskStart: (command) => commands.executeAiTaskStart(command, "personal") }
@@ -180,17 +236,42 @@ export async function startTaskenHeadlessCore(
         if (!joined) throw error;
       }
     }
-    if (writeMode === "create-only") {
-      const workspace = new WorkspaceService(repository, userDataPath, undefined, undefined, () => {
+    if (writeMode === "create-only" || mobileGatewayEnabled) {
+      // WorkLogの書き込み（端末）はwrite-modeと独立に、同じWorkspaceServiceを使う。
+      workspace = new WorkspaceService(repository, userDataPath, undefined, undefined, () => {
         throw new Error("Headless creation accepts text only.");
       });
       // Join first: a new replica must be empty before its personal theme is bootstrapped.
       repository.loadWorkspace();
       workspace.recoverCanonicalMarkdownReceipts();
+    }
+    if (writeMode === "create-only" && workspace) {
       runtime.enableAiItemCreation(createAiItemCreationPort(commands, workspace));
       // 配備で明示した時点で許しているので、Desktopのような要求ごとの設定は読まない。
       if (allowAiTaskChange)
         runtime.enableAiTaskChange(createAiTaskChangeService(repository, commands, () => true));
+    }
+    if (mobileGatewayEnabled && syncService) {
+      if (!isJoinedTo(repository, syncDirectory)) {
+        throw new TaskenHeadlessCoreError(
+          "MOBILE_GATEWAY_NOT_JOINED",
+          "共有フォルダ同期への参加が済んでいないため、Mobile Gatewayを起動しません。",
+        );
+      }
+      const joinedSync = syncService;
+      mobileGateway = createHeadlessMobileGateway({
+        runtime,
+        persistence: repository,
+        sync: {
+          sourceStatus: (node) => joinedSync.sourceStatus(node),
+          isPublishBlocked: () => joinedSync.isPublishBlocked(),
+        },
+        port: mobileGatewayPort,
+        env,
+      });
+      runtime.enableAdminRoutes(mobileGateway.adminRoutes);
+      // 端末の書き込みを受けるnodeなので、DBの写しを取る（Desktopと同じ仕組み。既定の保存先は<userData>/Backups）。
+      backup = createBackupService(repository, userDataPath);
     }
   } catch (error) {
     await syncService?.stop();
@@ -217,6 +298,20 @@ export async function startTaskenHeadlessCore(
     const started = await runtime.start();
     const status = await new TaskenCoreClient({ userDataPath }).inspect();
     syncService?.start();
+    // 待ち受けは、Core・同期が起動し、参加が済んでから。
+    if (mobileGateway && !(await mobileGateway.gateway.start())) {
+      throw new TaskenHeadlessCoreError(
+        "MOBILE_GATEWAY_START_FAILED",
+        `Mobile Gatewayを127.0.0.1:${mobileGatewayPort}で起動できませんでした。portが使われていないか確認してください。`,
+      );
+    }
+    if (backup) {
+      const service = backup;
+      // 起動の少し後に一回、その後は一日おき（NASは起動しっぱなしで、Desktopのような起動のたびの写しにならない）。
+      setTimeout(() => void service.run("startup"), BACKUP_STARTUP_DELAY_MS).unref();
+      backupTimer = setInterval(() => void service.run("manual"), BACKUP_INTERVAL_MS);
+      backupTimer.unref();
+    }
     let stopped = false;
     return {
       userDataPath,
@@ -229,14 +324,18 @@ export async function startTaskenHeadlessCore(
       syncDirectory,
       writeMode,
       aiTaskChange: allowAiTaskChange,
+      mobileGatewayPort: mobileGateway ? mobileGateway.gateway.diagnostics().port : null,
       async syncNow() {
         if (syncService) await syncService.syncNow();
       },
       async stop() {
         if (stopped) return;
         stopped = true;
-        await syncService?.stop();
+        if (backupTimer) clearInterval(backupTimer);
         try {
+          await mobileGateway?.gateway.stop();
+          await backup?.cancel();
+          await syncService?.stop();
           await runtime.stop();
         } finally {
           repository.db.close();
@@ -244,11 +343,61 @@ export async function startTaskenHeadlessCore(
       },
     };
   } catch (error) {
+    if (backupTimer) clearInterval(backupTimer);
+    await mobileGateway?.gateway.stop().catch(() => {});
+    await backup?.cancel();
     await syncService?.stop();
     await runtime.stop().catch(() => {});
     repository.db.close();
     throw error;
   }
+}
+
+const BACKUP_STARTUP_DELAY_MS = 30_000;
+const BACKUP_INTERVAL_MS = 24 * 60 * 60_000;
+
+function resolveMobileGatewayPort(value: unknown): number {
+  if (value === undefined || value === "") return DEFAULT_MOBILE_GATEWAY_PORT;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 0 || port > 65_535) {
+    throw new TaskenHeadlessCoreError(
+      "INVALID_MOBILE_GATEWAY_PORT",
+      "Mobile Gatewayのportには0〜65535の整数を指定してください。",
+    );
+  }
+  return port;
+}
+
+/** 同期が有効で、この共有フォルダへ参加済み（Workspaceを採用済み）か。 */
+function isJoinedTo(
+  repository: InstanceType<typeof WorkspaceDatabase>,
+  syncDirectory: string | null,
+): boolean {
+  return (
+    Boolean(syncDirectory) &&
+    repository.getPreference("sharedSyncEnabled") === true &&
+    String(repository.getPreference("sharedSyncDirectory") || "") === syncDirectory
+  );
+}
+
+function createBackupService(
+  repository: InstanceType<typeof WorkspaceDatabase>,
+  userDataPath: string,
+) {
+  return new AutomaticSnapshotBackupService({
+    database: {
+      entityCount: () => repository.entityCount(),
+      userEntityCount: () => repository.userEntityCount(),
+      workspaceId: () => repository.workspaceId,
+      backupTo: (filePath, shouldAbort) => repository.backupTo(filePath, shouldAbort),
+      inspectBackup: (filePath) => inspectWorkspaceBackup(filePath),
+    },
+    defaultDirectory: path.join(userDataPath, "Backups"),
+    enabled: repository.getPreference("automaticSnapshotBackupEnabled") !== false,
+    directory: String(repository.getPreference("automaticSnapshotBackupDirectory") || ""),
+    generations: Number(repository.getPreference("automaticSnapshotBackupGenerations")),
+    log: (level, message) => console.error(`[tasken-backup] ${level}: ${message}`),
+  });
 }
 
 /**

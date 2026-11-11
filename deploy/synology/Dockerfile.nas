@@ -30,6 +30,7 @@ RUN npm run build:core:headless \
   && node -e "const Database = require('better-sqlite3'); new Database(':memory:').close()" \
   && test -s core-dist/headless.mjs \
   && test -s core-dist/replica-check.mjs \
+  && test -s core-dist/mobile-pair.mjs \
   && test -s mcp-dist/server.mjs \
   && test -s mcp-dist/http-server.mjs
 
