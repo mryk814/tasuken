@@ -59,6 +59,7 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 | 既存の読み取りcapability                                                                   |                                                              |
 
 - Task作業報告もProposalなので、`proposals`配備でも正式データは人の採用まで変わらない。開始（`start_task_work`）は直接書き込みであり、write-modeの指定だけでは公開しない。本人の個人業務のAI Ready Taskについて開始を許可するには、独立した`--allow-ai-task-start` / `TASKEN_CORE_AI_TASK_START=1`が必要。汎用`task.command`は公開しない。
+- 既存Taskの直接変更と取り消し（`change_task`・`undo_change`、capability `task.ai_change`）は、`create-only`に独立した`--allow-ai-task-change` / `TASKEN_CORE_AI_TASK_CHANGE=1`を足したときだけ公開する。規則はDesktopと同じ（本人の言葉、取り消し、一つの会話で30件まで、委任中・繰り返しの完了・同期の競合中は断る、AIの公開範囲の外は無いものとして扱う）。取り込みが遅れている間は`REPLICA_BEHIND`で断る。Noteの編集と採否（取り消せない書き込み）はDesktopだけ。
 - 範囲外の種類は、capabilityを残したまま実行時に `WRITE_NOT_ALLOWED`（HTTP 403）で拒否する。AIは `next_action` から送り直し方を判断できる。
 - 公開しないcapabilityは `/capabilities` に出さないため、MCP bridgeは呼び出し時点で `CAPABILITY_UNAVAILABLE` を返す。
 - MCP bridgeは起動時に `/capabilities` を読み、使えない書き込みtool（直接開始・範囲外の種類）を一覧から外す。理由は `tasken.get_capabilities` が返す。起動時にCoreへ接続できなかった場合は全toolを登録し、上の拒否が境界になる。

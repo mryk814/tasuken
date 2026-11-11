@@ -746,23 +746,22 @@ export class TaskenCoreRuntime {
     );
   }
 
-  /** Desktop専用。既存Taskの直接変更と取り消し（#703）。 */
-  enableAiDirectWrite(
-    service: AiTaskChangeService,
-    decisions?: {
-      decide(request: unknown): AiProposalDecisionResponse;
-      editNote(request: unknown): AiNoteEditResponse;
-    },
-  ) {
-    this.host.enableAiDirectWrite({
+  /** 既存Taskの直接変更と取り消し（#703）。Desktopと、明示したNAS replica（#688）が呼ぶ。 */
+  enableAiTaskChange(service: AiTaskChangeService) {
+    this.host.enableAiTaskChange({
       changeTask: { execute: (request) => service.change(request) },
       undoChange: { execute: (request) => service.undo(request) },
-      ...(decisions
-        ? {
-            decideProposal: { execute: (request) => decisions.decide(request) },
-            editNote: { execute: (request) => decisions.editNote(request) },
-          }
-        : {}),
+    });
+  }
+
+  /** Desktop専用。取り消せない直接の書き込み（Noteの編集と、作業報告・Note案の採否。#703）。 */
+  enableAiDirectWrite(decisions: {
+    decide(request: unknown): AiProposalDecisionResponse;
+    editNote(request: unknown): AiNoteEditResponse;
+  }) {
+    this.host.enableAiDirectWrite({
+      decideProposal: { execute: (request) => decisions.decide(request) },
+      editNote: { execute: (request) => decisions.editNote(request) },
     });
   }
 

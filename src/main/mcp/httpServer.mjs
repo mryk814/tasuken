@@ -7,6 +7,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 
 import {
+  TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
   TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   coreWriteProfile,
 } from "../../shared/contracts/core/public.mjs";
@@ -198,13 +199,14 @@ export function parseHttpClients(value) {
       typeof client !== "object" ||
       Array.isArray(client) ||
       Object.keys(client).some(
-        (key) => !["token", "readOnly", "toolsets", "allowStart"].includes(key),
+        (key) => !["token", "readOnly", "toolsets", "allowStart", "allowTaskChange"].includes(key),
       ) ||
       typeof client.token !== "string" ||
       !/^[A-Za-z0-9_-]{43}$/.test(client.token) ||
       Buffer.from(client.token, "base64url").toString("base64url") !== client.token ||
       (client.readOnly !== undefined && typeof client.readOnly !== "boolean") ||
       (client.allowStart !== undefined && typeof client.allowStart !== "boolean") ||
+      (client.allowTaskChange !== undefined && typeof client.allowTaskChange !== "boolean") ||
       tokens.has(client.token)
     )
       invalid();
@@ -222,6 +224,8 @@ export function parseHttpClients(value) {
       readOnly: client.readOnly !== false,
       // 開始は既存Taskの直接の書き換えなので、clientごとに明示したときだけ出す。
       allowStart: client.allowStart === true,
+      // 既存Taskの直接変更と取り消し（#688）も、clientごとに明示したときだけ出す。
+      allowTaskChange: client.allowTaskChange === true,
       toolsets,
     };
   });
@@ -298,17 +302,20 @@ export async function startTaskenMcpHttpServer(options = {}) {
     try {
       const readOnly = globalReadOnly || client.readOnly;
       const core = await coreClient.status();
-      // 開始(start_work)はallowStartのclientにだけ見せる。外したcapabilityで作るので、
-      // そのclientから見たprofileは開始なしになり、start_task_workは一覧から外れる。
-      const withheldCapabilities =
-        client.allowStart && !readOnly ? [] : [TASKEN_CORE_TASK_START_WORK_CAPABILITY];
+      // 開始(start_work)はallowStartの、直接変更(task.ai_change)はallowTaskChangeのclientにだけ見せる。
+      // 外したcapabilityで作るので、そのclientから見たprofileからも外れ、toolは一覧から外れる。
+      const withheldCapabilities = [
+        ...(client.allowStart && !readOnly ? [] : [TASKEN_CORE_TASK_START_WORK_CAPABILITY]),
+        ...(client.allowTaskChange && !readOnly ? [] : [TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY]),
+      ];
       const capabilities = Array.isArray(core.capabilities)
         ? core.capabilities.filter((value) => !withheldCapabilities.includes(value))
         : core.capabilities;
       // Never fall back to registering all writes if Core is unavailable or has
       // a desktop/full grant. HTTP writes are restricted to NAS profiles (full,
       // partial and unknown profiles are refused; start variants are accepted
-      // because start itself is gated per client above).
+      // because start itself is gated per client above). The direct Task change
+      // does not change the profile name and is gated per client above as well.
       if (
         !Array.isArray(capabilities) ||
         (!readOnly &&

@@ -1,5 +1,6 @@
 import {
   TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+  TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
   TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
   TASKEN_CORE_GET_ACTIVITY_CAPABILITY,
   TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY,
@@ -29,6 +30,7 @@ import { PROPOSALS_PROFILE_CONTENT_KINDS } from "../../shared/contracts/task/pub
  * `kind`はpropose_contentの種類で、`proposals`配備はその一部だけを受け付ける。
  * `setting: "direct_write"`は、Desktopで本人が設定で許したときだけ使えるtool。
  * 一覧からは外さず（設定を変えても接続し直さずに使えるように）、使えない理由を報告する。
+ * NAS replicaは設定を返さないので、配備とclientの許可（capability）だけで決まる。
  */
 export const MCP_TOOL_REQUIREMENTS = Object.freeze({
   "tasken.create_task": {
@@ -46,7 +48,7 @@ export const MCP_TOOL_REQUIREMENTS = Object.freeze({
   "tasken.change_task": {
     toolset: "write",
     access: "direct_write",
-    capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+    capability: TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
     setting: "direct_write",
   },
   "tasken.decide_proposal": {
@@ -64,7 +66,7 @@ export const MCP_TOOL_REQUIREMENTS = Object.freeze({
   "tasken.undo_change": {
     toolset: "write",
     access: "direct_write",
-    capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+    capability: TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
     setting: "direct_write",
   },
   "tasken.search_items": {

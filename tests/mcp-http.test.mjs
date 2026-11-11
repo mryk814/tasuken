@@ -59,6 +59,7 @@ test("HTTP credentials fail closed and reject duplicate, weak, or malformed sett
     { a: { token: "weak" } },
     { a: { token, readOnly: "false" } },
     { a: { token, allowStart: "true" } },
+    { a: { token, allowTaskChange: "true" } },
     { a: { token, toolsets: "core" } },
     { a: { token, toolsets: [] } },
     { a: { token, toolsets: ["unknown"] } },
@@ -69,6 +70,8 @@ test("HTTP credentials fail closed and reject duplicate, weak, or malformed sett
   assert.equal(parseHttpClients({ a: { token } })[0].readOnly, true);
   assert.equal(parseHttpClients({ a: { token } })[0].allowStart, false);
   assert.equal(parseHttpClients({ a: { token, allowStart: true } })[0].allowStart, true);
+  assert.equal(parseHttpClients({ a: { token } })[0].allowTaskChange, false);
+  assert.equal(parseHttpClients({ a: { token, allowTaskChange: true } })[0].allowTaskChange, true);
 });
 
 test("HTTP clients have independent toolsets, with environment fallback and a read-only ceiling", async (t) => {
@@ -437,6 +440,82 @@ test("/api/v1/get_capabilities does not claim start for clients without allowSta
   assert.equal(starter.writes.task_start, true);
   assert.equal(starter.core.write_profile, "create-and-start");
   assert.ok(!starter.unavailable_tools.some(({ name }) => name === "tasken.start_task_work"));
+});
+
+// 既存Taskの直接変更（#688）も、開始と同じくclientごとの明示だけで出す。
+test("/api/v1 shows change_task and undo_change only to allowTaskChange clients and records the verified client", async (t) => {
+  const changerToken = randomBytes(32).toString("base64url");
+  const changed = [];
+  const { url } = await fixture(t, {
+    clients: {
+      ...apiClients,
+      changer: { token: changerToken, readOnly: false, allowTaskChange: true },
+    },
+    env: { TASKEN_MCP_READ_ONLY: "0" },
+    coreClient: {
+      status: async () => ({
+        capabilities: [...proposalCapabilities, "create_ai_item", "task.ai_change"],
+      }),
+      changeTask: async (request) => {
+        changed.push(request);
+        return { status: "applied" };
+      },
+    },
+  });
+  const args = {
+    task_id: "t",
+    expected_version: 1,
+    action: "update",
+    changes: { title: "直した" },
+    said: "題名を直して",
+    caller: "spoofed",
+    source_app: "spoofed",
+    source_session: "s",
+    idempotency_key: "k",
+  };
+  for (const credential of [token, otherToken, starterToken])
+    assert.deepEqual(await api(url, "change_task", args, credential), {
+      status: 403,
+      body: { error: "tool_not_allowed" },
+    });
+  assert.deepEqual(changed, []);
+  const result = await api(url, "change_task", args, changerToken);
+  assert.equal(result.status, 200, JSON.stringify(result.body));
+  assert.equal(changed.length, 1);
+  assert.equal(changed[0].caller, "changer");
+  assert.equal(changed[0].source_app, "http:changer");
+
+  const writer = (await api(url, "get_capabilities", {}, otherToken)).body;
+  assert.equal(writer.writes.task_edit, false);
+  assert.equal(writer.writes.undo, false);
+  const changer = (await api(url, "get_capabilities", {}, changerToken)).body;
+  assert.equal(changer.core.write_profile, "create-only");
+  assert.equal(changer.writes.task_edit, true);
+  assert.equal(changer.writes.undo, true);
+  // 取り消せない直接の書き込み（Noteの編集と採否）はDesktopだけ。
+  assert.equal(changer.writes.note_edit_direct, false);
+  assert.equal(changer.writes.proposal_decision, false);
+});
+
+test("HTTP refuses a Core that advertises Desktop-only direct writes", async (t) => {
+  const { url } = await fixture(t, {
+    clients: apiClients,
+    env: { TASKEN_MCP_READ_ONLY: "0" },
+    coreClient: {
+      status: async () => ({
+        capabilities: [
+          ...proposalCapabilities,
+          "create_ai_item",
+          "task.ai_change",
+          "ai_direct_write",
+        ],
+      }),
+    },
+  });
+  assert.deepEqual(await api(url, "get_capabilities", {}, otherToken), {
+    status: 503,
+    body: { error: "core_profile_not_allowed" },
+  });
 });
 
 test("/api/v1 honours per-client toolsets", async (t) => {

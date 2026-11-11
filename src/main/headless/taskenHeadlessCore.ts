@@ -1,5 +1,8 @@
 import { WorkspaceService } from "../services/workspaceService.ts";
-import { createAiItemCreationPort } from "../composition/taskenCoreRuntime.ts";
+import {
+  createAiItemCreationPort,
+  createAiTaskChangeService,
+} from "../composition/taskenCoreRuntime.ts";
 import path from "node:path";
 
 import { TaskenCoreRuntime } from "../composition/taskenCoreRuntime.ts";
@@ -24,13 +27,22 @@ export interface TaskenHeadlessCoreOptions {
   writeMode?: TaskenHeadlessWriteMode;
   /** Independent opt-in. Does not expose task.command or enable delegation. */
   allowAiTaskStart?: boolean;
+  /**
+   * 既存Taskの直接変更と取り消し（#688）。`create-only`と一緒にだけ使える独立のopt-in。
+   * 私用のWorkspaceのNASで、Museなどが本人の言葉を根拠にTaskを直せるようにする。
+   */
+  allowAiTaskChange?: boolean;
   /** 書き込みを断る判定に使う、AI作成の差分の形の印。試験で差し替える。既定は契約ファイルの値。 */
   syncShapeFlags?: ReadonlyArray<{ shape_sha256: string; desktop_first?: boolean }>;
   env?: NodeJS.ProcessEnv;
 }
 
 /** 既存Taskを直接書き換える経路。replicaの取り込みが追いついていないと断る。 */
-const STARTING_PATHS = new Set(["/v1/commands/start-ai-task-work"]);
+const EXISTING_TASK_PATHS = new Set([
+  "/v1/commands/start-ai-task-work",
+  "/v1/commands/change-task",
+  "/v1/commands/undo-change",
+]);
 
 export type TaskenHeadlessWriteMode = "read-only" | "proposals" | "create-only";
 
@@ -58,6 +70,7 @@ export interface TaskenHeadlessCoreHandle {
   readonly pid: number;
   readonly syncDirectory: string | null;
   readonly writeMode: TaskenHeadlessWriteMode;
+  readonly aiTaskChange: boolean;
   syncNow(): Promise<void>;
   stop(): Promise<void>;
 }
@@ -85,6 +98,7 @@ export class TaskenHeadlessCoreError extends Error {
  * 書き込みは既定で公開しない。`writeMode: "proposals"` を明示した場合だけ、
  * テキストの読み物投稿・Note案・Task案・Task作業報告を受け付け、Core自身が許可範囲を強制する。
  * 開始専用の`task.start_work`は別の明示opt-inが必要。`task.command`は公開しない。
+ * 既存Taskの直接変更（`task.ai_change`）も、`create-only`に足す別の明示opt-inが必要。
  */
 export async function startTaskenHeadlessCore(
   options: TaskenHeadlessCoreOptions = {},
@@ -96,6 +110,14 @@ export async function startTaskenHeadlessCore(
     throw new TaskenHeadlessCoreError(
       "WRITE_MODE_CONFLICT",
       "AI開始を許可するにはproposalsまたはcreate-onlyを明示してください。",
+    );
+  }
+  const allowAiTaskChange = options.allowAiTaskChange ?? env.TASKEN_CORE_AI_TASK_CHANGE === "1";
+  // 直してよいのに作れない配備は作らない（作れないAIが直接変更だけを持つ形を残さない）。
+  if (allowAiTaskChange && writeMode !== "create-only") {
+    throw new TaskenHeadlessCoreError(
+      "WRITE_MODE_CONFLICT",
+      "AIの直接のTask変更を許可するにはcreate-onlyを明示してください。",
     );
   }
   const userDataPath = path.resolve(options.userDataPath || resolveTaskenUserDataPath({ env }));
@@ -166,6 +188,9 @@ export async function startTaskenHeadlessCore(
       repository.loadWorkspace();
       workspace.recoverCanonicalMarkdownReceipts();
       runtime.enableAiItemCreation(createAiItemCreationPort(commands, workspace));
+      // 配備で明示した時点で許しているので、Desktopのような要求ごとの設定は読まない。
+      if (allowAiTaskChange)
+        runtime.enableAiTaskChange(createAiTaskChangeService(repository, commands, () => true));
     }
   } catch (error) {
     await syncService?.stop();
@@ -181,9 +206,9 @@ export async function startTaskenHeadlessCore(
     runtime.enableWriteGate((requestPath) => {
       if (desktopWriteBlock({ flags, desktops: sync.desktopStatuses() }) === "desktop_behind")
         return "DESKTOP_BEHIND";
-      // 開始は既存Taskの直接の書き換えで、replicaの手元の版との照合は、replicaが遅れていても通ってしまう。
-      // 取り込みが追いついている（state ok）ときだけ受け付ける。
-      if (STARTING_PATHS.has(requestPath) && sync.sourceStatus("replica").state !== "ok")
+      // 開始・直接変更・取り消しは既存Taskの直接の書き換えで、replicaの手元の版との照合は、
+      // replicaが遅れていても通ってしまう。取り込みが追いついている（state ok）ときだけ受け付ける。
+      if (EXISTING_TASK_PATHS.has(requestPath) && sync.sourceStatus("replica").state !== "ok")
         return "REPLICA_BEHIND";
       return null;
     });
@@ -203,6 +228,7 @@ export async function startTaskenHeadlessCore(
       pid: process.pid,
       syncDirectory,
       writeMode,
+      aiTaskChange: allowAiTaskChange,
       async syncNow() {
         if (syncService) await syncService.syncNow();
       },
