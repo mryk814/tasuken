@@ -242,6 +242,7 @@
         "tests/batch-transcription-sqlite.test.mjs",
         "tests/canonical-markdown-workspace.test.mjs",
         "tests/conversation-context-workspace.test.mjs",
+        "tests/core-capability-parity.test.mjs",
         "tests/data-health.test.mjs",
         "tests/feed-post-proposals.test.mjs",
         "tests/feed-own-posts.test.mjs",
