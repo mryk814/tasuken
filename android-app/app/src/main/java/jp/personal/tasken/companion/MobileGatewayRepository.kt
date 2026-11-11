@@ -124,6 +124,10 @@ private class MobileOutboxServerMismatchException : IllegalStateException(
     "未解決の変更が別のDesktopに属しています。",
 )
 
+private class MobileNodeSwitchBlockedException : IllegalStateException(
+    "送信済みかもしれない変更が残っています。",
+)
+
 class MobileGatewayConnectionStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
@@ -1930,9 +1934,18 @@ class AndroidMobileTaskRepository(
             require(scopeList.size == scopeList.toSet().size) { "Pairing response scopes contain duplicates" }
             runBlocking {
                 if (dao.incompatibleOutboxCount(serverId) != 0) throw MobileOutboxServerMismatchException()
+                val previousOrigin = store.configuration().origin
+                if (previousOrigin.isNotBlank() && previousOrigin != normalizedOrigin &&
+                    !dao.prepareNodeSwitch(serverId)
+                ) throw MobileNodeSwitchBlockedException()
             }
             store.save(normalizedOrigin, token, scopeList.toSet())
             loadToday()
+        } catch (error: MobileNodeSwitchBlockedException) {
+            MobileTodayResult.PairingRequired(
+                normalizedOrigin,
+                "送信中の変更が残っています。送信を終えるか、競合を解決してから接続先を変えてください。",
+            )
         } catch (error: MobileOutboxServerMismatchException) {
             MobileTodayResult.Unavailable(
                 "未解決の変更は別のDesktopに属しています。",
