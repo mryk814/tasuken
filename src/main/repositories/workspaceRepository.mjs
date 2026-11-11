@@ -2399,6 +2399,11 @@ export class WorkspaceDatabase {
       .run(timestamp, timestamp, deviceId);
   }
 
+  /** 自端末が最後に採番した差分の連番。共有フォルダに公開済みの連番との照合に使う。 */
+  syncDeviceSequence() {
+    return Number(this.ensureMeta("sync_device_sequence", "0")) || 0;
+  }
+
   nextSyncSequence() {
     const current = Number(this.ensureMeta("sync_device_sequence", "0")) || 0;
     const next = current + 1;

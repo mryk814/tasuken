@@ -14,6 +14,7 @@ const DEVICE_DIRECTORY = "devices";
 /** 共有フォルダの差分のファイル名（<12桁の連番>-<change id>.json）。replica-checkも同じものを使う。 */
 export const SYNC_PACKET_FILE_PATTERN = /^\d{12}-[0-9a-f-]+\.json$/i;
 const SYNC_PACKET_WAITING = "SYNC_PACKET_WAITING";
+const SYNC_SEQUENCE_ROLLBACK = "SYNC_SEQUENCE_ROLLBACK";
 // syncPacketContract（repositories）と同じ値。application層からinfrastructureを読まないよう文字列で比べる。
 const SYNC_PACKET_REJECTED = "SYNC_PACKET_REJECTED";
 const SYNC_INTERVAL_MS = 10_000;
@@ -88,6 +89,8 @@ function codedError(message, code) {
 function failureState(error) {
   switch (error?.code) {
     case SYNC_PACKET_REJECTED:
+      return "blocked";
+    case SYNC_SEQUENCE_ROLLBACK:
       return "blocked";
     case SYNC_PACKET_WAITING:
       return "waiting_packet";
@@ -167,6 +170,8 @@ export class SharedFolderSyncService {
     this.hasSynced = false;
     this.lastFailure = null;
     this.publishedStatus = null;
+    // 公開済みの連番より古いDBを見つけて止めている間はtrue（assertOwnSequenceNotRolledBack）。
+    this.sequenceRolledBack = false;
     this.lastStatusError = null;
     this.statusRetryAt = 0;
     // 端末ごとの「最後に読めた正しいstatus.json」。その回に読めなくても前の値で遅れを判定する。
@@ -393,7 +398,9 @@ export class SharedFolderSyncService {
     );
     let republished = 0;
     let publishedThrough = 0;
-    for (const header of this.repository.syncPacketHeaders()) {
+    const headers = this.repository.syncPacketHeaders();
+    this.assertOwnSequenceNotRolledBack(present, headers);
+    for (const header of headers) {
       const fileName = packetFileName({
         deviceSequence: header.deviceSequence,
         changeId: header.changeId,
@@ -410,6 +417,32 @@ export class SharedFolderSyncService {
     }
     this.healStats = { republished };
     return publishedThrough;
+  }
+
+  /**
+   * 自端末のDBが古い写しに戻されていないかを、公開の前に確かめる。
+   * 共有フォルダに、自端末のDBが知らない差分（連番が先、または同じ連番で別のchange ID）が
+   * 既にあるなら、DBは公開した後の状態より古い。そのまま続けると、同じ連番を別の内容で使い直し、
+   * 受信した端末は「その連番は取り込み済み」として新しい変更を黙って読み飛ばす。
+   * 公開も取り込みも止め、本人が新しい写しから戻すまで進めない（blocked）。
+   */
+  assertOwnSequenceNotRolledBack(presentFileNames, headers) {
+    this.sequenceRolledBack = false;
+    const localSequence = this.repository.syncDeviceSequence();
+    const known = new Map(headers.map((header) => [header.changeId, header.deviceSequence]));
+    for (const name of presentFileNames) {
+      if (!SYNC_PACKET_FILE_PATTERN.test(name)) continue;
+      const sequence = Number(name.slice(0, 12));
+      const changeId = name.slice(13, -".json".length);
+      if (sequence > localSequence || known.get(changeId) !== sequence) {
+        this.sequenceRolledBack = true;
+        throw codedError(
+          "この端末のDBが、共有フォルダに公開済みの状態より古くなっています（古いバックアップへ戻した可能性）。" +
+            "続けると連番が重なり、他の端末へ変更が届かなくなるため、公開を止めました。最新のバックアップから戻してください。",
+          SYNC_SEQUENCE_ROLLBACK,
+        );
+      }
+    }
   }
 
   /**
@@ -542,6 +575,11 @@ export class SharedFolderSyncService {
         ? new Date(Math.max(...times(counted.map((status) => status.at)))).toISOString()
         : null,
     };
+  }
+
+  /** DBが公開済みの状態より古いと分かり、公開を止めている間はtrue。新しい書き込みも受けない方がよい。 */
+  isPublishBlocked() {
+    return this.sequenceRolledBack;
   }
 
   /**
