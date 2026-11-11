@@ -166,7 +166,8 @@ sudo docker run --rm --network container:tasken-headless --user 1026:100 \
 
 1. **先にDesktopを、#715の入った版へ上げる。** 古いDesktopでも同期は止まりませんが、Activityに本人の言葉が出ず、画面から取り消せません。競合を本人が解決したときに版を上げるのもDesktopの側なので、古いままだと、解決の後にAIの取り消しが本人の選んだ中身を戻すことがあります。
 2. Coreを`create-only`にし、`TASKEN_CORE_AI_TASK_CHANGE=1`を足す。このrepoのcomposeでは`.env`へ書きます。本番（nas-pull）では、`docker-compose.json`の`tasken-headless`の`environment`へ書きます。`create-only`以外と一緒だと、Coreは`WRITE_MODE_CONFLICT`で起動しません。
-3. HTTPの`mcp_http_clients`で、許すクライアントだけに`"readOnly": false`と`"allowTaskChange": true`を書き、`mcp-http`を作り直す。
+3. HTTPの`mcp_http_clients`で、許すクライアントだけに`"readOnly": false`と`"allowTaskChange": true`を書く。`mcp-http`の`environment`の`TASKEN_MCP_READ_ONLY`も`0`にして、`mcp-http`を作り直す。`1`のままだと全clientが読み取りのままで、clientごとの`readOnly`は効きません。書かなかったclientは既定で読み取りのままです。
+   - ChatGPTのtunnel（stdioの`server.mjs`）にはclientごとの絞り込みがありません。`TASKEN_MCP_READ_ONLY=0`で動かしていれば、2の時点でChatGPTにも出ます（開始の`TASKEN_CORE_AI_TASK_START`と同じ扱い）。
 4. そのクライアントで`tasken.get_capabilities`を呼び、`writes.task_edit`と`writes.undo`が`true`なら有効です。
 
 - NASの取り込みが遅れている間は、`REPLICA_BEHIND`（409）で断ります。同期が追いつけば通ります。
