@@ -2872,10 +2872,17 @@ export class WorkspaceDatabase {
       const local = this.get(row.entity_type, row.entity_id, true);
       const chosen = choice === "incoming" ? packet.entity : local;
       if (!chosen) throw new Error("競合を解決するデータがありません。");
-      if (choice === "incoming")
-        this.insertImported(row.entity_type, chosen, "sync", local, {
-          allowReceiptRevision: row.entity_type === "work_receipt",
-        });
+      // 解決の結果は、どちらの端末も見たことのない版にする。競合した二つは同じ版の数を持つので、
+      // 版を上げずに送ると、競合の前に読んだ版での照合（AIの変更・取り消し、画面の保存）が通り、
+      // 本人が選んだ中身を黙って上書きする（#688のレビューで再現）。
+      const versions = [local?.version, packet.entity?.version].map(Number).filter(Number.isFinite);
+      this.insertImported(
+        row.entity_type,
+        { ...chosen, version: Math.max(0, ...versions) + 1 },
+        "sync",
+        local,
+        { allowReceiptRevision: row.entity_type === "work_receipt" },
+      );
       const parents = [row.local_revision_id, row.incoming_revision_id].filter(Boolean);
       const resolution = this.enqueueSyncEntity(
         row.entity_type,
