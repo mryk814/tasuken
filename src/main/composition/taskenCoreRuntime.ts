@@ -4,7 +4,11 @@ import {
   AiTaskStartService,
   type AiItemCreationPort,
 } from "../core/public.ts";
-import { TaskenCoreHost, type WriteGate } from "../infrastructure/http/taskenCoreHost.ts";
+import {
+  TaskenCoreHost,
+  type AdminHandler,
+  type WriteGate,
+} from "../infrastructure/http/taskenCoreHost.ts";
 import { entityIdSchema } from "../../shared/kernel/public.ts";
 import { createMobileActivityReadPort } from "./mobileActivityReadPort.ts";
 import { createMobileRelatedDocumentReadPort } from "./mobileRelatedDocumentReadPort.ts";
@@ -44,6 +48,7 @@ import {
   type MobileGatewayTaskDelegationResult,
   type MobileGatewayTaskWorkProposalDecisionResult,
   type MobileGatewayWorkReceiptRecord,
+  type MobileWriteGuard,
   taskContextFingerprint,
 } from "../gateway/mobile/public.ts";
 import {
@@ -369,9 +374,12 @@ export class TaskenCoreRuntime {
     getCaptureOrganizer?: ConstructorParameters<
       typeof MobileGatewayAdapter
     >[0]["getCaptureOrganizer"],
+    /** NASのheadless nodeだけが渡す。書き込みをCoreの口へ渡す前に断れる（mobileWriteGuard.ts）。 */
+    writeGuard?: MobileWriteGuard,
   ): MobileGatewayAdapter {
     return new MobileGatewayAdapter({
       getCaptureOrganizer,
+      writeGuard,
       core: {
         queryActivity: createMobileActivityReadPort(this.persistence),
         queryAgentSessions: (date) =>
@@ -660,7 +668,8 @@ export class TaskenCoreRuntime {
         getTaskContext: (input) =>
           this.taskContext.execute(input as Parameters<typeof this.taskContext.execute>[0]),
         delegateTaskToAgent: (input) => {
-          if (!this.executeTaskDelegation) return { ok: false, code: "validation_failed" };
+          // 委任を持たない配備（NASのheadless node）。入力の誤りではなく、この接続先ではできない。
+          if (!this.executeTaskDelegation) return { ok: false, code: "capability_unavailable" };
           const command = {
             commandId: input.commandId,
             name: "DelegateTaskToAgent",
@@ -778,6 +787,11 @@ export class TaskenCoreRuntime {
     });
   }
 
+  /** NASのMobile Gatewayのペアリングなど、全権tokenだけが呼べる管理用の口。Core起動前に呼ぶ。 */
+  enableAdminRoutes(handlers: Record<string, AdminHandler>) {
+    this.host.enableAdminRoutes(handlers);
+  }
+
   /** NAS replica専用。Desktopのcompositionでは呼ばない。 */
   enableWriteGate(check: WriteGate) {
     this.host.enableWriteGate(check);
@@ -793,3 +807,8 @@ export class TaskenCoreRuntime {
 }
 export { createAiItemCreationPort } from "./aiItemCreationPort.ts";
 export { createAiTaskChangeService } from "./aiTaskChangePort.ts";
+export {
+  createMobileFeedWriter,
+  createMobileRoutineWriter,
+  createMobileWorkLogWriter,
+} from "./mobileGatewayWriters.ts";

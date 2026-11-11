@@ -17,6 +17,11 @@ import { randomUUID } from "node:crypto";
 
 import { registerIpc } from "./ipc/registerIpc";
 import { registerMobileGatewayIpc } from "./ipc/registerMobileGatewayIpc";
+import {
+  createMobileFeedWriter,
+  createMobileRoutineWriter,
+  createMobileWorkLogWriter,
+} from "./composition/taskenCoreRuntime.ts";
 import { CaptureOrganizerSettingsService } from "./services/captureOrganizerSettings";
 import { ChatGptAccountService } from "./services/chatgptAccount";
 import { proposeTaskSchedule } from "./services/taskScheduleProposal";
@@ -2662,52 +2667,24 @@ async function startDesktopApp(): Promise<void> {
     );
   });
   const composition = (desktopComposition = new TaskenDesktopComposition({
-    workLogWriter: {
-      adoptOrganization: (command, actor) => {
-        workspaceService.adoptWorkLogOrganization(command, actor);
-        notifyMainWindowRefresh();
+    workLogWriter: createMobileWorkLogWriter(
+      {
+        adoptWorkLogOrganization: (command, actor) =>
+          workspaceService.adoptWorkLogOrganization(command, actor),
+        recordWorkLog: (command, actor) => workspaceService.recordWorkLog(command, actor),
+        changeWorkLogLifecycle: (command, actor) =>
+          workspaceService.changeWorkLogLifecycle(command, actor),
       },
-      record: (command, actor) => {
-        const receipt = workspaceService.recordWorkLog(command, actor);
-        notifyMainWindowRefresh();
-        return receipt;
-      },
-      changeLifecycle: (command, actor) => {
-        const receipt = workspaceService.changeWorkLogLifecycle(command, actor);
-        notifyMainWindowRefresh();
-        return receipt;
-      },
-    },
+      () => notifyMainWindowRefresh(),
+    ),
     // Androidからの反応・返信。Desktopの画面と同じEntity保存（feed_reaction / feed_reply）を使う。
-    feedWriter: {
-      save: (type, entity) => {
-        const saved = workspaceRepository.save(type, entity, { source: "mobile" });
-        notifyMainWindowRefresh({ type, entity: saved as never });
-        return saved;
-      },
-      remove: (type, id) => {
-        const removed = workspaceRepository.remove(type, id);
-        notifyMainWindowRefresh(removed ? { type, entity: removed as never } : undefined);
-        return removed;
-      },
-    },
+    feedWriter: createMobileFeedWriter(workspaceRepository, (change) =>
+      notifyMainWindowRefresh(change as never),
+    ),
     // Androidからの続けること・手入れの記録（#454）。Desktopの記録と同じEntity保存を使う。
-    routineWriter: {
-      saveMany: (operations) => {
-        const saved: Record<string, unknown>[] = workspaceRepository.saveMany(
-          operations.map(({ type, entity }) => ({
-            action: "save",
-            type,
-            entity,
-            options: { source: "mobile" },
-          })),
-        );
-        saved.forEach((entity, index) => {
-          notifyMainWindowRefresh({ type: operations[index].type, entity: entity as never });
-        });
-        return saved;
-      },
-    },
+    routineWriter: createMobileRoutineWriter(workspaceRepository, (change) =>
+      notifyMainWindowRefresh(change as never),
+    ),
     getCaptureOrganizer: () => captureOrganizerSettings.createOrganizer(),
     userDataPath: app.getPath("userData"),
     persistence: workspaceRepository,

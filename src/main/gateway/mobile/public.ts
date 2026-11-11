@@ -1,6 +1,7 @@
 export {
   MobileGatewayAdapter,
   MobileGatewayCoreUnavailableError,
+  refuseMobileWriteForNow,
   type MobileGatewayAgentReplyResult,
   type MobileGatewayAttentionRead,
   type MobileGatewayFeedActionResult,
@@ -52,3 +53,8 @@ export {
   type CaptureOrganizerInput,
   type CaptureOrganizerProposal,
 } from "./captureOrganizer.ts";
+export {
+  guardMobileWrites,
+  type MobileWriteGuard,
+  type MobileWriteIntent,
+} from "./mobileWriteGuard.ts";

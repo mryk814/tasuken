@@ -9,3 +9,5 @@ export {
   type MobileGatewayRuntimeDiagnostics,
   type MobileGatewayRuntimeOptions,
 } from "./mobileGatewayRuntime.ts";
+export type { MobileWriteGuard, MobileWriteIntent } from "./mobileWriteGuard.ts";
+export { refuseMobileWriteForNow } from "./mobileGatewayAdapter.ts";
