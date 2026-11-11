@@ -363,6 +363,46 @@ HTTPを確認後、トンネル停止を承認された場合は同じComposeフ
 以降の起動はbase+HTTPだけを指定し、`nas-install.sh`が既存tunnel設定から自動起動する点にも注意します。
 再開する場合はbase+tunnel+HTTPで`tunnel-client`を起動します。secretや既存設定を削除せず、`down`・`--remove-orphans`・Serve全体の`reset`は使いません。
 
+## スマホの同期の相手をNASにする（Mobile Gateway）
+
+私用のスマホ（Android）は、PCのかわりに常に起きているNASとペアリングできます。Desktopの同じGatewayは残るので、Desktop一台でも全機能が使えます。仕事のWorkspaceはこの対象ではありません。
+
+### 有効にする
+
+1. 共有フォルダ同期へ参加済みのreplica（前述）を用意する。Gatewayは参加が済むまで待ち受けず、`--sync-directory`が無いと起動を止める。
+2. `docker-compose.mobile.yml`を重ねて、Coreを再作成する（host networkへ切り替わる。`--remove-orphans`は使わない）。
+
+   ```bash
+   sudo /var/packages/ContainerManager/target/usr/bin/docker-compose \
+     --env-file .env -f docker-compose.yml -f docker-compose.mobile.yml \
+     up -d --no-build --force-recreate tasken-headless
+   ```
+
+3. NASのroot権限で、承認したTailscale Serveのポート（例`8447`）を`127.0.0.1:48177`へ向ける（HTTPSの終端はTailscale。tailnet内だけに公開し、Funnelは使わない）。
+
+   ```bash
+   sudo tailscale serve --bg --https=8447 http://127.0.0.1:48177
+   ```
+
+起動すると、READYの行の`mobile_gateway`にポートが出る。DBの自動バックアップが`/data/Backups`に5世代できる（DBの約5倍の空きを見ておく）。
+
+### ペアリングと取り消し
+
+```bash
+docker exec tasken-headless node core-dist/mobile-pair.mjs          # 8桁のコード（5分・1回）
+docker exec tasken-headless node core-dist/mobile-pair.mjs list     # ペア済みの端末
+docker exec tasken-headless node core-dist/mobile-pair.mjs revoke <deviceId>
+```
+
+Androidの接続画面に、`https://<NASのtailnet名>:8447`とコードを入れる。端末の一覧はNASのDBにだけあり（同期しない）、Desktopの設定画面には出ない。取り消しはここで行う。
+
+### 乗り換えと守り
+
+- 乗り換える前に、スマホのoutboxを空にする（Desktopへ送って応答を失った操作を、NASへ再送して二重に適用しないため）。
+- NASが取り込みの途中（`starting`・`waiting_*`・`blocked`・`io_error`）の間と、そのEntityが同期の競合中の間は、既存Entityの編集を503で断る。端末のoutboxに残り、取り込みが追いつくと自動で通る。競合はDesktopの画面で解く。
+- NASのDBを古いバックアップから戻すと、共有フォルダへ公開済みの連番より後戻りする。検出すると公開と取り込みを止め（`blocked`）、端末の書き込みも断る。最新のバックアップから戻し直す。
+- 委任はNASではできない。写真・Capture・Task・WorkLog・Feedの反応と返信・続けること・手入れは、Desktopと同じ範囲を書ける。
+
 ## コンテナ設定（堅牢化）
 
 `deploy/synology/docker-compose.yml` は次の前提で組んでいます。

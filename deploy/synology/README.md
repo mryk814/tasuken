@@ -9,6 +9,7 @@ Issue #588 Phase 2 のTasken headless replica配置です。詳細な手順・�
 | `docker-compose.yml`        | Container Manager Project用。UID/GID・read_only・cap_drop等を設定                                           |
 | `docker-compose.tunnel.yml` | Secure MCP Tunnelサイドカー（Phase 3、上書き用）                                                            |
 | `docker-compose.http.yml`   | tailnet向けStreamable HTTP MCP。NASホストのloopbackだけに待ち受ける上書き用設定                             |
+| `docker-compose.mobile.yml` | スマホ（Android）の同期の相手をNASにする（Mobile Gateway。127.0.0.1:48177、上書き用）                       |
 | `.env.example`              | UID/GID・同期フォルダ・`TASKEN_CORE_WRITE_MODE`・tunnel設定の見本                                           |
 | `backup.sh`                 | 稼働中replicaの`/data`を停止中にsnapshotし、隔離read-only検証を行う                                         |
 | `nas-install.sh`            | NAS上の配置入口（source展開・image load・.env/state・write-probe・起動）                                    |

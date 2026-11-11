@@ -368,7 +368,7 @@ Foldの目視は `output/android-attention/fold-attention-detail.png`（2076×21
 
 - Desktopの正本データに変更はない。AndroidのキャッシュDBだけが **v25 → v26** へ上がる（`attention_cache` / `attention_state` / `pending_agent_reply` を追加）。
 - 既存のTask・Outbox・Pending Human Review・通知配送はmigrationで保持する（`MobileLocalDatabaseMigrationTest` と `MobilePhotoUpgradeTest` で確認）。
-- 要対応はキャッシュであり、正本は常にDesktop。**アプリを再インストールしても失うのは表示だけ**で、回答は `pending_agent_reply` に残る。
+- 要対応はキャッシュであり、正本は端末が組んだ相手（Desktop、またはMobile Gatewayを動かすNAS。どちらも共有フォルダ同期で同じWorkspaceを持つ）。**アプリを再インストールしても失うのは表示だけ**で、回答は `pending_agent_reply` に残る。
 
 ## 10. 実装を置く境界
 

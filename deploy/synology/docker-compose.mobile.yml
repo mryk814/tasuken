@@ -1,0 +1,14 @@
+# スマホ（Android）の同期の相手をNASにする（Mobile Gateway。追加上書き用）。
+# 使い方と守りは docs/synology-headless-node.md の「スマホの同期の相手をNASにする」。
+#
+# - 待受は 127.0.0.1:48177 のまま。HTTPS は Tailscale Serve（例 8447 → 48177）をNAS上で本人が設定する。
+#   Docker の ports 転送や 0.0.0.0 への bind では代替しない（HTTP MCP の overlay と同じ理由）。
+# - host network へ切り替えるので、既に http overlay を使っているなら同じ変更が重なるだけ。
+#   初回は Core を再作成する（--remove-orphans は使わない）。
+# - Core は共有フォルダ同期への参加（--sync-directory）が済んでいないと、Gateway を起動せずに止まる。
+services:
+  tasken-headless:
+    network_mode: host
+    environment:
+      TASKEN_CORE_MOBILE_GATEWAY: "1"
+      TASKEN_CORE_MOBILE_GATEWAY_PORT: "${TASKEN_CORE_MOBILE_GATEWAY_PORT:-48177}"
