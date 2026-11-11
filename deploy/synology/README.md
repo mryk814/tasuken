@@ -22,11 +22,11 @@ Issue #588 Phase 2 のTasken headless replica配置です。詳細な手順・�
 
 NASがGitHubの`main`を見て、`Dockerfile.nas`で作り、`tasken-update-image.sh`で入れ替えます。実行役・導入（`install-tasken.sh`）・結果の読み方は、実行役のリポジトリnas-pull（GitHubには置いていない）のREADMEが正本です。replicaだけがプル型で、Desktop（正本の書き手）の更新は変えません。
 
-版ずれは、新しい版が「Desktopが共有フォルダに書いた同期差分を取り込めるか」で見ます（各端末のSQLite schemaは端末の中だけのもの）。入れ替えの前に新しいimageへ、ほかの端末の最新の差分（各端末20件。replica自身の端末は外す）を読ませて、読めなければ何も変えずに後回し（`SYNC_SKEW`）。取り込み済みの古い差分が読めないだけなら止めません。起動の後は、起動の同期が通ったか・未取り込みの差分を読めるかを見て、駄目ならimageを戻します。判定はimageの中の`core-dist/replica-check.mjs`がします。逆向き（replicaが書いた差分をDesktopが読めるか）は、Desktopの版を共有フォルダから知る手段がまだ無いため、入れ替えでは確かめません。代わりに、AI作成のTask・Noteの差分の形を`contracts/sync/ai-item-packets.json`に置き、形を変えるPRはそこへ一言の印（Desktopを先に上げる必要があるか）を足さないと`tests/ai-item-creation.test.mjs`が落ちます（本人の判断、2026-11-08）。
+版ずれは、新しい版が「Desktopが共有フォルダに書いた同期差分を取り込めるか」で見ます（各端末のSQLite schemaは端末の中だけのもの）。入れ替えの前に新しいimageへ、ほかの端末の最新の差分（各端末20件。replica自身の端末は外す）を読ませて、読めなければ何も変えずに後回し（`SYNC_SKEW`）。取り込み済みの古い差分が読めないだけなら止めません。起動の後は、起動の同期が通ったか・未取り込みの差分を読めるかを見て、駄目ならimageを戻します。判定はimageの中の`core-dist/replica-check.mjs`がします。逆向き（replicaが書いた差分をDesktopが読めるか）は、Desktopの版を共有フォルダから知る手段がまだ無いため、入れ替えでは確かめません。代わりに、replicaがAIの書き込みで出す差分の形（Task・Noteの新規作成と、既存Taskの直接変更）を`contracts/sync/ai-item-packets.json`に置き、形を変えるPRはそこへ一言の印（Desktopを先に上げる必要があるか）を足さないと`tests/ai-item-creation.test.mjs`が落ちます（本人の判断、2026-11-08）。
 
 守ること:
 
-- replicaはread-only運用が既定。`TASKEN_CORE_WRITE_MODE=proposals` と `TASKEN_MCP_READ_ONLY=0` の両方でProposal受付を許可する。本人用Task/Noteの新規作成も許可する場合だけ、新Core/bridgeを配置し`TASKEN_CORE_WRITE_MODE=create-only`を明示する。汎用編集・削除・完了・直接開始は公開しない（[詳細](../../docs/ai-item-creation.md)）。
+- replicaはread-only運用が既定。`TASKEN_CORE_WRITE_MODE=proposals` と `TASKEN_MCP_READ_ONLY=0` の両方でProposal受付を許可する。本人用Task/Noteの新規作成も許可する場合だけ、新Core/bridgeを配置し`TASKEN_CORE_WRITE_MODE=create-only`を明示する。汎用の編集口は公開しない。直接開始（`TASKEN_CORE_AI_TASK_START=1`）と、既存Taskの直接変更（`TASKEN_CORE_AI_TASK_CHANGE=1`。`create-only`と一緒だけ）は、それぞれ明示したときだけ公開する（[作成](../../docs/ai-item-creation.md)・[直接変更](../../docs/synology-headless-node.md#既存taskの直接変更を許す--allow-ai-task-change688)）。
 - SQLite/WALを同期フォルダ（SMB/NFS/OneDrive）へ置かない。`/data` はNASローカル。
 - DesktopとNASで同じstateを同時に開かない（二重writerにしない）。
 

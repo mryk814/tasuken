@@ -160,6 +160,20 @@ sudo docker run --rm --network container:tasken-headless --user 1026:100 \
 - 期待値（`proposals`配備）: `TOOL_COUNT 21`（read 16 + write 5）・`HAS_WRITE true`。`-e TASKEN_MCP_READ_ONLY=0`を外すと`TOOL_COUNT 16`・`HAS_WRITE false`。Coreが`read-only`配備なら、`TASKEN_MCP_READ_ONLY=0`でも使える書き込みtoolがないため`TOOL_COUNT 16`です。
 - `tasken-headless:local`の代わりに固定tagのimageを使うと、配置版を明示できます。
 
+### 既存Taskの直接変更を許す（`--allow-ai-task-change`、#688）
+
+私用のWorkspaceのNASで、Museなどが本人の言葉を根拠に既存のTaskを直接変え（編集・完了・再開・削除・委任）、取り消せるようにします。規則はDesktopの`change_task`・`undo_change`と同じです。Noteの編集と採否は取り消せないので、Desktopだけに残しています。既定は無効です。
+
+1. **先にDesktopを、#703の入った版へ上げる。** 古いDesktopでも同期は止まりませんが、Activityに本人の言葉が出ず、画面から取り消せません。
+2. Coreを`create-only`にし、`TASKEN_CORE_AI_TASK_CHANGE=1`を足す。このrepoのcomposeでは`.env`へ書きます。本番（nas-pull）では、`docker-compose.json`の`tasken-headless`の`environment`へ書きます。`create-only`以外と一緒だと、Coreは`WRITE_MODE_CONFLICT`で起動しません。
+3. HTTPの`mcp_http_clients`で、許すクライアントだけに`"readOnly": false`と`"allowTaskChange": true`を書き、`mcp-http`を作り直す。
+4. そのクライアントで`tasken.get_capabilities`を呼び、`writes.task_edit`と`writes.undo`が`true`なら有効です。
+
+- NASの取り込みが遅れている間は、`REPLICA_BEHIND`（409）で断ります。同期が追いつけば通ります。
+- AIの公開範囲の外のTaskは、無いものとして`NOT_FOUND`を返します。Themeと項目ごとの公開範囲は同期でNASにも届きます。ただし設定の「全体の既定」は端末ごとの設定でNASには届かないので、NASでは既定（AIに見せる）のままです。
+- 変更と本人の言葉は同期でDesktopへ届き、Activityに出ます。DesktopのActivityから取り消すと、NASにも戻ります。
+- やめるときは`TASKEN_CORE_AI_TASK_CHANGE`を外すか`0`にして、`tasken-headless`を作り直します。
+
 ## Phase 3: Secure MCP Tunnelで外部AIへ公開
 
 NASのCoreはloopbackのみなので、ChatGPT/Codex等へはOpenAI Secure MCP Tunnelの`tunnel-client`をNAS側で常駐させ、**outbound HTTPSだけ**で接続します（inboundポートは開けません）。実装は`deploy/synology/docker-compose.tunnel.yml`のサイドカーで、Coreとネットワーク名前空間を共有し、`node /app/mcp-dist/server.mjs`をstdio子プロセスとして起動します（`TASKEN_MCP_READ_ONLY`は既定`1`）。Tasken domain側へtransport固有logicは持ち込みません。
