@@ -542,3 +542,128 @@ test("実stdioのMCP: 一覧に出て、設定の状態を返し、本人の言�
     "disabled_in_settings",
   );
 });
+
+test("レビューの指摘: 取り消しは取り消せない（本人の取り消しをAIがやり直せない）", async (t) => {
+  const { db, core, changes } = await desktop(t);
+  const task = humanTask(db, "task-redo");
+  const edited = await core.changeTask(
+    change(task, { changes: { title: "AIの題名" }, said: "題名を変えて" }),
+  );
+  const userUndo = changes.undoByUser(edited.change_id);
+  assert.equal(userUndo.stopped, null);
+  const redo = await core.undoChange({
+    change_id: userUndo.undone[0].undo_change_id,
+    why: "やっぱり戻す",
+    idempotency_key: "redo-user-undo",
+    caller: "Claude Code",
+    source_session: "conversation-a",
+  });
+  assert.equal(redo.undone.length, 0);
+  assert.equal(redo.stopped.code, "NOT_AI_CHANGE");
+  assert.equal(db.get("task", task.id).title, "四半期の資料");
+});
+
+test("レビューの指摘: 完了・再開の取り消しは、前の完了日時と完了メモに戻す", async (t) => {
+  const { db, core, changes } = await desktop(t);
+  const done = humanTask(db, "task-was-done", {
+    state: "done",
+    completed_at: "2026-10-01T09:00:00.000Z",
+    completion_note: "前の完了メモ",
+  });
+  const reopened = await core.changeTask(
+    change(done, { action: "reopen", said: "まだ終わってない" }),
+  );
+  assert.equal(changes.undoByUser(reopened.change_id).stopped, null);
+  const back = db.get("task", done.id);
+  assert.equal(back.state, "done");
+  assert.equal(back.completed_at, "2026-10-01T09:00:00.000Z");
+  assert.equal(back.completion_note, "前の完了メモ");
+
+  const todo = humanTask(db, "task-note", { completion_note: "前のメモ" });
+  const completed = await core.changeTask(
+    change(todo, { action: "complete", completion_note: "AIのメモ", said: "終わった" }),
+  );
+  assert.equal(changes.undoByUser(completed.change_id).stopped, null);
+  assert.equal(db.get("task", todo.id).state, "todo");
+  assert.equal(db.get("task", todo.id).completion_note, "前のメモ");
+});
+
+test("レビューの指摘: チェック項目のdoneを省いても済みは外れない", async (t) => {
+  const { db, core } = await desktop(t);
+  const task = humanTask(db, "task-checklist", {
+    checklist_items: [
+      {
+        id: "item-a",
+        title: "A",
+        done: true,
+        sort_order: 0,
+        completed_at: "2026-11-01T00:00:00.000Z",
+      },
+    ],
+  });
+  const result = await core.changeTask(
+    change(task, {
+      changes: { checklist: [{ id: "item-a", title: "A" }, { title: "B" }] },
+      said: "Bを足して",
+    }),
+  );
+  const [a, b] = result.task.checklist_items;
+  assert.equal(a.done, true);
+  assert.equal(a.completed_at, "2026-11-01T00:00:00.000Z");
+  assert.equal(b.done, false);
+});
+
+test("レビューの指摘: 元に無かった欄の取り消し、本人の言葉の後の上書き、値の変わらない変更の取り消し", async (t) => {
+  const { db, core } = await desktop(t);
+  const created = await core.createAiItem({
+    kind: "task",
+    title: "AIのTask",
+    caller: "Claude Code",
+    idempotency_key: "created-missing-fields",
+  });
+  let task = db.get("task", created.entity.id);
+  assert.equal(task.checklist_items, undefined);
+  const added = await core.changeTask(
+    change(task, { changes: { checklist: [{ title: "手順1" }] }, why: "手順を書き出す" }),
+  );
+  const undone = await core.undoChange({
+    change_id: added.change_id,
+    why: "やっぱり要らない",
+    idempotency_key: "undo-missing-field",
+    caller: "Claude Code",
+    source_session: "conversation-a",
+  });
+  assert.equal(undone.stopped, null);
+  assert.deepEqual(db.get("task", task.id).checklist_items, []);
+
+  // 本人の言葉で一度決めたTaskは、AIが作ったものでも次から本人の言葉が要る。
+  task = db.get("task", task.id);
+  const decided = await core.changeTask(
+    change(task, { changes: { title: "本人が決めた題名" }, said: "題名はこれにして" }),
+  );
+  await refused(
+    core.changeTask(change(decided.task, { changes: { title: "AIの題名" }, why: "整える" })),
+    "ASK_USER",
+  );
+
+  // 値の変わらない変更は、取り消しても何も変えず、二度は対象にしない。
+  const same = await core.changeTask(
+    change(decided.task, { changes: { title: "本人が決めた題名" }, said: "そのままで" }),
+  );
+  const first = await core.undoChange({
+    change_id: same.change_id,
+    said: "戻して",
+    idempotency_key: "undo-same-1",
+    caller: "Claude Code",
+    source_session: "conversation-a",
+  });
+  assert.equal(first.stopped, null);
+  const second = await core.undoChange({
+    change_id: same.change_id,
+    said: "戻して",
+    idempotency_key: "undo-same-2",
+    caller: "Claude Code",
+    source_session: "conversation-a",
+  });
+  assert.equal(second.stopped.code, "ALREADY_UNDONE");
+});

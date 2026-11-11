@@ -47,7 +47,10 @@ export const aiChecklistItemInputSchema = z
   .object({
     id: entityIdSchema.optional().describe("Keep for existing items; omit for new ones."),
     title: z.string().trim().min(1).max(200),
-    done: z.boolean().default(false),
+    done: z
+      .boolean()
+      .optional()
+      .describe("Omit to keep an existing item's state; new items default to not done."),
   })
   .strict();
 

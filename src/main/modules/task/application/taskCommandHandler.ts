@@ -314,10 +314,12 @@ export class TaskCommandHandler {
           ...(requestedTask || {}),
           id: taskId,
           state: "done",
+          // 取り消しで前の完了に戻すときだけ、前の完了日時をchangesで受け取る。
           completed_at:
-            command.source === "mobile"
+            (requestedTask?.completed_at as string | null | undefined) ||
+            (command.source === "mobile"
               ? new Date(command.issuedAt).toISOString()
-              : this.runtime.now(),
+              : this.runtime.now()),
           completion_note:
             (command.payload as { completionNote?: string | null }).completionNote ??
             current.completion_note ??
