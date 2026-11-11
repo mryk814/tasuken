@@ -129,4 +129,4 @@ Electron・renderer・Windows UIを必須とせずCoreを起動するcomposition
 
 create_task / create_note は create_ai_item capabilityのある接続だけに公開する。旧Proposalツールの採否・pendingは維持する。入力と安全境界は [AI item creation](ai-item-creation.md) を参照。
 
-`change_task` / `undo_change` / `decide_proposal` / `edit_note` は ai_direct_write capability のある接続（Desktop だけ）に公開し、本人が設定で直接の書き込みを許したときだけ使える。入力・根拠・取り消しの契約は engineering-contracts の AI 連携の節を参照。
+`change_task` / `undo_change` は task.ai_change capability のある接続（Desktop と、明示した私用の NAS）に、`decide_proposal` / `edit_note` は ai_direct_write capability のある接続（Desktop だけ）に公開する。Desktop では本人が設定で直接の書き込みを許したときだけ使える。入力・根拠・取り消しの契約は engineering-contracts の AI 連携の節を参照。

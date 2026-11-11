@@ -72,7 +72,7 @@ async function desktop(t, { enabled = true } = {}) {
     scope: "any",
   });
   const changes = createAiTaskChangeService(db, commands, isEnabled);
-  runtime.enableAiDirectWrite(changes);
+  runtime.enableAiTaskChange(changes);
   await runtime.start();
   t.after(async () => {
     await runtime.stop();
@@ -405,6 +405,44 @@ test("本人はDesktopの画面からAIの変更を取り消せる。本人の�
   assert.equal(changes.undoByUser(edited.change_id).stopped.code, "ALREADY_UNDONE");
   // 人の変更はここからは取り消せない。
   assert.equal(changes.undoByUser("not-an-ai-change").stopped.code, "NOT_FOUND");
+});
+
+// 読めないものは変えさせない。NASのHTTPのclientはTaskのIDを外から持ち込めるので、読み取りと同じ判定にする。
+test("AIの公開範囲の外のTaskとThemeは無いものとして扱う。本人の画面からの取り消しは使える", async (t) => {
+  const { db, core, changes } = await desktop(t);
+  db.save("theme", { id: "theme-private", name: "見せない", default_ai_visibility: [] });
+  const hidden = humanTask(db, "task-hidden", { project_id: "theme-private" });
+  await refused(
+    core.changeTask(change(hidden, { changes: { title: "変更" }, said: "題名を変えて" })),
+    "NOT_FOUND",
+  );
+  assert.equal(db.get("task", hidden.id).title, "四半期の資料");
+
+  const visible = humanTask(db, "task-visible");
+  await refused(
+    core.changeTask(
+      change(visible, { changes: { theme_id: "theme-private" }, said: "見せないThemeへ移して" }),
+    ),
+    "INVALID_REFERENCE",
+  );
+  // 変えた後に本人がThemeを隠したら、AIはその変更を戻せない。本人は画面から戻せる。
+  const edited = await core.changeTask(
+    change(visible, { changes: { title: "AIの題名" }, said: "題名を変えて" }),
+  );
+  db.save("theme", { ...db.get("theme", "theme-work"), default_ai_visibility: [] });
+  const result = await core.undoChange({
+    change_id: edited.change_id,
+    said: "戻して",
+    idempotency_key: "undo-hidden",
+    caller: "Claude Code",
+    source_session: "conversation-a",
+  });
+  assert.equal(result.undone.length, 0);
+  assert.equal(result.stopped.code, "NOT_FOUND");
+  assert.equal(result.stopped.current_task, null);
+  assert.equal(db.get("task", visible.id).title, "AIの題名");
+  assert.equal(changes.undoByUser(edited.change_id).stopped, null);
+  assert.equal(db.get("task", visible.id).title, "四半期の資料");
 });
 
 test("同期の競合中のTaskは断る", async (t) => {

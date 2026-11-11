@@ -1,8 +1,4 @@
 import {
-  createAiItemCreationPort,
-  createAiTaskChangeService,
-} from "./composition/taskenCoreRuntime.ts";
-import {
   app,
   BrowserWindow,
   globalShortcut,
@@ -50,7 +46,6 @@ import { WorkspaceDatabase, inspectWorkspaceBackup } from "./repositories/worksp
 import { BatchTranscriptionRepository } from "./repositories/batchTranscriptionRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
 import { AiProposalAcceptanceService } from "./services/aiProposalAcceptanceService";
-import { AiProposalDecisionService } from "./services/aiProposalDecisionService";
 import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBackup";
@@ -71,7 +66,6 @@ import { createTaskenRootController, type TaskenRootController } from "./taskenR
 import { screenRecordingOriginsMatch } from "../shared/screenRecording.mjs";
 import type { CommandReceipt } from "../shared/applicationCommand";
 import {
-  AI_DIRECT_WRITE_PREFERENCE,
   IPC,
   type RootOpenRequest,
   type SatelliteWindowStatePayload,
@@ -2747,33 +2741,11 @@ async function startDesktopApp(): Promise<void> {
     undefined,
     composition.createCoreClient(),
   );
-  // ローカルのAI（Claude Codeなど）の直接の書き込み。入口は常に公開し、使えるかは本人の設定
-  // （設定 → AI & Context）を要求のたびに読む。既定は無効。
-  const aiDirectWriteEnabled = () =>
-    workspaceRepository.readPreference(AI_DIRECT_WRITE_PREFERENCE) === true;
-  composition.coreRuntime.enableAiItemCreation(
-    createAiItemCreationPort(applicationCommands, workspaceService, () => {
-      notifyMainWindowRefresh();
-    }),
-    { isEnabled: aiDirectWriteEnabled, scope: "any" },
-  );
-  const aiTaskChanges = createAiTaskChangeService(
-    workspaceRepository,
-    applicationCommands,
-    aiDirectWriteEnabled,
-    (receipt) => notifyCommandApplied(receipt, -1),
-  );
-  composition.coreRuntime.enableAiDirectWrite(
-    aiTaskChanges,
-    new AiProposalDecisionService({
-      persistence: workspaceRepository,
-      commands: applicationCommands,
-      artifacts: workspaceService,
-      proposeContent: (request) => composition.coreRuntime.proposeContent(request),
-      isEnabled: aiDirectWriteEnabled,
-      onCommitted: (receipt) => notifyCommandApplied(receipt, -1),
-    }),
-  );
+  const aiTaskChanges = composition.enableAiWrites({
+    workspace: workspaceService,
+    onCreated: () => notifyMainWindowRefresh(),
+    onCommitted: (receipt) => notifyCommandApplied(receipt, -1),
+  });
   await composition.start();
   const backupDatabase = workspaceRepository;
   automaticSnapshotBackup = new AutomaticSnapshotBackupService({

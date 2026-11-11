@@ -13,11 +13,13 @@ type Persistence = WorkspaceTaskPersistence & {
   changeEventCommandIdsWithPrefix(prefix: string): Set<string>;
   listChangeEventsForEntity(recordType: string, entityId: string): Entity[];
   hasSyncConflict(entityType: string, entityId: string): boolean;
+  readPreference(key: "aiVisibilityDefault"): unknown;
 };
 
 /**
- * Desktop専用。ローカルのAIの直接変更（#703）を、Desktopと同じTask serviceとApplication Commandへ繋ぐ。
- * `isEnabled`は本人の設定、`onCommitted`は画面の更新。
+ * AIの直接変更（#703）を、Desktopと同じTask serviceとApplication Commandへ繋ぐ。
+ * Desktopと、配備で明示したNAS replica（#688）が使う。
+ * `isEnabled`はDesktopでは本人の設定（NASは配備で許した時点で常に真）、`onCommitted`は画面の更新。
  */
 export function createAiTaskChangeService(
   persistence: Persistence,

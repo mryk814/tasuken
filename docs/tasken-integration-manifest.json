@@ -82,6 +82,7 @@
   "activation": {
     "aiItemCreation": "Explicit create-only configuration only",
     "taskStart": "Independent TASKEN_CORE_AI_TASK_START=1 opt-in; default 0; read-only denied",
+    "aiTaskChange": "Independent TASKEN_CORE_AI_TASK_CHANGE=1 opt-in with create-only only; default 0; HTTP clients also need allowTaskChange",
     "mcpWrites": "Explicit TASKEN_MCP_READ_ONLY=0 only after approval",
     "historyImport": "Explicit file preview/adoption or consented Codex/Claude source-folder difference collection; no hook installation. Optional in-app five-minute sync is off by default; no OS autostart.",
     "aiOrigin": "Mobile request header X-Tasken-Ai-Origin: 1",

@@ -128,6 +128,7 @@ import {
 } from "../../../shared/contracts/task/public.ts";
 import {
   TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+  TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
@@ -330,7 +331,7 @@ const ROUTES: readonly RouteDefinition[] = [
     path: "/v1/commands/change-task",
     kind: "command",
     provider: "changeTask",
-    capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+    capability: TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
     schema: aiTaskChangeRequestSchema,
   },
   {
@@ -351,7 +352,7 @@ const ROUTES: readonly RouteDefinition[] = [
     path: "/v1/commands/undo-change",
     kind: "command",
     provider: "undoChange",
-    capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+    capability: TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
     schema: aiChangeUndoRequestSchema,
   },
   {
@@ -829,18 +830,27 @@ export class TaskenCoreHost {
     this.directWriteEnabled = directWriteEnabled || null;
   }
 
-  /** Desktopだけが、既存Taskの直接変更と取り消しを公開する。使えるかは設定を要求のたびに読む。 */
-  enableAiDirectWrite(providers: {
+  /**
+   * 既存Taskの直接変更と取り消し。Desktopと、明示したNAS replicaが公開する。
+   * 使えるかの判定（Desktopは本人の設定）はproviderが持つ。
+   */
+  enableAiTaskChange(providers: {
     changeTask: QueryProvider<AiTaskChangeRequest, AiTaskChangeResponse>;
     undoChange: QueryProvider<AiChangeUndoRequest, AiChangeUndoResponse>;
-    decideProposal?: QueryProvider<AiProposalDecisionRequest, AiProposalDecisionResponse>;
-    editNote?: QueryProvider<AiNoteEditRequest, AiNoteEditResponse>;
   }) {
     if (this.server) throw new Error("Core起動後の権限変更はできません。");
     this.options.changeTask = providers.changeTask;
     this.options.undoChange = providers.undoChange;
-    if (providers.decideProposal) this.options.decideProposal = providers.decideProposal;
-    if (providers.editNote) this.options.editNote = providers.editNote;
+  }
+
+  /** Desktopだけが、取り消せない直接の書き込み（Noteの編集と採否）を公開する。 */
+  enableAiDirectWrite(providers: {
+    decideProposal: QueryProvider<AiProposalDecisionRequest, AiProposalDecisionResponse>;
+    editNote: QueryProvider<AiNoteEditRequest, AiNoteEditResponse>;
+  }) {
+    if (this.server) throw new Error("Core起動後の権限変更はできません。");
+    this.options.decideProposal = providers.decideProposal;
+    this.options.editNote = providers.editNote;
   }
 
   /** NAS replicaだけが、同期の状態と鮮度を読み取りに公開する。Core起動前に一度だけ呼ぶ。 */

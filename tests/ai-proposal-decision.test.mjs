@@ -68,8 +68,8 @@ async function desktop(t) {
     isEnabled,
     scope: "any",
   });
+  runtime.enableAiTaskChange(createAiTaskChangeService(db, commands, isEnabled));
   runtime.enableAiDirectWrite(
-    createAiTaskChangeService(db, commands, isEnabled),
     new AiProposalDecisionService({
       persistence: db,
       commands,
