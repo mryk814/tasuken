@@ -16,6 +16,25 @@ import {
 
 const AUDIT_SPAWN_MAX_BUFFER = 8 * 1024 * 1024;
 
+/**
+ * 件数の食い違いだけでは何を直せばよいか分からない（「24 !== 23」で二度つまずいた。FAILURES.md）。
+ * 基準に無く抑止も無い指摘を名指しし、直し方を添える。
+ */
+function unexplainedFindings(report) {
+  const findings = report.findings
+    .filter((entry) => !entry.baseline && !entry.suppressed)
+    .map((entry) => `${entry.ruleId} ${entry.source} -> ${entry.target ?? ""}`);
+  return findings.length === 0
+    ? ""
+    : [
+        "基準に無い新しい指摘:",
+        ...findings,
+        "互換の面の利用者（compatibility.consumer_added。新しい試験が WorkspaceDatabase などを直に使うなど）は、",
+        "architecture/compatibility-baseline.json のその面の consumers に足す。それ以外は公開の契約を使うか、",
+        "architecture/suppressions.json に issue 付きで足す。",
+      ].join("\n");
+}
+
 test("generic Task batch write detection stays inside call arguments", () => {
   assert.equal(
     hasGenericTaskWrite(`
@@ -284,9 +303,9 @@ test("production audit is deterministic and keeps temporary composition growth v
     assert.equal(first.stdout, second.stdout);
     const report = JSON.parse(first.stdout);
     assert.equal(report.mode, "report-only");
-    assert.equal(report.summary.newFindings, 23);
+    assert.equal(report.summary.newFindings, 23, unexplainedFindings(report));
     assert.equal(report.summary.suppressedFindings, 23);
-    assert.equal(report.summary.blockingFindings, 0);
+    assert.equal(report.summary.blockingFindings, 0, unexplainedFindings(report));
     const newFindings = report.findings.filter((entry) => !entry.baseline);
     assert.equal(newFindings.length, 23);
     assert.equal(
@@ -419,7 +438,7 @@ test("Task enforcement profile is blocking and clean without changing global rep
     assert.equal(result.status, 0, result.stderr);
     const report = JSON.parse(result.stdout);
     assert.equal(report.mode, "enforced:task");
-    assert.equal(report.summary.blockingFindings, 0);
+    assert.equal(report.summary.blockingFindings, 0, unexplainedFindings(report));
     assert.deepEqual(
       report.modules
         .filter((entry) =>
@@ -476,7 +495,7 @@ test("Core and MCP enforcement profile is blocking and clean", () => {
     assert.equal(result.status, 0, result.stderr);
     const report = JSON.parse(result.stdout);
     assert.equal(report.mode, "enforced:core-mcp");
-    assert.equal(report.summary.blockingFindings, 0);
+    assert.equal(report.summary.blockingFindings, 0, unexplainedFindings(report));
     assert.deepEqual(
       report.modules
         .filter((entry) =>
