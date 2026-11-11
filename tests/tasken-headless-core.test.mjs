@@ -803,6 +803,8 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
       note_direct_create: false,
       task_edit: false,
       undo: false,
+      note_edit_direct: false,
+      proposal_decision: false,
       feed_post: true,
       feed_reply: true,
       note_create: true,
@@ -816,6 +818,12 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
       { name: "tasken.create_note", reason: "missing_capability:create_ai_item", listed: false },
       // 既存Taskの直接変更はDesktopだけ。NASには出さない（#703）。
       { name: "tasken.change_task", reason: "missing_capability:ai_direct_write", listed: false },
+      {
+        name: "tasken.decide_proposal",
+        reason: "missing_capability:ai_direct_write",
+        listed: false,
+      },
+      { name: "tasken.edit_note", reason: "missing_capability:ai_direct_write", listed: false },
       { name: "tasken.undo_change", reason: "missing_capability:ai_direct_write", listed: false },
       {
         name: "tasken.start_task_work",

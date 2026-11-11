@@ -37,14 +37,14 @@ async function connect(t, options = {}) {
   return client;
 }
 
-// 書き込みは #703 で change_task・undo_change の2つ増えた（Desktopの直接変更）。本人が設定で無効にしていても
-// 一覧には出す（接続し直さずに使えるように）ので、その分だけ予算を広げた。
-test("discovery budgets: default read=16, write=26, core=6; legacy aliases require opt-in", async (t) => {
+// 書き込みは #703 で change_task・undo_change・decide_proposal・edit_note の4つ増えた（Desktopの直接の
+// 書き込み）。本人が設定で無効にしていても一覧には出す（接続し直さずに使えるように）ので、その分だけ予算を広げた。
+test("discovery budgets: default read=16, write=28, core=6; legacy aliases require opt-in", async (t) => {
   for (const [label, options, count, budget] of [
     ["read-only", { readOnly: true }, 16, 11000],
-    ["all", { readOnly: false }, 26, 34000],
+    ["all", { readOnly: false }, 28, 36000],
     ["core", { readOnly: true, env: { TASKEN_MCP_TOOLSETS: "core" } }, 6, 6000],
-    ["legacy", { readOnly: false, toolsets: ["all", "legacy"] }, 29, 49000],
+    ["legacy", { readOnly: false, toolsets: ["all", "legacy"] }, 31, 51000],
   ]) {
     const client = await connect(t, options);
     const { tools } = await client.listTools();

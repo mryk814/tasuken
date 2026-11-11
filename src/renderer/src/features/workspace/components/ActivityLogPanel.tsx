@@ -255,6 +255,9 @@ function isAiActivityEvent(event: StructuredActivityEvent): boolean {
   );
 }
 
+/** 画面から取り消せるAIの直接変更（Taskの変更だけ。Note編集・採否は取り消しの対象外）。 */
+const AI_UNDOABLE_TASK_ACTIONS = new Set(["update", "complete", "reopen", "delete"]);
+
 /** AIの直接変更（#703）の根拠と取り消しの状態。Activityの公開metadataに残る分だけを読む。 */
 function aiDirectOf(event: StructuredActivityEvent): {
   action?: string;
@@ -1695,7 +1698,7 @@ export function ActivityLogPanel({
                           </div>
                         ) : null}
                         {expandedAiDirect &&
-                        expandedAiDirect.action !== "undo" &&
+                        AI_UNDOABLE_TASK_ACTIONS.has(String(expandedAiDirect.action)) &&
                         expandedCommandId ? (
                           expandedAiDirect.undone_by ? (
                             <span className="activity-event-state">取り消し済み</span>

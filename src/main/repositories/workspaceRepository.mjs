@@ -568,7 +568,7 @@ export class WorkspaceDatabase {
         `SELECT * FROM entities
          WHERE entity_type = 'change_event'
            AND json_extract(data_json, '$.entity_id') = ?
-           AND json_extract(data_json, '$.record_type') = ?
+           AND coalesce(json_extract(data_json, '$.record_type'), json_extract(data_json, '$.entity_type')) = ?
          ORDER BY updated_at, rowid`,
       )
       .all(String(entityId), String(recordType))

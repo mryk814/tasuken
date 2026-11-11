@@ -1060,7 +1060,54 @@ function taskCommandRuntime(repository: Repository): TaskCommandRuntime {
 export type AiTaskStartScope = "personal" | "any";
 
 export class ApplicationCommandService {
+  /**
+   * 本人の言葉を根拠に、AI（MCP）が取り次ぐProposalの採否（#703 段3）。このinstanceの中だけ、
+   * 人の画面からだけに限っていた作業報告の採用・差し戻しを、ai_agentにも許す。
+   */
+  private relayedDecision = false;
+
   constructor(private readonly repository: Repository) {}
+
+  /**
+   * Core's limited AI proposal decision entry only. 作業報告（ApplyTaskWorkProposal）・その採用に続く
+   * 完了（AcceptTaskWork）・Note案の採否（ApplyAiProposal）だけ。`annotation`を全Change Eventに付ける。
+   */
+  executeAiProposalDecision(input: unknown, annotation: Record<string, unknown>): CommandReceipt {
+    const command = parseCommandEnvelope(input);
+    if (
+      !["ApplyTaskWorkProposal", "AcceptTaskWork", "ApplyAiProposal"].includes(command.name) ||
+      command.actor.kind !== "ai_agent" ||
+      command.source !== "mcp" ||
+      typeof annotation.said !== "string" ||
+      !annotation.said.trim()
+    )
+      throw new ApplicationCommandError("INVALID_ENVELOPE", "AIが取り次ぐ採否の範囲外です。");
+    return this.repository.runTransaction((transaction) => {
+      const service = new ApplicationCommandService(transaction);
+      service.relayedDecision = true;
+      const receipt = service.executeParsed(command);
+      for (const event of changeEventsForCommand(transaction, command.commandId)) {
+        const metadata =
+          event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+            ? (event.metadata as Record<string, unknown>)
+            : {};
+        transaction.save("change_event", {
+          ...event,
+          metadata: { ...metadata, include_in_activity: true, ai_direct: annotation },
+        });
+      }
+      return receipt.status === "applied"
+        ? { ...receipt, eventChanges: eventChangesFor(transaction, receipt.events) }
+        : receipt;
+    });
+  }
+
+  /** 人の確認（採用・差し戻しなど）は人の画面から。本人の言葉をAIが取り次ぐ採否だけ例外。 */
+  private assertHumanReviewActor(command: CommandEnvelope, action: string): void {
+    if (this.relayedDecision && command.actor.kind === "ai_agent" && command.source === "mcp")
+      return;
+    assertHumanReviewActor(command, action);
+  }
 
   execute(input: unknown): CommandReceipt {
     const command = parseCommandEnvelope(input);
@@ -1513,7 +1560,11 @@ export class ApplicationCommandService {
       command.actor.kind === "ai_agent" &&
       !aiAgentCommands.has(command.name) &&
       !aiTaskCreation &&
-      !(aiDirectChange && aiDirectChangeCommands.has(command.name))
+      !(aiDirectChange && aiDirectChangeCommands.has(command.name)) &&
+      !(
+        this.relayedDecision &&
+        ["ApplyTaskWorkProposal", "AcceptTaskWork", "ApplyAiProposal"].includes(command.name)
+      )
     ) {
       throw new ApplicationCommandError(
         "INVALID_TRANSITION",
@@ -2581,7 +2632,7 @@ export class ApplicationCommandService {
   }
 
   private acceptTaskWork(command: CommandEnvelope, exactReceiptId?: string): CommandReceipt {
-    assertHumanReviewActor(command, "AcceptTaskWork");
+    this.assertHumanReviewActor(command, "AcceptTaskWork");
     const payload = command.payload as {
       taskId: string;
       receiptId?: string | null;
@@ -2693,7 +2744,7 @@ export class ApplicationCommandService {
   }
 
   private returnTaskWork(command: CommandEnvelope): CommandReceipt {
-    assertHumanReviewActor(command, "ReturnTaskWork");
+    this.assertHumanReviewActor(command, "ReturnTaskWork");
     const payload = command.payload as {
       taskId: string;
       receiptId?: string | null;

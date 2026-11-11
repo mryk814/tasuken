@@ -119,7 +119,7 @@ const PUBLIC_METADATA_OBJECT_FIELDS = new Map([
   ["repository_context", ["repository_context_id", "provider", "repository_slug", "branch"]],
   [
     "ai_direct",
-    ["action", "said", "why", "caller", "source_session", "by", "undo_of", "undone_by"],
+    ["action", "decision", "said", "why", "caller", "source_session", "by", "undo_of", "undone_by"],
   ],
   [
     "note_ai_command_marker",

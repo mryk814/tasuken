@@ -437,3 +437,14 @@ export {
   taskScheduleEditFromAiInput,
   type AiTaskScheduleInput,
 } from "./aiSchedule.ts";
+export {
+  aiNoteEditRequestSchema,
+  aiNoteEditResponseSchema,
+  aiProposalDecisionRequestSchema,
+  aiProposalDecisionResponseSchema,
+  type AiNoteEditRequest,
+  type AiNoteEditResponse,
+  type AiProposalDecisionRequest,
+  type AiProposalDecisionResponse,
+} from "./aiProposalDecision.ts";
+export { CorePublicError, directWriteDisabled } from "./corePublicError.ts";

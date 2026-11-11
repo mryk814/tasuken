@@ -16,6 +16,8 @@ import type { NoteProposalImagePort } from "../core/public.ts";
 import type { CaptureImagePort } from "../core/public.ts";
 import {
   getSourceStatusResponseSchema,
+  type AiNoteEditResponse,
+  type AiProposalDecisionResponse,
   type NoteProposalImage,
 } from "../../shared/contracts/task/public.ts";
 import {
@@ -243,6 +245,7 @@ export class TaskenCoreRuntime {
   private readonly routineWriter?: RoutineWriterPort;
   private readonly executeApplicationCommand: ExecuteApplicationCommand;
   private readonly taskContext: ReturnType<typeof createTaskenCore>["getTaskContext"];
+  private readonly contentProposals: ReturnType<typeof createTaskenCore>["proposeContent"];
   private readonly agentSessionContext: ReturnType<
     typeof createTaskenCore
   >["getAgentSessionContext"];
@@ -293,6 +296,7 @@ export class TaskenCoreRuntime {
       captureImagePort: this.captureImagePort,
     });
     this.taskContext = core.getTaskContext;
+    this.contentProposals = core.proposeContent;
     this.agentSessionContext = core.getAgentSessionContext;
     this.executeTaskDelegation = executeTaskDelegation;
     this.taskCapability = new TaskCapabilityService(persistence, executeApplicationCommand);
@@ -743,11 +747,28 @@ export class TaskenCoreRuntime {
   }
 
   /** Desktop専用。既存Taskの直接変更と取り消し（#703）。 */
-  enableAiDirectWrite(service: AiTaskChangeService) {
+  enableAiDirectWrite(
+    service: AiTaskChangeService,
+    decisions?: {
+      decide(request: unknown): AiProposalDecisionResponse;
+      editNote(request: unknown): AiNoteEditResponse;
+    },
+  ) {
     this.host.enableAiDirectWrite({
       changeTask: { execute: (request) => service.change(request) },
       undoChange: { execute: (request) => service.undo(request) },
+      ...(decisions
+        ? {
+            decideProposal: { execute: (request) => decisions.decide(request) },
+            editNote: { execute: (request) => decisions.editNote(request) },
+          }
+        : {}),
     });
+  }
+
+  /** Coreの提案の入口（propose_content）。AIの直接のNote編集が、編集のProposalを作るのに使う。 */
+  proposeContent(request: Record<string, unknown>) {
+    return this.contentProposals.execute(request as never);
   }
 
   /** NAS replica専用。Desktopのcompositionでは呼ばない。 */
