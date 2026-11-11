@@ -84,7 +84,7 @@ async function desktop(t) {
     db.db.close();
     fs.rmSync(dir, { recursive: true, force: true });
   });
-  return { db, core: new TaskenCoreClient({ userDataPath: dir }) };
+  return { db, workspace, core: new TaskenCoreClient({ userDataPath: dir }) };
 }
 
 const who = { caller: "Claude Code", source_session: "conversation-d" };
@@ -98,7 +98,7 @@ async function refused(promise, code) {
   return caught;
 }
 
-async function reportedTask(db, core) {
+async function reportedTask(db, core, action = "report_done") {
   db.save("task", {
     id: "task-report",
     title: "資料の誤字を探す",
@@ -124,9 +124,11 @@ async function reportedTask(db, core) {
     caller: "Claude Code",
     executor_kind: "ai_agent",
     executor_label: "Claude Code",
-    summary: "誤字を3か所直した",
+    ...(action === "report_blocked"
+      ? { blocker: "原本の場所が分からない" }
+      : { summary: "誤字を3か所直した" }),
     work_attempt_id: "6a1b8d2e-3c4f-4a5b-8c6d-7e8f9a0b1c2d",
-    action: "report_done",
+    action,
     actor: { kind: "ai_agent" },
     source: "mcp",
     source_app: "claude-code",
@@ -151,8 +153,11 @@ test("作業報告を本人の言葉で採用し、Taskも完了にする。本�
   assert.equal(decided.proposal_status, "accepted");
   assert.equal(decided.task.state, "done");
   assert(db.get("work_receipt", proposal.id), "報告がWork Receiptになる");
-  const events = db.listChangeEventsByCommandId(decided.change_id);
-  assert(events.length > 0);
+  // 採用の内側で続けて実行した記録（作業の記録・受領）にも、同じ根拠が付く。
+  const inner = [...db.changeEventCommandIdsWithPrefix(`${decided.change_id}:`)];
+  assert(inner.length > 0);
+  const events = [decided.change_id, ...inner].flatMap((id) => db.listChangeEventsByCommandId(id));
+  assert(events.length > 1);
   for (const event of events) {
     assert.equal(event.actor_kind, "ai_agent");
     assert.equal(event.metadata.ai_direct.said, "OK、それで完了にして");
@@ -163,6 +168,23 @@ test("作業報告を本人の言葉で採用し、Taskも完了にする。本�
     core.decideProposal({ ...request, decision: "reject", complete_task: undefined }),
     "ALREADY_DECIDED",
   );
+});
+
+test("レビューの指摘: 止まった報告の採用でcomplete_taskを付けると、書く前に断る", async (t) => {
+  const { db, core } = await desktop(t);
+  const proposal = await reportedTask(db, core, "report_blocked");
+  await refused(
+    core.decideProposal({
+      proposal_id: proposal.id,
+      expected_version: proposal.version,
+      decision: "accept",
+      complete_task: true,
+      said: "完了にして",
+      ...who,
+    }),
+    "INVALID_TRANSITION",
+  );
+  assert.equal(db.get("ai_proposal", proposal.id).status, "pending");
 });
 
 test("Note案の採用・却下。ほかの種類はDesktopの画面へ案内し、古い版は409", async (t) => {
@@ -208,6 +230,17 @@ test("Note案の採用・却下。ほかの種類はDesktopの画面へ案内し
     ...who,
   });
   assert.equal(rejected.proposal_status, "rejected");
+  // 却下したものを、同じ版で採用に決め直すことはできない。
+  await refused(
+    core.decideProposal({
+      proposal_id: second.id,
+      expected_version: second.version,
+      decision: "accept",
+      said: "やっぱり残して",
+      ...who,
+    }),
+    "ALREADY_DECIDED",
+  );
   assert.equal(db.list("note").filter((note) => note.title === "会議のメモ note-b").length, 0);
 
   db.save("ai_proposal", {
@@ -231,7 +264,14 @@ test("Note案の採用・却下。ほかの種類はDesktopの画面へ案内し
   );
 });
 
-test("Noteの直接編集: 版を照合し、本人が書いたNoteは本人の言葉が要り、断るときは何も残さない", async (t) => {
+/** 全文を読んだときにだけ返る、本文の署名。 */
+async function fullRead(core, noteId) {
+  const read = await core.getNote({ note_id: noteId });
+  assert.equal(read.truncated, false);
+  return { base_version: read.note.version, base_signature: read.body_signature };
+}
+
+test("Noteの直接編集: 版と全文の署名を照合し、本人が書いたNoteは本人の言葉が要り、断るときは何も残さない", async (t) => {
   const { db, core } = await desktop(t);
   const note = db.save("note", {
     id: "note-human",
@@ -244,7 +284,7 @@ test("Noteの直接編集: 版を照合し、本人が書いたNoteは本人の�
   await refused(
     core.editNote({
       note_id: note.id,
-      base_version: note.version,
+      ...(await fullRead(core, note.id)),
       body: "AIが書き換えた段落",
       why: "読みやすくする",
       idempotency_key: "edit-human-why",
@@ -257,7 +297,7 @@ test("Noteの直接編集: 版を照合し、本人が書いたNoteは本人の�
 
   const request = {
     note_id: note.id,
-    base_version: note.version,
+    ...(await fullRead(core, note.id)),
     title: "読書メモ（要約つき）",
     body: "最初の段落\n\n要約: 三つの論点",
     said: "要約を足して",
@@ -270,12 +310,7 @@ test("Noteの直接編集: 版を照合し、本人が書いたNoteは本人の�
   assert.equal(saved.title, "読書メモ（要約つき）");
   assert.equal(saved.body_markdown, "最初の段落\n\n要約: 三つの論点");
   const events = db.listChangeEventsByCommandId(edited.change_id);
-  assert(
-    events.some((event) => (event.record_type || event.entity_type) === "note"),
-    JSON.stringify(
-      events.map((event) => [event.record_type, event.entity_type, event.command_name]),
-    ),
-  );
+  assert(events.some((event) => (event.record_type || event.entity_type) === "note"));
   for (const event of events) assert.equal(event.metadata.ai_direct.said, "要約を足して");
   // 同じ鍵の再送は同じ結果。
   assert.equal((await core.editNote(request)).status, "duplicate");
@@ -295,7 +330,7 @@ test("Noteの直接編集: 版を照合し、本人が書いたNoteは本人の�
   });
   const aiEdit = await core.editNote({
     note_id: created.entity.id,
-    base_version: created.entity.version,
+    ...(await fullRead(core, created.entity.id)),
     body: "下書き（誤字を直した）",
     why: "誤字を直す",
     idempotency_key: "edit-ai-note",
@@ -306,13 +341,100 @@ test("Noteの直接編集: 版を照合し、本人が書いたNoteは本人の�
   // AIが直した後も、本人が触っていなければ続けて直せる。
   const again = await core.editNote({
     note_id: created.entity.id,
-    base_version: aiEdit.note.version,
+    ...(await fullRead(core, created.entity.id)),
     body: "下書き（誤字を直し、段落を分けた）",
     why: "段落を分ける",
     idempotency_key: "edit-ai-note-2",
     ...who,
   });
   assert.equal(again.status, "applied");
+  // 本人の言葉で一度決めたNoteは、次から本人の言葉が要る（Taskと同じ）。
+  await core.editNote({
+    note_id: created.entity.id,
+    ...(await fullRead(core, created.entity.id)),
+    body: "本人が決めた本文",
+    said: "本文はこれにして",
+    idempotency_key: "edit-ai-note-said",
+    ...who,
+  });
+  await refused(
+    core.editNote({
+      note_id: created.entity.id,
+      ...(await fullRead(core, created.entity.id)),
+      body: "AIの本文",
+      why: "整える",
+      idempotency_key: "edit-ai-note-why",
+      ...who,
+    }),
+    "ASK_USER",
+  );
+});
+
+test("レビューの指摘: 切り詰めた読み取りから書くと断り、Noteの残りを消さない", async (t) => {
+  const { db, core } = await desktop(t);
+  const body = Array.from({ length: 40 }, (_, index) => `段落${index}`).join("\n\n");
+  const note = db.save("note", {
+    id: "note-long",
+    title: "長いメモ",
+    body_markdown: body,
+    note_type: "memo",
+    project_id: "theme-personal-default",
+  });
+  const partial = await core.getNote({ note_id: note.id, max_text_length: 50 });
+  assert.equal(partial.truncated, true);
+  assert.equal(partial.body_signature, null);
+  await refused(
+    core.editNote({
+      note_id: note.id,
+      base_version: partial.note.version,
+      base_signature: "made-up",
+      body: `${partial.note.body_markdown}\n\n追記`,
+      said: "追記して",
+      idempotency_key: "edit-truncated",
+      ...who,
+    }),
+    "BODY_NOT_FULLY_READ",
+  );
+  assert.equal(db.get("note", note.id).body_markdown, body);
+  assert.equal(
+    db.list("ai_proposal").filter((proposal) => proposal.payload_type === "notes").length,
+    0,
+  );
+});
+
+test("レビューの指摘: 採用が保存で失敗したら、保留の提案を残さずSAVE_FAILED", async (t) => {
+  const { db, core, workspace } = await desktop(t);
+  const note = db.save("note", {
+    id: "note-fail",
+    title: "メモ",
+    body_markdown: "本文",
+    note_type: "memo",
+    project_id: "theme-personal-default",
+  });
+  const original = workspace.saveCanonicalNote;
+  workspace.saveCanonicalNote = () => {
+    throw new Error("disk full");
+  };
+  try {
+    await refused(
+      core.editNote({
+        note_id: note.id,
+        ...(await fullRead(core, note.id)),
+        body: "新しい本文",
+        said: "直して",
+        idempotency_key: "edit-fail",
+        ...who,
+      }),
+      "SAVE_FAILED",
+    );
+  } finally {
+    workspace.saveCanonicalNote = original;
+  }
+  assert.equal(
+    db.list("ai_proposal").filter((proposal) => proposal.status === "pending").length,
+    0,
+  );
+  assert.equal(db.get("note", note.id).body_markdown, "本文");
 });
 
 test("設定が無効なら採否もNote編集も断る", async (t) => {
@@ -322,6 +444,7 @@ test("設定が無効なら採否もNote編集も断る", async (t) => {
     core.editNote({
       note_id: "none",
       base_version: 1,
+      base_signature: "x",
       body: "x",
       said: "x",
       idempotency_key: "off",

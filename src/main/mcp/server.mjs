@@ -1102,7 +1102,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.edit_note",
     {
       description:
-        "Directly replace a Note's title/body Markdown with base_version checked; recorded as AI. Put the user's words in said (why alone may get ASK_USER). See tasken://guide/note_article.",
+        "Replace a Note's whole title/body; needs base_version and body_signature from a full get_note. Put the user's words in said (why alone may get ASK_USER). Not undoable.",
       inputSchema: aiNoteEditRequestSchema,
       annotations: DIRECT_WRITE_ANNOTATIONS,
     },

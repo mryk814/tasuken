@@ -9,7 +9,11 @@ import {
 } from "../../shared/entityRegistry.mjs";
 import { normalizeAgentSession } from "../../shared/agentSession.mjs";
 import { deriveAgentWorkState, taskWorkEntry } from "../../shared/contracts/task/public.ts";
-import { buildActivityEvent, changeEventsForCommand } from "../../shared/activityEvent.mjs";
+import {
+  buildActivityEvent,
+  changeEventCommandIdsWithPrefix,
+  changeEventsForCommand,
+} from "../../shared/activityEvent.mjs";
 import { normalizeExternalReferences } from "../../shared/externalReference.mjs";
 import { normalizeRepositoryContext } from "../../shared/repositoryContext.mjs";
 import {
@@ -1074,19 +1078,30 @@ export class ApplicationCommandService {
    */
   executeAiProposalDecision(input: unknown, annotation: Record<string, unknown>): CommandReceipt {
     const command = parseCommandEnvelope(input);
+    // 本人の言葉なしで通すのは、AIの直接のNote編集が保存に失敗したときの、その編集案の却下だけ
+    // （Coreが付ける印で、MCPの入力からは付けられない）。
+    const cleanupReject =
+      command.name === "ApplyAiProposal" &&
+      annotation.action === "edit_note_failed" &&
+      (command.payload as { proposal?: { status?: unknown } }).proposal?.status === "rejected";
     if (
       !["ApplyTaskWorkProposal", "AcceptTaskWork", "ApplyAiProposal"].includes(command.name) ||
       command.actor.kind !== "ai_agent" ||
       command.source !== "mcp" ||
-      typeof annotation.said !== "string" ||
-      !annotation.said.trim()
+      ((typeof annotation.said !== "string" || !annotation.said.trim()) && !cleanupReject)
     )
       throw new ApplicationCommandError("INVALID_ENVELOPE", "AIが取り次ぐ採否の範囲外です。");
     return this.repository.runTransaction((transaction) => {
       const service = new ApplicationCommandService(transaction);
       service.relayedDecision = true;
       const receipt = service.executeParsed(command);
-      for (const event of changeEventsForCommand(transaction, command.commandId)) {
+      // 作業報告の採用は、内側でStart・Report・AcceptTaskWorkを`<commandId>:…`として続けて実行する。
+      // その記録にも同じ根拠を付ける。
+      const commandIds = [
+        command.commandId,
+        ...changeEventCommandIdsWithPrefix(transaction, `${command.commandId}:`),
+      ];
+      for (const event of commandIds.flatMap((id) => changeEventsForCommand(transaction, id))) {
         const metadata =
           event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
             ? (event.metadata as Record<string, unknown>)

@@ -65,6 +65,15 @@ const CORE_ERROR_GUIDANCE = Object.freeze({
     retryable: false,
     next_action: "本人にDesktopの画面で完了してもらってください。",
   },
+  BODY_NOT_FULLY_READ: {
+    retryable: false,
+    next_action:
+      "tasken.get_noteをmax_text_lengthを付けずに読み直し（truncated: falseを確かめる）、返ったbody_signatureとversionで送り直してください。",
+  },
+  SAVE_FAILED: {
+    retryable: true,
+    next_action: "保存に失敗しました。少し待って同じ内容で送り直すか、本人に伝えてください。",
+  },
   DECIDE_IN_DESKTOP: {
     retryable: false,
     next_action: "本人にTaskenの画面で採否してもらってください。",
