@@ -558,6 +558,32 @@ export class WorkspaceDatabase {
    * list("change_event", true).map((event) => String(event.command_id || "")).filter(startsWith)
    * と同じ集合（prefix が空でない文字列のとき）。
    */
+  /**
+   * あるEntityのChange Event（削除済みを含む）。索引は無く、data_jsonを走査する。
+   * AIの直接変更で「AIが作って本人がまだ触っていないか」を確かめるときだけ使う（頻度が低い）。
+   */
+  listChangeEventsForEntity(recordType, entityId) {
+    return this.db
+      .prepare(
+        `SELECT * FROM entities
+         WHERE entity_type = 'change_event'
+           AND json_extract(data_json, '$.entity_id') = ?
+           AND json_extract(data_json, '$.record_type') = ?
+         ORDER BY updated_at, rowid`,
+      )
+      .all(String(entityId), String(recordType))
+      .map(parseRow);
+  }
+
+  /** 共有フォルダ同期の競合が、このEntityに未解決で残っているか。 */
+  hasSyncConflict(entityType, entityId) {
+    return Boolean(
+      this.db
+        .prepare("SELECT 1 FROM sync_conflicts WHERE entity_type = ? AND entity_id = ?")
+        .get(String(entityType), String(entityId)),
+    );
+  }
+
   changeEventCommandIdsWithPrefix(prefix) {
     if (!this.performanceIndexes?.changeEventCommandId || typeof prefix !== "string" || !prefix) {
       return new Set(
@@ -1345,6 +1371,11 @@ export class WorkspaceDatabase {
         // このtransactionの書き込みも見える）。渡さないと全Eventの走査に戻る。
         listChangeEventsByCommandId: (commandId) => this.listChangeEventsByCommandId(commandId),
         changeEventCommandIdsWithPrefix: (prefix) => this.changeEventCommandIdsWithPrefix(prefix),
+        listChangeEventsForEntity: (recordType, entityId) =>
+          this.listChangeEventsForEntity(recordType, entityId),
+        hasSyncConflict: (entityType, entityId) => this.hasSyncConflict(entityType, entityId),
+        // better-sqlite3のtransactionは入れ子でsavepointになるので、復元もこのtransactionに入る。
+        restore: (type, id) => this.restore(type, id),
         get: (type, id, includeDeleted = false) => this.get(type, id, includeDeleted),
         save: (type, entity, options = {}) => this.saveWithinTransaction(type, entity, options),
         saveMany: (operations) =>

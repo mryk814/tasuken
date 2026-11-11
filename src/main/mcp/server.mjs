@@ -1,4 +1,9 @@
-import { aiNoteCreationFields, aiTaskCreationFields } from "../../shared/contracts/task/public.ts";
+import {
+  aiChangeUndoRequestSchema,
+  aiNoteCreationFields,
+  aiTaskChangeRequestSchema,
+  aiTaskCreationFields,
+} from "../../shared/contracts/task/public.ts";
 import { randomUUID } from "node:crypto";
 
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -46,6 +51,8 @@ const DIRECT_WRITE_ANNOTATIONS = {
   idempotentHint: true,
   openWorldHint: false,
 };
+// 削除を含む直接変更。MCP clientが確認を挟めるよう、破壊的な操作として示す。
+const DESTRUCTIVE_WRITE_ANNOTATIONS = { ...DIRECT_WRITE_ANNOTATIONS, destructiveHint: true };
 const MCP_STDIO_MAX_BUFFER_BYTES = 35 * 1024 * 1024;
 const optionalText = z.string().trim().optional();
 const optionalLimit = z.number().int().positive().max(100).optional();
@@ -1066,6 +1073,28 @@ export function createTaskenMcpServer(options = {}) {
       withCoreClient((args) => coreClient.createAiItem({ ...args, kind })),
     );
   }
+
+  server.registerTool(
+    "tasken.change_task",
+    {
+      description:
+        "Update, complete, reopen, delete or delegate one Task directly; recorded and undoable. Put the user's words in said (why alone may get ASK_USER). See tasken://guide/proposals.",
+      inputSchema: aiTaskChangeRequestSchema,
+      annotations: DESTRUCTIVE_WRITE_ANNOTATIONS,
+    },
+    withCoreClient((args) => coreClient.changeTask(args)),
+  );
+
+  server.registerTool(
+    "tasken.undo_change",
+    {
+      description:
+        "Undo a direct change or AI-created Task by change_id, or a conversation's Task changes by undo_session (newest first). Changes made on the user's words need said.",
+      inputSchema: aiChangeUndoRequestSchema,
+      annotations: DIRECT_WRITE_ANNOTATIONS,
+    },
+    withCoreClient((args) => coreClient.undoChange(args)),
+  );
 
   server.registerTool(
     "tasken.propose_note",

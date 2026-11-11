@@ -44,3 +44,6 @@ export const TASKEN_CORE_TASK_COMMAND_CAPABILITY = "task.command";
 export const TASKEN_CORE_TASK_START_WORK_CAPABILITY = "task.start_work";
 
 export const TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY = "create_ai_item";
+// Desktopだけが公開する、本人の言葉を根拠にした既存Taskの直接変更と取り消し（#703）。
+// 使えるかは本人の設定（aiDirectWriteEnabled）を要求のたびに読む。
+export const TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY = "ai_direct_write";

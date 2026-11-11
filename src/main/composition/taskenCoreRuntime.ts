@@ -1,5 +1,6 @@
 import {
   AiItemCreationService,
+  AiTaskChangeService,
   AiTaskStartService,
   type AiItemCreationPort,
 } from "../core/public.ts";
@@ -741,6 +742,14 @@ export class TaskenCoreRuntime {
     );
   }
 
+  /** Desktop専用。既存Taskの直接変更と取り消し（#703）。 */
+  enableAiDirectWrite(service: AiTaskChangeService) {
+    this.host.enableAiDirectWrite({
+      changeTask: { execute: (request) => service.change(request) },
+      undoChange: { execute: (request) => service.undo(request) },
+    });
+  }
+
   /** NAS replica専用。Desktopのcompositionでは呼ばない。 */
   enableSourceStatus(read: () => unknown) {
     // 返す値はここでschemaに通す（端末ID・エラー文などが紛れても外へ出さない）。
@@ -763,3 +772,4 @@ export class TaskenCoreRuntime {
   }
 }
 export { createAiItemCreationPort } from "./aiItemCreationPort.ts";
+export { createAiTaskChangeService } from "./aiTaskChangePort.ts";

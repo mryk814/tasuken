@@ -66,6 +66,8 @@ interface Repository {
   saveMany(operations: SaveOperation[]): Entity[];
   save(type: EntityType, entity: Entity, options?: { skipSync?: boolean }): Entity;
   remove(type: EntityType, id: string): Entity | null;
+  /** 削除したTaskを連鎖した子ごと戻す（RestoreTaskだけが使う）。 */
+  restore?(type: EntityType, id: string): Entity | null;
   runTransaction<T>(callback: (repository: Repository) => T): T;
 }
 
@@ -89,6 +91,18 @@ const aiAgentCommands = new Set<ApplicationCommandName>([
   // These still fail in their own human-review guard, with the specific UI-only error.
   "AcceptTaskWork",
   "ReturnTaskWork",
+]);
+
+/**
+ * AIの直接変更（#703）が使うCommand。根拠・範囲・断る条件はCoreの限定の入口（AiTaskChangeService）が
+ * 先に決め、ここはai_agentにこれらを実行させ、根拠を同じtransactionで全Eventに付けるだけ。
+ */
+const aiDirectChangeCommands = new Set<ApplicationCommandName>([
+  "UpdateTask",
+  "CompleteTask",
+  "ReopenTask",
+  "DeleteTask",
+  "RestoreTask",
 ]);
 
 function workExecutorLabel(task: Entity, receipt?: Entity): string {
@@ -1031,6 +1045,13 @@ function taskCommandRuntime(repository: Repository): TaskCommandRuntime {
       persistDeleteReceipt(repository, command, type, deleted, event, false),
     persistNoChange: (command, taskId, current) =>
       persistNoChange(repository, command, taskId, current),
+    persistRestore: (command, type, restored, event) => {
+      // 復元はrepositoryが済ませている。Eventとreceiptだけを残す。
+      const saved = repository.save("change_event", event);
+      const receipt = receiptFor(command, "applied", [{ type, entity: restored }], [saved.id]);
+      repository.save("change_event", { ...saved, receipt_json: JSON.stringify(receipt) });
+      return { ...receipt, eventChanges: eventChangesFor(repository, [saved.id]) };
+    },
     now,
   };
 }
@@ -1064,6 +1085,63 @@ export class ApplicationCommandService {
     return this.repository.runTransaction((transactionRepository) =>
       new ApplicationCommandService(transactionRepository).executeParsed(command),
     );
+  }
+
+  /**
+   * Core's limited AI direct change entry only. `annotation`（根拠・会話・要求の指紋）を
+   * このcommandの全Change Eventの`metadata.ai_direct`に付ける。
+   */
+  executeAiTaskChange(input: unknown, annotation: Record<string, unknown>): CommandReceipt {
+    const command = parseCommandEnvelope(input);
+    // AI（MCP）の直接変更と、その変更を本人がDesktopの画面から取り消す操作だけ。
+    const byAi = command.actor.kind === "ai_agent" && command.source === "mcp";
+    const userUndo =
+      command.actor.kind === "user" &&
+      command.source === "main_ui" &&
+      annotation.action === "undo" &&
+      annotation.by === "user";
+    if (!aiDirectChangeCommands.has(command.name) || !(byAi || userUndo))
+      throw new ApplicationCommandError("INVALID_ENVELOPE", "AIの直接変更の範囲外です。");
+    return this.repository.runTransaction((transaction) => {
+      const receipt = new ApplicationCommandService(transaction).executeParsed(
+        command,
+        undefined,
+        false,
+        false,
+        true,
+      );
+      for (const event of changeEventsForCommand(transaction, command.commandId)) {
+        const metadata =
+          event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+            ? (event.metadata as Record<string, unknown>)
+            : {};
+        // AIの直接変更は、題名だけの変更でもその日のActivityに出す（本人が見て取り消せるように）。
+        transaction.save("change_event", {
+          ...event,
+          metadata: { ...metadata, include_in_activity: true, ai_direct: annotation },
+        });
+      }
+      // 取り消しなら、元の変更に「取り消し済み」の印を同じtransactionで付ける（二重に戻さない）。
+      const undoOf = typeof annotation.undo_of === "string" ? annotation.undo_of : null;
+      for (const event of undoOf ? changeEventsForCommand(transaction, undoOf) : []) {
+        const metadata =
+          event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+            ? (event.metadata as Record<string, unknown>)
+            : {};
+        const previous =
+          metadata.ai_direct && typeof metadata.ai_direct === "object"
+            ? (metadata.ai_direct as Record<string, unknown>)
+            : {};
+        transaction.save("change_event", {
+          ...event,
+          metadata: { ...metadata, ai_direct: { ...previous, undone_by: command.commandId } },
+        });
+      }
+      // 画面へ配るEventは、根拠を付けた後のもの（付ける前のものではActivityに出ない）。
+      return receipt.status === "applied"
+        ? { ...receipt, eventChanges: eventChangesFor(transaction, receipt.events) }
+        : receipt;
+    });
   }
 
   /**
@@ -1388,6 +1466,7 @@ export class ApplicationCommandService {
     taskWorkContext?: { startReadyTask?: boolean; exactReceiptId?: string },
     aiTaskCreation = false,
     aiTaskStart: AiTaskStartScope | false = false,
+    aiDirectChange = false,
   ): CommandReceipt {
     const previous = readIdempotent(this.repository, command);
     if (previous) return previous;
@@ -1433,7 +1512,8 @@ export class ApplicationCommandService {
     if (
       command.actor.kind === "ai_agent" &&
       !aiAgentCommands.has(command.name) &&
-      !aiTaskCreation
+      !aiTaskCreation &&
+      !(aiDirectChange && aiDirectChangeCommands.has(command.name))
     ) {
       throw new ApplicationCommandError(
         "INVALID_TRANSITION",

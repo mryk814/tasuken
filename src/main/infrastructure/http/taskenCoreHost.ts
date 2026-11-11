@@ -1,4 +1,10 @@
 import {
+  aiChangeUndoRequestSchema,
+  aiTaskChangeRequestSchema,
+  type AiChangeUndoRequest,
+  type AiChangeUndoResponse,
+  type AiTaskChangeRequest,
+  type AiTaskChangeResponse,
   aiItemCreationRequestSchema,
   aiTaskStartRequestSchema,
   type AiTaskStartRequest,
@@ -115,6 +121,7 @@ import {
   taskQuerySchema,
 } from "../../../shared/contracts/task/public.ts";
 import {
+  TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
@@ -181,6 +188,8 @@ interface QueryProvider<Request, Response> {
 export interface TaskenCoreHostOptions {
   userDataPath: string;
   createAiItem?: QueryProvider<AiItemCreationRequest, AiItemCreationResponse>;
+  changeTask?: QueryProvider<AiTaskChangeRequest, AiTaskChangeResponse>;
+  undoChange?: QueryProvider<AiChangeUndoRequest, AiChangeUndoResponse>;
   getSourceStatus?: QueryProvider<GetSourceStatusRequest, GetSourceStatusResponse>;
   startAiTaskWork?: QueryProvider<AiTaskStartRequest, TaskCommandResponse>;
   taskQuery?: QueryProvider<unknown, TaskQueryResponse>;
@@ -308,6 +317,20 @@ const ROUTES: readonly RouteDefinition[] = [
     provider: "createAiItem",
     capability: TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
     schema: aiItemCreationRequestSchema,
+  },
+  {
+    path: "/v1/commands/change-task",
+    kind: "command",
+    provider: "changeTask",
+    capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+    schema: aiTaskChangeRequestSchema,
+  },
+  {
+    path: "/v1/commands/undo-change",
+    kind: "command",
+    provider: "undoChange",
+    capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+    schema: aiChangeUndoRequestSchema,
   },
   {
     path: "/v1/commands/start-ai-task-work",
@@ -782,6 +805,16 @@ export class TaskenCoreHost {
     if (this.server) throw new Error("Core起動後の権限変更はできません。");
     this.options.createAiItem = provider;
     this.directWriteEnabled = directWriteEnabled || null;
+  }
+
+  /** Desktopだけが、既存Taskの直接変更と取り消しを公開する。使えるかは設定を要求のたびに読む。 */
+  enableAiDirectWrite(providers: {
+    changeTask: QueryProvider<AiTaskChangeRequest, AiTaskChangeResponse>;
+    undoChange: QueryProvider<AiChangeUndoRequest, AiChangeUndoResponse>;
+  }) {
+    if (this.server) throw new Error("Core起動後の権限変更はできません。");
+    this.options.changeTask = providers.changeTask;
+    this.options.undoChange = providers.undoChange;
   }
 
   /** NAS replicaだけが、同期の状態と鮮度を読み取りに公開する。Core起動前に一度だけ呼ぶ。 */

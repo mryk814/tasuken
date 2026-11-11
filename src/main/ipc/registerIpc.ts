@@ -249,6 +249,8 @@ export function registerIpc(
     options?: { senderReceivesAll?: boolean },
   ) => void = () => {},
   notifyTaskProjectionChanged: (types: EntityType[]) => void = () => {},
+  /** AIの直接変更を本人が取り消す口（#703）。Desktopのcompositionが渡す。 */
+  aiTaskChanges?: { undoByUser(changeId: string): unknown },
 ): void {
   const screenRecordingSenderIds = new Set<number>();
   const aiProposalAcceptance = new AiProposalAcceptanceService(
@@ -764,6 +766,12 @@ export function registerIpc(
     const receipt = service.recordWorkLog(command);
     notifyEntitiesChanged(["note", "reference", "change_event"]);
     return receipt;
+  });
+  ipcMain.handle(IPC.aiDirectUndo, (_event, changeId) => {
+    if (!aiTaskChanges) throw new Error("この画面からは取り消せません。");
+    const result = aiTaskChanges.undoByUser(requireId(changeId));
+    notifyEntitiesChanged(["task", "schedule", "change_event"]);
+    return result;
   });
   ipcMain.handle(IPC.aiItemSeen, (_event, type, id) => {
     if (type !== "task" && type !== "note") throw new Error("Task/Noteだけを確認できます。");
