@@ -46,9 +46,17 @@ const REVERTIBLE_TASK_FIELDS = [
   "handoff_instruction",
 ] as const;
 
+/** 元のTaskに無かった欄を戻すときの値（nullを受けない欄だけ）。 */
+const EMPTY_TASK_FIELD: Record<string, unknown> = {
+  checklist_items: [],
+  priority: "normal",
+  intended_executor: "self",
+};
+
 interface Persistence {
   readonly workspaceId: string;
   get(type: string, id: string, includeDeleted?: boolean): Entity | null;
+  save(type: "change_event", entity: Entity): Entity;
   listChangeEventsByCommandId(commandId: string): Entity[];
   changeEventCommandIdsWithPrefix(prefix: string): Set<string>;
   listChangeEventsForEntity(recordType: string, entityId: string): Entity[];
@@ -337,6 +345,8 @@ export class AiTaskChangeService {
       .listChangeEventsForEntity("task", String(task.id))
       .filter((event) => !event.no_change);
     if (events.some((event) => event.actor_kind !== "ai_agent")) return true;
+    // 本人の言葉で一度でも決めたTaskは、本人が手を入れたものとして扱う。
+    if (events.some((event) => aiDirect(event)?.said)) return true;
     return events.length !== Number(task.version);
   }
 
@@ -443,12 +453,14 @@ export class AiTaskChangeService {
             id: item.id,
           });
         const before = item.id ? existing.get(item.id) : undefined;
+        // doneを省いた既存の項目は今の状態のまま（省いただけで済みが外れないように）。
+        const done = item.done ?? Boolean(before?.done);
         return {
           id: item.id || stableChecklistId(changeId, index),
           title: item.title,
-          done: item.done,
+          done,
           sort_order: index,
-          completed_at: item.done
+          completed_at: done
             ? before?.done && before.completed_at
               ? before.completed_at
               : this.now()
@@ -523,6 +535,14 @@ export class AiTaskChangeService {
         message: "この変更は取り消し済みです。",
         current_task: null,
       });
+    // 取り消しそのものは取り消さない（本人の取り消しを、本人の言葉なしにやり直せないように）。
+    // やり直すなら、change_taskで根拠を添えて改めて変える。
+    if (marker?.action === "undo")
+      return plan({
+        code: "NOT_AI_CHANGE",
+        message: "取り消しは取り消せません。やり直すならchange_taskで改めて変えてください。",
+        current_task: null,
+      });
     const receipt = parseJson(taskEvent.receipt_json) as {
       changes?: Array<{ type: string; entity: Entity }>;
     } | null;
@@ -535,6 +555,10 @@ export class AiTaskChangeService {
       before: parseJson(taskEvent.before_json),
       after: parseJson(taskEvent.after_json),
       scheduleBefore: scheduleEvent ? parseJson(scheduleEvent.before_json) : undefined,
+      scheduleAfterVersion: scheduleEvent
+        ? Number(parseJson(scheduleEvent.after_json)?.version || 0)
+        : undefined,
+      events,
       needsUserWords: Boolean(marker?.said),
       failure: null,
     };
@@ -599,21 +623,55 @@ export class AiTaskChangeService {
         };
       }
     } else if (plan.commandName === "CompleteTask")
-      command = { ...base, name: "ReopenTask", payload: target } as TaskCommand;
+      // 完了で上書きした完了メモも元に戻す。
+      command = {
+        ...base,
+        name: "ReopenTask",
+        payload: { ...target, changes: { completion_note: plan.before?.completion_note ?? null } },
+      } as TaskCommand;
     else if (plan.commandName === "ReopenTask")
-      command = { ...base, name: "CompleteTask", payload: target } as TaskCommand;
+      // 前の完了日時と完了メモのまま完了に戻す（取り消した時刻にしない）。
+      command = {
+        ...base,
+        name: "CompleteTask",
+        payload: {
+          ...target,
+          completion_note: (plan.before?.completion_note as string | null | undefined) ?? null,
+          ...(plan.before?.completed_at
+            ? { changes: { completed_at: plan.before.completed_at } }
+            : {}),
+        },
+      } as TaskCommand;
     else if (plan.commandName === "CreateTask" || plan.commandName === "RestoreTask")
       command = { ...base, name: "DeleteTask", payload: target } as TaskCommand;
     else if (plan.commandName === "UpdateTask") {
+      // 委任の付け替えで消えた差し戻しのメモは、委任を戻しても戻らない。正確に戻せないので断る。
+      if (
+        plan.before?.work_review_note &&
+        !plan.after?.work_review_note &&
+        plan.before.intended_executor !== plan.after?.intended_executor
+      )
+        return {
+          code: "CANNOT_UNDO_EXACTLY",
+          message: "委任の付け替えで消えた差し戻しのメモは戻せないので、取り消せません。",
+          current_task: this.port.readTask(plan.taskId),
+        };
       const changes: Record<string, unknown> = {};
       for (const key of REVERTIBLE_TASK_FIELDS) {
-        const before = plan.before?.[key] ?? null;
-        const after = plan.after?.[key] ?? null;
+        const before = plan.before?.[key] ?? EMPTY_TASK_FIELD[key] ?? null;
+        const after = plan.after?.[key] ?? EMPTY_TASK_FIELD[key] ?? null;
         if (JSON.stringify(before) !== JSON.stringify(after)) changes[key] = before;
       }
       let scheduleChange: Record<string, unknown> | undefined;
       if (plan.scheduleBefore !== undefined) {
         const schedule = this.port.readTask(plan.taskId)?.schedule || null;
+        // 日程だけが後から変わっていないかも確かめる。
+        if (schedule && plan.scheduleAfterVersion && schedule.version !== plan.scheduleAfterVersion)
+          return {
+            code: "CONFLICT",
+            message: "後から日程が変わっているので戻せません。",
+            current_task: this.port.readTask(plan.taskId),
+          };
         if (schedule)
           scheduleChange = {
             changes: scheduleEdit(
@@ -629,7 +687,11 @@ export class AiTaskChangeService {
             expected_version: schedule.version,
           };
       }
-      if (Object.keys(changes).length === 0 && !scheduleChange) return null;
+      if (Object.keys(changes).length === 0 && !scheduleChange) {
+        // 戻すものが無い（値の変わらない変更だった）。印だけ付け、二度は対象にしない。
+        this.markUndone(plan, undoChangeId);
+        return null;
+      }
       command = {
         ...base,
         name: "UpdateTask",
@@ -652,6 +714,22 @@ export class AiTaskChangeService {
       message: result.error.message,
       current_task: this.port.readTask(plan.taskId),
     };
+  }
+
+  private markUndone(plan: UndoPlan, undoChangeId: string): void {
+    for (const event of plan.events || []) {
+      const metadata =
+        event.metadata && typeof event.metadata === "object" && !Array.isArray(event.metadata)
+          ? (event.metadata as Record<string, unknown>)
+          : {};
+      this.persistence.save("change_event", {
+        ...event,
+        metadata: {
+          ...metadata,
+          ai_direct: { ...(aiDirect(event) || {}), undone_by: undoChangeId },
+        },
+      });
+    }
   }
 
   /** 同じ取り消しの再送。残っている取り消しの記録から、前と同じ結果を返す。 */
@@ -731,6 +809,8 @@ interface UndoPlan {
   after?: Entity | null;
   /** 元の変更が日程も変えたときだけ。nullは「元は日程が無かった」。 */
   scheduleBefore?: Entity | null;
+  scheduleAfterVersion?: number;
+  events?: Entity[];
   needsUserWords: boolean;
   failure: { code: string; message: string; current_task: TaskReadModel | null } | null;
 }
