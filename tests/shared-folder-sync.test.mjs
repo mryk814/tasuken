@@ -595,6 +595,40 @@ test("shared folder sync detects divergent edits and publishes an explicit resol
   }
 });
 
+// 競合した二つは同じ版の数を持つ。解決で版を上げないと、競合の前の版での照合（AIの取り消しなど）が通り、
+// 本人が選んだ中身を黙って戻してしまう（#688のレビュー）。
+test("a conflict resolution gets a version neither device has seen, on both devices", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-a", "Initial"));
+    await pair.firstSync.configure(pair.shared);
+    await pair.secondSync.configure(pair.shared);
+
+    pair.first.save("task", { ...pair.first.get("task", "task-a"), title: "AI edit" });
+    pair.second.save("task", { ...pair.second.get("task", "task-a"), title: "My edit" });
+    const seen = Math.max(
+      pair.first.get("task", "task-a").version,
+      pair.second.get("task", "task-a").version,
+    );
+    await pair.firstSync.syncNow();
+    await pair.secondSync.syncNow();
+    await pair.firstSync.syncNow();
+
+    const conflict = pair.second.listSyncConflicts()[0];
+    const resolution = pair.secondSync.resolveConflict(conflict.id, "local");
+    assert.equal(resolution.result.entity.title, "My edit");
+    assert.equal(resolution.result.entity.version, seen + 1);
+
+    await pair.secondSync.syncNow();
+    await pair.firstSync.syncNow();
+    assert.equal(pair.first.syncConflictCount(), 0);
+    assert.equal(pair.first.get("task", "task-a").title, "My edit");
+    assert.equal(pair.first.get("task", "task-a").version, seen + 1);
+  } finally {
+    pair.close();
+  }
+});
+
 test("joining another workspace never overwrites a non-empty local database", async () => {
   const pair = createPair();
   try {
