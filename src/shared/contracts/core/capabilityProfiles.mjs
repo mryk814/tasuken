@@ -1,4 +1,5 @@
 import {
+  TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
   TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
@@ -32,6 +33,7 @@ const FULL_CAPABILITIES = Object.freeze([
 export const TASKEN_CORE_WRITE_CAPABILITIES = Object.freeze([
   ...FULL_CAPABILITIES,
   TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
+  TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
 ]);
 
 /**
@@ -58,6 +60,8 @@ export function coreWriteProfile(capabilities) {
   /** @param {CoreWriteProfile} profile */
   const result = (profile) => ({ profile, missingWrites });
   if (missingWrites.length === 0) return result("full");
+  // 既存データの直接変更はDesktop（full）だけが持つ。それ以外の配備に付いていたら食い違い。
+  if (has(TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY)) return result("partial");
   if (!anyProposal && !agentSession && !create) return result(start ? "start-only" : "read-only");
   // Agent Sessionの提案は`full`だけが公開する。一部だけ揃っていれば更新・設定の食い違い。
   if (!proposals || agentSession) return result("partial");

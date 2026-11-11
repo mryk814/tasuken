@@ -801,6 +801,8 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
     assert.deepEqual(capabilities.structuredContent.writes, {
       task_create: false,
       note_direct_create: false,
+      task_edit: false,
+      undo: false,
       feed_post: true,
       feed_reply: true,
       note_create: true,
@@ -812,6 +814,9 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
     assert.deepEqual(capabilities.structuredContent.unavailable_tools, [
       { name: "tasken.create_task", reason: "missing_capability:create_ai_item", listed: false },
       { name: "tasken.create_note", reason: "missing_capability:create_ai_item", listed: false },
+      // 既存Taskの直接変更はDesktopだけ。NASには出さない（#703）。
+      { name: "tasken.change_task", reason: "missing_capability:ai_direct_write", listed: false },
+      { name: "tasken.undo_change", reason: "missing_capability:ai_direct_write", listed: false },
       {
         name: "tasken.start_task_work",
         reason: "missing_capability:task.start_work",

@@ -12,6 +12,8 @@ export interface TaskEntityAccess {
 export interface TaskRepository extends TaskEntityAccess {
   saveTaskAssignmentForWorkStart(task: Entity): Entity;
   removeTask(id: string): Entity | null;
+  /** 削除したTaskを連鎖した子ごと戻す。 */
+  restoreTask(id: string): Entity | null;
 }
 
 export interface WorkspaceTaskPersistence {
@@ -20,4 +22,5 @@ export interface WorkspaceTaskPersistence {
   save(type: EntityType, entity: Entity, options?: { skipSync?: boolean }): Entity;
   saveMany(operations: SaveOperation[]): Entity[];
   remove(type: EntityType, id: string): Entity | null;
+  restore?(type: EntityType, id: string): Entity | null;
 }

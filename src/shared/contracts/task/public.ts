@@ -422,6 +422,17 @@ export {
   type AiItemCreationResponse,
 } from "./aiItemCreation.ts";
 export {
+  aiChangeUndoRequestSchema,
+  aiChangeUndoResponseSchema,
+  aiTaskChangeRequestSchema,
+  aiTaskChangeResponseSchema,
+  aiTaskEditSchema,
+  type AiChangeUndoRequest,
+  type AiChangeUndoResponse,
+  type AiTaskChangeRequest,
+  type AiTaskChangeResponse,
+} from "./aiTaskChange.ts";
+export {
   aiTaskScheduleInputSchema,
   taskScheduleEditFromAiInput,
   type AiTaskScheduleInput,

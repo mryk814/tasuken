@@ -259,6 +259,7 @@ export const IPC = {
   entitySave: "entity:save",
   entitySaveMany: "entity:save-many",
   aiItemSeen: "ai-item:seen",
+  aiDirectUndo: "ai-direct:undo",
   documentSave: "document:save",
   workLogRecord: "work-log:record",
   entityRemove: "entity:remove",
@@ -1001,6 +1002,11 @@ export interface ResearchDeskApi {
   };
   entities: {
     markAiItemSeen(type: "task" | "note", id: string): Promise<Entity>;
+    /** AIの直接変更を、本人が画面から取り消す（#703）。 */
+    undoAiChange(changeId: string): Promise<{
+      undone: Array<{ change_id: string; undo_change_id: string; task_id: string }>;
+      stopped: { change_id: string; code: string; message: string } | null;
+    }>;
     list(type: EntityType, includeDeleted?: boolean): Promise<Entity[]>;
     get(type: EntityType, id: string): Promise<Entity | null>;
     save(type: EntityType, entity: Entity, options?: SaveOptions): Promise<Entity>;

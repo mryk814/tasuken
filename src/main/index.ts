@@ -1,4 +1,7 @@
-import { createAiItemCreationPort } from "./composition/taskenCoreRuntime.ts";
+import {
+  createAiItemCreationPort,
+  createAiTaskChangeService,
+} from "./composition/taskenCoreRuntime.ts";
 import {
   app,
   BrowserWindow,
@@ -2744,15 +2747,21 @@ async function startDesktopApp(): Promise<void> {
   );
   // ローカルのAI（Claude Codeなど）の直接の書き込み。入口は常に公開し、使えるかは本人の設定
   // （設定 → AI & Context）を要求のたびに読む。既定は無効。
+  const aiDirectWriteEnabled = () =>
+    workspaceRepository.readPreference(AI_DIRECT_WRITE_PREFERENCE) === true;
   composition.coreRuntime.enableAiItemCreation(
     createAiItemCreationPort(applicationCommands, workspaceService, () => {
       notifyMainWindowRefresh();
     }),
-    {
-      isEnabled: () => workspaceRepository.readPreference(AI_DIRECT_WRITE_PREFERENCE) === true,
-      scope: "any",
-    },
+    { isEnabled: aiDirectWriteEnabled, scope: "any" },
   );
+  const aiTaskChanges = createAiTaskChangeService(
+    workspaceRepository,
+    applicationCommands,
+    aiDirectWriteEnabled,
+    (receipt) => notifyCommandApplied(receipt, -1),
+  );
+  composition.coreRuntime.enableAiDirectWrite(aiTaskChanges);
   await composition.start();
   const backupDatabase = workspaceRepository;
   automaticSnapshotBackup = new AutomaticSnapshotBackupService({
@@ -2820,6 +2829,7 @@ async function startDesktopApp(): Promise<void> {
     },
     notifyCommandApplied,
     notifyTodayMiniRefresh,
+    aiTaskChanges,
   );
   registerMobileGatewayIpc(composition.mobileGateway);
   // 切り離しウィンドウの共通基盤（#290）。位置・サイズは端末ごとの見え方なので

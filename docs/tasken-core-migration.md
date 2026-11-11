@@ -128,3 +128,5 @@ Electron・renderer・Windows UIを必須とせずCoreを起動するcomposition
 ## 本人用の直接新規作成（明示的な追加権限）
 
 create_task / create_note は create_ai_item capabilityのある接続だけに公開する。旧Proposalツールの採否・pendingは維持する。入力と安全境界は [AI item creation](ai-item-creation.md) を参照。
+
+`change_task` / `undo_change` は ai_direct_write capability のある接続（Desktop だけ）に公開し、本人が設定で直接の書き込みを許したときだけ使える。入力・根拠・取り消しの契約は engineering-contracts の AI 連携の節を参照。

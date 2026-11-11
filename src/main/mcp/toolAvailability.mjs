@@ -1,4 +1,5 @@
 import {
+  TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
   TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
   TASKEN_CORE_GET_ACTIVITY_CAPABILITY,
   TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY,
@@ -40,6 +41,18 @@ export const MCP_TOOL_REQUIREMENTS = Object.freeze({
     toolset: "write",
     access: "direct_write",
     capability: TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
+    setting: "direct_write",
+  },
+  "tasken.change_task": {
+    toolset: "write",
+    access: "direct_write",
+    capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
+    setting: "direct_write",
+  },
+  "tasken.undo_change": {
+    toolset: "write",
+    access: "direct_write",
+    capability: TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
     setting: "direct_write",
   },
   "tasken.search_items": {
@@ -251,6 +264,8 @@ export function mcpToolAvailability(capabilities, options = {}) {
     writes: {
       task_create: tools["tasken.create_task"].available,
       note_direct_create: tools["tasken.create_note"].available,
+      task_edit: tools["tasken.change_task"].available,
+      undo: tools["tasken.undo_change"].available,
       feed_post: canContent("feed_post"),
       feed_reply: canContent("feed_reply"),
       note_create: canContent("note_create"),
