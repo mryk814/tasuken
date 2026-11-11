@@ -2,6 +2,14 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-11 新しい試験が WorkspaceDatabase を直に使い、アーキテクチャ監査の試験が「24 !== 23」で落ちた
+
+- しようとしたこと: #688 で `tests/core-capability-parity.test.mjs`（Desktop と NAS の Core を本物の DB で組み立てて capability を比べる）を足し、`npm run ci` を流す。
+- 起きたこと: `tests/architecture-audit.test.mjs` の 3 件が `24 !== 23`・`1 !== 0` で落ちた。何が増えたかは assert の文に出ず、`artifacts/architecture/report.md` を読んで、新しい試験が互換の面 `workspace-repository` の利用者として基準に無い（`compatibility.consumer_added`）と分かった。#703（同日）でも新しい試験で同じことが起き、同じ読み方をした。
+- 原因: 互換の面を直に使う新しいファイルは `architecture/compatibility-baseline.json` の consumers に載せる決まりで、試験の数え方は件数だけだった。
+- 直し方: consumers に足した。
+- 再発防止: 監査の試験の件数の assert に、基準に無く抑止も無い指摘を名指しし、直し方（consumers に足す／suppressions に issue 付きで足す）を添える文を付けた（`unexplainedFindings`）。次からは落ちた文だけで直せる。
+
 ## 2026-11-11 get_note の応答に欄を足したら、旧来の読み取りとの一致の試験が GitHub で落ちた
 
 - しようとしたこと: #714 で `get_note` の応答に本文の署名（`body_signature`）を足し、関係しそうな試験だけを手元で流して push した。
