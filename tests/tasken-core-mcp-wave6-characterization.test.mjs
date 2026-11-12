@@ -280,15 +280,8 @@ test("Wave 6 repository context lookup preserves association filtering, archived
       repository_context_id: "repo-archived",
       include_archived: true,
     });
-    assert.equal(archived.repository_context.id, "repo-archived");
-    assert.deepEqual(
-      archived.themes.map((theme) => theme.id),
-      ["theme-archived"],
-    );
-    assert.deepEqual(
-      archived.tasks.map((task) => task.id),
-      ["task-archived"],
-    );
+    // 削除済みのRepositoryContextは、include_archivedでも返さない。
+    assert.equal(archived.repository_context, null);
   } finally {
     read.close();
   }
