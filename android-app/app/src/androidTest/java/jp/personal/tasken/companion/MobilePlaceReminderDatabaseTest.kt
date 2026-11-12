@@ -162,8 +162,12 @@ class MobilePlaceReminderDatabaseTest {
         val friday = LocalDateTime.of(2026, 11, 13, 18, 0)
 
         assertTrue(PlaceReminderNotifications.deliver(context, dao, taskId, friday))
-        val shown = context.getSystemService(NotificationManager::class.java).activeNotifications
-            .single { it.notification.channelId == PlaceReminderNotifications.ChannelId }
+        // notify() は非同期に反映されるので、出るまで少し待つ（待たないと稀に空振りする）。
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val deadline = System.currentTimeMillis() + 5_000
+        while (manager.activeNotifications.none { it.notification.channelId == PlaceReminderNotifications.ChannelId } &&
+            System.currentTimeMillis() < deadline) Thread.sleep(100)
+        val shown = manager.activeNotifications.single { it.notification.channelId == PlaceReminderNotifications.ChannelId }
         assertEquals("三ノ宮で買う", shown.notification.extras.getString("android.title"))
         assertEquals("三ノ宮", shown.notification.extras.getString("android.text"))
         assertEquals("2026-11-13", dao.placeReminderNoticeDate(taskId))
@@ -180,7 +184,10 @@ class MobilePlaceReminderDatabaseTest {
         // 場所を外された Task も鳴らさない。
         dao.upsertTask(cachedTask(placeJson = null))
         assertFalse(PlaceReminderNotifications.deliver(context, dao, taskId, friday.plusDays(21)))
-        assertEquals(0, context.getSystemService(NotificationManager::class.java).activeNotifications.count { it.tag == "tasken-place:$taskId" })
+        // cancel() も非同期に反映されるので、消えるまで少し待つ。
+        val goneDeadline = System.currentTimeMillis() + 5_000
+        while (manager.activeNotifications.any { it.tag == "tasken-place:$taskId" } && System.currentTimeMillis() < goneDeadline) Thread.sleep(100)
+        assertEquals(0, manager.activeNotifications.count { it.tag == "tasken-place:$taskId" })
     }
 
     @Test

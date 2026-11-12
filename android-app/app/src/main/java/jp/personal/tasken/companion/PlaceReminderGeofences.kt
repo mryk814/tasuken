@@ -173,7 +173,7 @@ internal object PlaceReminderNotifications {
     ): Boolean {
         val task = dao.task(taskId)
         val place = task?.let { decodeMobilePlaceReminder(it.placeReminderJson) }
-        if (task == null || place == null) {
+        if (task == null || place == null || !PlaceReminderPolicy.isOpenTask(task.state)) {
             cancel(context, taskId)
             return false
         }
