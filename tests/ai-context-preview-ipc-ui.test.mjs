@@ -41,7 +41,7 @@ test("compact UIはThemeの4状態とrequest raceを守り、Task編集には重
   assert.match(themePage, /AiContextPreviewPanel[\s\S]*scope={{ type: "theme"/);
   assert.doesNotMatch(drawer, /AiContextPreviewPanel/);
   assert.match(previewPanel, /requestSequence\.current/);
-  assert.match(previewPanel, /return \(\) => { requestSequence\.current \+= 1; }/);
+  assert.match(previewPanel, /return \(\) => \{\s*requestSequence\.current \+= 1;\s*\}/);
   assert.match(previewPanel, /確認中/);
   assert.match(previewPanel, /state === "empty"/);
   assert.match(previewPanel, /alert-note danger/);
