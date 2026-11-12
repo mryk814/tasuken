@@ -39,23 +39,17 @@ export interface AiItemCreationOptions {
    */
   isEnabled?: () => boolean;
   /**
-   * `any`（Desktop）はThemeと日程などの欄を受ける。`personal`（既定、NAS replica）は今までどおり、
-   * 個人業務への題名と本文だけ。replicaが出す同期差分の形を増やさないため。
+   * `any`（Desktop）は全部の欄を受ける。`replica`（既定、NAS）はTaskのTheme・日程・優先度・チェックリスト・
+   * 今日の割当も受け、Noteの種類（日報など）だけはDesktopに残す。
+   * NASは同じ欄をchange_task（#715）で既に書けるので、作成でだけ断ると、作ってから直す二段の手間と
+   * 途中の状態が増えるだけだった（#688、Museの依頼）。Noteの種類はDesktopの正本の保存先に関わるので広げない。
    */
-  scope?: "personal" | "any";
+  scope?: "replica" | "any";
   now?: () => string;
 }
 
-/** `personal`の範囲で受けない欄。 */
-const DESKTOP_ONLY_FIELDS = [
-  "theme_id",
-  "priority",
-  "schedule",
-  "today_date",
-  "checklist",
-  "note_type",
-  "report_date",
-] as const;
+/** `replica`の範囲で受けない欄。 */
+const DESKTOP_ONLY_FIELDS = ["note_type", "report_date"] as const;
 
 function stableId(value: string): string {
   const h = createHash("sha256").update(value).digest("hex");
@@ -77,12 +71,12 @@ export class AiItemCreationService {
   execute(input: AiItemCreationRequest): AiItemCreationResponse {
     if (this.options.isEnabled && !this.options.isEnabled()) throw directWriteDisabled();
     const request = aiItemCreationRequestSchema.parse(input);
-    if ((this.options.scope || "personal") === "personal") {
+    if ((this.options.scope || "replica") === "replica") {
       const fields = DESKTOP_ONLY_FIELDS.filter((field) => request[field] !== undefined);
       if (fields.length > 0)
         throw new CorePublicError(
           "WRITE_NOT_ALLOWED",
-          "この接続先では、個人業務への題名と本文だけの新規作成を受け付けます。",
+          "この接続先では、Noteの種類（日報など）を指定した作成は受け付けません。Desktopで作ってください。",
           403,
           { fields },
         );
