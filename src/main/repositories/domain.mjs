@@ -290,34 +290,15 @@ function validateTaskRepeatRule(rule) {
   }
 }
 
-const placeReminderTimePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
-
-/** 場所のリマインダー（#727）。保存する形は欠けのない形（Androidが同じ形で読む）。 */
+/**
+ * 場所のリマインダー（#727）。同期・取り込みの経路でもここを通るので、見るのは「nullか普通のobjectか」だけ。
+ * 範囲・昇順・時間帯の組は、コマンド入力のzod（taskPlaceReminderSchema）が断る。ここで厳しくすると、
+ * 先の版が範囲を広げたり欄を足したりしたとき、この版の端末が差分を取り込めず同期が止まる
+ * （画面の無いNASは気づけない）。読み出し側は、読めない値をnullとして返す。
+ */
 function validateTaskPlaceReminder(value) {
   if (value == null) return;
   if (!isPlainObject(value)) throw new Error("task.place_reminderが不正です。");
-  if (typeof value.name !== "string" || !value.name.trim() || value.name.trim().length > 80)
-    throw new Error("task.place_reminder.nameは1〜80文字で入力してください。");
-  if (!Number.isFinite(value.latitude) || value.latitude < -90 || value.latitude > 90)
-    throw new Error("task.place_reminder.latitudeは-90から90で指定してください。");
-  if (!Number.isFinite(value.longitude) || value.longitude < -180 || value.longitude > 180)
-    throw new Error("task.place_reminder.longitudeは-180から180で指定してください。");
-  if (!Number.isInteger(value.radius_m) || value.radius_m < 100 || value.radius_m > 2000)
-    throw new Error("task.place_reminder.radius_mは100から2000の整数で指定してください。");
-  if (!Array.isArray(value.days) || value.days.length > 7)
-    throw new Error("task.place_reminder.daysが不正です。");
-  value.days.forEach((day, index) => {
-    if (!Number.isInteger(day) || day < 0 || day > 6 || (index > 0 && day <= value.days[index - 1]))
-      throw new Error("task.place_reminder.daysは0から6の重複なしの昇順で指定してください。");
-  });
-  const from = value.time_from ?? null;
-  const to = value.time_to ?? null;
-  for (const time of [from, to]) {
-    if (time !== null && (typeof time !== "string" || !placeReminderTimePattern.test(time)))
-      throw new Error("task.place_reminderの時間帯はHH:MM形式で指定してください。");
-  }
-  if ((from === null) !== (to === null))
-    throw new Error("task.place_reminderの時間帯は開始と終了を両方指定してください。");
 }
 
 function validateTaskChecklist(items) {

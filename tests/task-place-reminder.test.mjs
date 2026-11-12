@@ -94,26 +94,23 @@ test("Task の更新・AI の変更で場所を付けて、null で外せる", (
   assert.equal(aiTaskEditSchema.safeParse({ place_reminder: { name: "x" } }).success, false);
 });
 
-test("保存の検査は範囲外と片方だけの時間帯を断り、未知の欄を持つ古い形は通す", () => {
+test("保存の検査は object でない値だけ断り、範囲外・未知の欄を持つ先の版の形は取り込む", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "tasken-place-"));
   const db = new WorkspaceDatabase(path.join(dir, "workspace.sqlite"));
   try {
     db.loadWorkspace();
     const base = { id: "place-task", title: "三ノ宮で買う", state: "todo", priority: "normal" };
-    for (const invalid of [
+    // 同期・取り込みの経路でもここを通るので、範囲外や未知のキーは断らず、object でない値だけ断る。
+    // 厳しい検査はコマンド入力の schema の役目（先の版が範囲を広げても同期が止まらないように）。
+    for (const tolerated of [
       { ...place, latitude: 91 },
-      { ...place, radius_m: 50 },
-      { ...place, radius_m: undefined },
+      { ...place, radius_m: 3000, on_exit: true },
       { ...place, days: [2, 1] },
       { ...place, time_to: null },
-      { ...place, name: "" },
-    ]) {
-      assert.throws(
-        () => db.save("task", { ...base, place_reminder: invalid }),
-        /place_reminder/,
-        JSON.stringify(invalid),
-      );
-    }
+    ])
+      db.save("task", { ...base, place_reminder: tolerated });
+    for (const broken of ["三ノ宮", 5, [place]])
+      assert.throws(() => db.save("task", { ...base, place_reminder: broken }), /place_reminder/);
     db.save("task", { ...base, place_reminder: place });
     assert.deepEqual(db.get("task", "place-task").place_reminder, place);
     db.save("task", { ...base, place_reminder: null });
@@ -295,4 +292,88 @@ test("golden の要約と更新の例は schema に合い、付ける値と更�
     golden.updateTaskAttach.command.changes.placeReminder,
     golden.taskSummaryWithPlace.placeReminder,
   );
+});
+
+test("読めない場所の値を持つ Task が 1 件あっても一覧は落ちず、他の欄の更新で生の値が残る", async () => {
+  const fixture = await createMobileOfflineGateway();
+  try {
+    const { origin, accessToken, deviceId } = fixture.config;
+    let sequence = 0;
+    const send = async (command) => {
+      const id = `raw-${++sequence}`;
+      const response = await fetch(`${origin}/v1/commands`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          apiVersion: 1,
+          schemaVersion: 7,
+          requestId: id,
+          commandId: id,
+          idempotencyKey: id,
+          clientDeviceId: deviceId,
+          issuedAt: "2026-11-12T00:00:00Z",
+          command,
+        }),
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    const get = async (endpoint, extra = {}) => {
+      const query = new URLSearchParams({
+        apiVersion: "1",
+        schemaVersion: "7",
+        requestId: "raw-read",
+        ...extra,
+      });
+      const response = await fetch(`${origin}/v1/${endpoint}?${query}`, {
+        headers: { authorization: `Bearer ${accessToken}`, "X-Tasken-Place-Reminder": "1" },
+      });
+      const body = await response.json();
+      assert.equal(response.status, 200, JSON.stringify(body));
+      return body.data;
+    };
+    for (const id of ["raw-task", "ok-task"]) {
+      const created = await send({
+        name: "CreateTask",
+        task: {
+          id,
+          title: id,
+          projectId: "theme-personal-default",
+          state: "todo",
+          priority: "normal",
+          requester: "self",
+          intendedExecutor: "self",
+          todayDate: "2026-11-12",
+        },
+      });
+      assert.equal(created.status, 200, JSON.stringify(created.body));
+    }
+    // 未知のキーと範囲外の値（先の版が足した・広げた形）を、生のまま置く。
+    const unreadable = { ...place, radius_m: 5000, on_exit: true };
+    await fixture.control({ rawPlaceReminder: { id: "raw-task", value: unreadable } });
+    const rawTask = () => fixture.snapshot().tasks.find((task) => task.id === "raw-task");
+    assert.deepEqual(rawTask().place_reminder, unreadable);
+
+    const today = await get("today", { date: "2026-11-12", limit: "50" });
+    assert.equal(today.items.length, 2);
+    assert.equal(today.items.find((item) => item.id === "raw-task").placeReminder, null);
+    const bootstrap = await get("bootstrap", { limit: "50" });
+    assert.equal(bootstrap.tasks.length, 2);
+    const sync = await get("sync", { cursor: bootstrap.nextCursor, limit: "50" });
+    assert.ok(Array.isArray(sync.changes));
+
+    // 他の欄だけ変えても、生の値は保存から消えない。
+    const renamed = await send({
+      name: "UpdateTask",
+      taskId: "raw-task",
+      expectedVersion: rawTask().version,
+      expectedScheduleVersion: null,
+      base: { title: "raw-task" },
+      changes: { title: "題名を変えた" },
+    });
+    assert.equal(renamed.status, 200, JSON.stringify(renamed.body));
+    assert.equal(rawTask().title, "題名を変えた");
+    assert.deepEqual(rawTask().place_reminder, unreadable);
+  } finally {
+    await fixture.close();
+  }
 });
