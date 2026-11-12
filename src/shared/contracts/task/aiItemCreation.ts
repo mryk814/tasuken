@@ -3,7 +3,7 @@ import * as z from "zod/v4";
 import { entityIdSchema, localDateSchema } from "../../kernel/public.ts";
 import { aiCreationOriginSchema } from "./aiCreationOrigin.ts";
 import { aiTaskScheduleInputSchema } from "./aiSchedule.ts";
-import { taskPrioritySchema } from "./model.ts";
+import { taskPlaceReminderSchema, taskPrioritySchema } from "./model.ts";
 
 export { aiCreationOriginSchema };
 
@@ -30,6 +30,11 @@ export const aiTaskCreationFields = {
     .describe("Due date = end_date only; one day = start_date; a period = both."),
   today_date: localDateSchema.optional().describe("Put on Today for this local date."),
   checklist: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
+  place_reminder: taskPlaceReminderSchema
+    .optional()
+    .describe(
+      "Notify on the phone when it stays at this place. Only coordinates the user gave or a reliable source states; never guess.",
+    ),
 };
 
 /** Noteだけが受ける欄。 */
@@ -39,7 +44,13 @@ export const aiNoteCreationFields = {
   report_date: localDateSchema.optional().describe("For note_type=report only."),
 };
 
-const TASK_ONLY_FIELDS = ["priority", "schedule", "today_date", "checklist"] as const;
+const TASK_ONLY_FIELDS = [
+  "priority",
+  "schedule",
+  "today_date",
+  "checklist",
+  "place_reminder",
+] as const;
 const NOTE_ONLY_FIELDS = ["note_type", "report_date"] as const;
 
 /** Creation only: identity, ownership, assignment and paths are owned by Core. */
