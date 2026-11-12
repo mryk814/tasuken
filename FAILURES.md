@@ -124,3 +124,11 @@
 - 原因: 不明。変更は Python の道具と Core の作成の欄だけで、パッケージ版の起動には関わらない。Electron の起動時の不安定と見ている。
 - 直し方: 流し直した。
 - 再発防止: 記録だけ。もう一度起きたら、起動確認の側で落ちた時のログ（Electron の crash dump）を残すようにする。
+
+## 2026-11-12 Android の試験で、権限の取り消しがプロセスごと落とし、実画面の撮影物が消えた
+
+- しようとしたこと: #727 の場所のリマインダーの androidTest で、通知の権限が無い状態を `uiAutomation.revokeRuntimePermission(POST_NOTIFICATIONS)` で作る。画面の確認用の撮影物を `connectedDebugAndroidTest` の中で撮って取り出す。
+- 起きたこと: 権限を取り消すとアプリのプロセスが終了し、`Instrumentation run failed due to Process crashed` で以降の試験が走らない。撮影物は、走り終わるとアプリごとアンインストールされ、`getExternalFilesDir` ごと消えて `adb pull` できない。位置の許可の画面が前に出ると、操作する試験が「No compose hierarchies found」で落ちる。
+- 原因: Android は実行時の権限を取り消すとそのアプリのプロセスを殺す。Gradle の connected 系は終了時に両 APK を消す。
+- 直し方: 権限が無い状態は関数の引数（`canPost`・`readinessOverride`）で作り、許可の画面が出ないよう操作する試験では先に許可しておく。撮影物は `assembleDebug*` の APK を `adb install` し、`am instrument -e class ...#screenshots` で走らせて取り出す。画面の形は `wm size` / `wm density` / `cmd uimode night` / `font_scale` をエミュレータ側で変えて撮る。
+- 再発防止: 試験のコメントに書いた。`ANDROID_SERIAL=emulator-5554` を付けないと、無線 adb でつながった本人の実機にも connected 系が入るので、必ず付ける。
