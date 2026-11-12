@@ -118,6 +118,9 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:$workVersion")
     // 場所のリマインダー（#727）のジオフェンス。端末に Play Services が無ければ何もしない。
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    // Play Services が androidx.fragment 1.1.0 を連れてくる。1.3.0 未満だと、既存の registerForActivityResult が
+    // リリースの lint（InvalidFragmentVersionForActivityResult）で落ちるので、新しい版を明示する。
+    implementation("androidx.fragment:fragment:1.8.9")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
 
     ksp("androidx.room:room-compiler:$roomVersion")
