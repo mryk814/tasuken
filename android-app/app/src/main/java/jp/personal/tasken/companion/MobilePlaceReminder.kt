@@ -3,6 +3,8 @@ package jp.personal.tasken.companion
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -117,9 +119,12 @@ internal fun previousPlaceReminders(tasks: List<MobileTask>): List<MobilePlaceRe
         .mapNotNull { it.placeReminder }
         .distinctBy { it.name }
 
-/** ジオフェンスとして OS に渡る中身（位置と半径）の要約。名前・曜日・時間帯は発火時に見るので、変わっても登録し直さない。 */
+/**
+ * 登録の要約。位置と半径は OS に渡る中身。曜日と時間帯は発火時に見るが、変えたときは付け直す
+ * （まだ中にいれば INITIAL_TRIGGER_DWELL で、新しい条件のもとで滞在 3 分後に鳴る）。名前だけは付け直さない。
+ */
 internal fun geofenceSignature(place: MobilePlaceReminder): String =
-    "${place.latitude}|${place.longitude}|${place.radiusMeters}"
+    "${place.latitude}|${place.longitude}|${place.radiusMeters}|${place.days.joinToString(",")}|${place.timeFrom}|${place.timeTo}"
 
 internal data class GeofencePlan(
     val removeIds: List<String>,
@@ -141,3 +146,55 @@ internal fun planGeofenceChanges(
         add = targets.filter { (id, place) -> registered[id] != geofenceSignature(place) },
     )
 }
+
+/**
+ * 次に通知してよくなる時刻（after より後）。DWELL を条件の外・通知済みで見送ったとき、この時刻にその Task の
+ * ジオフェンスを付け直す。まだ中にいれば INITIAL_TRIGGER_DWELL で滞在 3 分後に鳴る。
+ * 候補は「各日の 0:00」と「各日の窓の始まり」。完了・キャンセルの Task や、1 週間先まで合う時刻が無いときは null。
+ */
+internal fun nextEligibleAt(
+    place: MobilePlaceReminder,
+    taskState: String,
+    after: LocalDateTime,
+    lastNotifiedDate: LocalDate?,
+): LocalDateTime? {
+    if (!PlaceReminderPolicy.isOpenTask(taskState)) return null
+    val from = place.timeFrom?.let(LocalTime::parse)
+    val candidates = buildList {
+        for (k in 0..8) {
+            val day = after.toLocalDate().plusDays(k.toLong())
+            add(day.atStartOfDay())
+            from?.let { add(day.atTime(it)) }
+        }
+    }
+    return candidates.filter { it > after }.sorted()
+        .firstOrNull { it.toLocalDate() != lastNotifiedDate && PlaceReminderPolicy.matchesSchedule(place, it) }
+}
+
+/** 一度の取得が取れずに lastLocation へ落ちたとき、古い（2 分より前）か粗い（100m より大きい）ものは使わない。 */
+internal fun isUsableLastLocation(ageMillis: Long, accuracyMeters: Float?): Boolean =
+    ageMillis in 0..120_000 && accuracyMeters != null && accuracyMeters <= 100f
+
+internal const val PLACE_REMINDER_UPDATE_REQUIRED = "場所の同期にはDesktopの更新が必要です。Desktopを更新してから再試行してください。"
+
+/** 場所の欄を知らない古い Desktop が UpdateTask の placeReminder を断ったとき。接続先の応答だけを信じる。 */
+internal fun isUnsupportedPlaceReminder(
+    envelopeJson: String,
+    response: GatewayHttpResponse,
+    expectedServerId: String,
+): Boolean = runCatching {
+    if (response.status !in setOf(400, 409, 422)) return false
+    val command = Json.parseToJsonElement(envelopeJson).jsonObject.getValue("command").jsonObject
+    if (command["name"]?.jsonPrimitive?.content != "UpdateTask") return false
+    if (!command.getValue("changes").jsonObject.containsKey("placeReminder")) return false
+    val body = Json.parseToJsonElement(response.body).jsonObject
+    body.getValue("meta").jsonObject.getValue("serverId").jsonPrimitive.content == expectedServerId &&
+        body.getValue("error").jsonObject.getValue("code").jsonPrimitive.content in
+        setOf("validation_failed", "version_mismatch", "capability_unavailable")
+}.getOrDefault(false)
+
+/**
+ * 応答に placeReminder のキーがまったく無いのは、欄を知らない古い Desktop（新しい Desktop は場所の無い Task にも null を返す）。
+ * そのときは「分からない」として、キャッシュの場所を消さない。
+ */
+internal fun serverReportsPlaceReminder(body: String): Boolean = body.contains("\"placeReminder\"")

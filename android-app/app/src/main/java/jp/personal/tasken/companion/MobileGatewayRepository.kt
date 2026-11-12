@@ -2058,7 +2058,7 @@ class AndroidMobileTaskRepository(
             if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
             require(decoded.data.nextCursor != cursor || !decoded.data.hasMore) { "Mobile sync cursor did not advance" }
             dao.applySyncPage(
-                upserts = decoded.data.changes.mapNotNull { it.task?.toCache() },
+                upserts = decoded.data.changes.mapNotNull { it.task }.map { it.toCacheKeepingUnknownPlace(response.body) },
                 tombstoneIds = decoded.data.changes.filter { it.kind == "tombstone" }.map { requireNotNull(it.id) },
                 syncState = decoded.meta.toSyncState(decoded.data.nextCursor),
             )
@@ -2067,6 +2067,8 @@ class AndroidMobileTaskRepository(
         }
         error("Mobile sync exceeded the page limit")
     }
+
+    private var lastBootstrapBody: String = ""
 
     private suspend fun fetchBootstrap(origin: String, accessToken: String): MobileBootstrapResponseDto {
         val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
@@ -2085,13 +2087,15 @@ class AndroidMobileTaskRepository(
             throw IllegalStateException("Mobile Gateway token expired")
         }
         require(response.status == 200) { "Mobile bootstrap failed with HTTP ${response.status}" }
+        lastBootstrapBody = response.body
         return MobileSyncContract.decodeBootstrap(response.body)
     }
 
     private suspend fun confirmRemoteAndApplyBootstrap(origin: String, accessToken: String): String {
         val decoded = fetchBootstrap(origin, accessToken)
+        val body = lastBootstrapBody
         val applied = dao.applyVerifiedBootstrap(
-            tasks = decoded.data.tasks.map { it.toCache() },
+            tasks = decoded.data.tasks.map { it.toCacheKeepingUnknownPlace(body) },
             syncState = decoded.meta.toSyncState(decoded.data.nextCursor),
         )
         if (!applied) throw MobileOutboxServerMismatchException()
@@ -2100,9 +2104,10 @@ class AndroidMobileTaskRepository(
 
     private suspend fun bootstrap(origin: String, accessToken: String, expectedServerId: String) {
         val decoded = fetchBootstrap(origin, accessToken)
+        val body = lastBootstrapBody
         if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
         if (!dao.applyVerifiedBootstrap(
-                tasks = decoded.data.tasks.map { it.toCache() },
+                tasks = decoded.data.tasks.map { it.toCacheKeepingUnknownPlace(body) },
                 syncState = decoded.meta.toSyncState(decoded.data.nextCursor),
             )
         ) throw MobileOutboxServerMismatchException()
@@ -2222,6 +2227,13 @@ class AndroidMobileTaskRepository(
         }
     }
 
+    /** 欄を知らない古い Desktop の応答（キーが無い）は「分からない」。キャッシュの場所を null で上書きしない。 */
+    private suspend fun MobileTaskSummaryDto.toCacheKeepingUnknownPlace(body: String): TaskCacheEntity {
+        val cache = toCache()
+        return if (serverReportsPlaceReminder(body)) cache
+        else cache.copy(placeReminderJson = dao.task(id)?.placeReminderJson)
+    }
+
     private fun MobileTaskSummaryDto.toCache(): TaskCacheEntity = TaskCacheEntity(
         id = id,
         serverVersion = version,
@@ -2285,6 +2297,9 @@ class AndroidMobileTaskRepository(
             }
             if (isUnsupportedPhotoCapture(envelopeJson, response, expectedServerId)) {
                 return MobileCommandSendResult.Rejected("capability_unavailable", PHOTO_CAPTURE_UPDATE_REQUIRED)
+            }
+            if (isUnsupportedPlaceReminder(envelopeJson, response, expectedServerId)) {
+                return MobileCommandSendResult.Rejected("capability_unavailable", PLACE_REMINDER_UPDATE_REQUIRED)
             }
             when {
                 response.status == 200 -> {
