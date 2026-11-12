@@ -2040,7 +2040,7 @@ class MobileOutboxDatabaseTest {
         )
         cases.forEach { (name, mutate) ->
             val id = enqueueNeverSentCommand(name)
-            dao.insertOutbox(mutate(requireNotNull(dao.outbox(id))))
+            replaceOutbox(id, mutate)
 
             assertTrue("$name must block", !dao.prepareNodeSwitch("server-1"))
             assertEquals(900, dao.themeCatalogState()?.serverRevision)
@@ -2066,9 +2066,16 @@ class MobileOutboxDatabaseTest {
     @Test
     fun nodeSwitchIgnoresRejectedCommandsBecauseTheOldNodeNeverAppliedThem() = runBlocking {
         val id = enqueueNeverSentCommand("rejected")
-        dao.insertOutbox(requireNotNull(dao.outbox(id)).copy(state = OutboxState.Rejected, attemptCount = 1))
+        replaceOutbox(id) { it.copy(state = OutboxState.Rejected, attemptCount = 1) }
 
         assertTrue(dao.prepareNodeSwitch("server-1"))
+    }
+
+    // insertOutboxは同じcommandIdを上書きしない。状態を作るときは消してから入れ直す。
+    private suspend fun replaceOutbox(id: String, mutate: (OutboxCommandEntity) -> OutboxCommandEntity) {
+        val changed = mutate(requireNotNull(dao.outbox(id)))
+        dao.deleteOutbox(id)
+        dao.insertOutbox(changed)
     }
 
     private suspend fun enqueueNeverSentCommand(name: String): String {
