@@ -40,6 +40,9 @@ data class MobileTaskContextPreviewTaskDto(
 
 @Serializable
 data class MobileTaskContextPreviewAiDto(
+    // AI公開範囲は廃止した。更新前のサーバの応答を読めるよう、受けるだけの欄として残す（使わない）。
+    val visibility: List<String>? = null,
+    val visibilitySource: String? = null,
     val authority: String? = null,
     val freshness: String,
     val summaryAuthority: String?,
