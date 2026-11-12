@@ -85,8 +85,19 @@ internal object PlaceReminderPolicy {
         now: LocalDateTime,
         lastNotifiedDate: LocalDate?,
     ): Boolean = isOpenTask(taskState) &&
-        lastNotifiedDate != now.toLocalDate() &&
+        lastNotifiedDate != noticeDate(reminder, now) &&
         matchesSchedule(reminder, now)
+
+    /**
+     * 「1 日 1 回」を数える日付。日またぎの窓の続き（日付が変わった後）は、その窓が始まった日として数える。
+     * 前日に始まった窓の中で通知済みなら、日付が変わっても同じ窓では鳴らさない。
+     */
+    fun noticeDate(reminder: MobilePlaceReminder, now: LocalDateTime): LocalDate {
+        val from = reminder.timeFrom?.let(LocalTime::parse)
+        val to = reminder.timeTo?.let(LocalTime::parse)
+        val time = now.toLocalTime().withSecond(0).withNano(0)
+        return if (from != null && to != null && from > to && time <= to) now.toLocalDate().minusDays(1) else now.toLocalDate()
+    }
 
     fun isOpenTask(state: String): Boolean = state != "done" && state != "cancelled"
 
@@ -148,9 +159,10 @@ internal fun planGeofenceChanges(
 }
 
 /**
- * 次に通知してよくなる時刻（after より後）。DWELL を条件の外・通知済みで見送ったとき、この時刻にその Task の
- * ジオフェンスを付け直す。まだ中にいれば INITIAL_TRIGGER_DWELL で滞在 3 分後に鳴る。
- * 候補は「各日の 0:00」と「各日の窓の始まり」。完了・キャンセルの Task や、1 週間先まで合う時刻が無いときは null。
+ * 時間帯のある場所で DWELL を見送ったとき、その Task のジオフェンスを付け直す時刻（after より後の、次の窓の始まり）。
+ * 曜日が合い、その窓の日（noticeDate）にまだ通知していないものだけ。まだ中にいれば INITIAL_TRIGGER_DWELL で滞在 3 分後に鳴る。
+ * 時間帯の無い場所は null: 見送る理由は曜日違いか通知済みで、次に入り直したときに判定する
+ * （0:00 に付け直すと、自宅のような場所で毎晩真夜中に鳴る）。完了・キャンセルの Task や、1 週間先まで無いときも null。
  */
 internal fun nextEligibleAt(
     place: MobilePlaceReminder,
@@ -159,16 +171,9 @@ internal fun nextEligibleAt(
     lastNotifiedDate: LocalDate?,
 ): LocalDateTime? {
     if (!PlaceReminderPolicy.isOpenTask(taskState)) return null
-    val from = place.timeFrom?.let(LocalTime::parse)
-    val candidates = buildList {
-        for (k in 0..8) {
-            val day = after.toLocalDate().plusDays(k.toLong())
-            add(day.atStartOfDay())
-            from?.let { add(day.atTime(it)) }
-        }
-    }
-    return candidates.filter { it > after }.sorted()
-        .firstOrNull { it.toLocalDate() != lastNotifiedDate && PlaceReminderPolicy.matchesSchedule(place, it) }
+    val from = place.timeFrom?.let(LocalTime::parse) ?: return null
+    return (0..8).map { after.toLocalDate().plusDays(it.toLong()).atTime(from) }
+        .firstOrNull { it > after && it.toLocalDate() != lastNotifiedDate && PlaceReminderPolicy.matchesSchedule(place, it) }
 }
 
 /** 一度の取得が取れずに lastLocation へ落ちたとき、古い（2 分より前）か粗い（100m より大きい）ものは使わない。 */

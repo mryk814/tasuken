@@ -197,14 +197,13 @@ internal object PlaceReminderNotifications {
         }
         val last = dao.placeReminderNoticeDate(taskId)?.let(java.time.LocalDate::parse)
         if (!PlaceReminderPolicy.shouldNotify(place, task.state, now, last)) {
-            // 条件の外・通知済みで見送ると、中にいる間は二度と DWELL が来ない。次に合う時刻に付け直す。
+            // 時間帯のある場所で条件の外・通知済みで見送ると、窓の中にいても DWELL は来ない。次の窓の始まりに付け直す。
             nextEligibleAt(place, task.state, now, last)?.let { scheduleRefit(taskId, it) }
             return false
         }
         if (!canPost) return false
-        if (!dao.claimPlaceReminderNotice(taskId, now.toLocalDate().toString())) return false
-        // 夜をまたいで同じ場所にいても、翌日の最初の合う時刻にまた付け直す。
-        nextEligibleAt(place, task.state, now, now.toLocalDate())?.let { scheduleRefit(taskId, it) }
+        // 日またぎの窓の続きは、その窓が始まった日として数える。通知した後は付け直さない（入り直したときに鳴る）。
+        if (!dao.claimPlaceReminderNotice(taskId, PlaceReminderPolicy.noticeDate(place, now).toString())) return false
         createChannel(context)
         val open = if (MobileTaskLocator.isCanonicalTaskId(taskId)) PendingIntent.getActivity(
             context,

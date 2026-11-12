@@ -28,27 +28,39 @@ class PlaceReminderRefitTest {
     }
 
     @Test
-    fun overMidnightWindowResumesAtMidnightWhenTheStartDayMatches() {
+    fun noticedTodayInTheWindowGoesToTheNextDaysWindowStart() {
+        val window = place.copy(timeFrom = "17:00", timeTo = "21:00")
+        assertEquals(at(14, 17), nextEligibleAt(window, "todo", at(13, 17, 5), LocalDate.of(2026, 11, 13)))
+    }
+
+    @Test
+    fun placesWithoutATimeWindowNeverGetARefitSoNobodyIsWokenAtMidnight() {
+        // 自宅のような場所。見送る理由は曜日違いか通知済み。次に入り直したときに判定する。
+        assertNull(nextEligibleAt(place, "todo", at(13, 9, 5), LocalDate.of(2026, 11, 13)))
+        assertNull(nextEligibleAt(place.copy(days = listOf(1)), "todo", at(12, 10), null))
+    }
+
+    @Test
+    fun overMidnightWindowsAreRefitAtTheirStartOnMatchingDays() {
         val night = place.copy(days = listOf(5), timeFrom = "22:00", timeTo = "02:00")
-        // 金曜 23:00 に通知済み: 翌日 0:00 は金曜の窓の続きで、日付が変わっているので次に合う。
-        assertEquals(at(14, 0), nextEligibleAt(night, "todo", at(13, 23), LocalDate.of(2026, 11, 13)))
         // 金曜 15:00 に見送った（窓の前）: 22:00。
         assertEquals(at(13, 22), nextEligibleAt(night, "todo", at(13, 15), null))
+        // 金曜 23:00 に通知済み: 次の金曜の窓の始まり（0:00 には付け直さない）。
+        assertEquals(at(20, 22), nextEligibleAt(night, "todo", at(13, 23), LocalDate.of(2026, 11, 13)))
         // 土曜 03:00（窓の外）: 次の金曜の 22:00。
         assertEquals(at(20, 22), nextEligibleAt(night, "todo", at(14, 3), null))
     }
 
     @Test
-    fun wrongWeekdaySkipsToTheNextMatchingDay() {
-        val mondayOnly = place.copy(days = listOf(1))
-        // 木曜: 次の月曜 0:00（時間帯が無ければ 0:00 から合う）。
-        assertEquals(LocalDateTime.of(2026, 11, 16, 0, 0), nextEligibleAt(mondayOnly, "todo", at(12, 10), null))
-    }
-
-    @Test
-    fun alreadyNotifiedTodayWaitsForTomorrowMidnight() {
-        // 三ノ宮の職場に 9:00 からいる。通知済みなら翌日 0:00 に付け直し、中にいれば鳴る。
-        assertEquals(at(14, 0), nextEligibleAt(place, "todo", at(13, 9, 5), LocalDate.of(2026, 11, 13)))
+    fun theContinuationOfAnOverMidnightWindowCountsAsTheDayItStarted() {
+        val night = place.copy(days = listOf(5), timeFrom = "22:00", timeTo = "02:00")
+        assertEquals(LocalDate.of(2026, 11, 13), PlaceReminderPolicy.noticeDate(night, at(13, 23)))
+        assertEquals(LocalDate.of(2026, 11, 13), PlaceReminderPolicy.noticeDate(night, at(14, 1)))
+        assertEquals(LocalDate.of(2026, 11, 14), PlaceReminderPolicy.noticeDate(night, at(14, 12)))
+        // 金曜の窓で通知済みなら、土曜 01:00（同じ窓の続き）では鳴らさない。
+        assertFalse(PlaceReminderPolicy.shouldNotify(night, "todo", at(14, 1), LocalDate.of(2026, 11, 13)))
+        // まだ通知していなければ、続きでも鳴る。
+        assertTrue(PlaceReminderPolicy.shouldNotify(night, "todo", at(14, 1), null))
     }
 
     @Test
