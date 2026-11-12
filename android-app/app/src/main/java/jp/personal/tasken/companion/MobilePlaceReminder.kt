@@ -116,3 +116,28 @@ internal fun previousPlaceReminders(tasks: List<MobileTask>): List<MobilePlaceRe
         .sortedByDescending { it.updatedAt }
         .mapNotNull { it.placeReminder }
         .distinctBy { it.name }
+
+/** ジオフェンスとして OS に渡る中身（位置と半径）の要約。名前・曜日・時間帯は発火時に見るので、変わっても登録し直さない。 */
+internal fun geofenceSignature(place: MobilePlaceReminder): String =
+    "${place.latitude}|${place.longitude}|${place.radiusMeters}"
+
+internal data class GeofencePlan(
+    val removeIds: List<String>,
+    val add: List<Pair<String, MobilePlaceReminder>>,
+)
+
+/**
+ * 登録済み（id→要約）と、いま登録すべき対象との差分。
+ * 全部を外して付け直すと、無関係な場所の滞在の待ち（3 分）までやり直しになるので、変わった分だけにする。
+ * 要約が変わった Task は、同じ id で付け直せば置き換わる。
+ */
+internal fun planGeofenceChanges(
+    registered: Map<String, String>,
+    targets: List<Pair<String, MobilePlaceReminder>>,
+): GeofencePlan {
+    val wanted = targets.associate { it.first to geofenceSignature(it.second) }
+    return GeofencePlan(
+        removeIds = registered.keys.filter { it !in wanted }.sorted(),
+        add = targets.filter { (id, place) -> registered[id] != geofenceSignature(place) },
+    )
+}
