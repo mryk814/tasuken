@@ -371,7 +371,7 @@ HTTPを確認後、トンネル停止を承認された場合は同じComposeフ
 
 共有フォルダ同期へ参加済みのreplica（前述）が前提です。Gatewayは参加が済むまで待ち受けず、`--sync-directory`が無いと起動を止めます。待ち受けは127.0.0.1の48177（`TASKEN_CORE_MOBILE_GATEWAY_PORT`で変更）だけです。
 
-**本番（nas-pull）**: `docker-compose.json`の`tasken-headless`の`environment`へ`TASKEN_CORE_MOBILE_GATEWAY=1`を書き、Coreを作り直します（「既存Taskの直接変更を許す」と同じ書き方）。`network_mode: host`は、HTTP MCPの追加（#673）のときに`tasken-headless`へ既に入っているので、足すのは環境変数だけです。`docker-compose.json`の`tasken-headless`が`network_mode: host`でないことを確認してから作り直してください（Dockerの`ports`転送や`0.0.0.0`へのbindでは代替しません）。
+**本番（nas-pull）**: `docker-compose.json`の`tasken-headless`の`environment`へ`TASKEN_CORE_MOBILE_GATEWAY=1`を書き、Coreを作り直します（「既存Taskの直接変更を許す」と同じ書き方）。`network_mode: host`は、HTTP MCPの追加（#673）のときに`tasken-headless`へ既に入っているので、足すのは環境変数だけです。`docker-compose.json`の`tasken-headless`が`network_mode: host`であることを確認してから作り直してください（Dockerの`ports`転送や`0.0.0.0`へのbindでは代替しません）。
 
 **このrepoのcompose（開発・初回の配置）**: `docker-compose.mobile.yml`を重ねます（`network_mode: host`と環境変数）。
 
