@@ -96,7 +96,7 @@
 
 - しようとしたこと: #688 段階3で `tests/headless-mobile-gateway.test.mjs` を足し、`npm run ci` を流す。
 - 起きたこと: 一回目の全体実行で「写真つきのCapture」の CreateCapture が 400 validation_failed（2,314件中1件）。単独で4回、他の重い試験と並べて1回流すと通り、二回目の全体実行も全件通った。
-- 原因: 不明。写真のstageが失敗すると Gateway は理由を出さず validation_failed を返す。負荷の高い間にファイルの書き込み（fsync・rename）が失敗した推測。
-- 直し方: 流し直して通ることを確かめた。試験は変えていない。
-- 再発防止: 記録だけ。もう一度起きたら、stage の失敗の理由を試験の失敗文に出す。
+- 原因: 試験の書き方。CreateCapture は `capture.capturedAt` と `issuedAt` が同じ時刻でなければ 400 になる（schema.ts）が、試験は `capturedAt` を `new Date()` で、`command()` が `issuedAt` を別の `new Date()` で作っていた。1ms ずれると 400 validation_failed。写真の保存やI/Oの失敗ではなかった。「壊れた写真」の確認も、1件目の `capturedAt` を使い回して、寸法の検査ではなく時刻の不一致で 400 になっていた。
+- 直し方: `command()` が `issuedAt` を受け取れるようにし、Capture の試験は同じ時刻を渡す。壊れた写真も同じ時刻にそろえ、寸法の検査で断られファイルが残らないことを確かめる。
+- 再発防止: `command()` の上のコメントに制約を書いた。「不明」「負荷の推測」で済ませず、validation_failed は本文のどの検査かを先に疑う。
 - 同じ作業で、新しい試験が WorkspaceDatabase を使い architecture-audit が落ちた（`compatibility.consumer_added`。baseline の consumers に足して直した）。また `prettier --write` を ディレクトリに掛けると CRLF の作業ツリーで無関係なファイルが変わるので、ファイルを名指しして掛ける。
