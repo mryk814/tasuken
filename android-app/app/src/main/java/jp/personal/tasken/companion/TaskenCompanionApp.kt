@@ -43,6 +43,8 @@ class TaskenCompanionApp : Application() {
         scope.launch {
             try {
                 val dao = MobileLocalDatabase.open(applicationContext).mobileDao()
+                // プロセスの最初の登録は全部付け直す。位置情報オフや Play Services のデータ消去で OS の登録だけが消えていても直る。
+                var firstSyncOfProcess = true
                 dao.observeAllTasks()
                     .map { rows -> rows.map { it.task.toMobileTask() } }
                     .distinctUntilChanged { old, new -> placeReminderGeofenceTargets(old) == placeReminderGeofenceTargets(new) }
@@ -50,12 +52,13 @@ class TaskenCompanionApp : Application() {
                         // 1 回の登録失敗で監視を止めない（Play Services の一時的な不調は次の変更で直る）。
                         try {
                             PlaceReminderNotifications.cancelNoLongerCurrent(applicationContext, tasks)
-                            PlaceReminderGeofences.sync(applicationContext, dao)
                         } catch (error: kotlinx.coroutines.CancellationException) {
                             throw error
                         } catch (error: Exception) {
-                            Log.w("TaskenCompanionApp", "Place reminder sync failed", error)
+                            Log.w("TaskenCompanionApp", "Place reminder notification cleanup failed", error)
                         }
+                        PlaceReminderGeofences.syncOrRetry(applicationContext, dao, reinstall = firstSyncOfProcess)
+                        firstSyncOfProcess = false
                     }
             } catch (error: kotlinx.coroutines.CancellationException) {
                 throw error

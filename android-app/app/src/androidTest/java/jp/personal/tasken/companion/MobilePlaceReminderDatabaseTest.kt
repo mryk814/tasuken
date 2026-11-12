@@ -191,6 +191,21 @@ class MobilePlaceReminderDatabaseTest {
     }
 
     @Test
+    fun aSkippedDwellSchedulesARefitAtTheNextEligibleTimeAndANotifiedOneAtTomorrow() = runBlocking {
+        InstrumentationRegistry.getInstrumentation().uiAutomation
+            .grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
+        dao.upsertTask(cachedTask(placeJson = encodeMobilePlaceReminder(place)))
+        val refits = mutableListOf<Pair<String, LocalDateTime>>()
+        // 17:00–21:00 の場所に金曜 16:55 に着いた: 見送って 17:00 に付け直す。
+        assertFalse(PlaceReminderNotifications.deliver(context, dao, taskId, LocalDateTime.of(2026, 11, 13, 16, 55), true) { id, at -> refits += id to at })
+        assertEquals(listOf(taskId to LocalDateTime.of(2026, 11, 13, 17, 0)), refits)
+        refits.clear()
+        // 17:03 に通知。夜をまたいで中にいても、翌日の最初の合う時刻（月曜 17:00 ではなく、時間帯の外なので翌日の窓の始まり）に付け直す。
+        assertTrue(PlaceReminderNotifications.deliver(context, dao, taskId, LocalDateTime.of(2026, 11, 13, 17, 3), true) { id, at -> refits += id to at })
+        assertEquals(listOf(taskId to LocalDateTime.of(2026, 11, 16, 17, 0)), refits)
+    }
+
+    @Test
     fun noticeIsNotRecordedWhileNotificationsAreNotAllowed() = runBlocking {
         // 権限の取り消しはプロセスごと落とすので、権限が無い状態は引数で作る。
         dao.upsertTask(cachedTask(placeJson = encodeMobilePlaceReminder(place)))

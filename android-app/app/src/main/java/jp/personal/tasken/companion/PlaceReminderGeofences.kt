@@ -43,6 +43,7 @@ enum class PlaceReminderReadiness {
 
 private const val TAG = "PlaceReminder"
 private const val DWELL_MS = 3 * 60 * 1000
+private const val RESPONSIVENESS_MS = 2 * 60 * 1000
 
 /**
  * 場所つきの未完了 Task を、Play Services のジオフェンス（DWELL のみ・滞在 3 分）として登録し直す。
@@ -75,16 +76,30 @@ internal object PlaceReminderGeofences {
     /** 画面や権限の結果から、待たずに登録し直す。reinstall は再起動・更新の後（OS が登録を消すので全部付け直す）。 */
     fun syncAsync(context: Context, reinstall: Boolean = false) {
         val app = context.applicationContext
-        scope.launch {
-            try {
-                sync(app, MobileLocalDatabase.open(app).mobileDao(), reinstall)
-            } catch (error: kotlinx.coroutines.CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                Log.w(TAG, "Geofence sync failed", error)
-            }
+        scope.launch { syncOrRetry(app, MobileLocalDatabase.open(app).mobileDao(), reinstall) }
+    }
+
+    /**
+     * 登録に失敗したら（位置情報オフの 1000 など）、あとで WorkManager がやり直す。位置情報が戻れば登録される。
+     * 失敗した回は OS の状態が分からないので、登録済みの記録を捨て、やり直しは全部付け直す。
+     */
+    suspend fun syncOrRetry(context: Context, dao: MobileLocalDao, reinstall: Boolean = false) {
+        try {
+            sync(context, dao, reinstall)
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w(TAG, "Geofence sync failed; will retry", error)
+            forgetAll(context)
+            PlaceReminderWork.scheduleSyncRetry(context)
         }
     }
+
+    /** OS 側の登録が消えた（エラーのイベント・位置情報オフ・Play Services のデータ消去）とき、記録も空にする。 */
+    fun forgetAll(context: Context) = writeRegistered(context, emptyMap())
+
+    /** その Task だけ付け直しの対象にする（OS の登録は同じ id の add で置き換わる）。 */
+    fun forget(context: Context, taskId: String) = writeRegistered(context, readRegistered(context) - taskId)
 
     // 登録済みの集合（id→位置と半径の要約）。差分だけ登録するため、端末に持つ。
     private fun registeredStore(context: Context) = context.getSharedPreferences("place_reminder_geofences", Context.MODE_PRIVATE)
@@ -126,6 +141,8 @@ internal object PlaceReminderGeofences {
                     .setCircularRegion(place.latitude, place.longitude, place.radiusMeters.toFloat())
                     .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_DWELL)
                     .setLoiteringDelay(DWELL_MS)
+                    // 既定の 5 分だと滞在 3 分の判定が遅れるので、2 分にする。
+                    .setNotificationResponsiveness(RESPONSIVENESS_MS)
                     .setExpirationDuration(Geofence.NEVER_EXPIRE)
                     .build()
             }
@@ -170,6 +187,7 @@ internal object PlaceReminderNotifications {
         taskId: String,
         now: LocalDateTime,
         canPost: Boolean = MobileTaskNotifications.canPost(context),
+        scheduleRefit: (String, LocalDateTime) -> Unit = { id, at -> PlaceReminderWork.scheduleRefit(context, id, at) },
     ): Boolean {
         val task = dao.task(taskId)
         val place = task?.let { decodeMobilePlaceReminder(it.placeReminderJson) }
@@ -178,9 +196,15 @@ internal object PlaceReminderNotifications {
             return false
         }
         val last = dao.placeReminderNoticeDate(taskId)?.let(java.time.LocalDate::parse)
-        if (!PlaceReminderPolicy.shouldNotify(place, task.state, now, last)) return false
+        if (!PlaceReminderPolicy.shouldNotify(place, task.state, now, last)) {
+            // 条件の外・通知済みで見送ると、中にいる間は二度と DWELL が来ない。次に合う時刻に付け直す。
+            nextEligibleAt(place, task.state, now, last)?.let { scheduleRefit(taskId, it) }
+            return false
+        }
         if (!canPost) return false
         if (!dao.claimPlaceReminderNotice(taskId, now.toLocalDate().toString())) return false
+        // 夜をまたいで同じ場所にいても、翌日の最初の合う時刻にまた付け直す。
+        nextEligibleAt(place, task.state, now, now.toLocalDate())?.let { scheduleRefit(taskId, it) }
         createChannel(context)
         val open = if (MobileTaskLocator.isCanonicalTaskId(taskId)) PendingIntent.getActivity(
             context,
@@ -230,7 +254,14 @@ internal object PlaceReminderNotifications {
 class PlaceReminderGeofenceReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val event = GeofencingEvent.fromIntent(intent) ?: return
-        if (event.hasError() || event.geofenceTransition != Geofence.GEOFENCE_TRANSITION_DWELL) return
+        if (event.hasError()) {
+            // GEOFENCE_NOT_AVAILABLE など。OS 側の登録が消えた見込みなので、記録を空にして、位置情報が戻ったら付け直す。
+            Log.w(TAG, "Geofence error ${event.errorCode}")
+            PlaceReminderGeofences.forgetAll(context)
+            PlaceReminderWork.scheduleSyncRetry(context)
+            return
+        }
+        if (event.geofenceTransition != Geofence.GEOFENCE_TRANSITION_DWELL) return
         val taskIds = event.triggeringGeofences.orEmpty().map { it.requestId }
         if (taskIds.isEmpty()) return
         val app = context.applicationContext
@@ -255,8 +286,16 @@ class PlaceReminderGeofenceReceiver : BroadcastReceiver() {
 class PlaceReminderBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
-            // 再起動・更新で OS はジオフェンスを消す。全部を付け直す。
-            PlaceReminderGeofences.syncAsync(context, reinstall = true)
+            // 再起動・更新で OS はジオフェンスを消す。全部を付け直し、終わるまで受け手を生かす。
+            val app = context.applicationContext
+            val pending = goAsync()
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                try {
+                    PlaceReminderGeofences.syncOrRetry(app, MobileLocalDatabase.open(app).mobileDao(), reinstall = true)
+                } finally {
+                    pending.finish()
+                }
+            }
         }
     }
 }
