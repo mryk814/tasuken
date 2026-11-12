@@ -3,7 +3,6 @@ package jp.personal.tasken.companion
 import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
-import android.os.Build
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -186,13 +185,15 @@ class MobilePlaceReminderDatabaseTest {
 
     @Test
     fun noticeIsNotRecordedWhileNotificationsAreNotAllowed() = runBlocking {
-        if (Build.VERSION.SDK_INT < 33) return@runBlocking
-        InstrumentationRegistry.getInstrumentation().uiAutomation
-            .revokeRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
+        // 権限の取り消しはプロセスごと落とすので、権限が無い状態は引数で作る。
         dao.upsertTask(cachedTask(placeJson = encodeMobilePlaceReminder(place)))
-        assertFalse(PlaceReminderNotifications.deliver(context, dao, taskId, LocalDateTime.of(2026, 11, 13, 18, 0)))
+        val friday = LocalDateTime.of(2026, 11, 13, 18, 0)
+        assertFalse(PlaceReminderNotifications.deliver(context, dao, taskId, friday, canPost = false))
         // 許可していないあいだは「通知した」にしない。許可すれば今日のうちに届く。
         assertNull(dao.placeReminderNoticeDate(taskId))
+        InstrumentationRegistry.getInstrumentation().uiAutomation
+            .grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
+        assertTrue(PlaceReminderNotifications.deliver(context, dao, taskId, friday.plusHours(1), canPost = true))
     }
 
     @Test
