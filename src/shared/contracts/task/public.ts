@@ -26,6 +26,7 @@ export {
   taskPatchSchema,
   taskPrioritySchema,
   taskReadModelSchema,
+  parseStoredTaskSnapshot,
   taskRepeatRuleSchema,
   taskRequesterSchema,
   taskScheduleConfidenceSchema,

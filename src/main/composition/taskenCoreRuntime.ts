@@ -80,7 +80,7 @@ import {
   buildAgentDeskSummary,
   deriveAgentWorkState,
   taskIdSchema,
-  taskReadModelSchema,
+  parseStoredTaskSnapshot,
 } from "../../shared/contracts/task/public.ts";
 import {
   mobileResponseMetaSchema,
@@ -706,7 +706,7 @@ export class TaskenCoreRuntime {
             if (receipt.status === "conflict") {
               throw new Error("Task delegation returned an unclassified conflict receipt");
             }
-            const taskSnapshot = taskReadModelSchema.safeParse(receipt.resultSnapshot?.task);
+            const taskSnapshot = parseStoredTaskSnapshot(receipt.resultSnapshot?.task);
             const responseMeta = mobileResponseMetaSchema.safeParse(
               receipt.resultSnapshot?.responseMeta,
             );

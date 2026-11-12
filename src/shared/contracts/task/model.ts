@@ -323,5 +323,17 @@ export type TaskRepeatRule = z.output<typeof taskRepeatRuleSchema>;
 export type TaskChecklistItem = z.output<typeof taskChecklistItemSchema>;
 export type TaskImageManifest = z.output<typeof taskImageManifestSchema>;
 export type TaskReadModel = z.output<typeof taskReadModelSchema>;
+
+/**
+ * 保存済みのreceiptのTask snapshotを読み直す。更新前の版が書いたsnapshotは、廃止したai_visibilityを
+ * 持つことがあり、strictなschemaで読むと委任の再送が失敗するので、先に落とす。
+ */
+export function parseStoredTaskSnapshot(value: unknown) {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const { ai_visibility: _retired, ...rest } = value as Record<string, unknown>;
+    return taskReadModelSchema.safeParse(rest);
+  }
+  return taskReadModelSchema.safeParse(value);
+}
 export type TaskDraft = z.output<typeof taskDraftSchema>;
 export type TaskPatch = z.output<typeof taskPatchSchema>;
