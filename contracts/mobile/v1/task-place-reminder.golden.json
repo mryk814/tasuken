@@ -1,0 +1,90 @@
+{
+  "description": "Task の場所のリマインダー（#727）の Mobile 契約。要求に X-Tasken-Place-Reminder: 1 があるときだけ Task の要約（today・bootstrap・sync・コマンドの結果）に placeReminder を載せる（場所の無い Task は null）。ヘッダが無い要求には欄ごと出さない（古い APK は未知の欄で落ちる）。更新は UpdateTask の changes と base に { placeReminder: {...} | null } を単独で送る（作成では受けない）。tests/task-place-reminder.test.mjs が schema と Gateway の実際の応答と比べる。",
+  "requestHeader": { "X-Tasken-Place-Reminder": "1" },
+  "taskSummaryWithPlace": {
+    "id": "10000000-0000-4000-8000-000000000002",
+    "version": 4,
+    "title": "三ノ宮で買う",
+    "themeId": "20000000-0000-4000-8000-000000000001",
+    "state": "todo",
+    "workState": "not_delegated",
+    "placeReminder": {
+      "name": "三ノ宮",
+      "latitude": 34.6937,
+      "longitude": 135.1956,
+      "radiusMeters": 300,
+      "days": [1, 2, 3, 4, 5],
+      "timeFrom": "17:00",
+      "timeTo": "21:00"
+    },
+    "checklistItems": [],
+    "schedule": null,
+    "updatedAt": "2026-11-12T09:00:00.000Z"
+  },
+  "taskSummaryWithoutPlace": {
+    "id": "10000000-0000-4000-8000-000000000003",
+    "version": 1,
+    "title": "場所のないタスク",
+    "themeId": null,
+    "state": "todo",
+    "workState": "not_delegated",
+    "placeReminder": null,
+    "checklistItems": [],
+    "schedule": null,
+    "updatedAt": "2026-11-12T09:00:00.000Z"
+  },
+  "updateTaskAttach": {
+    "apiVersion": 1,
+    "schemaVersion": 7,
+    "requestId": "place-attach",
+    "commandId": "place-attach",
+    "idempotencyKey": "place-attach",
+    "clientDeviceId": "android-device",
+    "issuedAt": "2026-11-12T09:00:00Z",
+    "command": {
+      "name": "UpdateTask",
+      "taskId": "10000000-0000-4000-8000-000000000002",
+      "expectedVersion": 3,
+      "expectedScheduleVersion": null,
+      "changes": {
+        "placeReminder": {
+          "name": "三ノ宮",
+          "latitude": 34.6937,
+          "longitude": 135.1956,
+          "radiusMeters": 300,
+          "days": [1, 2, 3, 4, 5],
+          "timeFrom": "17:00",
+          "timeTo": "21:00"
+        }
+      },
+      "base": { "placeReminder": null }
+    }
+  },
+  "updateTaskDetach": {
+    "apiVersion": 1,
+    "schemaVersion": 7,
+    "requestId": "place-detach",
+    "commandId": "place-detach",
+    "idempotencyKey": "place-detach",
+    "clientDeviceId": "android-device",
+    "issuedAt": "2026-11-12T09:05:00Z",
+    "command": {
+      "name": "UpdateTask",
+      "taskId": "10000000-0000-4000-8000-000000000002",
+      "expectedVersion": 4,
+      "expectedScheduleVersion": null,
+      "changes": { "placeReminder": null },
+      "base": {
+        "placeReminder": {
+          "name": "三ノ宮",
+          "latitude": 34.6937,
+          "longitude": 135.1956,
+          "radiusMeters": 300,
+          "days": [1, 2, 3, 4, 5],
+          "timeFrom": "17:00",
+          "timeTo": "21:00"
+        }
+      }
+    }
+  }
+}
