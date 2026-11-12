@@ -28,6 +28,7 @@ await build({
       export { runMobilePairCli } from "./src/main/headless/mobilePairCli.ts";
       export { parseTaskenHeadlessCoreArgs } from "./src/main/headless/main.ts";
       export { createImageHeaderDecoder } from "./src/main/services/imageHeaderDecoder.ts";
+      export { guardMobileWrites } from "./src/main/gateway/mobile/mobileWriteGuard.ts";
     `,
     resolveDir: process.cwd(),
   },
@@ -45,6 +46,7 @@ const {
   runMobilePairCli,
   parseTaskenHeadlessCoreArgs,
   createImageHeaderDecoder,
+  guardMobileWrites,
 } = await import(pathToFileURL(path.join(bundleDirectory, "headless.mjs")).href);
 
 const API = { apiVersion: TASKEN_MOBILE_API_VERSION, schemaVersion: TASKEN_MOBILE_SCHEMA_VERSION };
@@ -596,4 +598,37 @@ test("写真の保存先の入出力が失敗したら、400（却下）では�
   await core.syncNow();
   await sync.syncNow();
   assert.equal(host.get("capture_entry", "capture-io-failure").images.length, 1);
+});
+
+test("続けること・手入れの記録は、本体（habit・maintenance）を上書きするので既存Entityの書き換えとして守る", () => {
+  const intents = [];
+  const ok = () => ({ ok: true });
+  const core = guardMobileWrites(
+    {
+      executeRoutineAction: ok,
+      executeFeedAction: ok,
+      executeTaskCommand: ok,
+      executeCaptureCommand: ok,
+      decideTaskWorkProposal: ok,
+      delegateTaskToAgent: ok,
+    },
+    (intent) => intents.push(intent),
+  );
+  core.executeRoutineAction({
+    action: {
+      name: "RecordHabitEntry",
+      habitId: "habit-1",
+      performedOn: "2026-11-12",
+      sequence: 1,
+    },
+  });
+  core.executeRoutineAction({
+    action: { name: "RecordMaintenance", maintenanceId: "maint-1", performedOn: "2026-11-12" },
+  });
+  core.executeFeedAction({ action: { name: "PostFeedReply" } });
+  assert.deepEqual(intents, [
+    { kind: "modify", targets: [{ type: "habit", id: "habit-1" }] },
+    { kind: "modify", targets: [{ type: "maintenance", id: "maint-1" }] },
+    { kind: "create", targets: [] },
+  ]);
 });

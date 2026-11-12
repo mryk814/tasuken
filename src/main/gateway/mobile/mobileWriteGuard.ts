@@ -98,8 +98,14 @@ export function guardMobileWrites(
   }
   if (executeRoutineAction) {
     guarded.executeRoutineAction = (input) => {
-      // 決まったIDの記録を足す。再送は同じ記録に収まる。
-      guard(create);
+      // 記録を足すだけに見えるが、続けること・手入れの本体（habit・maintenance）も丸ごと上書きする
+      // （mobileRoutinePort）。既存Entityの書き換えとして、本体を対象にする。
+      const action = input.action;
+      guard(
+        action.name === "RecordHabitEntry"
+          ? modify({ type: "habit", id: action.habitId })
+          : modify({ type: "maintenance", id: action.maintenanceId }),
+      );
       return executeRoutineAction(input);
     };
   }
