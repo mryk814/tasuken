@@ -165,3 +165,26 @@ test("Data Health stateはtyped repository CASでignoreを再読込しstale/conc
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("Data Healthは、要約とfreshnessが無いEntityを全て指し、設定済みなら指さない", () => {
+  const evaluator = new DataHealthEvaluator();
+  const result = evaluator.evaluate({
+    tasks: [
+      { id: "task-bare", title: "未設定", version: 1 },
+      {
+        id: "task-set",
+        title: "設定済み",
+        version: 1,
+        ai_summary: "要約",
+        ai_freshness: "current",
+      },
+    ],
+  });
+  const rulesOf = (id) =>
+    result.issues
+      .filter((entry) => entry.ref.id === id)
+      .map((entry) => entry.ruleId)
+      .sort();
+  assert.deepEqual(rulesOf("task-bare"), ["missing_summary", "unknown_freshness"]);
+  assert.deepEqual(rulesOf("task-set"), []);
+});

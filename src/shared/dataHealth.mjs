@@ -7,6 +7,12 @@ export const DATA_HEALTH_STATE_SCHEMA = "tasken-data-health-state/v1";
 
 export const DATA_HEALTH_RULES = Object.freeze([
   {
+    id: "missing_summary",
+    label: "AI summary がありません",
+    severity: "warning",
+    fixActions: ["source_entity"],
+  },
+  {
     id: "missing_provenance",
     label: "出典がありません",
     severity: "warning",
@@ -21,6 +27,12 @@ export const DATA_HEALTH_RULES = Object.freeze([
   {
     id: "superseded_context",
     label: "後継情報へ置き換えられています",
+    severity: "info",
+    fixActions: ["source_entity"],
+  },
+  {
+    id: "unknown_freshness",
+    label: "freshness を確認できません",
     severity: "info",
     fixActions: ["source_entity"],
   },
@@ -69,6 +81,17 @@ export const DATA_HEALTH_RULES = Object.freeze([
 ]);
 
 const RULE_BY_ID = new Map(DATA_HEALTH_RULES.map((rule) => [rule.id, rule]));
+const SUMMARY_TYPES = new Set([
+  "project",
+  "task",
+  "waiting",
+  "plan_node",
+  "note",
+  "resource",
+  "knowledge_node",
+  "artifact",
+  "sketch",
+]);
 const BODY_FIELDS = ["body_markdown", "body", "description", "summary", "text"];
 const TERMINAL_PACK_STATES = new Set([
   "recovery_required",
@@ -187,6 +210,16 @@ function localIssues(type, record, workspace, structureSignature) {
   const ref = { type, id: text(record.id) };
   const themeId = recordThemeId(type, record);
   const result = [];
+  if (SUMMARY_TYPES.has(type) && !text(record.ai_summary)) {
+    result.push(
+      issue(
+        "missing_summary",
+        ref,
+        themeId,
+        "AIへ渡す要約がありません。元EntityでAI summaryを追加してください。",
+      ),
+    );
+  }
   const authority = text(record.ai_authority || object(record.ai).authority);
   if (["imported", "external", "ai_generated"].includes(authority) && !hasProvenance(record)) {
     result.push(
@@ -217,6 +250,7 @@ function localIssues(type, record, workspace, structureSignature) {
         "後継情報に置き換えられています。AIへ渡す対象に残すか確認してください。",
       ),
     );
+  if (!freshness) result.push(issue("unknown_freshness", ref, themeId, "freshnessが未設定です。"));
   if (recordBody(record).includes("[[")) {
     for (const link of resolveStableLinks(recordBody(record), workspace)) {
       if (link.kind !== "canonical" || link.resolution !== "broken") continue;
