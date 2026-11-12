@@ -260,3 +260,30 @@ test(
     }
   },
 );
+
+test(
+  "the credential is matched against the host name without the port (#720)",
+  { skip: python ? false : "Pythonが無いので確かめられない" },
+  () => {
+    // Museの照合（dynamic_credentials.ensure_allowed_url）は、URLのhostname（ポート無し）とallowed_hostsを
+    // そのまま比べる。ポート付きのhostをそのまま渡すと、どの要求も断られる。
+    const script = [
+      "import sys, urllib.parse",
+      "sys.path.insert(0, sys.argv[1])",
+      "import tasken",
+      "url = urllib.parse.urlsplit('https://' + tasken.host() + '/api/v1')",
+      "print(tasken.credential_host() == url.hostname, tasken.credential_host())",
+    ].join("\n");
+    for (const [host, expected] of [
+      ["nas.example.ts.net:8444", "nas.example.ts.net"],
+      ["nas.example.ts.net", "nas.example.ts.net"],
+    ]) {
+      const result = spawnSync(python, ["-c", script, museDirectory], {
+        env: { ...process.env, TASKEN_HOST: host },
+        encoding: "utf8",
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout.trim(), `True ${expected}`);
+    }
+  },
+);

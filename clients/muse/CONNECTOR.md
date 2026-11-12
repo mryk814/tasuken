@@ -6,14 +6,14 @@
 
 ## Connect
 
-- The connection was registered with `credentials.request_api_access` and these details. Reuse them to reconnect (`api_hosts` is the host in `bin/host`):
+- The connection was registered with `credentials.request_api_access` and these details. Reuse them to reconnect (`api_hosts` is the host name in `bin/host` without the port):
 
 ```json
 {
   "provider": "tasken",
   "auth_scheme": "api_key",
   "placement": "bearer_header",
-  "api_hosts": ["<the host in bin/host>"]
+  "api_hosts": ["<the host name in bin/host, without :port>"]
 }
 ```
 
