@@ -87,8 +87,6 @@ function readManifest(
       !entry.selection ||
       !Number.isSafeInteger(entry.includedCount) ||
       entry.includedCount < 0 ||
-      !Number.isSafeInteger(entry.excludedCount) ||
-      entry.excludedCount < 0 ||
       entry.selection.date !== date ||
       entry.selection.timezone !== timezone ||
       typeof entry.partial !== "boolean" ||
@@ -362,8 +360,6 @@ export function publishDailyContext({
     selection: plan.selection,
     sources: plan.sources,
     includedCount: plan.includedCount,
-    excludedCount: plan.excludedCount,
-    excludedReasons: plan.excludedReasons,
     partial: plan.partial,
     groups: publishedDayGroups(plan),
     bodySources: (plan.publicSources ?? []).map(

@@ -1,8 +1,4 @@
-import {
-  projectEntityForAi,
-  summarizeAiExclusions,
-  type AiAudience,
-} from "../../../shared/aiMetadata.mjs";
+import { buildAiEntityHeader } from "../../../shared/aiMetadata.mjs";
 import {
   buildKnowledgeHealth,
   groupKnowledgeHealthIssues,
@@ -40,7 +36,6 @@ import {
 } from "../../../shared/contracts/task/public.ts";
 import type { KnowledgeReadPort, KnowledgeReadRecord } from "../ports/knowledgeReadPort.ts";
 
-const AUDIENCE = "coding_agent" as const;
 const DEFAULT_LIMIT = 20;
 const DEFAULT_CONTEXT_LIMIT = 50;
 const DEFAULT_TEXT_LIMIT = 1_200;
@@ -86,7 +81,6 @@ const AI_METADATA_KEYS = [
   "ai_summary_authority",
   "ai_freshness",
   "ai_authority",
-  "ai_visibility",
   "ai_last_verified_at",
   "ai_superseded_by",
   "ai_source_refs",
@@ -269,36 +263,15 @@ function sortUpdated<T extends StableDomainRecord>(records: T[]) {
 export class KnowledgeQueryService {
   constructor(private readonly port: KnowledgeReadPort) {}
 
-  private themesById() {
-    return new Map(this.port.list("theme", true).map((theme) => [text(theme.id), theme]));
-  }
-
-  private filterForAi(
-    type: string,
-    records: KnowledgeReadRecord[],
-    audience: AiAudience = AUDIENCE,
-  ) {
-    const themes = this.themesById();
-    const included: KnowledgeReadRecord[] = [];
-    const exclusions: Array<{ id: string; type: string; reason: string }> = [];
-    for (const record of records) {
-      const entityType =
-        type === "item" ? ITEM_KIND_ENTITY_TYPES[text(record.kind)] || "item" : type;
-      const themeId =
-        type === "note" ? text(noteProjectId(record)) : text(record.theme_id || record.project_id);
-      const theme = type === "theme" ? record : themes.get(themeId) || null;
-      const result = projectEntityForAi(entityType, record, {
-        audience,
-        theme,
-        workspaceDefault: this.port.workspaceAiVisibilityDefault(),
-      });
-      if (!result.included) {
-        if (result.exclusion) exclusions.push(result.exclusion);
-        continue;
-      }
-      included.push({ ...record, ai: result.header });
-    }
-    return { records: included, exclusions };
+  /** Attaches the shared AI metadata header to each record. Every record is returned. */
+  private withAiHeader(type: string, records: KnowledgeReadRecord[]) {
+    return {
+      records: records.map((record): KnowledgeReadRecord => {
+        const entityType =
+          type === "item" ? ITEM_KIND_ENTITY_TYPES[text(record.kind)] || "item" : type;
+        return { ...record, ai: buildAiEntityHeader(entityType, record) };
+      }),
+    };
   }
 
   private mergedItems() {
@@ -390,17 +363,14 @@ export class KnowledgeQueryService {
     ]);
   }
 
-  getRecentNotes(
-    input: GetRecentNotesRequest,
-    audience: AiAudience = AUDIENCE,
-  ): GetRecentNotesResponse {
+  getRecentNotes(input: GetRecentNotesRequest): GetRecentNotesResponse {
     const request = getRecentNotesRequestSchema.parse(input);
     const limit = request.limit ?? DEFAULT_LIMIT;
     const textLimit = request.max_chars ?? DEFAULT_TEXT_LIMIT;
     const scoped = this.port
       .list("note", Boolean(request.include_archived))
       .filter((note) => !request.theme_id || noteProjectId(note) === request.theme_id);
-    const filtered = this.filterForAi("note", scoped, audience);
+    const filtered = this.withAiHeader("note", scoped);
     const query = text(request.query).toLowerCase();
     const matched = filtered.records.filter(
       (note) =>
@@ -423,26 +393,19 @@ export class KnowledgeQueryService {
         matched_visible_count: matchedVisible,
         truncated,
       },
-      ...summarizeAiExclusions(filtered.exclusions),
-      ai_audience: audience,
       read_only: true,
       next_tools: NOTE_NEXT_TOOLS,
     });
   }
 
-  searchKnowledge(
-    input: SearchKnowledgeRequest,
-    audience: AiAudience = AUDIENCE,
-  ): SearchKnowledgeResponse {
+  searchKnowledge(input: SearchKnowledgeRequest): SearchKnowledgeResponse {
     const request = searchKnowledgeRequestSchema.parse(input);
     const limit = request.limit ?? DEFAULT_LIMIT;
     const textLimit = request.max_chars ?? DEFAULT_TEXT_LIMIT;
     const scoped = this.port
       .list("knowledge_node", Boolean(request.include_archived))
       .filter((node) => !request.theme_id || node.theme_id === request.theme_id);
-    // Visibility is resolved before query matching and result limits so hidden
-    // Knowledge cannot become a search oracle or consume the public result cap.
-    const filtered = this.filterForAi("knowledge_node", scoped, audience);
+    const filtered = this.withAiHeader("knowledge_node", scoped);
     const query = text(request.query).toLowerCase();
     const nodeTypes = request.node_types ? new Set(request.node_types) : null;
     const matched = sortUpdated(
@@ -468,17 +431,12 @@ export class KnowledgeQueryService {
         matched_visible_count: matched.length,
         truncated,
       },
-      ...summarizeAiExclusions(filtered.exclusions),
-      ai_audience: audience,
       read_only: true,
       next_tools: KNOWLEDGE_NEXT_TOOLS,
     });
   }
 
-  getKnowledgeContext(
-    input: GetKnowledgeContextRequest,
-    audience: AiAudience = AUDIENCE,
-  ): GetKnowledgeContextResponse {
+  getKnowledgeContext(input: GetKnowledgeContextRequest): GetKnowledgeContextResponse {
     const request = getKnowledgeContextRequestSchema.parse(input);
     const limit = request.limit ?? DEFAULT_CONTEXT_LIMIT;
     const textLimit = request.max_chars ?? DEFAULT_TEXT_LIMIT;
@@ -486,12 +444,12 @@ export class KnowledgeQueryService {
     const scoped = allNodes.filter(
       (node) => !request.theme_id || node.theme_id === request.theme_id,
     );
-    const filteredNodes = this.filterForAi("knowledge_node", scoped, audience);
+    const filteredNodes = this.withAiHeader("knowledge_node", scoped);
     const selectedRecords = sortUpdated(filteredNodes.records).slice(0, limit);
     const nodes = selectedRecords.map((node) => publicKnowledgeNode(node, textLimit));
     const selectedNodeIds = new Set(selectedRecords.map((node) => text(node.id)));
     const publicNodeIds = new Set(
-      this.filterForAi("knowledge_node", allNodes, audience).records.map((node) => text(node.id)),
+      this.withAiHeader("knowledge_node", allNodes).records.map((node) => text(node.id)),
     );
     const matchedRelations =
       (request.include_relations ?? true)
@@ -501,8 +459,6 @@ export class KnowledgeQueryService {
               .filter((relation) => {
                 const sourceId = text(relation.source_node_id);
                 const targetId = text(relation.target_node_id);
-                // Deliberate security correction over legacy: never disclose a raw edge
-                // when either endpoint is hidden from the Coding Agent audience.
                 return (
                   publicNodeIds.has(sourceId) &&
                   publicNodeIds.has(targetId) &&
@@ -513,11 +469,10 @@ export class KnowledgeQueryService {
         : [];
     const relations = matchedRelations.slice(0, MAX_EDGE_RESULTS).map(publicKnowledgeEdge);
 
-    const sourceExclusions: Array<{ id: string; type: string; reason: string }> = [];
     const sources = request.include_sources
       ? (() => {
           const activeNodes = selectedRecords;
-          const filteredNotes = this.filterForAi(
+          const filteredNotes = this.withAiHeader(
             "note",
             this.port
               .list("note", false)
@@ -528,9 +483,7 @@ export class KnowledgeQueryService {
                     (node.source_type === "note" && node.source_id === note.id),
                 ),
               ),
-            audience,
           );
-          sourceExclusions.push(...filteredNotes.exclusions);
           const matchedNotes = sortUpdated(filteredNotes.records)
             .slice(0, MAX_HEALTH_RESULTS)
             .map((note) => publicNote(note, Boolean(request.include_raw_body), textLimit));
@@ -546,17 +499,12 @@ export class KnowledgeQueryService {
             ),
           );
           const resourceIds = new Set(matchedResources.map((resource) => text(resource.id)));
-          const filteredResources = this.filterForAi(
-            "resource",
-            [
-              ...matchedResources,
-              ...matchedLinks.filter((link) => !resourceIds.has(text(link.id))),
-            ],
-            audience,
-          );
-          sourceExclusions.push(...filteredResources.exclusions);
+          const filteredResources = this.withAiHeader("resource", [
+            ...matchedResources,
+            ...matchedLinks.filter((link) => !resourceIds.has(text(link.id))),
+          ]);
 
-          const filteredItems = this.filterForAi(
+          const filteredItems = this.withAiHeader(
             "item",
             this.mergedItems().filter((item) =>
               activeNodes.some(
@@ -566,9 +514,7 @@ export class KnowledgeQueryService {
                     node.source_id === item.id),
               ),
             ),
-            audience,
           );
-          sourceExclusions.push(...filteredItems.exclusions);
           return {
             notes: matchedNotes,
             resources: sortUpdated(filteredResources.records)
@@ -610,43 +556,35 @@ export class KnowledgeQueryService {
         matched_public_source_count: sources?.matched_count || 0,
         truncated,
       },
-      ...summarizeAiExclusions([...filteredNodes.exclusions, ...sourceExclusions]),
-      ai_audience: audience,
       read_only: true,
       next_tools: KNOWLEDGE_NEXT_TOOLS,
     });
   }
 
-  getPlanHealth(
-    input: GetPlanHealthRequest,
-    audience: AiAudience = AUDIENCE,
-  ): GetPlanHealthResponse {
+  getPlanHealth(input: GetPlanHealthRequest): GetPlanHealthResponse {
     const request = getPlanHealthRequestSchema.parse(input);
     const themeId = request.theme_id || "";
     const today = new Date().toISOString().slice(0, 10);
     const tasks = sortUpdated(
-      this.filterForAi(
+      this.withAiHeader(
         "task",
         this.port.list("task", false).filter((task) => !themeId || task.project_id === themeId),
-        audience,
       ).records,
     );
     const waitings = sortUpdated(
-      this.filterForAi(
+      this.withAiHeader(
         "waiting",
         this.port
           .list("waiting", false)
           .filter((waiting) => !themeId || waiting.project_id === themeId),
-        audience,
       ).records,
     );
     const planNodes = sortUpdated(
-      this.filterForAi(
+      this.withAiHeader(
         "plan_node",
         this.port
           .list("plan_node", false)
           .filter((node) => !themeId || node.project_id === themeId),
-        audience,
       ).records,
     );
     const scheduleMap = new Map(
@@ -754,20 +692,16 @@ export class KnowledgeQueryService {
         matched_visible_item_count: matchedItemCount,
         truncated,
       },
-      ai_audience: audience,
       read_only: true,
       next_tools: HEALTH_NEXT_TOOLS,
     });
   }
 
-  getKnowledgeHealth(
-    input: GetKnowledgeHealthRequest,
-    audience: AiAudience = AUDIENCE,
-  ): GetKnowledgeHealthResponse {
+  getKnowledgeHealth(input: GetKnowledgeHealthRequest): GetKnowledgeHealthResponse {
     const request = getKnowledgeHealthRequestSchema.parse(input);
     const themeId = request.theme_id || "";
     const allPublicNodes = sortUpdated(
-      this.filterForAi("knowledge_node", this.port.list("knowledge_node", false), audience).records,
+      this.withAiHeader("knowledge_node", this.port.list("knowledge_node", false)).records,
     );
     const nodes = allPublicNodes.filter((node) => !themeId || node.theme_id === themeId);
     const publicNodeIds = new Set(allPublicNodes.map((node) => text(node.id)));
@@ -781,10 +715,10 @@ export class KnowledgeQueryService {
         ),
     );
     const entities = sortUpdated([
-      ...this.filterForAi("task", this.port.list("task", false), audience).records,
-      ...this.filterForAi("waiting", this.port.list("waiting", false), audience).records,
-      ...this.filterForAi("plan_node", this.port.list("plan_node", false), audience).records,
-      ...this.filterForAi("item", this.port.list("item", false), audience).records,
+      ...this.withAiHeader("task", this.port.list("task", false)).records,
+      ...this.withAiHeader("waiting", this.port.list("waiting", false)).records,
+      ...this.withAiHeader("plan_node", this.port.list("plan_node", false)).records,
+      ...this.withAiHeader("item", this.port.list("item", false)).records,
     ]);
     const grouped = groupKnowledgeHealthIssues(buildKnowledgeHealth(nodes, relations, entities));
     const matchedIssueCount = grouped.issues.length;
@@ -816,7 +750,6 @@ export class KnowledgeQueryService {
         matched_issue_count: matchedIssueCount,
         truncated,
       },
-      ai_audience: audience,
       read_only: true,
       next_tools: HEALTH_NEXT_TOOLS,
     });

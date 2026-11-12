@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import { markdownSignature, sha256Hex } from "../../../shared/canonicalMarkdown.mjs";
 
-import { projectEntityForAi } from "../../../shared/aiMetadata.mjs";
+import { buildAiEntityHeader } from "../../../shared/aiMetadata.mjs";
 import { noteProjectId } from "../../../shared/themeRef.mjs";
 import {
   publicArtifactMetadata,
@@ -26,11 +26,8 @@ import {
   type GetNoteRequest,
   type GetNoteResponse,
 } from "../../../shared/contracts/task/public.ts";
-import type { AiAudience } from "../../../shared/aiMetadata.mjs";
 import type { ContentDetailReadPort, ContentDetailRecord } from "../ports/contentDetailReadPort.ts";
 import type { CaptureImagePort } from "../ports/captureImagePort.ts";
-
-const AUDIENCE = "coding_agent" as const;
 
 const TASK_CONTEXT_GUIDANCE = {
   tool: "tasken.get_task_context",
@@ -76,42 +73,20 @@ function notFound(
   return {
     error: {
       code: "not_found" as const,
-      message: `${label}が見つかりません。IDまたはAI公開範囲を確認してください。`,
+      message: `${label}が見つかりません。IDを確認してください。`,
       [codeField]: id,
     },
     read_only: true as const,
-    ai_audience: AUDIENCE,
     next_tools: guidance,
   };
 }
 
-function visibility(
-  type: "note" | "resource" | "artifact" | "capture_entry" | "task",
-  record: ContentDetailRecord,
-  themes: ContentDetailRecord[],
-  workspaceDefault: AiAudience[],
-) {
-  const themeId =
-    type === "note" ? noteProjectId(record) : record.project_id || record.theme_id || null;
-  const theme = themes.find((candidate) => String(candidate.id) === String(themeId)) || null;
-  return projectEntityForAi(type, record, {
-    audience: AUDIENCE,
-    theme,
-    workspaceDefault,
-  });
-}
-
-function visibleRecord(
+function withAiHeader(
   type: "note" | "resource" | "artifact" | "capture_entry" | "task",
   record: ContentDetailRecord | undefined,
-  themes: ContentDetailRecord[],
-  workspaceDefault: AiAudience[],
 ): { record: ContentDetailRecord | null } {
   if (!record) return { record: null };
-  const result = visibility(type, record, themes, workspaceDefault);
-  return result.included
-    ? { record: { ...record, ai: result.header } as ContentDetailRecord }
-    : { record: null };
+  return { record: { ...record, ai: buildAiEntityHeader(type, record) } as ContentDetailRecord };
 }
 
 /**
@@ -129,15 +104,9 @@ export class ContentDetailQueryService {
     const request = getNoteRequestSchema.parse(args);
     const noteId = request.note_id;
     const includeArchived = Boolean(request.include_archived);
-    const themes = this.port.list("theme", true);
     const notes = this.port.list("note", includeArchived);
     const candidate = notes.find((record) => String(record.id) === noteId);
-    const filtered = visibleRecord(
-      "note",
-      candidate,
-      themes,
-      this.port.workspaceAiVisibilityDefault(),
-    );
+    const filtered = withAiHeader("note", candidate);
     if (!filtered.record) return notFound("note_id", noteId, "Note", NOTE_SEARCH_GUIDANCE);
 
     const maxTextLength = taskContextLimits(request).maxTextLength;
@@ -159,7 +128,6 @@ export class ContentDetailQueryService {
       body_signature: body.length > maxTextLength ? null : markdownSignature(body),
       limits: { max_text_length: maxTextLength },
       read_only: true,
-      ai_audience: AUDIENCE,
       next_tools: [
         TASK_CONTEXT_GUIDANCE,
         {
@@ -175,17 +143,11 @@ export class ContentDetailQueryService {
     const request = getConversationRequestSchema.parse(args);
     const conversationId = request.conversation_id;
     const includeArchived = Boolean(request.include_archived);
-    const themes = this.port.list("theme", true);
     const resources = this.port.list("resource", includeArchived);
     const candidate = resources.find(
       (record) => String(record.id) === conversationId && record.resource_scope === "chat_ref",
     );
-    const filtered = visibleRecord(
-      "resource",
-      candidate,
-      themes,
-      this.port.workspaceAiVisibilityDefault(),
-    );
+    const filtered = withAiHeader("resource", candidate);
     if (!filtered.record)
       return notFound("conversation_id", conversationId, "Conversation", RELATED_CONTEXT_GUIDANCE);
 
@@ -209,7 +171,6 @@ export class ContentDetailQueryService {
       truncated: body.length > maxTextLength,
       limits: { max_text_length: maxTextLength },
       read_only: true,
-      ai_audience: AUDIENCE,
       next_tools: [
         TASK_CONTEXT_GUIDANCE,
         {
@@ -225,15 +186,9 @@ export class ContentDetailQueryService {
     const request = getArtifactMetadataRequestSchema.parse(args);
     const artifactId = request.artifact_id;
     const includeArchived = Boolean(request.include_archived);
-    const themes = this.port.list("theme", true);
     const artifacts = this.port.list("artifact", includeArchived);
     const candidate = artifacts.find((record) => String(record.id) === artifactId);
-    const filtered = visibleRecord(
-      "artifact",
-      candidate,
-      themes,
-      this.port.workspaceAiVisibilityDefault(),
-    );
+    const filtered = withAiHeader("artifact", candidate);
     if (!filtered.record)
       return notFound("artifact_id", artifactId, "Artifact", RELATED_CONTEXT_GUIDANCE);
 
@@ -242,7 +197,6 @@ export class ContentDetailQueryService {
       artifact: publicArtifactMetadata(filtered.record, budget),
       external_file_content_included: false,
       read_only: true,
-      ai_audience: AUDIENCE,
       next_tools: [
         TASK_CONTEXT_GUIDANCE,
         ...(filtered.record.origin_note_id
@@ -277,7 +231,6 @@ export class ContentDetailQueryService {
         data_base64: Buffer.from(found.bytes).toString("base64"),
       },
       read_only: true,
-      ai_audience: AUDIENCE,
       next_tools: [TASK_CONTEXT_GUIDANCE, SEARCH_GUIDANCE[0]],
     };
   }
@@ -302,7 +255,6 @@ export class ContentDetailQueryService {
         data_base64: Buffer.from(found.bytes).toString("base64"),
       },
       read_only: true,
-      ai_audience: AUDIENCE,
       next_tools: [TASK_CONTEXT_GUIDANCE, SEARCH_GUIDANCE[0]],
     };
   }
@@ -324,15 +276,9 @@ export class ContentDetailQueryService {
     };
     bytes: Uint8Array;
   } | null {
-    const themes = this.port.list("theme", true);
     const candidates = this.port.list(type, includeArchived);
     const candidate = candidates.find((record) => String(record.id) === ownerId);
-    const filtered = visibleRecord(
-      type,
-      candidate,
-      themes,
-      this.port.workspaceAiVisibilityDefault(),
-    );
+    const filtered = withAiHeader(type, candidate);
     if (!filtered.record) return null;
     const images = Array.isArray(filtered.record.images) ? filtered.record.images : [];
     const manifest = images.find(
@@ -390,11 +336,10 @@ function captureImageNotFound(captureId: string): GetCaptureImageResponse {
   return {
     error: {
       code: "not_found" as const,
-      message: "Capture画像が見つかりません。IDまたはAI公開範囲を確認してください。",
+      message: "Capture画像が見つかりません。IDを確認してください。",
       capture_id: captureId,
     },
     read_only: true as const,
-    ai_audience: AUDIENCE,
     next_tools: SEARCH_GUIDANCE,
   };
 }
@@ -403,11 +348,10 @@ function taskImageNotFound(taskId: string): GetTaskImageResponse {
   return {
     error: {
       code: "not_found" as const,
-      message: "Task画像が見つかりません。IDまたはAI公開範囲を確認してください。",
+      message: "Task画像が見つかりません。IDを確認してください。",
       task_id: taskId,
     },
     read_only: true as const,
-    ai_audience: AUDIENCE,
     next_tools: SEARCH_GUIDANCE,
   };
 }

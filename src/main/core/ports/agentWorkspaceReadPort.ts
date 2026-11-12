@@ -1,4 +1,3 @@
-import type { AiAudience } from "../../../shared/aiMetadata.mjs";
 import type {
   AgentReadyTaskSourceRecord,
   AgentReadyTaskThemeRecord,
@@ -18,5 +17,4 @@ export interface AgentWorkspaceReadPort {
   listWorkingCopies(includeArchived: boolean): AgentWorkspaceRecord[];
   listAgentSessions(includeArchived: boolean): AgentWorkspaceRecord[];
   listReferences(includeArchived: boolean): AgentWorkspaceRecord[];
-  workspaceAiVisibilityDefault(): AiAudience[];
 }

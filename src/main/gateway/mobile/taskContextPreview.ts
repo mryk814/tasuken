@@ -67,18 +67,7 @@ function ref(value: unknown) {
 function ai(value: unknown) {
   const input = record(value);
   if (!Object.keys(input).length) return null;
-  const visibility = Array.isArray(input.ai_visibility)
-    ? input.ai_visibility.filter((entry: unknown) =>
-        ["m365", "coding_agent", "external_ai"].includes(String(entry)),
-      )
-    : [];
   return {
-    visibility: [...new Set(visibility)],
-    visibilitySource: ["entity", "theme", "workspace_default"].includes(
-      String(input.ai_visibility_source),
-    )
-      ? input.ai_visibility_source
-      : null,
     authority: [
       "user_confirmed",
       "imported",

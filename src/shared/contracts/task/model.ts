@@ -269,11 +269,6 @@ const taskFields = {
     .enum(["user_confirmed", "imported", "ai_generated", "inferred", "external_source"])
     .nullable()
     .optional(),
-  ai_visibility: z
-    .array(z.enum(["m365", "coding_agent", "external_ai"]))
-    .max(3)
-    .nullable()
-    .optional(),
   ai_last_verified_at: optionalTimestamp,
   ai_superseded_by: aiEntityRefSchema.nullable().optional(),
   ai_source_refs: z.array(aiSourceRefSchema).max(100).optional(),
@@ -292,8 +287,16 @@ export const taskReadModelSchema = z
   })
   .strict();
 
+/**
+ * AI公開範囲は廃止した概念。更新前の端末がTaskの作成・変更に載せてくるキーを、
+ * 拒否せずに受け取る（拒否すると同期が止まる）ためだけに残す。値は使わず、保存の正規化が捨てる。
+ */
+const retiredAiVisibilityFields = {
+  ai_visibility: z.unknown().optional(),
+};
+
 /** Create input. IDs remain caller-generated so Desktop/Mobile can enqueue offline. */
-export const taskDraftSchema = z.object(taskFields).strict();
+export const taskDraftSchema = z.object({ ...taskFields, ...retiredAiVisibilityFields }).strict();
 
 export const taskPatchSchema = taskDraftSchema
   .omit({ id: true, ai_creation: true, ai_seen_at: true })

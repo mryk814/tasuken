@@ -1,12 +1,10 @@
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
-import { normalizeAiVisibility, projectEntityForAi } from "../../shared/aiMetadata.mjs";
 import { validateAgentLaunchTask, type AgentLaunchRequest } from "../../shared/agentLaunch.ts";
 import { launchTaskAgentProcess } from "./taskAgentProcess.ts";
 
 interface Repository {
   get(type: "task" | "theme", id: string): Record<string, unknown> | null;
-  getPreference(key: string): unknown;
 }
 
 const launchingTasks = new Set<string>();
@@ -60,14 +58,6 @@ async function launchAgentOnce(
   }
   const task = repository.get("task", request.taskId);
   const workAttemptId = validateAgentLaunchTask(task, request.expectedVersion);
-  const themeId = String(task!.project_id || task!.theme_id || "");
-  const projected = projectEntityForAi("task", task, {
-    audience: "coding_agent",
-    theme: themeId ? repository.get("theme", themeId) : null,
-    workspaceDefault: normalizeAiVisibility(repository.getPreference("aiVisibilityDefault")),
-  });
-  if (!projected.included)
-    throw new Error("このタスクはAI公開範囲に含まれていません。公開範囲を確認してください。");
   await launch({
     clientId: request.clientId,
     cwd,

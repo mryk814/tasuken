@@ -599,11 +599,11 @@ export interface ThemeAiPackChangedPayload {
   dirty: boolean;
 }
 
-export type AiContextPreviewAudience = "m365" | "coding_agent";
+export type AiContextPreviewChannel = "ai_pack" | "mcp";
 export type AiContextPreviewScope = { type: "theme" | "task"; id: string };
 
 export interface AiContextPreviewRequest {
-  audience: AiContextPreviewAudience;
+  channel: AiContextPreviewChannel;
   scope: AiContextPreviewScope;
 }
 
@@ -669,7 +669,6 @@ export interface ConversationContextPreviewResult {
   summary: string;
   freshness: string;
   authority: string;
-  aiVisibility: string[];
 }
 
 export interface ConversationContextPublishRequest extends ConversationContextPreviewRequest {

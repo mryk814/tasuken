@@ -7,7 +7,6 @@ import {
   resolveCanonicalRef,
   themeRefFromEntity,
 } from "./activityEvent.mjs";
-import { projectEntityForAi, summarizeAiExclusions } from "./aiMetadata.mjs";
 import { safeExternalUrl, safeReceiptText } from "./taskContext.mjs";
 import { createActivityHistoryResolver } from "./activityHistory.mjs";
 import { activityBoundaryMatches, paginateActivity } from "./activityPagination.mjs";
@@ -445,110 +444,24 @@ function eventAllowedByDefault(event) {
 }
 
 function projectOne(event, context) {
-  const {
-    entityMap,
-    entityRefsById,
-    themesById,
-    workspaceDefault,
-    audience,
-    workspace,
-    roots,
-    profile,
-  } = context;
+  const { entityMap, workspace, roots, profile, currentEntityOnly } = context;
   const currentEntity = entityMap.get(key(event.entity_ref.type, event.entity_ref.id));
   const historical = profile === "recall" ? event.recall_history : null;
   const themeId =
     event.theme_ref?.kind === "theme"
       ? event.theme_ref.id
       : text(currentEntity?.project_id || currentEntity?.theme_id);
-  const currentThemeFor = (entity) =>
-    themesById.get(text(entity?.project_id || entity?.theme_id)) || null;
-  const allowedReference = (ref) => {
-    // Published M365 files cannot rely on the local reader resolving visibility.
-    if (!audience || (audience !== "m365" && profile !== "recall")) return true;
-    // Canonical kind describes a location, not an Entity type. Resolve an
-    // attached ID only when it names exactly one current Entity.
-    const typed = ref?.entity_id
-      ? entityRefsById.get(text(ref.entity_id))
-      : ref?.type && ref?.id
-        ? ref
-        : null;
-    if (!typed) return !ref?.entity_id;
-    const target = entityMap.get(key(typed.type, typed.id));
-    if (target?.deleted_at) return false;
-    if (target && typed.type === "work_receipt") {
-      const task = entityMap.get(key("task", target.task_id));
-      if (!task || !allowedReference({ type: "task", id: task.id })) return false;
-      if (!Array.isArray(target.ai_visibility)) return true;
-    }
-    return Boolean(
-      target &&
-      projectEntityForAi(typed.type, target, {
-        audience,
-        theme: currentThemeFor(target),
-        workspaceDefault,
-      }).included,
-    );
-  };
   if (profile === "recall" && (!currentEntity || currentEntity.deleted_at))
-    return {
-      excluded: {
-        type: event.entity_ref.type,
-        reason: currentEntity ? "entity_deleted" : "entity_missing",
-        count: 1,
-      },
-    };
-  if (audience) {
-    // #294 policy is evaluated at projection time. Event history does not
-    // freeze a past visibility decision.
-    if (!currentEntity)
-      return { excluded: { type: event.entity_ref.type, reason: "entity_missing", count: 1 } };
-    const policy = projectEntityForAi(
-      event.entity_ref.type,
-      currentEntity || { id: event.entity_ref.id, title: event.summary },
-      {
-        audience,
-        theme: currentThemeFor(currentEntity),
-        workspaceDefault,
-      },
-    );
-    if (!policy.included) return { excluded: policy.exclusion };
-    if (historical) {
-      for (const [id, reason] of [
-        [historical.theme_ref.id, "historical_theme_not_visible"],
-        [historical.history.current_theme_ref.id, "current_theme_not_visible"],
-      ]) {
-        if (!id) continue;
-        const theme = themesById.get(id);
-        if (
-          !theme ||
-          theme.deleted_at ||
-          !projectEntityForAi("theme", theme, {
-            audience,
-            theme,
-            workspaceDefault,
-          }).included
-        )
-          return { excluded: { type: "theme", reason, count: 1 } };
-      }
-    }
-  }
+    return { excluded: true };
+  // 削除済み・読み込まれていないEntityの出来事は、AI向けの読み取りでは出さない（画面の履歴は出す）。
+  if (currentEntityOnly && !currentEntity) return { excluded: true };
   const eventId = publicIdentifier(event.id);
   const entityRef = publicTypedRef(event.entity_ref);
   const eventKind = publicIdentifier(event.event_kind);
   if (!eventId || !entityRef || !eventKind) {
-    return { excluded: { type: "activity", reason: "unsafe_public_ref", count: 1 } };
+    return { excluded: true };
   }
   const title = historical?.entity_title || entityTitle(currentEntity, event.entity_ref);
-  if (
-    profile === "recall" &&
-    audience &&
-    event.entity_ref.type === "schedule" &&
-    (!currentEntity?.owner_type ||
-      !currentEntity?.owner_id ||
-      !allowedReference({ type: currentEntity.owner_type, id: currentEntity.owner_id }))
-  )
-    return { excluded: { type: "schedule", reason: "owner_not_visible", count: 1 } };
   const themeIdForPublic = publicIdentifier(historical ? historical.theme_ref.id : themeId);
   const projected = {
     id: eventId,
@@ -563,25 +476,10 @@ function projectOne(event, context) {
     origin: publicStringRecord(event.origin, ORIGIN_FIELDS),
     summary: publicText(event.summary),
     changed_fields: [...(event.changed_fields || [])].map(publicIdentifier).filter(Boolean),
-    canonical_refs: publicCanonicalRefs(
-      (event.canonical_refs || []).filter(allowedReference),
-      roots,
-    ),
-    source_refs: publicSourceRefs(event.source_refs).filter(allowedReference),
-    relation_refs: relationRefsFor(
-      event,
-      profile === "recall" && audience
-        ? {
-            ...workspace,
-            references: collection(workspace, "references").filter((reference) =>
-              allowedReference({ type: "reference", id: reference.id }),
-            ),
-          }
-        : workspace,
-    ).filter(allowedReference),
-    work_receipt_ref: allowedReference(event.work_receipt_ref)
-      ? publicTypedRef(event.work_receipt_ref)
-      : null,
+    canonical_refs: publicCanonicalRefs(event.canonical_refs || [], roots),
+    source_refs: publicSourceRefs(event.source_refs),
+    relation_refs: relationRefsFor(event, workspace),
+    work_receipt_ref: publicTypedRef(event.work_receipt_ref),
     metadata: publicMetadata(event.metadata),
   };
   if (currentEntity?.deleted_at) projected.metadata.entity_status = "deleted";
@@ -633,14 +531,13 @@ export function queryActivityEvents({
   eventKinds = [],
   event_kinds = [],
   timezone = DEFAULT_TIMEZONE,
-  audience = null,
-  workspaceDefault = undefined,
   roots = {},
   limit = MAX_EVENTS,
   sort_direction = "asc",
   include_match_metadata = false,
   profile = "default",
   cursor = null,
+  currentEntityOnly = false,
 } = {}) {
   const sourceWorkspace = {
     ...workspace,
@@ -650,16 +547,6 @@ export function queryActivityEvents({
   if (profile === "recall") {
     for (const capture of collection(sourceWorkspace, "capture_entries"))
       if (capture?.id) entityMap.set(key("capture_entry", capture.id), capture);
-  }
-  const entityRefsById = new Map();
-  if (audience && (audience === "m365" || profile === "recall")) {
-    for (const [entityKey, entity] of entityMap) {
-      const id = text(entity.id);
-      entityRefsById.set(
-        id,
-        entityRefsById.has(id) ? null : { type: entityKey.slice(0, entityKey.indexOf(":")), id },
-      );
-    }
   }
   const themesById = themeMap(themes, sourceWorkspace);
   const resolveHistory =
@@ -778,7 +665,6 @@ export function queryActivityEvents({
       }),
   );
   const projected = [];
-  const exclusions = [];
   const direction = sort_direction === "desc" ? -1 : 1;
   for (const event of scopedEvents.sort(
     (a, b) =>
@@ -790,16 +676,12 @@ export function queryActivityEvents({
   )) {
     const result = projectOne(event, {
       entityMap,
-      entityRefsById,
-      themesById,
-      workspaceDefault,
-      audience,
       workspace: sourceWorkspace,
       roots,
       profile,
+      currentEntityOnly,
     });
-    if (result.excluded) exclusions.push(result.excluded);
-    else if (result.event)
+    if (result.event)
       projected.push({
         ...result.event,
         local_date: eventDates.get(event),
@@ -809,7 +691,6 @@ export function queryActivityEvents({
       });
   }
   const max = Math.max(1, Math.min(MAX_EVENTS, Math.floor(Number(limit) || MAX_EVENTS)));
-  const excludedReasons = summarizeAiExclusions(exclusions).excluded_reasons;
   const page = paginateActivity(projected, {
     criteria: {
       period,
@@ -818,11 +699,10 @@ export function queryActivityEvents({
       entity_id,
       kinds: [...kinds].sort(),
       profile,
-      audience,
+      currentEntityOnly,
       direction,
       limit: max,
     },
-    exclusions: excludedReasons,
     limit: max,
     cursor,
     period,
@@ -832,8 +712,6 @@ export function queryActivityEvents({
     timezone: effectiveTimezone,
     date: date || null,
     ...page,
-    excluded_count: exclusions.length,
-    excluded_reasons: excludedReasons,
     ...(include_match_metadata ? { matched_count: page.page.matched_visible_count } : {}),
   };
 }
@@ -897,15 +775,6 @@ export function projectActivityMarkdown(result, { title = "Activity", date = res
         : []),
     );
   }
-  if (result?.excluded_count)
-    lines.push(
-      "",
-      `## Excluded by policy`,
-      `- ${result.excluded_count} event(s)`,
-      ...(result.excluded_reasons || []).map(
-        (entry) => `- ${entry.type}: ${entry.reason} (${entry.count})`,
-      ),
-    );
   return lines.join("\n");
 }
 
@@ -917,6 +786,5 @@ export function projectActivityMcp(result) {
   return {
     ...projectActivityJson(result),
     read_only: true,
-    ai_audience: result?.ai_audience || undefined,
   };
 }

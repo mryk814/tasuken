@@ -1,4 +1,3 @@
-import { projectEntityForAi } from "../../../shared/aiMetadata.mjs";
 import { projectActivityJson, queryActivityEvents } from "../../../shared/activityProjection.mjs";
 import {
   getActivityEntriesRequestSchema,
@@ -8,7 +7,6 @@ import {
 } from "../../../shared/contracts/task/public.ts";
 import type { ActivityEntriesReadPort } from "../ports/activityEntriesReadPort.ts";
 
-const AUDIENCE = "coding_agent";
 const DEFAULT_LIMIT = 50;
 const ACTIVITY_NEXT_TOOLS = [
   { tool: "tasken.get_task_assignment", description: "現在のassignmentとWork Receiptを確認する。" },
@@ -28,11 +26,10 @@ function notFound(taskId: string): GetActivityEntriesResponse {
   return getActivityEntriesResponseSchema.parse({
     error: {
       code: "not_found",
-      message: "Taskが見つかりません。IDまたはAI公開範囲を確認してください。",
+      message: "Taskが見つかりません。IDを確認してください。",
       task_id: taskId,
     },
     read_only: true,
-    ai_audience: AUDIENCE,
     next_tools: ACTIVITY_NEXT_TOOLS,
   });
 }
@@ -47,17 +44,15 @@ export class ActivityEntriesQueryService {
     if (request.date) {
       const activity = projectActivityJson(
         queryActivityEvents({
+          currentEntityOnly: true,
           events: workspace.change_events || [],
           profile: request.profile,
           cursor: request.cursor,
           event_kinds: request.event_kinds,
           workspace,
-          themes: snapshot.visibilityThemes,
           references: workspace.references || [],
           date: request.date,
           timezone: request.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
-          audience: AUDIENCE,
-          workspaceDefault: snapshot.workspaceAiVisibilityDefault,
           roots: workspace.canonical_root_status || {},
           limit: request.limit ?? DEFAULT_LIMIT,
           sort_direction: "desc",
@@ -72,8 +67,6 @@ export class ActivityEntriesQueryService {
         limit: request.limit ?? DEFAULT_LIMIT,
         truncated,
         page: activity.page,
-        excluded_count: activity.excluded_count,
-        excluded_reasons: activity.excluded_reasons,
         result_meta: {
           contract_version: 1,
           returned_count: events.length,
@@ -81,7 +74,6 @@ export class ActivityEntriesQueryService {
           truncated,
         },
         read_only: true,
-        ai_audience: AUDIENCE,
         next_tools: [],
       });
     }
@@ -89,33 +81,21 @@ export class ActivityEntriesQueryService {
     const task = (workspace.tasks || []).find((candidate) => text(candidate.id) === taskId);
     if (!task) return notFound(taskId);
 
-    const themesById = new Map(snapshot.visibilityThemes.map((theme) => [text(theme.id), theme]));
-    const themeId = text(task.project_id || task.theme_id);
-    const visibility = projectEntityForAi("task", task, {
-      audience: AUDIENCE,
-      theme: themeId ? themesById.get(themeId) || null : null,
-      workspaceDefault: snapshot.workspaceAiVisibilityDefault,
-    });
-    // Missing and policy-hidden Tasks deliberately share one public response.
-    if (!visibility.included) return notFound(taskId);
-
     const sourceEvents = (workspace.change_events || []).filter(
       (event) => text(event.entity_ref?.id || event.entity_id) === taskId,
     );
     const activity = projectActivityJson(
       queryActivityEvents({
+        currentEntityOnly: true,
         events: sourceEvents,
         profile: request.profile,
         cursor: request.cursor,
         event_kinds: request.event_kinds,
         workspace,
-        themes: snapshot.visibilityThemes,
         references: workspace.references || [],
         entity_type: "task",
         entity_id: taskId,
         timezone: request.timezone || "Asia/Tokyo",
-        audience: AUDIENCE,
-        workspaceDefault: snapshot.workspaceAiVisibilityDefault,
         roots: workspace.canonical_root_status || {},
         limit: request.limit ?? DEFAULT_LIMIT,
         sort_direction: "desc",
@@ -133,8 +113,6 @@ export class ActivityEntriesQueryService {
       limit,
       truncated,
       page: activity.page,
-      excluded_count: activity.excluded_count,
-      excluded_reasons: activity.excluded_reasons,
       result_meta: {
         contract_version: 1,
         returned_count: events.length,
@@ -142,7 +120,6 @@ export class ActivityEntriesQueryService {
         truncated,
       },
       read_only: true,
-      ai_audience: AUDIENCE,
       next_tools: ACTIVITY_NEXT_TOOLS,
     });
   }

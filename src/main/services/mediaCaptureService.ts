@@ -818,7 +818,10 @@ function assertExactKeys(
   label: string,
 ): void {
   const allowedSet = new Set(allowed);
-  const unknown = Object.keys(value).filter((key) => !allowedSet.has(key));
+  // AI公開範囲は廃止した。更新前に書いた復旧用のcommandには `ai_visibility: []` が残るので、無視する。
+  const unknown = Object.keys(value).filter(
+    (key) => key !== "ai_visibility" && !allowedSet.has(key),
+  );
   if (unknown.length) throw new Error(`${label}に未定義fieldがあります: ${unknown.join(", ")}`);
 }
 
@@ -914,7 +917,6 @@ function validateManifestCommand(
         "container",
         "content_hash",
         "media_availability",
-        "ai_visibility",
       ],
       "Video Artifact payload",
     );
@@ -922,7 +924,6 @@ function validateManifestCommand(
       throw new Error("Video Artifact IDが不正です。");
     const expectedTitle = baseNameWithoutExtension(String(manifest.filename || ""));
     const expectedContainer = mediaExtensionOf(String(manifest.filename || ""));
-    const emptyArray = (value: unknown): boolean => Array.isArray(value) && value.length === 0;
     const managed = manifest.storageMode === "managed";
     const identityChecks: Array<[string, boolean]> = [
       ["artifact.title", artifact.title === expectedTitle],
@@ -966,7 +967,6 @@ function validateManifestCommand(
       ["artifact.container", artifact.container === expectedContainer],
       ["artifact.content_hash", artifact.content_hash === manifest.contentHash],
       ["artifact.media_availability", artifact.media_availability === "available"],
-      ["artifact.ai_visibility", emptyArray(artifact.ai_visibility)],
       ["command.issuedAt", raw.issuedAt === manifest.commandIssuedAt],
     ];
     const mismatch = identityChecks.find(([, matches]) => !matches)?.[0];
@@ -1000,7 +1000,6 @@ function validateManifestCommand(
       "captured_at",
       "state",
       "project_id",
-      "ai_visibility",
     ],
     "Voice Capture payload",
   );
@@ -1025,7 +1024,6 @@ function validateManifestCommand(
       "container",
       "content_hash",
       "media_availability",
-      "ai_visibility",
     ],
     "Audio Artifact payload",
   );
@@ -1037,7 +1035,6 @@ function validateManifestCommand(
   const expectedContainer = mediaExtensionOf(String(manifest.filename || ""));
   const expectedCaptureMethod =
     manifest.captureMethod === "microphone" ? "microphone" : "audio_import";
-  const emptyArray = (value: unknown): boolean => Array.isArray(value) && value.length === 0;
   const identityChecks: Array<[string, boolean]> = [
     ["capture.title", capture.title === expectedTitle],
     ["capture.text", capture.text === manifest.filename],
@@ -1049,7 +1046,6 @@ function validateManifestCommand(
     ["capture.state", capture.state === "untriaged"],
     ["capture.project_id", capture.project_id === manifest.themeId],
     ["capture.captured_at", capture.captured_at === raw.issuedAt],
-    ["capture.ai_visibility", emptyArray(capture.ai_visibility)],
     ["artifact.title", artifact.title === expectedTitle],
     ["artifact.filename", artifact.filename === manifest.filename],
     ["artifact.file_type", artifact.file_type === expectedContainer],
@@ -1067,7 +1063,6 @@ function validateManifestCommand(
     ["artifact.container", artifact.container === expectedContainer],
     ["artifact.content_hash", artifact.content_hash === manifest.contentHash],
     ["artifact.media_availability", artifact.media_availability === "available"],
-    ["artifact.ai_visibility", emptyArray(artifact.ai_visibility)],
     ["command.issuedAt", raw.issuedAt === manifest.commandIssuedAt],
   ];
   const mismatchedIdentity = identityChecks.find(([, matches]) => !matches)?.[0];
@@ -1082,7 +1077,6 @@ function validateManifestCommand(
     capture.state !== "untriaged" ||
     capture.project_id !== manifest.themeId ||
     capture.captured_at !== raw.issuedAt ||
-    !emptyArray(capture.ai_visibility) ||
     artifact.title !== expectedTitle ||
     artifact.filename !== manifest.filename ||
     artifact.file_type !== expectedContainer ||
@@ -1100,7 +1094,6 @@ function validateManifestCommand(
     artifact.container !== expectedContainer ||
     artifact.content_hash !== manifest.contentHash ||
     artifact.media_availability !== "available" ||
-    !emptyArray(artifact.ai_visibility) ||
     raw.issuedAt !== manifest.commandIssuedAt
   ) {
     throw new Error(
@@ -2650,9 +2643,6 @@ export class MediaCaptureService {
         container: "mp4",
         content_hash: contentHash,
         media_availability: "available",
-        ai_visibility: Array.isArray(sourceArtifact.ai_visibility)
-          ? sourceArtifact.ai_visibility
-          : [],
       };
       const reference: Entity = {
         id: this.idFactory(),
@@ -2727,7 +2717,6 @@ export class MediaCaptureService {
       captured_at: timestamp,
       state: "untriaged",
       project_id: manifest.themeId,
-      ai_visibility: [],
     };
     const artifact: Entity = {
       id: artifactId,
@@ -2748,7 +2737,6 @@ export class MediaCaptureService {
       container: mediaExtensionOf(filename),
       content_hash: manifest.contentHash,
       media_availability: "available",
-      ai_visibility: [],
     };
     const command: CommandEnvelope = {
       commandId,
@@ -2916,7 +2904,6 @@ export class MediaCaptureService {
       container: mediaExtensionOf(filename),
       content_hash: manifest.contentHash,
       media_availability: "available",
-      ai_visibility: [],
     };
     const capture: Entity | null = manifest.pendingCaptureEntry
       ? {
@@ -2931,7 +2918,6 @@ export class MediaCaptureService {
           captured_at: timestamp,
           state: "untriaged",
           project_id: manifest.themeId,
-          ai_visibility: [],
         }
       : null;
     const command: CommandEnvelope = {

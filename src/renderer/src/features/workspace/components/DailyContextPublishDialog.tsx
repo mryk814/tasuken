@@ -167,7 +167,7 @@ export function DailyContextPublishDialog({
             </p>
           )}
           <p>
-            {plan.includedCount}件を収録・{plan.excludedCount}件を除外。保存先: Tasken Context/
+            {plan.includedCount}件を収録。保存先: Tasken Context/
             {plan.relativePath}
           </p>
           <pre className="daily-context-preview" tabIndex={0} aria-label="公開Markdownプレビュー">
@@ -208,7 +208,7 @@ export function DailyContextPublishDialog({
           <p className="muted">
             同じ日付の公開物を置き換えます。範囲を狭めた場合も、クラウドやAI側の旧内容の削除・更新はここでは確認できません。
             同じ保存先の既存公開日・本文リンク・既存Theme AI
-            Packも現在の公開範囲で更新します。保存先を変える場合、以前の保存先でTaskenが管理する日別記録・本文・索引を撤去します。
+            Packも更新します。保存先を変える場合、以前の保存先でTaskenが管理する日別記録・本文・索引を撤去します。
           </p>
         </>
       )}

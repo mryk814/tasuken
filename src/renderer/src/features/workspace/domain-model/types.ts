@@ -13,7 +13,7 @@ import type {
 
 /**
  * AI可読の共通metadata（#294）。本文schemaは種別ごとに別のまま、
- * 概要・鮮度・根拠・公開範囲・出典だけを同じ意味で持つ。
+ * 概要・鮮度・根拠・出典だけを同じ意味で持つ。
  */
 export type AiMetadata = Partial<AiMetadataFields>;
 

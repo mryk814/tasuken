@@ -63,7 +63,7 @@ import {
   projectActivitySessionLogEntries,
 } from "./lib/activityTimeline";
 import { hasAiMetadataContract } from "../../../../shared/aiMetadata.mjs";
-import { aiMetadataFromForm, themeDefaultAiVisibilityFromForm } from "./lib/aiMetadataForm";
+import { aiMetadataFromForm } from "./lib/aiMetadataForm";
 import { buildDomainDrawerFormPlan, themeIntentFromForm } from "./lib/drawerFormPlans";
 import { describeOverwrittenFields, rebaseDrawerTaskOperations } from "./lib/drawerTaskRebase";
 import type { SaveOperation } from "./types";
@@ -1839,10 +1839,6 @@ export function WorkspaceApp() {
         color: formText(values, "color") || (base.color as string) || "",
         group: formText(values, "group"),
         storage_root: formText(values, "storage_root") || null,
-        // 配下EntityのAI公開既定（#294）。未設定に戻すとworkspace既定を使う。
-        default_ai_visibility: themeDefaultAiVisibilityFromForm(values, base, (name) =>
-          Boolean(named(name)),
-        ),
       };
     } else if (type === "sketch") {
       const title = formText(values, "title");

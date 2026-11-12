@@ -40,8 +40,7 @@ export interface AiItemCreationOptions {
   isEnabled?: () => boolean;
   /**
    * `any`（Desktop）はThemeと日程などの欄を受ける。`personal`（既定、NAS replica）は今までどおり、
-   * 個人業務への題名と本文だけ。NASのAIはThemeのAI公開範囲を見ずに書けてしまうのと、
-   * replicaが出す同期差分の形を増やさないため。
+   * 個人業務への題名と本文だけ。replicaが出す同期差分の形を増やさないため。
    */
   scope?: "personal" | "any";
   now?: () => string;

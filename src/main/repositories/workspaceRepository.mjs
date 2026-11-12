@@ -10,11 +10,11 @@ import {
   hasPath,
   isKnowledgeDirectionalRelationType,
   normalizeEntity,
+  withoutRetiredAiVisibility,
   normalizeTaskAssignment,
   validateEntity,
   workspaceEntityTypes,
 } from "./domain.mjs";
-import { DEFAULT_AI_VISIBILITY, normalizeAiVisibility } from "../../shared/aiMetadata.mjs";
 import { DATA_HEALTH_STATE_SCHEMA, normalizeDataHealthState } from "../../shared/dataHealth.mjs";
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { migratePublishedFeedNotes } from "./feedPostMigration.mjs";
@@ -720,7 +720,6 @@ export class WorkspaceDatabase {
       themeMode: this.readPreference("themeMode"),
       activeGroups: this.readPreference("activeGroups"),
       activeGroup: this.readPreference("activeGroup"),
-      aiVisibilityDefault: this.readPreference("aiVisibilityDefault"),
       entityCount: this.db
         .prepare("SELECT COUNT(*) AS count FROM entities WHERE deleted_at IS NULL")
         .get().count,
@@ -838,15 +837,6 @@ export class WorkspaceDatabase {
         return null;
       }
     }
-    // AI公開範囲のworkspace既定（#294）。Entity・Themeが未設定のときだけ使う。
-    if (key === "aiVisibilityDefault") {
-      const raw = this.ensureMeta("ai_visibility_default", JSON.stringify(DEFAULT_AI_VISIBILITY));
-      try {
-        return normalizeAiVisibility(JSON.parse(raw)) || [];
-      } catch {
-        return [...DEFAULT_AI_VISIBILITY];
-      }
-    }
     throw new Error(`未対応の設定です: ${key}`);
   }
 
@@ -869,15 +859,6 @@ export class WorkspaceDatabase {
     if (key === "artifactDirectory") return readMeta("artifact_directory") ?? "";
     // Coreが書き込みのたびに読む。既定（無効）を書き出さない。
     if (key === "aiDirectWriteEnabled") return readMeta("ai_direct_write_enabled") === "true";
-    if (key === "aiVisibilityDefault") {
-      const value = readMeta("ai_visibility_default");
-      if (value === undefined) return [...DEFAULT_AI_VISIBILITY];
-      try {
-        return normalizeAiVisibility(JSON.parse(value)) || [];
-      } catch {
-        return [...DEFAULT_AI_VISIBILITY];
-      }
-    }
     throw new Error(`未対応のread-only設定です: ${key}`);
   }
 
@@ -1106,18 +1087,6 @@ export class WorkspaceDatabase {
         .run(String(generations));
       return generations;
     }
-    if (key === "aiVisibilityDefault") {
-      const audiences = normalizeAiVisibility(value) || [];
-      this.db
-        .prepare(
-          `
-        INSERT INTO workspace_meta(key, value) VALUES('ai_visibility_default', ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `,
-        )
-        .run(JSON.stringify(audiences));
-      return audiences;
-    }
     if (key !== "activeGroup") throw new Error(`未対応の設定です: ${key}`);
     this.db
       .prepare(
@@ -1267,7 +1236,6 @@ export class WorkspaceDatabase {
         id: themeId,
         name: "MCP Package Smoke",
         code: "MCPSMOKE",
-        default_ai_visibility: ["coding_agent"],
       });
     }
     if (!this.get("task", taskId, true)) {
@@ -1278,7 +1246,6 @@ export class WorkspaceDatabase {
         state: "todo",
         priority: "high",
         project_id: themeId,
-        ai_visibility: ["coding_agent"],
       });
     }
     return { themeId, taskId };
@@ -2122,7 +2089,7 @@ export class WorkspaceDatabase {
     validateEntity(type, normalizedInput);
     const timestamp = now();
     const entity = {
-      ...normalizedInput,
+      ...withoutRetiredAiVisibility(normalizedInput),
       id: String(normalizedInput.id || uuid()),
       created_at: normalizedInput.created_at || timestamp,
       updated_at: normalizedInput.updated_at || timestamp,

@@ -27,7 +27,12 @@ function locator(value) {
     if (!["string", "number", "boolean"].includes(typeof item)) continue;
     if (typeof item === "string") {
       const safe = text(item, 1_000).trim();
-      if (!safe || /^(?:[A-Za-z]:[\\/]|\\\\|\/|file:)/i.test(safe) || /(^|[\\/])\.\.([\\/]|$)/.test(safe)) continue;
+      if (
+        !safe ||
+        /^(?:[A-Za-z]:[\\/]|\\\\|\/|file:)/i.test(safe) ||
+        /(^|[\\/])\.\.([\\/]|$)/.test(safe)
+      )
+        continue;
       args[key] = safe;
     } else args[key] = item;
   }
@@ -72,24 +77,27 @@ function evidenceRefs(value) {
 }
 
 function relationPath(value) {
-  return (Array.isArray(value) ? value : []).slice(0, 100).map((entryValue) => {
-    const entry = object(entryValue);
-    const from = ref(entry.from || entry.source);
-    const to = ref(entry.to || entry.target);
-    if (!from || !to) return null;
-    return {
-      edge_id: text(entry.edge_id || entry.id, 1_000).trim() || null,
-      assertion_id: text(entry.assertion_id, 1_000).trim() || null,
-      from,
-      predicate: text(entry.predicate, 300).trim() || null,
-      to,
-      layer: text(entry.layer, 100).trim() || null,
-      status: text(entry.status, 100).trim() || null,
-      origin: text(entry.origin, 300).trim() || null,
-      evidence_refs: evidenceRefs(entry.evidence_refs),
-      reason: text(entry.reason, 1_000).trim() || null,
-    };
-  }).filter(Boolean);
+  return (Array.isArray(value) ? value : [])
+    .slice(0, 100)
+    .map((entryValue) => {
+      const entry = object(entryValue);
+      const from = ref(entry.from || entry.source);
+      const to = ref(entry.to || entry.target);
+      if (!from || !to) return null;
+      return {
+        edge_id: text(entry.edge_id || entry.id, 1_000).trim() || null,
+        assertion_id: text(entry.assertion_id, 1_000).trim() || null,
+        from,
+        predicate: text(entry.predicate, 300).trim() || null,
+        to,
+        layer: text(entry.layer, 100).trim() || null,
+        status: text(entry.status, 100).trim() || null,
+        origin: text(entry.origin, 300).trim() || null,
+        evidence_refs: evidenceRefs(entry.evidence_refs),
+        reason: text(entry.reason, 1_000).trim() || null,
+      };
+    })
+    .filter(Boolean);
 }
 
 function relation(value) {
@@ -136,12 +144,22 @@ export function contextSelectionExclusions(value) {
     if (!entityRef) continue;
     entries.push({
       ref: entityRef,
-      reason: text(exclusion.reason, 1_000).trim() || "ai_visibility_policy",
+      reason: text(exclusion.reason, 1_000).trim() || "excluded",
       count: Math.max(1, Number(exclusion.count) || 1),
     });
   }
-  return [...new Map(entries.map((entry) => [`${JSON.stringify([entry.ref.type, entry.ref.id])}|${entry.reason}`, entry])).values()]
-    .sort((left, right) => `${left.ref.type}|${left.ref.id}|${left.reason}`.localeCompare(`${right.ref.type}|${right.ref.id}|${right.reason}`));
+  return [
+    ...new Map(
+      entries.map((entry) => [
+        `${JSON.stringify([entry.ref.type, entry.ref.id])}|${entry.reason}`,
+        entry,
+      ]),
+    ).values(),
+  ].sort((left, right) =>
+    `${left.ref.type}|${left.ref.id}|${left.reason}`.localeCompare(
+      `${right.ref.type}|${right.ref.id}|${right.reason}`,
+    ),
+  );
 }
 
 export function buildContextSelection({
@@ -156,15 +174,24 @@ export function buildContextSelection({
   estimatedTokens = 0,
   policy = null,
 } = {}) {
-  const includedEntries = included.filter(Boolean)
-    .sort((left, right) => `${left.ref.type}|${left.ref.id}`.localeCompare(`${right.ref.type}|${right.ref.id}`));
+  const includedEntries = included
+    .filter(Boolean)
+    .sort((left, right) =>
+      `${left.ref.type}|${left.ref.id}`.localeCompare(`${right.ref.type}|${right.ref.id}`),
+    );
   return {
     schema: CONTEXT_SELECTION_SCHEMA,
     seed: ref(seed),
     included: includedEntries,
     excluded: contextSelectionExclusions(excluded),
-    relations: relations.map(relation).filter(Boolean)
-      .sort((left, right) => `${left.id || ""}|${left.source.type}|${left.source.id}|${left.target.type}|${left.target.id}`.localeCompare(`${right.id || ""}|${right.source.type}|${right.source.id}|${right.target.type}|${right.target.id}`)),
+    relations: relations
+      .map(relation)
+      .filter(Boolean)
+      .sort((left, right) =>
+        `${left.id || ""}|${left.source.type}|${left.source.id}|${left.target.type}|${left.target.id}`.localeCompare(
+          `${right.id || ""}|${right.source.type}|${right.source.id}|${right.target.type}|${right.target.id}`,
+        ),
+      ),
     limits,
     truncated: Boolean(truncated),
     truncation,
@@ -172,4 +199,20 @@ export function buildContextSelection({
     estimated_tokens: Math.max(0, Number(estimatedTokens) || 0),
     policy: policy && typeof policy === "object" && !Array.isArray(policy) ? policy : null,
   };
+}
+
+/**
+ * AIへ渡す文脈から外した項目の内訳。「全部渡した」ように見せないため、
+ * 件数だけでなく理由ごとに集計して返す（外す理由は範囲外・完了済みなどで、公開範囲ではない）。
+ */
+export function summarizeExclusions(exclusions) {
+  const list = (exclusions || []).filter(Boolean);
+  const byReason = new Map();
+  for (const entry of list) {
+    const key = `${entry.type}|${entry.reason}`;
+    const current = byReason.get(key) || { type: entry.type, reason: entry.reason, count: 0 };
+    current.count += 1;
+    byReason.set(key, current);
+  }
+  return { excluded_count: list.length, excluded_reasons: [...byReason.values()] };
 }

@@ -22,7 +22,6 @@
       "$.entity.ai_summary: null",
       "$.entity.ai_summary_authority: null",
       "$.entity.ai_superseded_by: null",
-      "$.entity.ai_visibility: null",
       "$.entity.created_at: string",
       "$.entity.deleted_at: null",
       "$.entity.description: string",
@@ -77,7 +76,6 @@
       "$.entity.ai_summary: null",
       "$.entity.ai_summary_authority: null",
       "$.entity.ai_superseded_by: null",
-      "$.entity.ai_visibility: null",
       "$.entity.body_markdown: string",
       "$.entity.created_at: string",
       "$.entity.deleted_at: null",
@@ -140,7 +138,6 @@
       "$.entity.ai_summary: null",
       "$.entity.ai_summary_authority: null",
       "$.entity.ai_superseded_by: null",
-      "$.entity.ai_visibility: null",
       "$.entity.created_at: string",
       "$.entity.deleted_at: null",
       "$.entity.description: string",
@@ -266,6 +263,12 @@
       "shape_sha256": "a3e296e9d3108bcaa79d31875c7c31330c3fe103ea7ffe2ce4bf0b83cb2d740b",
       "desktop_first": false,
       "note": "replica の既存 Task の直接変更（#688）の差分（Task と Change Event）を形に足した。作成の形は変わらない。v0.1.85 からの取り込みの検査に差分は無く、古い Desktop も取り込める"
+    },
+    {
+      "date": "2026-11-12",
+      "shape_sha256": "9f4b3814a2c8c9278f7247c3b10c4ed0faa995bd36118f12e2028f49b5072f87",
+      "desktop_first": false,
+      "note": "AI 公開範囲を廃止し、replica が書く Task・Note から ai_visibility（常に null）の欄を外した。古い Desktop は欄が無い差分を、未設定として今までどおり取り込める。新しい Desktop は古い replica の欄を捨てて取り込む"
     }
   ]
 }

@@ -1,4 +1,5 @@
-import { projectEntityForAi, summarizeAiExclusions } from "../../../shared/aiMetadata.mjs";
+import { buildAiEntityHeader } from "../../../shared/aiMetadata.mjs";
+
 import { collectionKeyForEntityType, entityTypes } from "../../../shared/entityRegistry.mjs";
 import {
   contextGraphMcpShape,
@@ -6,7 +7,6 @@ import {
   projectContextGraph,
 } from "../../../shared/contextGraph.mjs";
 import { projectActivityJson, queryActivityEvents } from "../../../shared/activityProjection.mjs";
-import { noteProjectId } from "../../../shared/themeRef.mjs";
 import {
   publicRepositoryContext,
   resolveRepositoryContext,
@@ -35,6 +35,7 @@ import {
   buildContextSelection,
   contextSelectionEntry,
   contextSelectionExclusions,
+  summarizeExclusions,
 } from "../../../shared/contextSelection.mjs";
 import {
   taskAgentState,
@@ -42,13 +43,8 @@ import {
   type GetTaskContextResponse,
 } from "../../../shared/contracts/task/public.ts";
 import type { EntityType } from "../../../shared/types/workspace.ts";
-import type {
-  TaskContextReadPort,
-  TaskContextRecord,
-  TaskContextWorkspace,
-} from "../ports/taskContextReadPort.ts";
+import type { TaskContextReadPort, TaskContextRecord } from "../ports/taskContextReadPort.ts";
 
-const AUDIENCE = "coding_agent";
 const LEGACY_ITEM_ENTITY_TYPES: Record<string, string> = {
   task: "task",
   waiting: "waiting",
@@ -103,59 +99,24 @@ export class TaskContextQueryService {
   execute(args: GetTaskContextRequest): GetTaskContextResponse {
     const includeArchived = Boolean(args.include_archived);
     const workspace = this.port.loadTaskContextWorkspace(includeArchived);
-    const visibilityThemes = this.port.loadTaskContextVisibilityThemes();
-    const workspaceDefault = this.port.workspaceAiVisibilityDefault();
+    const themes = this.port.loadTaskContextThemes();
     const records = (type: string) =>
       sortUpdated([
         ...((workspace[collectionKeyForEntityType(type as EntityType)] ||
           []) as TaskContextRecord[]),
       ]);
-    const themesById = new Map(visibilityThemes.map((theme) => [String(theme.id), theme]));
+    const themesById = new Map(themes.map((theme) => [String(theme.id), theme]));
     const themeById = (themeId: unknown) =>
       themeId ? themesById.get(String(themeId)) || null : null;
-    const filterForAi = (type: string, candidates: TaskContextRecord[]) => {
-      const included: TaskContextRecord[] = [];
-      const exclusions: Record<string, any>[] = [];
-      for (const record of candidates) {
+    const withAiHeader = (type: string, candidates: TaskContextRecord[]) =>
+      candidates.map((record) => {
         const entityType = type === "item" ? LEGACY_ITEM_ENTITY_TYPES[record.kind] || "item" : type;
-        const themeId =
-          type === "note" ? noteProjectId(record) : record.theme_id || record.project_id;
-        const theme = type === "theme" ? record : themeById(themeId);
-        const result = projectEntityForAi(entityType as EntityType, record, {
-          audience: AUDIENCE,
-          theme,
-          workspaceDefault,
-        });
-        if (!result.included && result.exclusion) exclusions.push(result.exclusion);
-        else included.push({ ...record, ai: result.header });
-      }
-      return { records: included, exclusions };
-    };
+        return { ...record, ai: buildAiEntityHeader(entityType, record) };
+      });
     const repositoryContexts = () =>
       records("repository_context").filter(
         (context) => includeArchived || context.active !== false,
       );
-    const visibleRepositoryContexts = () => {
-      const allContexts = records("repository_context");
-      const visibleIds = new Set<string>();
-      const visibleThemes = filterForAi("theme", records("theme")).records;
-      for (const theme of visibleThemes) {
-        for (const id of Array.isArray(theme.repository_context_ids)
-          ? theme.repository_context_ids
-          : [])
-          visibleIds.add(String(id));
-      }
-      const visibleTasks = filterForAi("task", records("task")).records;
-      for (const task of visibleTasks) {
-        const resolution = resolveTaskRepositoryContexts({
-          task,
-          theme: themeById(task.project_id || task.theme_id),
-          contexts: allContexts,
-        }) as any;
-        for (const id of resolution.contextIds) visibleIds.add(String(id));
-      }
-      return repositoryContexts().filter((context) => visibleIds.has(String(context.id)));
-    };
 
     const taskId = text(args.task_id).trim();
     const include = normalizeTaskContextInclude(args.include);
@@ -164,48 +125,23 @@ export class TaskContextQueryService {
     const budget = new TaskContextTextBudget(limits.maxTextLength);
     const task = records("task").find((candidate) => String(candidate.id) === taskId);
     if (!task)
-      return {
-        ...structuredReadError("not_found", "Taskが見つかりません。Task IDを確認してください。", {
-          task_id: taskId,
-        }),
-        ai_audience: AUDIENCE,
-      };
+      return structuredReadError("not_found", "Taskが見つかりません。Task IDを確認してください。", {
+        task_id: taskId,
+      });
     if (!task.id || !task.title || !task.state) {
-      return {
-        ...structuredReadError(
-          "unsupported_schema",
-          "Taskの保存形式をこのMCP Bridgeで解釈できません。Taskenを更新してください。",
-          { task_id: taskId },
-        ),
-        ai_audience: AUDIENCE,
-      };
+      return structuredReadError(
+        "unsupported_schema",
+        "Taskの保存形式をこのMCP Bridgeで解釈できません。Taskenを更新してください。",
+        { task_id: taskId },
+      );
     }
-    const filteredTask = filterForAi("task", [task]);
-    if (!filteredTask.records.length) {
-      return {
-        ...structuredReadError(
-          "not_found",
-          "Taskが見つかりません。Task IDまたはAI公開範囲を確認してください。",
-          { task_id: taskId },
-        ),
-        ai_audience: AUDIENCE,
-        ...summarizeAiExclusions(filteredTask.exclusions as any),
-      };
-    }
+    const [taskWithHeader] = withAiHeader("task", [task]);
 
     const warnings: Record<string, unknown>[] = [];
     const truncation: Record<string, any> = {};
     const themeCandidate = themeById(task.project_id || task.theme_id);
-    const filteredThemeResult = themeCandidate
-      ? filterForAi("theme", [themeCandidate])
-      : { records: [], exclusions: [] };
-    const filteredTheme = filteredThemeResult.records[0] || null;
-    if (themeCandidate && !filteredTheme)
-      warnings.push({
-        code: "theme_not_visible",
-        message: "TaskのThemeはAI公開範囲外のため含めていません。",
-      });
-    const taskOutput = publicTaskForContext(filteredTask.records[0], budget);
+    const filteredTheme = themeCandidate ? withAiHeader("theme", [themeCandidate])[0] : null;
+    const taskOutput = publicTaskForContext(taskWithHeader, budget);
     // 委任段階（work_state）だけでは削除・完了を表せないため、着手可否を状態から添える。
     const assignmentOutput = {
       ...publicAssignmentForContext(task, budget),
@@ -218,7 +154,7 @@ export class TaskContextQueryService {
     const repositoryResolution = resolveTaskRepositoryContexts({
       task,
       theme: themeCandidate,
-      contexts: visibleRepositoryContexts(),
+      contexts: repositoryContexts(),
     }) as any;
     const taskRepositoryContexts = repositoryResolution.contexts;
     let repositoryMatch: Record<string, any> = {
@@ -253,13 +189,7 @@ export class TaskContextQueryService {
       work_receipts: [],
       captures: [],
     };
-    const selectionExclusions: Record<string, any>[] = includeSet.has("theme")
-      ? filteredThemeResult.exclusions.map((entry) => ({
-          ref: { type: entry.type, id: entry.id },
-          reason: entry.reason,
-          count: 1,
-        }))
-      : [];
+    const selectionExclusions: Record<string, any>[] = [];
     const recordOmitted = (type: string, bounded: Record<string, any>) => {
       for (const record of bounded.omitted || []) {
         if (record?.id)
@@ -270,25 +200,10 @@ export class TaskContextQueryService {
           });
       }
     };
-    const access = {
-      allowed: new Set<string>(),
-      records: new Map<string, TaskContextRecord>(),
-      exclusions: new Map<string, Record<string, any>>(),
-    };
+    const access = { records: new Map<string, TaskContextRecord>() };
     for (const entityType of entityTypes) {
-      const filtered = filterForAi(entityType, records(entityType));
-      for (const record of filtered.records) {
-        const key = entityKey(entityType, record.id);
-        access.allowed.add(key);
-        access.records.set(key, record);
-      }
-      for (const exclusion of filtered.exclusions) {
-        if (exclusion?.type && exclusion?.id)
-          access.exclusions.set(entityKey(exclusion.type, exclusion.id), {
-            ref: { type: String(exclusion.type), id: String(exclusion.id) },
-            reason: String(exclusion.reason || "ai_visibility_policy"),
-            count: 1,
-          });
+      for (const record of withAiHeader(entityType, records(entityType))) {
+        access.records.set(entityKey(entityType, record.id), record);
       }
     }
     const graph = projectContextGraph(workspace);
@@ -301,10 +216,6 @@ export class TaskContextQueryService {
         maxEdges: Math.min(200, limits.maxItemsPerType * 16 + 16),
         tokenBudget: 12_000,
         includeSuggested: false,
-        nodeFilter: (node: Record<string, any>) =>
-          access.allowed.has(entityKey(node.ref.type, node.ref.id)),
-        nodeExclusion: (node: Record<string, any>) =>
-          access.exclusions.get(entityKey(node.ref.type, node.ref.id)),
         edgeFilter: (edge: Record<string, any>) => edge.predicate !== "belongs_to_theme",
       },
     );
@@ -315,7 +226,6 @@ export class TaskContextQueryService {
           "関連情報のbounded traversalが上限に達しました。locatorから必要な本文を追加取得してください。",
       });
     const relationGraph = contextGraphMcpShape(subgraph);
-    selectionExclusions.push(...relationGraph.excluded_nodes);
     const relatedIds = new Map<string, Set<string>>();
     for (const node of subgraph.nodes) {
       if (node.type === "task" && node.id === taskId) continue;
@@ -426,14 +336,13 @@ export class TaskContextQueryService {
       );
       const activity = projectActivityJson(
         queryActivityEvents({
+          currentEntityOnly: true,
           events: sourceEvents,
           workspace,
           themes: records("theme"),
           references: records("reference"),
           entity_type: "task",
           timezone: "Asia/Tokyo",
-          audience: AUDIENCE,
-          workspaceDefault,
           roots: workspace.canonical_root_status as any,
           limit: 100,
         }),
@@ -526,7 +435,6 @@ export class TaskContextQueryService {
         edges: contextGraph.edges,
         paths: contextGraph.paths,
         diagnostics: contextGraph.diagnostics,
-        excluded_nodes: contextGraph.excluded_nodes,
       }).length / 4,
     );
     const normalizedExclusions = contextSelectionExclusions(selectionExclusions);
@@ -548,7 +456,7 @@ export class TaskContextQueryService {
       estimatedTokens: Math.ceil(budget.used / 4) + Number(contextGraph.estimated_tokens || 0),
       policy: contextGraph.policy,
     });
-    const exclusionSummary = summarizeAiExclusions(
+    const exclusionSummary = summarizeExclusions(
       normalizedExclusions.map((entry: Record<string, any>) => ({
         type: entry.ref.type,
         id: entry.ref.id,
@@ -580,7 +488,6 @@ export class TaskContextQueryService {
       warnings,
       truncated: Boolean(subgraph.truncated || budget.truncated || Object.keys(truncation).length),
       read_only: true,
-      ai_audience: AUDIENCE,
       ...exclusionSummary,
     };
   }

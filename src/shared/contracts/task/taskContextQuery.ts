@@ -46,7 +46,6 @@ export const getTaskContextRequestSchema = z
 export const getTaskContextResponseSchema = z
   .object({
     read_only: z.literal(true),
-    ai_audience: z.string(),
   })
   .passthrough();
 

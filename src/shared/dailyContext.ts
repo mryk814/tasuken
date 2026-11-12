@@ -57,8 +57,6 @@ export interface DailyContextPlan {
   sources: DailyContextSource[];
   includedCount: number;
   sourceCount: number;
-  excludedCount: number;
-  excludedReasons: Array<{ type: string; reason: string; count: number }>;
   partial: boolean;
   matchedVisibleCount: number | null;
   publicSources?: PublicSourceProjection[];
@@ -139,12 +137,11 @@ export function validateDailyContextSelection(value: unknown): DailyContextSelec
   };
 }
 
-/** Uses the same visibility and opaque pagination contract as recall readers. No canonical writes. */
+/** Uses the same opaque pagination contract as recall readers. No canonical writes. */
 export function buildDailyContextPlan({
   workspace,
   workspaceId,
   selection,
-  workspaceDefault,
   roots = {},
   generatedAt,
   maxPages = 100,
@@ -152,7 +149,6 @@ export function buildDailyContextPlan({
   workspace: Record<string, unknown>;
   workspaceId: string;
   selection: unknown;
-  workspaceDefault?: unknown;
   roots?: Record<string, unknown>;
   generatedAt: string;
   maxPages?: number;
@@ -177,8 +173,6 @@ export function buildDailyContextPlan({
       workspace,
       events: (workspace.change_events || []) as Array<Record<string, unknown>>,
       profile: "recall",
-      audience: "m365",
-      workspaceDefault,
       roots,
       date: selected.date,
       timezone: selected.timezone,
@@ -224,15 +218,9 @@ export function buildDailyContextPlan({
   const publicSources = sources.flatMap((source) => {
     const entity = workspaceEntity(workspace, source.type, source.id);
     if (!entity) return [];
-    const themeId = entity.project_id || entity.theme_id;
-    const theme = themeId ? workspaceEntity(workspace, "theme", String(themeId)) : undefined;
     const projection = buildPublicSourceProjection({
       type: source.type,
       entity,
-      theme,
-      workspaceDefault: workspaceDefault as Parameters<
-        typeof buildPublicSourceProjection
-      >[0]["workspaceDefault"],
       generatedAt,
       explicitlyAllowed: selected.includeFullText === true,
     });
@@ -242,11 +230,6 @@ export function buildDailyContextPlan({
     JSON.stringify([selected, revision, publicSources.map((source) => source.contentHash)]),
   );
   const partial = Boolean(cursor);
-  const excludedReasons = result.excluded_reasons.map((item) => ({
-    type: text(item.type),
-    reason: text(item.reason),
-    count: Number(item.count) || 0,
-  }));
   const lines = [
     `# ${selected.date} の記録`,
     "",
@@ -254,12 +237,11 @@ export function buildDailyContextPlan({
     "> 記録のない期間を「何もしなかった」と解釈しないでください。予定・AI報告は実績とは別です。",
     "",
     `- 対象日: ${selected.date} (${inline(selected.timezone)})`,
-    `- 公開範囲: ${selected.themeId ? `当時のTheme ID ${inline(selected.themeId)}` : "全Theme・Theme未設定"}のうち、現在M365公開を許可した記録`,
+    `- 公開範囲: ${selected.themeId ? `当時のTheme ID ${inline(selected.themeId)}` : "全Theme・Theme未設定"}の記録`,
     `- 生成日時: ${generatedAt}`,
     `- 基準revision: ${sourceRevision}`,
     `- 収録状態: ${partial ? "部分取得（続きは未収録）" : "対象範囲を取得済み"}`,
     `- 収録: ${rows.length}件の記録項目 / ${sources.length}件の異なる出典（実績件数ではありません）`,
-    `- 公開対象外: ${result.excluded_count}件`,
     "- クラウド同期・外部AIの索引更新: 未観測",
     "",
   ];
@@ -303,14 +285,7 @@ export function buildDailyContextPlan({
       lines.push("");
     }
   }
-  lines.push("## 除外と収録範囲", "");
-  lines.push(
-    ...(excludedReasons.length
-      ? excludedReasons.map(
-          (item) => `- ${inline(item.type)}: ${inline(item.reason)} (${item.count}件)`,
-        )
-      : ["- 公開policyによる除外なし。"]),
-  );
+  lines.push("## 収録範囲", "");
   lines.push(
     publicSources.length
       ? "- 日別は抜粋です。明示許可した現在版の本文はSourcesへのリンクから読めます。保存されていない過去版・添付・未同期の入力は含みません。"
@@ -332,8 +307,6 @@ export function buildDailyContextPlan({
     sources,
     includedCount: rows.length,
     sourceCount: sources.length,
-    excludedCount: result.excluded_count,
-    excludedReasons,
     partial,
     matchedVisibleCount: result.page.matched_visible_count,
     publicSources,

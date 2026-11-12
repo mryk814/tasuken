@@ -1,5 +1,3 @@
-import type { AiAudience } from "../../../shared/aiMetadata.mjs";
-
 export interface ContentDetailRecord extends Record<string, any> {
   id: string;
 }
@@ -10,5 +8,4 @@ export interface ContentDetailReadPort {
     type: "theme" | "note" | "resource" | "artifact" | "capture_entry" | "task",
     includeArchived: boolean,
   ): ContentDetailRecord[];
-  workspaceAiVisibilityDefault(): AiAudience[];
 }

@@ -12,8 +12,6 @@ export interface PublishedContextDay extends Pick<
   | "selection"
   | "sources"
   | "includedCount"
-  | "excludedCount"
-  | "excludedReasons"
   | "partial"
 > {
   groups?: Array<{
@@ -112,7 +110,7 @@ export function buildPeriodContextFiles({
           : day.includedCount === 0
             ? "公開済み・収録0件"
             : "公開済み";
-    return `- ${link(`../${day.relativePath}`, date)} — ${state} / 出典 ${count}件 / 除外 ${day.excludedCount}件 / ${day.selection.themeId ? "選択Themeのみ" : "Theme横断"} / 最終生成 ${inline(day.generatedAt)} / revision ${inline(day.sourceRevision)}`;
+    return `- ${link(`../${day.relativePath}`, date)} — ${state} / 出典 ${count}件 / ${day.selection.themeId ? "選択Themeのみ" : "Theme横断"} / 最終生成 ${inline(day.generatedAt)} / revision ${inline(day.sourceRevision)}`;
   }
   function period(title: string, start: string, end: string, children: string[]) {
     const selected = dates.filter((date) => date >= start && date <= end);

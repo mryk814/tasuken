@@ -1,5 +1,3 @@
-import type { AiAudience } from "../../../shared/aiMetadata.mjs";
-
 export interface TaskContextRecord extends Record<string, any> {
   id: string;
 }
@@ -17,7 +15,6 @@ export interface TaskContextWorkspace extends Record<string, any> {
 /** The adapter returns the bounded query's source snapshot from the one WorkspaceDatabase owner. */
 export interface TaskContextReadPort {
   loadTaskContextWorkspace(includeArchived: boolean): TaskContextWorkspace;
-  /** Visibility inheritance must retain archived Theme references for active children. */
-  loadTaskContextVisibilityThemes(): TaskContextRecord[];
-  workspaceAiVisibilityDefault(): AiAudience[];
+  /** Archived Themes stay available: an active Task may still belong to one. */
+  loadTaskContextThemes(): TaskContextRecord[];
 }

@@ -7,8 +7,7 @@ import { nextToolSchema } from "./itemQueries.ts";
  *
  * 外部AIが次に書く題材と、利用者が明示的に残した質問を読むためのbounded context。
  * 正式データを変更せず、投稿の本文を丸ごと渡さない（短い抜粋と参照IDだけ）。
- * Task・Themeの詳細は既存の読み出しtool（`tasken.get_task_context` など）で取得し、
- * そこでのAI公開範囲の判定に従う。
+ * Task・Themeの詳細は既存の読み出しtool（`tasken.get_task_context` など）で取得する。
  */
 
 /** 投稿の要約。本文は抜粋だけを返す。 */
@@ -69,7 +68,6 @@ export const getFeedContextResponseSchema = z
         truncated: z.boolean(),
       })
       .strict(),
-    ai_audience: z.enum(["m365", "coding_agent", "external_ai"]),
     read_only: z.literal(true),
     next_tools: z.array(nextToolSchema).max(4),
   })

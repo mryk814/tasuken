@@ -394,7 +394,7 @@ export function registerIpc(
   ipcMain.handle(IPC.preferenceSet, (_event, key, value) => {
     const normalizedKey = requireId(key);
     const saved = repository.setPreference(normalizedKey, value);
-    if (normalizedKey === "aiVisibilityDefault" || normalizedKey === "artifactDirectory") {
+    if (normalizedKey === "artifactDirectory") {
       service.notifyDailyContextAutoChange();
     }
     if (normalizedKey === "themeMode") {

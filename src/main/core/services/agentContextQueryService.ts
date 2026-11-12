@@ -1,4 +1,3 @@
-import { projectEntityForAi } from "../../../shared/aiMetadata.mjs";
 import {
   projectActivityJson,
   projectActivityMarkdown,
@@ -12,7 +11,6 @@ import {
 } from "../../../shared/contextGraph.mjs";
 import { collectionKeyForEntityType, entityTypes } from "../../../shared/entityRegistry.mjs";
 import { sanitizePublicValue } from "../../../shared/publicProjection.ts";
-import { noteProjectId } from "../../../shared/themeRef.mjs";
 import {
   publicAiHeader,
   relationForNode,
@@ -31,7 +29,6 @@ import {
 import type { AgentContextReadPort, AgentContextRecord } from "../ports/agentContextReadPort.ts";
 
 const DEFAULT_ACTIVITY_LIMIT = 100;
-const AUDIENCE = "coding_agent" as const;
 
 function text(value: unknown) {
   return value == null ? "" : String(value);
@@ -46,7 +43,6 @@ function graphTokens(shape: Record<string, any>) {
       edges: shape.edges || [],
       paths: shape.paths || [],
       diagnostics: shape.diagnostics || [],
-      excluded_nodes: shape.excluded_nodes || [],
     }).length / 4,
   );
 }
@@ -62,9 +58,9 @@ export class AgentContextQueryService {
       (event) => !entityId || text(event.entity_ref?.id || event.entity_id) === entityId,
     );
     const result = queryActivityEvents({
+      currentEntityOnly: true,
       events: sourceEvents,
       workspace: snapshot.workspace,
-      themes: snapshot.visibilityThemes,
       references: snapshot.workspace.references || [],
       date: request.date || "",
       from: request.from || "",
@@ -75,8 +71,6 @@ export class AgentContextQueryService {
       profile: request.profile,
       cursor: request.cursor,
       timezone: request.timezone || "Asia/Tokyo",
-      audience: request.audience || AUDIENCE,
-      workspaceDefault: snapshot.workspaceAiVisibilityDefault,
       roots: snapshot.workspace.canonical_root_status || {},
       limit: request.limit ?? DEFAULT_ACTIVITY_LIMIT,
       include_match_metadata: true,
@@ -93,7 +87,6 @@ export class AgentContextQueryService {
         matched_visible_count: matchedVisible ?? null,
         truncated: result.truncated,
       },
-      ai_audience: request.audience || AUDIENCE,
       read_only: true,
     });
   }
@@ -102,49 +95,12 @@ export class AgentContextQueryService {
     const request = getContextSubgraphRequestSchema.parse(input);
     const snapshot = this.port.readAgentContextSnapshot(Boolean(request.include_archived));
     const workspace = snapshot.workspace;
-    const themes = new Map(snapshot.visibilityThemes.map((theme) => [text(theme.id), theme]));
-    const allowed = new Set<string>();
     const records = new Map<string, AgentContextRecord>();
-    const exclusions = new Map<
-      string,
-      { ref: { type: string; id: string }; reason: string; count: number }
-    >();
     for (const type of entityTypes) {
       const values = (workspace[collectionKeyForEntityType(type)] || []) as AgentContextRecord[];
-      for (const record of values) {
-        const themeId =
-          type === "note"
-            ? text(noteProjectId(record))
-            : text(record.theme_id || record.project_id);
-        const result = projectEntityForAi(type, record, {
-          audience: AUDIENCE,
-          theme: type === "theme" ? record : themes.get(themeId) || null,
-          workspaceDefault: snapshot.workspaceAiVisibilityDefault,
-        });
-        const key = entityKey(type, record.id);
-        if (result.included) {
-          allowed.add(key);
-          records.set(key, record);
-        } else if (result.exclusion?.id) {
-          exclusions.set(key, {
-            ref: { type, id: text(record.id) },
-            reason: text(result.exclusion.reason || "ai_visibility_policy"),
-            count: 1,
-          });
-        }
-      }
+      for (const record of values) records.set(entityKey(type, record.id), record);
     }
-    // Build edges only from AI-visible records. Filtering graph nodes after
-    // projection cannot remove a private Reference whose endpoints are public.
-    const visibleWorkspace = { ...workspace };
-    for (const type of entityTypes) {
-      visibleWorkspace[collectionKeyForEntityType(type)] = (
-        (workspace[collectionKeyForEntityType(type)] || []) as AgentContextRecord[]
-      )
-        .map((record) => records.get(entityKey(type, record.id)))
-        .filter(Boolean);
-    }
-    const graph = projectContextGraph(visibleWorkspace);
+    const graph = projectContextGraph(workspace);
     const result = getContextSubgraph(
       graph,
       { type: request.entity_type, id: request.entity_id },
@@ -154,8 +110,6 @@ export class AgentContextQueryService {
         maxEdges: request.max_edges,
         tokenBudget: request.token_budget,
         includeSuggested: Boolean(request.include_suggested),
-        nodeFilter: (node: any) => allowed.has(entityKey(node.ref.type, node.ref.id)),
-        nodeExclusion: (node: any) => exclusions.get(entityKey(node.ref.type, node.ref.id)),
       },
     );
     const base = contextGraphMcpShape(result) as Record<string, any>;
@@ -168,7 +122,6 @@ export class AgentContextQueryService {
           edges: base.edges,
           paths: base.paths,
           diagnostics: base.diagnostics,
-          excluded_nodes: base.excluded_nodes,
         }).length,
     );
     const budget = remaining ? new TaskContextTextBudget(remaining) : null;
@@ -206,7 +159,6 @@ export class AgentContextQueryService {
     const contextSelection = buildContextSelection({
       seed: shape.seed,
       included,
-      excluded: shape.excluded_nodes,
       relations: shape.edges,
       limits: shape.limits,
       truncated: shape.truncated,
@@ -224,10 +176,8 @@ export class AgentContextQueryService {
             contract_version: 1,
             returned_node_count: shape.nodes.length,
             returned_edge_count: shape.edges.length,
-            excluded_node_count: shape.excluded_nodes.length,
             truncated: shape.truncated,
           },
-          ai_audience: AUDIENCE,
           read_only: true,
         },
         { maxDepth: 12, maxArray: 200, maxKeys: 200, maxText: 8_000 },

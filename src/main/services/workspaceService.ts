@@ -109,7 +109,6 @@ import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs"
 import { reconcileStableLinkAssertions } from "../../shared/stableLinks.mjs";
 import { queryActivityEvents } from "../../shared/activityProjection.mjs";
 import { changeEventsForCommand } from "../../shared/activityEvent.mjs";
-import { normalizeAiVisibility } from "../../shared/aiMetadata.mjs";
 import {
   previewTaskCoding,
   previewThemeCoding,
@@ -235,7 +234,6 @@ interface ThemeAiPackInputs {
   candidates: NonNullable<BuildThemeAiPackPlanInput["candidates"]>;
   workspace: Record<string, unknown>;
   events: Array<Record<string, unknown>>;
-  workspaceDefault: BuildThemeAiPackPlanInput["workspaceDefault"];
   roots: Record<string, string>;
 }
 
@@ -394,11 +392,10 @@ function objectValue(value: unknown): Record<string, unknown> {
 function safeContextPreviewError(value: unknown): string {
   const source = objectValue(value);
   const code = typeof source.code === "string" ? source.code : "";
-  if (code === "not_found")
-    return "対象が見つからないか、AI公開範囲に含まれていません。元Entityのvisibilityを確認してください。";
+  if (code === "not_found") return "対象が見つかりません。IDを確認してください。";
   if (code === "unsupported_schema")
     return "保存形式を解釈できません。Taskenを更新してからもう一度お試しください。";
-  return "Context Previewを作成できませんでした。元Entityの公開範囲を確認して、もう一度お試しください。";
+  return "Context Previewを作成できませんでした。もう一度お試しください。";
 }
 
 function parsedRecord(value: unknown): Record<string, unknown> {
@@ -1218,7 +1215,6 @@ export class WorkspaceService {
       workspaceId: this.repository.getMeta().workspaceId,
       selection,
       generatedAt,
-      workspaceDefault: normalizeAiVisibility(this.repository.getPreference("aiVisibilityDefault")),
       roots: this.activityCanonicalRootPaths(),
     });
     return {
@@ -1272,7 +1268,6 @@ export class WorkspaceService {
         const workspace = this.repository.loadWorkspace(true) as Record<string, unknown>;
         const scanned = collectDailyContextAutoChanges({
           workspace: { ...workspace, change_events: this.repository.list("change_event", true) },
-          workspaceDefault: this.repository.getPreference("aiVisibilityDefault"),
           sourceHashes: state.sourceHashes,
           checkedThrough: state.checkedThrough,
           fromDate: state.config.fromDate,
@@ -1505,7 +1500,7 @@ export class WorkspaceService {
       const pack = theme.deleted_at
         ? publishThemeAiPack({
             plan: buildThemeAiPackPlan({
-              theme: { ...theme, ai_visibility: [] },
+              theme,
               generatedAt: request.generatedAt,
             }),
             packDirectory: location.packDirectory,
@@ -1548,7 +1543,6 @@ export class WorkspaceService {
       workspace,
       // loadWorkspace(false) は削除済みを除いた change_event を持つ。list("change_event") と同じ中身。
       events: (workspace.change_events as Array<Record<string, unknown>> | undefined) || [],
-      workspaceDefault: normalizeAiVisibility(this.repository.getPreference("aiVisibilityDefault")),
       roots: this.activityCanonicalRootPaths(),
     };
   }
@@ -1564,14 +1558,11 @@ export class WorkspaceService {
     if (!themeId) throw new Error("Theme IDがありません。Themeを開き直してください。");
     const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
     if (!theme || theme.deleted_at) throw new Error("AI Packを作成するThemeが見つかりません。");
-    const { candidates, workspace, events, workspaceDefault, roots } =
-      sharedInputs || this.themeAiPackInputs();
+    const { candidates, workspace, events, roots } = sharedInputs || this.themeAiPackInputs();
     const activity = queryActivityEvents({
       workspace,
       events,
       themeId,
-      audience: "m365",
-      workspaceDefault,
       roots,
       limit: 100,
     });
@@ -1600,7 +1591,6 @@ export class WorkspaceService {
         theme,
         candidates,
         activity,
-        workspaceDefault,
         generatedAt: this.now(),
         sourceRevision,
         publicBodyIndexLink: this.publicBodyIndexLink(theme),
@@ -1638,14 +1628,14 @@ export class WorkspaceService {
     const scopeType =
       scopeValue.type === "theme" || scopeValue.type === "task" ? scopeValue.type : null;
     const scopeId = typeof scopeValue.id === "string" ? scopeValue.id.trim() : "";
-    const audience =
-      request.audience === "m365" || request.audience === "coding_agent" ? request.audience : null;
-    if (!scopeType || !scopeId || !audience) {
-      throw new Error("Context Previewの対象またはAudienceが不正です。画面を開き直してください。");
+    const channel =
+      request.channel === "ai_pack" || request.channel === "mcp" ? request.channel : null;
+    if (!scopeType || !scopeId || !channel) {
+      throw new Error("Context Previewの対象または種類が不正です。画面を開き直してください。");
     }
     const requestedScope = { type: scopeType, id: scopeId } as const;
     try {
-      if (audience === "m365") {
+      if (channel === "ai_pack") {
         let themeId = scopeId;
         if (scopeType === "task") {
           const task = this.repository.get("task", scopeId);
@@ -1700,7 +1690,7 @@ export class WorkspaceService {
         requestedScope,
         effectiveScope: requestedScope,
         producer:
-          audience === "m365"
+          channel === "ai_pack"
             ? "theme_ai_pack"
             : scopeType === "task"
               ? "mcp_task_context"
@@ -1865,7 +1855,6 @@ export class WorkspaceService {
     const plan = buildConversationContextPlan({
       resource,
       theme,
-      workspaceDefault: normalizeAiVisibility(this.repository.getPreference("aiVisibilityDefault")),
       scope:
         request.scope === "selected_turns"
           ? "selected_turns"
@@ -1951,7 +1940,6 @@ export class WorkspaceService {
       summary: plan.summary,
       freshness: plan.freshness,
       authority: plan.authority,
-      aiVisibility: plan.ai_visibility,
     };
   }
 

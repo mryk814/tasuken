@@ -59,8 +59,6 @@ export interface ActivityProjectionResult {
   timezone: string;
   date: string | null;
   events: ActivityProjectionEvent[];
-  excluded_count: number;
-  excluded_reasons: Array<Record<string, unknown>>;
   truncated: boolean;
   page: ActivityProjectionPage;
   matched_count?: number | null;
@@ -85,12 +83,11 @@ export interface ActivityProjectionQuery {
   eventKinds?: string[];
   event_kinds?: string[];
   timezone?: string;
-  audience?: string | null;
-  workspaceDefault?: unknown;
   roots?: Record<string, unknown>;
   limit?: number;
   sort_direction?: "asc" | "desc";
   include_match_metadata?: boolean;
+  currentEntityOnly?: boolean;
 }
 
 export function localDate(value: unknown, timezone?: string): string;

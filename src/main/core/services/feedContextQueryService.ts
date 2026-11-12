@@ -7,7 +7,6 @@ import {
 } from "../../../shared/contracts/task/public.ts";
 import type { FeedContextReadPort, FeedContextRecord } from "../ports/feedContextReadPort.ts";
 
-const AUDIENCE = "coding_agent";
 const DEFAULT_LIMIT = 20;
 const DEFAULT_MAX_CHARS = 400;
 /** 投稿IDの接頭辞。Feedの表示と読み出しで同じ規則を使う。 */
@@ -20,7 +19,7 @@ const FEED_NEXT_TOOLS = [
   },
   {
     tool: "tasken.get_task_context",
-    description: "投稿が参照するTaskの詳細を、AI公開範囲の判定つきで確認する。",
+    description: "投稿が参照するTaskの詳細を確認する。",
   },
   {
     tool: "tasken.propose_feed_post",
@@ -194,7 +193,6 @@ export class FeedContextQueryService {
         returned_count: returnedQuestions.length + recentPosts.length,
         truncated,
       },
-      ai_audience: AUDIENCE,
       read_only: true,
       next_tools: FEED_NEXT_TOOLS,
     });

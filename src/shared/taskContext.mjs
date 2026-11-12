@@ -224,15 +224,6 @@ export function publicAiHeader(record, budget = null) {
   if (!header) return null;
   const take = (value, limit) =>
     budget ? budget.take(safeReceiptText(value), limit) : safeReceiptText(value).slice(0, limit);
-  const visibility = Array.isArray(header.ai_visibility)
-    ? [
-        ...new Set(
-          header.ai_visibility.filter((entry) =>
-            ["m365", "coding_agent", "external_ai"].includes(entry),
-          ),
-        ),
-      ].sort()
-    : [];
   const typedRef = (value) =>
     value &&
     typeof value === "object" &&
@@ -254,9 +245,6 @@ export function publicAiHeader(record, budget = null) {
     authority: header.authority || null,
     authority_origin: header.authority_origin || "unset",
     authority_reason: take(header.authority_reason, 1_000),
-    ai_visibility: visibility,
-    ai_visibility_source: header.ai_visibility_source || null,
-    ai_visibility_reason: take(header.ai_visibility_reason, 1_000),
     theme_id: header.theme_id || null,
     updated_at: header.updated_at || null,
     last_verified_at: header.last_verified_at || null,

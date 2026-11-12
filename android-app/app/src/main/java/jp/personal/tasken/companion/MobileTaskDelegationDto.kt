@@ -40,8 +40,6 @@ data class MobileTaskContextPreviewTaskDto(
 
 @Serializable
 data class MobileTaskContextPreviewAiDto(
-    val visibility: List<String>,
-    val visibilitySource: String?,
     val authority: String? = null,
     val freshness: String,
     val summaryAuthority: String?,

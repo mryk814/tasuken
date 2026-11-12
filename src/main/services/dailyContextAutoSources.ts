@@ -28,7 +28,6 @@ function datesBetween(from: string, to: string) {
 /** Detect received/imported changes without relying on the local mobile sequence. */
 export function collectDailyContextAutoChanges({
   workspace,
-  workspaceDefault,
   sourceHashes: previous,
   checkedThrough,
   fromDate,
@@ -37,7 +36,6 @@ export function collectDailyContextAutoChanges({
   publishedDays,
 }: {
   workspace: Record<string, unknown>;
-  workspaceDefault: unknown;
   sourceHashes: Record<string, string>;
   checkedThrough: string | null;
   fromDate: string;
@@ -58,7 +56,6 @@ export function collectDailyContextAutoChanges({
   const sourceHashes = Object.fromEntries(
     [...entities].map(([id, entity]) => [id, markdownSignature(JSON.stringify(entity))]),
   );
-  sourceHashes.$policy = markdownSignature(JSON.stringify(workspaceDefault));
   const changed = new Set(
     [...new Set([...Object.keys(previous), ...Object.keys(sourceHashes)])].filter(
       (id) => sourceHashes[id] !== previous[id],
@@ -72,11 +69,9 @@ export function collectDailyContextAutoChanges({
   if (!checkedThrough) datesBetween(fromDate, today).forEach(add);
   else if (checkedThrough < today) datesBetween(checkedThrough, today).forEach(add);
 
-  const broadChange =
-    changed.has("$policy") ||
-    [...changed].some((id) =>
-      /^(?:\["(?:theme|project|reference|schedule|work_receipt|ai_proposal)",)/.test(id),
-    );
+  const broadChange = [...changed].some((id) =>
+    /^(?:\["(?:theme|project|reference|schedule|work_receipt|ai_proposal)",)/.test(id),
+  );
   if (broadChange) {
     datesBetween(fromDate, today).forEach(add);
     Object.keys(publishedDays).forEach(add);

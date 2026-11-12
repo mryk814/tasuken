@@ -23,7 +23,7 @@ import type {
 import type { DrawerEntityType, SaveOperation, WorkspaceData } from "../types";
 import { inferChatServiceFromUrl } from "./chatServices";
 import { resolveSubmittedChatCapturedAt } from "./chatRefs";
-import { aiMetadataFromForm, themeDefaultAiVisibilityFromForm } from "./aiMetadataForm";
+import { aiMetadataFromForm } from "./aiMetadataForm";
 import { formText, uuid } from "./format";
 import { normalizeReminderDateTime } from "./reminders";
 import { listTaskSections, normalizeTaskSectionId } from "./taskSections";
@@ -355,7 +355,6 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       storage_root: formText(values, "storage_root") || null,
       repository_context_ids: repositoryContextIds,
       primary_repository_context_id: primaryRepositoryContextId,
-      default_ai_visibility: themeDefaultAiVisibilityFromForm(values, base, hasField),
     };
     return {
       kind: "operations",

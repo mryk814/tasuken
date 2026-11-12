@@ -168,23 +168,13 @@ export const resolveRepositoryContextResponseSchema = z
   .object({
     ...repositoryMatchShape,
     read_only: z.literal(true),
-    ai_audience: z.literal("coding_agent"),
-    visible_context_count: z.number().int().nonnegative(),
+    context_count: z.number().int().nonnegative(),
   })
   .strict();
 
 export const findTasksForRepositoryResponseSchema = z.looseObject({
   tasks: z.array(z.looseObject({ id: z.string() })),
   read_only: z.literal(true),
-  ai_audience: z.literal("coding_agent"),
-  excluded_count: z.number().int().nonnegative(),
-  excluded_reasons: z.array(
-    z.looseObject({
-      type: z.string(),
-      reason: z.string(),
-      count: z.number().int().positive(),
-    }),
-  ),
 });
 
 export const findThemesForRepositoryResponseSchema = z
@@ -194,7 +184,6 @@ export const findThemesForRepositoryResponseSchema = z
     matched_context_ids: z.array(z.string()),
     repository_contexts: z.array(publicRepositoryContextSchema),
     read_only: z.literal(true),
-    ai_audience: z.literal("coding_agent"),
   })
   .strict();
 
@@ -205,7 +194,6 @@ const getRepositoryContextSuccessSchema = z
     themes: z.array(publicThemeSchema),
     tasks: z.array(publicTaskSchema),
     read_only: z.literal(true),
-    ai_audience: z.literal("coding_agent"),
   })
   .strict();
 
@@ -213,9 +201,7 @@ const getRepositoryContextMissingSchema = z
   .object({
     repository_context: z.null(),
     repository_context_id: z.string(),
-    excluded_reasons: z.array(z.literal("repository_context_not_visible")),
     read_only: z.literal(true),
-    ai_audience: z.literal("coding_agent"),
   })
   .strict();
 
@@ -277,7 +263,6 @@ export const getAgentSessionContextResponseSchema = z
       .default([]),
     previous_handoff: publicAgentSessionSchema.nullable(),
     read_only: z.literal(true),
-    ai_audience: z.literal("coding_agent"),
   })
   .strict();
 
@@ -286,7 +271,6 @@ export const getTaskAssignmentResponseSchema = z.looseObject({
   receipts: z.array(z.looseObject({ id: z.string() })),
   task_id: z.string(),
   read_only: z.literal(true),
-  ai_audience: z.literal("coding_agent"),
 });
 
 export type RepositoryLookupRequest = z.output<typeof repositoryLookupRequestSchema>;

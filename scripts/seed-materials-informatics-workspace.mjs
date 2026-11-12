@@ -558,7 +558,6 @@ function buildWorkspace(managedDirectory) {
         color: "chart-1",
         group: "材料インフォマティクス",
         storage_root: path.join(managedDirectory, "MI-LLZO-26"),
-        ai_visibility: ["coding_agent"],
         repository_context_ids: [repository.lab, repository.notebook],
         primary_repository_context_id: repository.lab,
       },
@@ -2838,7 +2837,6 @@ function seed(targetPath) {
   repository.setPreference("activeGroups", ["材料インフォマティクス", "サーキュラーマテリアル"]);
   repository.setPreference("activityLogAutoExportTime", "23:25");
   repository.setPreference("artifactDirectory", managedDirectory);
-  repository.setPreference("aiVisibilityDefault", ["coding_agent"]);
   const loaded = repository.loadWorkspace();
   repository.validateSnapshotWorkspace(loaded);
   const representativeDate = "2026-08-28";

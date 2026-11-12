@@ -1,8 +1,9 @@
-import type { AiAudience, AiAuthority, AiFreshness } from "./aiMetadata.mjs";
+import type { AiAuthority, AiFreshness } from "./aiMetadata.mjs";
 import type { ThemeAiPackPlan } from "./themeAiPack.mjs";
 
 export type PreviewCapability = "full" | "partial" | "aggregate_only" | "unavailable";
-export type PreviewBodyMode = "full" | "excerpt" | "summary" | "metadata_only" | "reference_only" | "unknown";
+export type PreviewBodyMode =
+  "full" | "excerpt" | "summary" | "metadata_only" | "reference_only" | "unknown";
 
 export interface PreviewEntityRef {
   type: string;
@@ -41,7 +42,15 @@ export interface PreviewContent {
   mode: "full" | "excerpt" | "summary";
   text: string;
   truncated: boolean;
-  sourceField: "body_markdown" | "body" | "excerpt" | "body_excerpt" | "summary" | "ai_summary" | "description" | "content";
+  sourceField:
+    | "body_markdown"
+    | "body"
+    | "excerpt"
+    | "body_excerpt"
+    | "summary"
+    | "ai_summary"
+    | "description"
+    | "content";
 }
 
 export interface PreviewIncludedEntity {
@@ -49,7 +58,6 @@ export interface PreviewIncludedEntity {
   title: string | null;
   bodyMode: PreviewBodyMode;
   content: PreviewContent | null;
-  visibility: AiAudience[];
   freshness: AiFreshness | string | null;
   authority: AiAuthority | string | null;
   includedReason: string | null;
@@ -75,7 +83,12 @@ export interface PreviewRelation {
 export interface PreviewExclusion {
   kind: "entity" | "edge" | "aggregate";
   ref: PreviewEntityRef | null;
-  edge: { id: string | null; source: PreviewEntityRef; target: PreviewEntityRef; predicate: string | null } | null;
+  edge: {
+    id: string | null;
+    source: PreviewEntityRef;
+    target: PreviewEntityRef;
+    predicate: string | null;
+  } | null;
   entityType: string | null;
   reason: string | null;
   count: number;
@@ -83,7 +96,6 @@ export interface PreviewExclusion {
 
 export interface AiContextPreview {
   schema: "tasken-ai-context-preview/v1";
-  audience: AiAudience | null;
   readOnly: true;
   scope: { kind: "theme" | "task" | "context_subgraph"; seed: PreviewEntityRef | null };
   capabilities: {

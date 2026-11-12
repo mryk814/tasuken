@@ -23,7 +23,6 @@ export function createMobileActivityReadPort(persistence: MobileActivityPersiste
       workspace,
       events: Array.isArray(workspace.change_events) ? workspace.change_events : [],
       profile: "recall",
-      audience: null,
       date: request.date,
       timezone: request.timezone,
       limit: request.limit,

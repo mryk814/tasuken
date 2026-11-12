@@ -15874,29 +15874,6 @@ kbd {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
-.ai-context-visibility {
-  display: grid;
-  gap: var(--space-1);
-  margin: 0;
-  padding: var(--space-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-}
-.ai-context-visibility legend {
-  padding: 0 var(--space-1);
-  color: var(--color-text-secondary);
-  font-size: var(--text-xs);
-}
-.ai-context-visibility label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  color: var(--color-text);
-  font-size: var(--text-sm);
-}
-.ai-context-visibility p {
-  margin: 0;
-}
 .ai-context-source-refs {
   display: grid;
   gap: var(--space-2);
@@ -16663,7 +16640,6 @@ kbd {
 }
 
 .conversation-context-state.is-dirty,
-.conversation-context-state.is-published_but_blocked,
 .conversation-context-state.is-publish_failed,
 .conversation-context-state.is-removal_failed {
   color: var(--color-warning-strong);

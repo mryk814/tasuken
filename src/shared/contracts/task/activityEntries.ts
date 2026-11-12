@@ -26,14 +26,6 @@ export const activityPageSchema = z
   })
   .strict();
 
-const activityExclusionSchema = z
-  .object({
-    type: z.string(),
-    reason: z.string(),
-    count: z.number().int().nonnegative(),
-  })
-  .strict();
-
 export const getActivityEntriesRequestSchema = z
   .object({
     task_id: z.string().trim().min(1).max(200).optional(),
@@ -168,10 +160,7 @@ const successSchema = z
     truncated: z.boolean(),
     result_meta: activityEntriesResultMetaSchema,
     page: activityPageSchema.optional(),
-    excluded_count: z.number().int().nonnegative().optional(),
-    excluded_reasons: z.array(activityExclusionSchema).optional(),
     read_only: z.literal(true),
-    ai_audience: z.literal("coding_agent"),
     next_tools: z.array(nextToolSchema).max(4),
   })
   .strict();
@@ -184,10 +173,7 @@ const dailySuccessSchema = z
     truncated: z.boolean(),
     result_meta: activityEntriesResultMetaSchema,
     page: activityPageSchema.optional(),
-    excluded_count: z.number().int().nonnegative().optional(),
-    excluded_reasons: z.array(activityExclusionSchema).optional(),
     read_only: z.literal(true),
-    ai_audience: z.literal("coding_agent"),
     next_tools: z.array(nextToolSchema).max(4),
   })
   .strict();
@@ -202,7 +188,6 @@ const notFoundSchema = z
       })
       .strict(),
     read_only: z.literal(true),
-    ai_audience: z.literal("coding_agent"),
     next_tools: z.array(nextToolSchema).max(4),
   })
   .strict();

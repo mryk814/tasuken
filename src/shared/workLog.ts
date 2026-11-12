@@ -8,7 +8,7 @@ import { isoTimestampSchema, localDateSchema, isWellFormedUnicode } from "./kern
  * performed date as the occurrence time. An AI's authority is never promoted to
  * `user_confirmed`, and editing the Note later is not counted as new work done.
  * When only a Task is given, the hand-written Note's Theme stays personal work:
- * the Task's Theme and visibility are not copied implicitly.
+ * the Task's Theme is not copied implicitly.
  */
 export interface RecordWorkLogCommand {
   schemaVersion: 1;

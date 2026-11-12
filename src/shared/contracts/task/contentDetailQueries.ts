@@ -17,7 +17,6 @@ const contentDetailReadError = <Key extends "note_id" | "conversation_id" | "art
         })
         .strict(),
       read_only: z.literal(true),
-      ai_audience: z.literal("coding_agent"),
       next_tools: z.array(nextToolSchema).max(4),
     })
     .strict();
@@ -35,7 +34,6 @@ const captureImageNotFoundSchema = z
       })
       .strict(),
     read_only: z.literal(true),
-    ai_audience: z.literal("coding_agent"),
     next_tools: z.array(nextToolSchema).max(4),
   })
   .strict();
@@ -91,9 +89,6 @@ export const aiHeaderSchema = z
       .nullable(),
     authority_origin: z.enum(["explicit", "derived", "unset"]),
     authority_reason: z.string(),
-    ai_visibility: z.array(z.enum(["m365", "coding_agent", "external_ai"])),
-    ai_visibility_source: z.enum(["entity", "theme", "workspace_default"]),
-    ai_visibility_reason: z.string(),
     theme_id: z.string().nullable(),
     updated_at: z.string().nullable(),
     last_verified_at: z.string().nullable(),
@@ -159,7 +154,6 @@ const noteDetailResponseSchema = z
     body_signature: z.string().nullable().optional(),
     limits: z.object({ max_text_length: z.number().int().positive().max(100_000) }).strict(),
     read_only: z.literal(true),
-    ai_audience: z.literal("coding_agent"),
     next_tools: z.array(nextToolSchema).max(4),
   })
   .strict();
@@ -170,7 +164,6 @@ const conversationDetailResponseSchema = z
     truncated: z.boolean(),
     limits: z.object({ max_text_length: z.number().int().positive().max(100_000) }).strict(),
     read_only: z.literal(true),
-    ai_audience: z.literal("coding_agent"),
     next_tools: z.array(nextToolSchema).max(4),
   })
   .strict();
@@ -180,7 +173,6 @@ const artifactDetailResponseSchema = z
     artifact: artifactMetadataSchema,
     external_file_content_included: z.literal(false),
     read_only: z.literal(true),
-    ai_audience: z.literal("coding_agent"),
     next_tools: z.array(nextToolSchema).max(4),
   })
   .strict();
@@ -244,7 +236,6 @@ const captureImageDetailResponseSchema = z
   .object({
     image: captureImageDetailSchema,
     read_only: z.literal(true),
-    ai_audience: z.literal("coding_agent"),
     next_tools: z.array(nextToolSchema).max(4),
   })
   .strict();
@@ -257,7 +248,6 @@ const taskImageDetailResponseSchema = z
   .object({
     image: taskImageDetailSchema,
     read_only: z.literal(true),
-    ai_audience: z.literal("coding_agent"),
     next_tools: z.array(nextToolSchema).max(4),
   })
   .strict();
@@ -272,7 +262,6 @@ const taskImageNotFoundSchema = z
       })
       .strict(),
     read_only: z.literal(true),
-    ai_audience: z.literal("coding_agent"),
     next_tools: z.array(nextToolSchema).max(4),
   })
   .strict();
