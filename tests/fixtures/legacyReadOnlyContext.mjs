@@ -3,17 +3,32 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { buildAiEntityHeader } from "../../src/shared/aiMetadata.mjs";
+import { summarizeExclusions as summarizeAiExclusions } from "../../src/shared/contextSelection.mjs";
+
+/** AIに見せる・見せないの区別は廃止した。headerだけを付け、全recordを通す。 */
+function projectEntityForAi(type, entity) {
+  return { included: true, header: buildAiEntityHeader(type, entity), exclusion: null };
+}
 import {
-  DEFAULT_AI_VISIBILITY,
-  normalizeAiVisibility,
-  projectEntityForAi,
-  summarizeAiExclusions,
-} from "../../src/shared/aiMetadata.mjs";
-import { buildKnowledgeHealth, groupKnowledgeHealthIssues } from "../../src/shared/knowledgeHealth.mjs";
+  buildKnowledgeHealth,
+  groupKnowledgeHealthIssues,
+} from "../../src/shared/knowledgeHealth.mjs";
 import { collectionKeyForEntityType, entityTypes } from "../../src/shared/entityRegistry.mjs";
-import { contextGraphMcpShape, getContextSubgraph, projectContextGraph } from "../../src/shared/contextGraph.mjs";
-import { projectActivityJson, projectActivityMarkdown, queryActivityEvents } from "../../src/shared/activityProjection.mjs";
-import { buildActivityRootRegistry, publicActivityRootStatus } from "../../src/shared/activityRootRegistry.mjs";
+import {
+  contextGraphMcpShape,
+  getContextSubgraph,
+  projectContextGraph,
+} from "../../src/shared/contextGraph.mjs";
+import {
+  projectActivityJson,
+  projectActivityMarkdown,
+  queryActivityEvents,
+} from "../../src/shared/activityProjection.mjs";
+import {
+  buildActivityRootRegistry,
+  publicActivityRootStatus,
+} from "../../src/shared/activityRootRegistry.mjs";
 import { resolveTaskenDatabasePath } from "../../src/shared/taskenPaths.mjs";
 import {
   findTasksForRepository,
@@ -74,8 +89,6 @@ function databaseConstructor() {
 }
 
 const DEFAULT_LIMIT = 20;
-/** MCPは同一端末のCoding Agent向け経路。M365・外部AIは明示許可が要る（#294）。 */
-const DEFAULT_AUDIENCE = "coding_agent";
 /** mergedItemsのkindから、公開範囲を判定する実体の種別へ戻す。 */
 const ITEM_KIND_ENTITY_TYPES = {
   task: "task",
@@ -89,7 +102,6 @@ const AI_METADATA_KEYS = [
   "ai_summary_authority",
   "ai_freshness",
   "ai_authority",
-  "ai_visibility",
   "ai_last_verified_at",
   "ai_superseded_by",
   "ai_source_refs",
@@ -208,13 +220,14 @@ function entityKey(type, id) {
 }
 
 function graphPayloadTokens(shape) {
-  return Math.ceil(JSON.stringify({
-    nodes: shape.nodes || [],
-    edges: shape.edges || [],
-    paths: shape.paths || [],
-    diagnostics: shape.diagnostics || [],
-    excluded_nodes: shape.excluded_nodes || [],
-  }).length / 4);
+  return Math.ceil(
+    JSON.stringify({
+      nodes: shape.nodes || [],
+      edges: shape.edges || [],
+      paths: shape.paths || [],
+      diagnostics: shape.diagnostics || [],
+    }).length / 4,
+  );
 }
 
 function publicThemeGraphEntity(type, record, budget, relation, includeRawBody = false) {
@@ -264,7 +277,7 @@ function publicThemeGraphEntity(type, record, budget, relation, includeRawBody =
       id: String(record.id),
       entity_type: type,
       title: budget.take(record.title, 500),
-      kind: type === "plan_node" ? (record.type || "period") : type,
+      kind: type === "plan_node" ? record.type || "period" : type,
       state: record.state || null,
       status: record.status || record.state || null,
       priority: record.priority || null,
@@ -283,12 +296,19 @@ function publicThemeGraphEntity(type, record, budget, relation, includeRawBody =
   return null;
 }
 
-export function defaultTaskenDbPath(env = process.env, { platform = process.platform, home = os.homedir() } = {}) {
+export function defaultTaskenDbPath(
+  env = process.env,
+  { platform = process.platform, home = os.homedir() } = {},
+) {
   const current = resolveTaskenDatabasePath({ env, platform, home });
   if (fs.existsSync(current) || env.TASKEN_DB_PATH || platform !== "win32") return current;
 
   // Windowsでは旧アプリ名の保存先を、既存ファイルがある場合だけ読み取る。
-  const legacy = path.join(env.APPDATA || path.join(home, "AppData", "Roaming"), "Research Desk", "research-desk.sqlite");
+  const legacy = path.join(
+    env.APPDATA || path.join(home, "AppData", "Roaming"),
+    "Research Desk",
+    "research-desk.sqlite",
+  );
   return fs.existsSync(legacy) ? legacy : current;
 }
 
@@ -297,8 +317,6 @@ export class ReadOnlyTaskenContext {
     this.workspace = options.workspace || null;
     this.dbPath = dbPath;
     this.db = null;
-    this.audience = options.audience || DEFAULT_AUDIENCE;
-    this.aiVisibilityDefault = normalizeAiVisibility(options.aiVisibilityDefault) || null;
     if (!this.workspace) {
       const SqliteDatabase = databaseConstructor();
       this.db = new SqliteDatabase(dbPath, { readonly: true, fileMustExist: true });
@@ -308,22 +326,6 @@ export class ReadOnlyTaskenContext {
 
   close() {
     this.db?.close();
-  }
-
-  /** Entity・Themeが未設定のときに使うworkspace既定（#294）。 */
-  workspaceVisibilityDefault() {
-    if (this.aiVisibilityDefault) return this.aiVisibilityDefault;
-    if (!this.db) {
-      this.aiVisibilityDefault = [...DEFAULT_AI_VISIBILITY];
-      return this.aiVisibilityDefault;
-    }
-    const row = this.db.prepare("SELECT value FROM workspace_meta WHERE key = 'ai_visibility_default'").get();
-    try {
-      this.aiVisibilityDefault = row ? (normalizeAiVisibility(JSON.parse(row.value)) || []) : [...DEFAULT_AI_VISIBILITY];
-    } catch {
-      this.aiVisibilityDefault = [...DEFAULT_AI_VISIBILITY];
-    }
-    return this.aiVisibilityDefault;
   }
 
   themeById(themeId) {
@@ -342,15 +344,8 @@ export class ReadOnlyTaskenContext {
     const included = [];
     const exclusions = [];
     for (const record of records) {
-      const entityType = type === "item" ? (ITEM_KIND_ENTITY_TYPES[record.kind] || "item") : type;
-      const themeId = record.theme_id || record.project_id || null;
-      // Theme自身は自分のdefault_ai_visibilityを継承元にする。
-      const theme = type === "theme" ? record : this.themeById(themeId);
-      const result = projectEntityForAi(entityType, record, {
-        audience: this.audience,
-        theme,
-        workspaceDefault: this.workspaceVisibilityDefault(),
-      });
+      const entityType = type === "item" ? ITEM_KIND_ENTITY_TYPES[record.kind] || "item" : type;
+      const result = projectEntityForAi(entityType, record);
       if (!result.included) {
         exclusions.push(result.exclusion);
         continue;
@@ -375,7 +370,7 @@ export class ReadOnlyTaskenContext {
         if (!exclusion?.type || !exclusion?.id) continue;
         exclusions.set(entityKey(exclusion.type, exclusion.id), {
           ref: { type: String(exclusion.type), id: String(exclusion.id) },
-          reason: String(exclusion.reason || "ai_visibility_policy"),
+          reason: String(exclusion.reason || "excluded"),
           count: 1,
         });
       }
@@ -398,19 +393,27 @@ export class ReadOnlyTaskenContext {
   list(type, includeArchived = false) {
     if (this.workspace) {
       const records = this.workspace[collectionKeyForEntityType(type)] || [];
-      return sortUpdated(includeArchived ? records : records.filter((record) => !record.deleted_at));
+      return sortUpdated(
+        includeArchived ? records : records.filter((record) => !record.deleted_at),
+      );
     }
     const deletedClause = includeArchived ? "" : "AND deleted_at IS NULL";
-    return this.db.prepare(`
+    return this.db
+      .prepare(
+        `
       SELECT * FROM entities
       WHERE entity_type = ? ${deletedClause}
       ORDER BY updated_at DESC
-    `).all(type).map(parseRow);
+    `,
+      )
+      .all(type)
+      .map(parseRow);
   }
 
   loadWorkspace(includeArchived = false) {
     const workspace = {};
-    for (const type of ENTITY_TYPES) workspace[collectionKeyForEntityType(type)] = this.list(type, includeArchived);
+    for (const type of ENTITY_TYPES)
+      workspace[collectionKeyForEntityType(type)] = this.list(type, includeArchived);
     workspace.canonical_root_status = this.canonicalRootStatus();
     return workspace;
   }
@@ -419,7 +422,9 @@ export class ReadOnlyTaskenContext {
     if (this.workspace?.canonical_root_status) return this.workspace.canonical_root_status;
     let artifactDirectory = "";
     if (this.db) {
-      artifactDirectory = this.db.prepare("SELECT value FROM workspace_meta WHERE key = 'artifact_directory'").get()?.value || "";
+      artifactDirectory =
+        this.db.prepare("SELECT value FROM workspace_meta WHERE key = 'artifact_directory'").get()
+          ?.value || "";
     }
     const registry = buildActivityRootRegistry({
       artifactDirectory,
@@ -513,28 +518,32 @@ export class ReadOnlyTaskenContext {
   toolSearchItems(args = {}) {
     const limit = clampLimit(args.limit);
     // 公開範囲の判定を件数制限より先に行う。除外分でlimitを消費させない。
-    const filtered = this.filterForAi("item", this.mergedItems(Boolean(args.include_archived))
-      .filter((item) => matchQuery(item, ["title", "description", "next_action", "waiting_for"], args.query))
-      .filter((item) => !args.theme_id || item.theme_id === args.theme_id));
+    const filtered = this.filterForAi(
+      "item",
+      this.mergedItems(Boolean(args.include_archived))
+        .filter((item) =>
+          matchQuery(item, ["title", "description", "next_action", "waiting_for"], args.query),
+        )
+        .filter((item) => !args.theme_id || item.theme_id === args.theme_id),
+    );
     return {
       items: filtered.records.slice(0, limit),
       limit,
-      ai_audience: this.audience,
-      ...summarizeAiExclusions(filtered.exclusions),
     };
   }
 
   toolListOpenItems(args = {}) {
     const limit = clampLimit(args.limit);
-    const filtered = this.filterForAi("item", this.mergedItems(Boolean(args.include_archived))
-      .filter(isOpenItem)
-      .filter((item) => !args.theme_id || item.theme_id === args.theme_id)
-      .sort((a, b) => (itemDate(a) || "9999-12-31").localeCompare(itemDate(b) || "9999-12-31")));
+    const filtered = this.filterForAi(
+      "item",
+      this.mergedItems(Boolean(args.include_archived))
+        .filter(isOpenItem)
+        .filter((item) => !args.theme_id || item.theme_id === args.theme_id)
+        .sort((a, b) => (itemDate(a) || "9999-12-31").localeCompare(itemDate(b) || "9999-12-31")),
+    );
     return {
       items: filtered.records.slice(0, limit),
       limit,
-      ai_audience: this.audience,
-      ...summarizeAiExclusions(filtered.exclusions),
     };
   }
 
@@ -549,19 +558,19 @@ export class ReadOnlyTaskenContext {
     return {
       tasks: filtered.records.slice(0, limit),
       limit,
-      ai_audience: this.audience,
       read_only: true,
-      ...summarizeAiExclusions(filtered.exclusions),
     };
   }
 
   toolGetTaskAssignment(args = {}) {
     const taskId = text(args.task_id || args.id);
-    const task = this.list("task", Boolean(args.include_archived)).find((candidate) => candidate.id === taskId);
-    if (!task) return { task: null, receipts: [], task_id: taskId, read_only: true, ai_audience: this.audience };
+    const task = this.list("task", Boolean(args.include_archived)).find(
+      (candidate) => candidate.id === taskId,
+    );
+    if (!task) return { task: null, receipts: [], task_id: taskId, read_only: true };
     const filtered = this.filterForAi("task", [task]);
     if (!filtered.records.length) {
-      return { task: null, receipts: [], task_id: taskId, read_only: true, ai_audience: this.audience, ...summarizeAiExclusions(filtered.exclusions) };
+      return { task: null, receipts: [], task_id: taskId, read_only: true };
     }
     const receipts = this.list("work_receipt", Boolean(args.include_archived))
       .filter((receipt) => receipt.task_id === taskId)
@@ -586,8 +595,6 @@ export class ReadOnlyTaskenContext {
       },
       task_id: taskId,
       read_only: true,
-      ai_audience: this.audience,
-      ...summarizeAiExclusions(filtered.exclusions),
     };
   }
 
@@ -598,25 +605,31 @@ export class ReadOnlyTaskenContext {
     const limits = taskContextLimits(args);
     const budget = new TaskContextTextBudget(limits.maxTextLength);
     const includeArchived = Boolean(args.include_archived);
-    const task = this.list("task", includeArchived).find((candidate) => String(candidate.id) === taskId);
+    const task = this.list("task", includeArchived).find(
+      (candidate) => String(candidate.id) === taskId,
+    );
     if (!task) {
       return {
-        ...structuredReadError("not_found", "Taskが見つかりません。Task IDを確認してください。", { task_id: taskId }),
-        ai_audience: this.audience,
+        ...structuredReadError("not_found", "Taskが見つかりません。Task IDを確認してください。", {
+          task_id: taskId,
+        }),
       };
     }
     if (!task.id || !task.title || !task.state) {
       return {
-        ...structuredReadError("unsupported_schema", "Taskの保存形式をこのMCP Bridgeで解釈できません。Taskenを更新してください。", { task_id: taskId }),
-        ai_audience: this.audience,
+        ...structuredReadError(
+          "unsupported_schema",
+          "Taskの保存形式をこのMCP Bridgeで解釈できません。Taskenを更新してください。",
+          { task_id: taskId },
+        ),
       };
     }
     const filteredTask = this.filterForAi("task", [task]);
     if (!filteredTask.records.length) {
       return {
-        ...structuredReadError("not_found", "Taskが見つかりません。Task IDまたはAI公開範囲を確認してください。", { task_id: taskId }),
-        ai_audience: this.audience,
-        ...summarizeAiExclusions(filteredTask.exclusions),
+        ...structuredReadError("not_found", "Taskが見つかりません。Task IDを確認してください。", {
+          task_id: taskId,
+        }),
       };
     }
 
@@ -624,13 +637,21 @@ export class ReadOnlyTaskenContext {
     const truncation = {};
     const themeId = task.project_id || task.theme_id || null;
     const themeCandidate = themeId ? this.themeById(themeId) : null;
-    const filteredThemeResult = themeCandidate ? this.filterForAi("theme", [themeCandidate]) : { records: [], exclusions: [] };
+    const filteredThemeResult = themeCandidate
+      ? this.filterForAi("theme", [themeCandidate])
+      : { records: [], exclusions: [] };
     const filteredTheme = filteredThemeResult.records[0] || null;
-    if (themeCandidate && !filteredTheme) warnings.push({ code: "theme_not_visible", message: "TaskのThemeはAI公開範囲外のため含めていません。" });
+    if (themeCandidate && !filteredTheme)
+      warnings.push({
+        code: "theme_not_visible",
+        message: "TaskのThemeはAI公開範囲外のため含めていません。",
+      });
     // Task依頼とassignmentを最優先でbudgetへ確保し、その後に関連情報を詰める。
     const taskOutput = publicTaskForContext(filteredTask.records[0], budget);
     const assignmentOutput = publicAssignmentForContext(task, budget);
-    const themeOutput = includeSet.has("theme") ? publicThemeForContext(filteredTheme, budget) : null;
+    const themeOutput = includeSet.has("theme")
+      ? publicThemeForContext(filteredTheme, budget)
+      : null;
 
     const repositoryResolution = resolveTaskRepositoryContexts({
       task,
@@ -654,7 +675,8 @@ export class ReadOnlyTaskenContext {
       if (match.status === "unknown" && taskRepositoryContexts.length) {
         repositoryMatch.status = "mismatch";
         repositoryMatch.reason_code = "task_repository_mismatch";
-        repositoryMatch.reason = "現在のcoding workspaceはTaskのRepositoryContextと一致しません。作業対象を確認してください。";
+        repositoryMatch.reason =
+          "現在のcoding workspaceはTaskのRepositoryContextと一致しません。作業対象を確認してください。";
         warnings.push({ code: "repository_mismatch", message: repositoryMatch.reason });
       } else if (match.status === "ambiguous") {
         warnings.push({ code: "repository_ambiguous", message: match.reason });
@@ -670,47 +692,61 @@ export class ReadOnlyTaskenContext {
       work_receipts: [],
     };
     const selectionExclusions = [
-      ...(includeSet.has("theme") ? filteredThemeResult.exclusions.map((entry) => ({
-        ref: { type: entry.type, id: entry.id },
-        reason: entry.reason,
-        count: 1,
-      })) : []),
+      ...(includeSet.has("theme")
+        ? filteredThemeResult.exclusions.map((entry) => ({
+            ref: { type: entry.type, id: entry.id },
+            reason: entry.reason,
+            count: 1,
+          }))
+        : []),
     ];
     const recordOmitted = (type, bounded) => {
       for (const record of bounded.omitted || []) {
         if (!record?.id) continue;
-        selectionExclusions.push({ ref: { type, id: String(record.id) }, reason: "max_items_per_type", count: 1 });
+        selectionExclusions.push({
+          ref: { type, id: String(record.id) },
+          reason: "max_items_per_type",
+          count: 1,
+        });
       }
     };
     const graphTypes = new Set(["task", "note", "resource", "artifact"]);
     const visibleRecords = new Map();
     const access = this.aiGraphAccess(includeArchived);
     for (const entityType of graphTypes) {
-      visibleRecords.set(entityType, this.list(entityType, includeArchived)
-        .map((record) => access.records.get(entityKey(entityType, record.id)))
-        .filter(Boolean));
+      visibleRecords.set(
+        entityType,
+        this.list(entityType, includeArchived)
+          .map((record) => access.records.get(entityKey(entityType, record.id)))
+          .filter(Boolean),
+      );
     }
     const graph = projectContextGraph(this.loadWorkspace(includeArchived));
-    const subgraph = getContextSubgraph(graph, { type: "task", id: taskId }, {
-      maxHops: 2,
-      // 出力はentity種別ごとに別々にbounded化する。graph側を同じ件数へ
-      // 絞ると、先に並んだNoteだけで枠を使い切りArtifact等が欠落する。
-      maxNodes: Math.min(100, limits.maxItemsPerType * 8 + 8),
-      maxEdges: Math.min(200, limits.maxItemsPerType * 16 + 16),
-      tokenBudget: 12_000,
-      includeSuggested: false,
-      nodeFilter: (node) => access.allowed.has(entityKey(node.ref.type, node.ref.id)),
-      nodeExclusion: (node) => access.exclusions.get(entityKey(node.ref.type, node.ref.id)),
-      // Themeだけが共通というEntityをTask文脈へ一括で混ぜない。
-      edgeFilter: (edge) => edge.predicate !== "belongs_to_theme",
-    });
+    const subgraph = getContextSubgraph(
+      graph,
+      { type: "task", id: taskId },
+      {
+        maxHops: 2,
+        // 出力はentity種別ごとに別々にbounded化する。graph側を同じ件数へ
+        // 絞ると、先に並んだNoteだけで枠を使い切りArtifact等が欠落する。
+        maxNodes: Math.min(100, limits.maxItemsPerType * 8 + 8),
+        maxEdges: Math.min(200, limits.maxItemsPerType * 16 + 16),
+        tokenBudget: 12_000,
+        includeSuggested: false,
+        // Themeだけが共通というEntityをTask文脈へ一括で混ぜない。
+        edgeFilter: (edge) => edge.predicate !== "belongs_to_theme",
+      },
+    );
     if (subgraph.truncated) {
-      warnings.push({ code: "relation_graph_truncated", message: "関連情報のbounded traversalが上限に達しました。locatorから必要な本文を追加取得してください。" });
+      warnings.push({
+        code: "relation_graph_truncated",
+        message:
+          "関連情報のbounded traversalが上限に達しました。locatorから必要な本文を追加取得してください。",
+      });
     }
     // Task用の本文/AI metadataは下の各public projectionだけでbudget消費する。
     // graph nodeはID/型/タイトルのrelation carrierに留め、同じsummaryを重複計上しない。
     const relationGraph = contextGraphMcpShape(subgraph);
-    selectionExclusions.push(...relationGraph.excluded_nodes);
     const relatedIds = new Map();
     for (const node of subgraph.nodes) {
       if (node.type === "task" && node.id === taskId) continue;
@@ -721,42 +757,82 @@ export class ReadOnlyTaskenContext {
     const relation = (type, id) => relationForNode(subgraph, type, String(id));
 
     if (includeSet.has("notes")) {
-      const records = sortUpdated((visibleRecords.get("note") || []).filter((note) => relatedIds.get("note")?.has(String(note.id))));
+      const records = sortUpdated(
+        (visibleRecords.get("note") || []).filter((note) =>
+          relatedIds.get("note")?.has(String(note.id)),
+        ),
+      );
       const bounded = boundedList(records, limits.maxItemsPerType);
-      related.notes = bounded.selected.map((note) => publicNoteSummary(note, budget, relation("note", note.id)));
+      related.notes = bounded.selected.map((note) =>
+        publicNoteSummary(note, budget, relation("note", note.id)),
+      );
       recordOmitted("note", bounded);
       if (bounded.truncation) truncation.notes = bounded.truncation;
     }
-    const resources = sortUpdated((visibleRecords.get("resource") || []).filter((resource) => relatedIds.get("resource")?.has(String(resource.id))));
+    const resources = sortUpdated(
+      (visibleRecords.get("resource") || []).filter((resource) =>
+        relatedIds.get("resource")?.has(String(resource.id)),
+      ),
+    );
     if (includeSet.has("conversations")) {
-      const bounded = boundedList(resources.filter((resource) => resource.resource_scope === "chat_ref"), limits.maxItemsPerType);
-      related.conversations = bounded.selected.map((resource) => publicConversationSummary(resource, budget, relation("resource", resource.id)));
+      const bounded = boundedList(
+        resources.filter((resource) => resource.resource_scope === "chat_ref"),
+        limits.maxItemsPerType,
+      );
+      related.conversations = bounded.selected.map((resource) =>
+        publicConversationSummary(resource, budget, relation("resource", resource.id)),
+      );
       recordOmitted("resource", bounded);
       if (bounded.truncation) truncation.conversations = bounded.truncation;
     }
     if (includeSet.has("resources")) {
-      const bounded = boundedList(resources.filter((resource) => resource.resource_scope !== "chat_ref"), limits.maxItemsPerType);
-      related.resources = bounded.selected.map((resource) => publicResourceSummary(resource, budget, relation("resource", resource.id)));
+      const bounded = boundedList(
+        resources.filter((resource) => resource.resource_scope !== "chat_ref"),
+        limits.maxItemsPerType,
+      );
+      related.resources = bounded.selected.map((resource) =>
+        publicResourceSummary(resource, budget, relation("resource", resource.id)),
+      );
       recordOmitted("resource", bounded);
       if (bounded.truncation) truncation.resources = bounded.truncation;
     }
     if (includeSet.has("artifacts")) {
-      const records = sortUpdated((visibleRecords.get("artifact") || []).filter((artifact) => relatedIds.get("artifact")?.has(String(artifact.id))));
+      const records = sortUpdated(
+        (visibleRecords.get("artifact") || []).filter((artifact) =>
+          relatedIds.get("artifact")?.has(String(artifact.id)),
+        ),
+      );
       const bounded = boundedList(records, limits.maxItemsPerType);
-      related.artifacts = bounded.selected.map((artifact) => publicArtifactMetadata(artifact, budget, relation("artifact", artifact.id)));
+      related.artifacts = bounded.selected.map((artifact) =>
+        publicArtifactMetadata(artifact, budget, relation("artifact", artifact.id)),
+      );
       recordOmitted("artifact", bounded);
       if (bounded.truncation) truncation.artifacts = bounded.truncation;
     }
     if (includeSet.has("work_receipts")) {
-      const records = this.list("work_receipt", includeArchived).filter((receipt) => receipt.task_id === taskId);
+      const records = this.list("work_receipt", includeArchived).filter(
+        (receipt) => receipt.task_id === taskId,
+      );
       const bounded = boundedList(records, limits.maxItemsPerType);
-      related.work_receipts = bounded.selected.map((receipt) => publicReceiptForContext(receipt, budget));
+      related.work_receipts = bounded.selected.map((receipt) =>
+        publicReceiptForContext(receipt, budget),
+      );
       recordOmitted("work_receipt", bounded);
       if (bounded.truncation) truncation.work_receipts = bounded.truncation;
     }
     if (includeSet.has("activity")) {
-      const activity = this.toolGetActivity({ entity_type: "task", entity_id: taskId, limit: 100, include_archived: includeArchived, format: "json" });
-      const records = [...(activity.events || [])].sort((left, right) => String(right.occurred_at).localeCompare(String(left.occurred_at)) || String(right.id).localeCompare(String(left.id)));
+      const activity = this.toolGetActivity({
+        entity_type: "task",
+        entity_id: taskId,
+        limit: 100,
+        include_archived: includeArchived,
+        format: "json",
+      });
+      const records = [...(activity.events || [])].sort(
+        (left, right) =>
+          String(right.occurred_at).localeCompare(String(left.occurred_at)) ||
+          String(right.id).localeCompare(String(left.id)),
+      );
       const bounded = boundedList(records, limits.maxItemsPerType);
       related.activity = bounded.selected.map((event) => ({
         id: event.id,
@@ -773,46 +849,73 @@ export class ReadOnlyTaskenContext {
     }
     if (budget.truncated) {
       truncation.text = { reason: "max_text_length", limit: budget.limit, used: budget.used };
-      warnings.push({ code: "text_truncated", message: "context本文が文字数上限に達しました。stable locatorから必要な本文だけ取得してください。" });
+      warnings.push({
+        code: "text_truncated",
+        message:
+          "context本文が文字数上限に達しました。stable locatorから必要な本文だけ取得してください。",
+      });
     }
 
-    const repositoryContexts = includeSet.has("repository") ? taskRepositoryContexts.map(publicRepositoryContext) : [];
+    const repositoryContexts = includeSet.has("repository")
+      ? taskRepositoryContexts.map(publicRepositoryContext)
+      : [];
     const selectionIncluded = [
       contextSelectionEntry("task", taskOutput, { reason: "seed" }),
-      ...(themeOutput ? [contextSelectionEntry("theme", themeOutput, { reason: "task_theme" })] : []),
-      ...repositoryContexts.map((record) => contextSelectionEntry("repository_context", record, { reason: "task_repository_context" })),
+      ...(themeOutput
+        ? [contextSelectionEntry("theme", themeOutput, { reason: "task_theme" })]
+        : []),
+      ...repositoryContexts.map((record) =>
+        contextSelectionEntry("repository_context", record, { reason: "task_repository_context" }),
+      ),
       ...related.notes.map((record) => contextSelectionEntry("note", record)),
       ...related.conversations.map((record) => contextSelectionEntry("resource", record)),
       ...related.resources.map((record) => contextSelectionEntry("resource", record)),
       ...related.artifacts.map((record) => contextSelectionEntry("artifact", record)),
-      ...related.activity.map((record) => contextSelectionEntry("change_event", record, { reason: "recent_activity" })),
-      ...related.work_receipts.map((record) => contextSelectionEntry("work_receipt", record, { reason: "task_work_receipt" })),
+      ...related.activity.map((record) =>
+        contextSelectionEntry("change_event", record, { reason: "recent_activity" }),
+      ),
+      ...related.work_receipts.map((record) =>
+        contextSelectionEntry("work_receipt", record, { reason: "task_work_receipt" }),
+      ),
     ];
-    const includedKeys = new Set(selectionIncluded.filter(Boolean).map((entry) => entityKey(entry.ref.type, entry.ref.id)));
+    const includedKeys = new Set(
+      selectionIncluded.filter(Boolean).map((entry) => entityKey(entry.ref.type, entry.ref.id)),
+    );
     for (const node of relationGraph.nodes) {
       const key = entityKey(node.type, node.id);
       if (includedKeys.has(key)) continue;
-      selectionExclusions.push({ ref: { type: node.type, id: String(node.id) }, reason: "include_not_requested", count: 1 });
+      selectionExclusions.push({
+        ref: { type: node.type, id: String(node.id) },
+        reason: "include_not_requested",
+        count: 1,
+      });
     }
-    const retainedEdges = relationGraph.edges.filter((edge) => includedKeys.has(entityKey(edge.source.type, edge.source.id))
-      && includedKeys.has(entityKey(edge.target.type, edge.target.id)));
+    const retainedEdges = relationGraph.edges.filter(
+      (edge) =>
+        includedKeys.has(entityKey(edge.source.type, edge.source.id)) &&
+        includedKeys.has(entityKey(edge.target.type, edge.target.id)),
+    );
     const retainedEdgeIds = new Set(retainedEdges.map((edge) => String(edge.id)));
     const contextGraph = {
       ...relationGraph,
       nodes: relationGraph.nodes.filter((node) => includedKeys.has(entityKey(node.type, node.id))),
       edges: retainedEdges,
-      paths: relationGraph.paths.filter((path) => includedKeys.has(entityKey(path.from.type, path.from.id))
-        && includedKeys.has(entityKey(path.to.type, path.to.id))
-        && path.edge_ids.every((edgeId) => retainedEdgeIds.has(String(edgeId)))),
+      paths: relationGraph.paths.filter(
+        (path) =>
+          includedKeys.has(entityKey(path.from.type, path.from.id)) &&
+          includedKeys.has(entityKey(path.to.type, path.to.id)) &&
+          path.edge_ids.every((edgeId) => retainedEdgeIds.has(String(edgeId))),
+      ),
     };
     if (contextGraph.policy === undefined) delete contextGraph.policy;
-    contextGraph.estimated_tokens = Math.ceil(JSON.stringify({
-      nodes: contextGraph.nodes,
-      edges: contextGraph.edges,
-      paths: contextGraph.paths,
-      diagnostics: contextGraph.diagnostics,
-      excluded_nodes: contextGraph.excluded_nodes,
-    }).length / 4);
+    contextGraph.estimated_tokens = Math.ceil(
+      JSON.stringify({
+        nodes: contextGraph.nodes,
+        edges: contextGraph.edges,
+        paths: contextGraph.paths,
+        diagnostics: contextGraph.diagnostics,
+      }).length / 4,
+    );
     const normalizedExclusions = contextSelectionExclusions(selectionExclusions);
     const contextSelection = buildContextSelection({
       seed: { type: "task", id: taskId },
@@ -824,31 +927,37 @@ export class ReadOnlyTaskenContext {
         max_text_length: limits.maxTextLength,
         graph: contextGraph.limits,
       },
-      truncated: Boolean(contextGraph.truncated || budget.truncated || Object.keys(truncation).length),
+      truncated: Boolean(
+        contextGraph.truncated || budget.truncated || Object.keys(truncation).length,
+      ),
       truncation,
       estimatedCharacters: budget.used,
       estimatedTokens: Math.ceil(budget.used / 4) + Number(contextGraph.estimated_tokens || 0),
       policy: contextGraph.policy,
     });
-    const exclusionSummary = summarizeAiExclusions(normalizedExclusions.map((entry) => ({
-      type: entry.ref.type,
-      id: entry.ref.id,
-      reason: entry.reason,
-    })));
+    const exclusionSummary = summarizeAiExclusions(
+      normalizedExclusions.map((entry) => ({
+        type: entry.ref.type,
+        id: entry.ref.id,
+        reason: entry.reason,
+      })),
+    );
 
     return {
       task: taskOutput,
       assignment: assignmentOutput,
       theme: themeOutput,
       repository_contexts: repositoryContexts,
-      repository_resolution: includeSet.has("repository") ? {
-        mode: repositoryResolution.mode,
-        context_ids: repositoryResolution.contextIds,
-        missing_context_ids: repositoryResolution.missingContextIds,
-        missing_context_reasons: repositoryResolution.missingContextReasons,
-        subdirectory: repositoryResolution.subdirectory,
-        branch_hint: repositoryResolution.branchHint,
-      } : null,
+      repository_resolution: includeSet.has("repository")
+        ? {
+            mode: repositoryResolution.mode,
+            context_ids: repositoryResolution.contextIds,
+            missing_context_ids: repositoryResolution.missingContextIds,
+            missing_context_reasons: repositoryResolution.missingContextReasons,
+            subdirectory: repositoryResolution.subdirectory,
+            branch_hint: repositoryResolution.branchHint,
+          }
+        : null,
       workspace_match: includeSet.has("repository") ? repositoryMatch : null,
       related,
       context_graph: contextGraph,
@@ -859,16 +968,22 @@ export class ReadOnlyTaskenContext {
       warnings,
       truncated: Boolean(subgraph.truncated || budget.truncated || Object.keys(truncation).length),
       read_only: true,
-      ai_audience: this.audience,
       ...exclusionSummary,
     };
   }
 
   toolGetNote(args = {}) {
     const noteId = text(args.note_id || args.id).trim();
-    const note = this.list("note", Boolean(args.include_archived)).find((candidate) => String(candidate.id) === noteId);
+    const note = this.list("note", Boolean(args.include_archived)).find(
+      (candidate) => String(candidate.id) === noteId,
+    );
     const filtered = note ? this.filterForAi("note", [note]) : { records: [], exclusions: [] };
-    if (!filtered.records.length) return { ...structuredReadError("not_found", "Noteが見つかりません。IDまたはAI公開範囲を確認してください。", { note_id: noteId }), ai_audience: this.audience };
+    if (!filtered.records.length)
+      return {
+        ...structuredReadError("not_found", "Noteが見つかりません。IDを確認してください。", {
+          note_id: noteId,
+        }),
+      };
     const maxTextLength = taskContextLimits(args).maxTextLength;
     const body = text(note.body_markdown);
     const budget = new TaskContextTextBudget(maxTextLength);
@@ -886,15 +1001,26 @@ export class ReadOnlyTaskenContext {
       truncated: body.length > maxTextLength,
       limits: { max_text_length: maxTextLength },
       read_only: true,
-      ai_audience: this.audience,
     };
   }
 
   toolGetConversation(args = {}) {
     const conversationId = text(args.conversation_id || args.id).trim();
-    const resource = this.list("resource", Boolean(args.include_archived)).find((candidate) => String(candidate.id) === conversationId && candidate.resource_scope === "chat_ref");
-    const filtered = resource ? this.filterForAi("resource", [resource]) : { records: [], exclusions: [] };
-    if (!filtered.records.length) return { ...structuredReadError("not_found", "Conversationが見つかりません。IDまたはAI公開範囲を確認してください。", { conversation_id: conversationId }), ai_audience: this.audience };
+    const resource = this.list("resource", Boolean(args.include_archived)).find(
+      (candidate) =>
+        String(candidate.id) === conversationId && candidate.resource_scope === "chat_ref",
+    );
+    const filtered = resource
+      ? this.filterForAi("resource", [resource])
+      : { records: [], exclusions: [] };
+    if (!filtered.records.length)
+      return {
+        ...structuredReadError(
+          "not_found",
+          "Conversationが見つかりません。IDを確認してください。",
+          { conversation_id: conversationId },
+        ),
+      };
     const maxTextLength = taskContextLimits(args).maxTextLength;
     const body = text(resource.body_markdown);
     const budget = new TaskContextTextBudget(maxTextLength);
@@ -914,29 +1040,43 @@ export class ReadOnlyTaskenContext {
       truncated: body.length > maxTextLength,
       limits: { max_text_length: maxTextLength },
       read_only: true,
-      ai_audience: this.audience,
     };
   }
 
   toolGetArtifactMetadata(args = {}) {
     const artifactId = text(args.artifact_id || args.id).trim();
-    const artifact = this.list("artifact", Boolean(args.include_archived)).find((candidate) => String(candidate.id) === artifactId);
-    const filtered = artifact ? this.filterForAi("artifact", [artifact]) : { records: [], exclusions: [] };
-    if (!filtered.records.length) return { ...structuredReadError("not_found", "Artifactが見つかりません。IDまたはAI公開範囲を確認してください。", { artifact_id: artifactId }), ai_audience: this.audience };
+    const artifact = this.list("artifact", Boolean(args.include_archived)).find(
+      (candidate) => String(candidate.id) === artifactId,
+    );
+    const filtered = artifact
+      ? this.filterForAi("artifact", [artifact])
+      : { records: [], exclusions: [] };
+    if (!filtered.records.length)
+      return {
+        ...structuredReadError("not_found", "Artifactが見つかりません。IDを確認してください。", {
+          artifact_id: artifactId,
+        }),
+      };
     const budget = new TaskContextTextBudget(taskContextLimits(args).maxTextLength);
     return {
       artifact: publicArtifactMetadata(filtered.records[0], budget),
       external_file_content_included: false,
       read_only: true,
-      ai_audience: this.audience,
     };
   }
 
   toolGetActivityEntries(args = {}) {
     const taskId = text(args.task_id || args.id).trim();
-    const task = this.list("task", Boolean(args.include_archived)).find((candidate) => String(candidate.id) === taskId);
+    const task = this.list("task", Boolean(args.include_archived)).find(
+      (candidate) => String(candidate.id) === taskId,
+    );
     const filtered = task ? this.filterForAi("task", [task]) : { records: [], exclusions: [] };
-    if (!filtered.records.length) return { ...structuredReadError("not_found", "Taskが見つかりません。IDまたはAI公開範囲を確認してください。", { task_id: taskId }), ai_audience: this.audience };
+    if (!filtered.records.length)
+      return {
+        ...structuredReadError("not_found", "Taskが見つかりません。IDを確認してください。", {
+          task_id: taskId,
+        }),
+      };
     const limit = clampLimit(args.limit, 50);
     const activity = this.toolGetActivity({
       entity_type: "task",
@@ -962,15 +1102,18 @@ export class ReadOnlyTaskenContext {
         truncated,
       },
       read_only: true,
-      ai_audience: this.audience,
     };
   }
 
   toolGetRecentNotes(args = {}) {
     const limit = clampLimit(args.limit);
     const textLimit = clampTextLimit(args.max_chars);
-    const filtered = this.filterForAi("note", this.list("note", Boolean(args.include_archived))
-      .filter((note) => !args.theme_id || note.theme_id === args.theme_id));
+    const filtered = this.filterForAi(
+      "note",
+      this.list("note", Boolean(args.include_archived)).filter(
+        (note) => !args.theme_id || note.theme_id === args.theme_id,
+      ),
+    );
     const notes = filtered.records
       .slice(0, limit)
       .map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit));
@@ -978,76 +1121,121 @@ export class ReadOnlyTaskenContext {
       notes,
       limit,
       include_raw_body: Boolean(args.include_raw_body),
-      ai_audience: this.audience,
-      ...summarizeAiExclusions(filtered.exclusions),
     };
   }
 
   toolSearchKnowledge(args = {}) {
     const limit = clampLimit(args.limit);
     const nodeTypes = Array.isArray(args.node_types) ? new Set(args.node_types) : null;
-    const filtered = this.filterForAi("knowledge_node", this.list("knowledge_node", Boolean(args.include_archived))
-      .filter((node) => matchQuery(node, ["title", "body", "node_type"], args.query))
-      .filter((node) => !args.theme_id || node.theme_id === args.theme_id)
-      .filter((node) => !nodeTypes || nodeTypes.has(node.node_type)));
+    const filtered = this.filterForAi(
+      "knowledge_node",
+      this.list("knowledge_node", Boolean(args.include_archived))
+        .filter((node) => matchQuery(node, ["title", "body", "node_type"], args.query))
+        .filter((node) => !args.theme_id || node.theme_id === args.theme_id)
+        .filter((node) => !nodeTypes || nodeTypes.has(node.node_type)),
+    );
     const nodes = filtered.records
       .slice(0, limit)
       .map((node) => ({ ...node, body: truncate(node.body, clampTextLimit(args.max_chars)) }));
     return {
       knowledge_nodes: nodes,
       limit,
-      ai_audience: this.audience,
-      ...summarizeAiExclusions(filtered.exclusions),
     };
   }
 
   toolGetKnowledgeContext(args = {}) {
     const limit = clampLimit(args.limit, 50);
     const textLimit = clampTextLimit(args.max_chars);
-    const filteredNodes = this.filterForAi("knowledge_node", this.list("knowledge_node", Boolean(args.include_archived))
-      .filter((node) => !args.theme_id || node.theme_id === args.theme_id));
+    const filteredNodes = this.filterForAi(
+      "knowledge_node",
+      this.list("knowledge_node", Boolean(args.include_archived)).filter(
+        (node) => !args.theme_id || node.theme_id === args.theme_id,
+      ),
+    );
     const nodes = filteredNodes.records
       .slice(0, limit)
       .map((node) => ({ ...node, body: truncate(node.body, textLimit) }));
     const nodeIds = new Set(nodes.map((node) => node.id));
-    const relations = Boolean(args.include_relations ?? true)
-      ? this.list("knowledge_edge", Boolean(args.include_archived))
-        .filter((relation) => nodeIds.has(relation.source_node_id) || nodeIds.has(relation.target_node_id))
+    const relations = args.include_relations ?? true
+      ? this.list("knowledge_edge", Boolean(args.include_archived)).filter(
+          (relation) =>
+            nodeIds.has(relation.source_node_id) || nodeIds.has(relation.target_node_id),
+        )
       : [];
     const sourceExclusions = [];
-    const sources = Boolean(args.include_sources)
+    const sources = args.include_sources
       ? (() => {
-        const legacyLinks = this.list("link");
-        const resources = this.list("resource");
-        const filteredNotes = this.filterForAi("note", this.list("note").filter((note) => nodes.some((node) => node.source_note_id === note.id || (node.source_type === "note" && node.source_id === note.id))));
-        sourceExclusions.push(...filteredNotes.exclusions);
-        const matchedNotes = filteredNotes.records.map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit));
-        const matchedLegacyLinks = legacyLinks.filter((link) => nodes.some((node) => node.source_link_id === link.id));
-        const matchedResources = resources.filter((r) => nodes.some((node) => (node.source_type === "resource" && node.source_id === r.id)));
-        const resourceIds = new Set(matchedResources.map((r) => r.id));
-        const filteredResources = this.filterForAi("resource", [...matchedResources, ...matchedLegacyLinks.filter((l) => !resourceIds.has(l.id))]);
-        sourceExclusions.push(...filteredResources.exclusions);
-        const filteredItems = this.filterForAi("item", this.mergedItems().filter((item) => nodes.some((node) => node.source_item_id === item.id || (node.source_type === "task" && node.source_id === item.id) || (node.source_type === "waiting" && node.source_id === item.id) || (node.source_type === "plan_node" && node.source_id === item.id))));
-        sourceExclusions.push(...filteredItems.exclusions);
-        return { notes: matchedNotes, resources: filteredResources.records, items: filteredItems.records };
-      })()
+          const legacyLinks = this.list("link");
+          const resources = this.list("resource");
+          const filteredNotes = this.filterForAi(
+            "note",
+            this.list("note").filter((note) =>
+              nodes.some(
+                (node) =>
+                  node.source_note_id === note.id ||
+                  (node.source_type === "note" && node.source_id === note.id),
+              ),
+            ),
+          );
+          sourceExclusions.push(...filteredNotes.exclusions);
+          const matchedNotes = filteredNotes.records.map((note) =>
+            withoutRawBody(note, Boolean(args.include_raw_body), textLimit),
+          );
+          const matchedLegacyLinks = legacyLinks.filter((link) =>
+            nodes.some((node) => node.source_link_id === link.id),
+          );
+          const matchedResources = resources.filter((r) =>
+            nodes.some((node) => node.source_type === "resource" && node.source_id === r.id),
+          );
+          const resourceIds = new Set(matchedResources.map((r) => r.id));
+          const filteredResources = this.filterForAi("resource", [
+            ...matchedResources,
+            ...matchedLegacyLinks.filter((l) => !resourceIds.has(l.id)),
+          ]);
+          sourceExclusions.push(...filteredResources.exclusions);
+          const filteredItems = this.filterForAi(
+            "item",
+            this.mergedItems().filter((item) =>
+              nodes.some(
+                (node) =>
+                  node.source_item_id === item.id ||
+                  (node.source_type === "task" && node.source_id === item.id) ||
+                  (node.source_type === "waiting" && node.source_id === item.id) ||
+                  (node.source_type === "plan_node" && node.source_id === item.id),
+              ),
+            ),
+          );
+          sourceExclusions.push(...filteredItems.exclusions);
+          return {
+            notes: matchedNotes,
+            resources: filteredResources.records,
+            items: filteredItems.records,
+          };
+        })()
       : undefined;
     return {
       knowledge_nodes: nodes,
       knowledge_edges: relations,
       sources,
       limit,
-      ai_audience: this.audience,
-      ...summarizeAiExclusions([...filteredNodes.exclusions, ...sourceExclusions]),
     };
   }
 
   buildPlanHealth(themeId = "") {
     const today = new Date().toISOString().slice(0, 10);
     // healthもタイトルを返すため、一覧と同じ公開範囲判定を通す（#294）。
-    const tasks = this.filterForAi("task", this.list("task").filter((t) => !themeId || t.project_id === themeId)).records;
-    const waitings = this.filterForAi("waiting", this.list("waiting").filter((w) => !themeId || w.project_id === themeId)).records;
-    const planNodes = this.filterForAi("plan_node", this.list("plan_node").filter((p) => !themeId || p.project_id === themeId)).records;
+    const tasks = this.filterForAi(
+      "task",
+      this.list("task").filter((t) => !themeId || t.project_id === themeId),
+    ).records;
+    const waitings = this.filterForAi(
+      "waiting",
+      this.list("waiting").filter((w) => !themeId || w.project_id === themeId),
+    ).records;
+    const planNodes = this.filterForAi(
+      "plan_node",
+      this.list("plan_node").filter((p) => !themeId || p.project_id === themeId),
+    ).records;
     const schedules = this.list("schedule");
     const scheduleMap = new Map();
     for (const s of schedules) scheduleMap.set(`${s.owner_type}:${s.owner_id}`, s);
@@ -1059,13 +1247,50 @@ export class ReadOnlyTaskenContext {
     const openWaitings = waitings.filter((w) => w.state === "waiting");
     const openPlanNodes = planNodes.filter((p) => p.state !== "done" && p.state !== "cancelled");
     const overdue = [
-      ...openTasks.filter((t) => { const d = endDate("task", t.id); return d && d < today; }).map((t) => ({ id: t.id, title: t.title, kind: "task", date: endDate("task", t.id), theme_id: t.project_id })),
-      ...openWaitings.filter((w) => { const d = endDate("waiting", w.id); return d && d < today; }).map((w) => ({ id: w.id, title: w.title, kind: "waiting", date: endDate("waiting", w.id), theme_id: w.project_id })),
-      ...openPlanNodes.filter((p) => { const d = endDate("plan_node", p.id); return d && d < today; }).map((p) => ({ id: p.id, title: p.title, kind: p.type, date: endDate("plan_node", p.id), theme_id: p.project_id })),
+      ...openTasks
+        .filter((t) => {
+          const d = endDate("task", t.id);
+          return d && d < today;
+        })
+        .map((t) => ({
+          id: t.id,
+          title: t.title,
+          kind: "task",
+          date: endDate("task", t.id),
+          theme_id: t.project_id,
+        })),
+      ...openWaitings
+        .filter((w) => {
+          const d = endDate("waiting", w.id);
+          return d && d < today;
+        })
+        .map((w) => ({
+          id: w.id,
+          title: w.title,
+          kind: "waiting",
+          date: endDate("waiting", w.id),
+          theme_id: w.project_id,
+        })),
+      ...openPlanNodes
+        .filter((p) => {
+          const d = endDate("plan_node", p.id);
+          return d && d < today;
+        })
+        .map((p) => ({
+          id: p.id,
+          title: p.title,
+          kind: p.type,
+          date: endDate("plan_node", p.id),
+          theme_id: p.project_id,
+        })),
     ];
     const unscheduled = [
-      ...openTasks.filter((t) => !scheduleMap.has(`task:${t.id}`)).map((t) => ({ id: t.id, title: t.title, kind: "task", theme_id: t.project_id })),
-      ...openPlanNodes.filter((p) => !scheduleMap.has(`plan_node:${p.id}`)).map((p) => ({ id: p.id, title: p.title, kind: p.type, theme_id: p.project_id })),
+      ...openTasks
+        .filter((t) => !scheduleMap.has(`task:${t.id}`))
+        .map((t) => ({ id: t.id, title: t.title, kind: "task", theme_id: t.project_id })),
+      ...openPlanNodes
+        .filter((p) => !scheduleMap.has(`plan_node:${p.id}`))
+        .map((p) => ({ id: p.id, title: p.title, kind: p.type, theme_id: p.project_id })),
     ];
     return {
       open_tasks: openTasks.length,
@@ -1073,13 +1298,22 @@ export class ReadOnlyTaskenContext {
       open_plan_nodes: openPlanNodes.length,
       open_count: openTasks.length + openWaitings.length + openPlanNodes.length,
       overdue_items: overdue,
-      waiting_items: openWaitings.map((w) => ({ id: w.id, title: w.title, waiting_for: w.waiting_for, date: endDate("waiting", w.id), theme_id: w.project_id })),
+      waiting_items: openWaitings.map((w) => ({
+        id: w.id,
+        title: w.title,
+        waiting_for: w.waiting_for,
+        date: endDate("waiting", w.id),
+        theme_id: w.project_id,
+      })),
       unscheduled_items: unscheduled,
     };
   }
 
   buildKnowledgeHealth(themeId = "") {
-    const nodes = this.filterForAi("knowledge_node", this.list("knowledge_node").filter((node) => !themeId || node.theme_id === themeId)).records;
+    const nodes = this.filterForAi(
+      "knowledge_node",
+      this.list("knowledge_node").filter((node) => !themeId || node.theme_id === themeId),
+    ).records;
     const relations = this.list("knowledge_edge");
     const entities = [
       ...this.filterForAi("task", this.list("task")).records,
@@ -1100,7 +1334,9 @@ export class ReadOnlyTaskenContext {
     const visibleIds = new Set();
     const visibleThemes = this.filterForAi("theme", this.list("theme", includeArchived)).records;
     for (const theme of visibleThemes) {
-      for (const id of Array.isArray(theme.repository_context_ids) ? theme.repository_context_ids : []) {
+      for (const id of Array.isArray(theme.repository_context_ids)
+        ? theme.repository_context_ids
+        : []) {
         visibleIds.add(String(id));
       }
     }
@@ -1115,7 +1351,7 @@ export class ReadOnlyTaskenContext {
 
   visibleRepositoryContexts(includeArchived = false) {
     const visibleIds = this.visibleRepositoryContextIds(includeArchived);
-    return this.repositoryContexts(includeArchived).filter((context) => visibleIds.has(String(context.id)));
+    return this.repositoryContexts(includeArchived);
   }
 
   toolResolveRepositoryContext(args = {}) {
@@ -1124,13 +1360,20 @@ export class ReadOnlyTaskenContext {
       current: repositoryCurrentFromArgs(args),
       contexts,
     });
-    return { ...publicRepositoryMatch(match), read_only: true, ai_audience: this.audience, visible_context_count: contexts.length };
+    return { ...publicRepositoryMatch(match), read_only: true, context_count: contexts.length };
   }
 
   toolFindThemesForRepository(args = {}) {
-    const themes = this.filterForAi("theme", this.list("theme", Boolean(args.include_archived))).records;
+    const themes = this.filterForAi(
+      "theme",
+      this.list("theme", Boolean(args.include_archived)),
+    ).records;
     const contexts = this.visibleRepositoryContexts(Boolean(args.include_archived));
-    const result = findThemesForRepository({ current: repositoryCurrentFromArgs(args), contexts, themes });
+    const result = findThemesForRepository({
+      current: repositoryCurrentFromArgs(args),
+      contexts,
+      themes,
+    });
     const matchedContextIds = new Set(result.matched_context_ids || []);
     return {
       ...publicRepositoryMatch(result),
@@ -1139,12 +1382,14 @@ export class ReadOnlyTaskenContext {
         .filter((context) => matchedContextIds.has(String(context.id)))
         .map(publicRepositoryContext),
       read_only: true,
-      ai_audience: this.audience,
     };
   }
 
   toolFindTasksForRepository(args = {}) {
-    const filteredTasks = this.filterForAi("task", this.list("task", Boolean(args.include_archived)));
+    const filteredTasks = this.filterForAi(
+      "task",
+      this.list("task", Boolean(args.include_archived)),
+    );
     const result = findTasksForRepository({
       current: repositoryCurrentFromArgs(args),
       contexts: this.visibleRepositoryContexts(Boolean(args.include_archived)),
@@ -1155,8 +1400,6 @@ export class ReadOnlyTaskenContext {
       ...publicRepositoryMatch(result),
       tasks: result.tasks,
       read_only: true,
-      ai_audience: this.audience,
-      ...summarizeAiExclusions(filteredTasks.exclusions),
     };
   }
 
@@ -1168,26 +1411,26 @@ export class ReadOnlyTaskenContext {
       return {
         repository_context: null,
         repository_context_id: id,
-        excluded_reasons: ["repository_context_not_visible"],
         read_only: true,
-        ai_audience: this.audience,
       };
     }
-    const themes = this.filterForAi("theme", this.list("theme", Boolean(args.include_archived)))
-      .records
-      .filter((theme) => (theme.repository_context_ids || []).map(String).includes(id));
-    const tasks = this.filterForAi("task", this.list("task", Boolean(args.include_archived))).records
-      .filter((task) => {
-        const theme = this.themeById(task.project_id || task.theme_id);
-        return resolveTaskRepositoryContexts({ task, theme, contexts }).contextIds.includes(id);
-      });
+    const themes = this.filterForAi(
+      "theme",
+      this.list("theme", Boolean(args.include_archived)),
+    ).records.filter((theme) => (theme.repository_context_ids || []).map(String).includes(id));
+    const tasks = this.filterForAi(
+      "task",
+      this.list("task", Boolean(args.include_archived)),
+    ).records.filter((task) => {
+      const theme = this.themeById(task.project_id || task.theme_id);
+      return resolveTaskRepositoryContexts({ task, theme, contexts }).contextIds.includes(id);
+    });
     return {
       repository_context: publicRepositoryContext(context),
       themes,
       tasks,
       repository_context_id: id,
       read_only: true,
-      ai_audience: this.audience,
     };
   }
 
@@ -1197,80 +1440,116 @@ export class ReadOnlyTaskenContext {
     const themeId = text(args.theme_id).trim();
     if (!themeId) {
       return {
-        ...structuredReadError("invalid_request", "Theme contextにはstable Theme IDが必要です。theme_idを指定してください。"),
-        ai_audience: this.audience,
+        ...structuredReadError(
+          "invalid_request",
+          "Theme contextにはstable Theme IDが必要です。theme_idを指定してください。",
+        ),
       };
     }
     const includeArchived = Boolean(args.include_archived);
     const access = this.aiGraphAccess(includeArchived);
-    const canonicalSeed = this.list("project", includeArchived).find((theme) => String(theme.id) === themeId);
-    const legacySeed = this.list("theme", includeArchived).find((theme) => String(theme.id) === themeId);
+    const canonicalSeed = this.list("project", includeArchived).find(
+      (theme) => String(theme.id) === themeId,
+    );
+    const legacySeed = this.list("theme", includeArchived).find(
+      (theme) => String(theme.id) === themeId,
+    );
     const seedType = canonicalSeed ? "project" : "theme";
     const seedKey = entityKey(seedType, themeId);
     const seedRecord = canonicalSeed || legacySeed;
-    if (!seedRecord || !access.allowed.has(seedKey)) {
-      const excluded = access.exclusions.get(seedKey);
+    if (!seedRecord) {
       const contextSelection = buildContextSelection({
         seed: { type: seedType, id: themeId },
-        excluded: excluded ? [excluded] : [],
         limits: {},
       });
       return {
-        ...structuredReadError("not_found", "Themeが見つかりません。Theme IDまたはAI公開範囲を確認してください。", { theme_id: themeId }),
+        ...structuredReadError("not_found", "Themeが見つかりません。Theme IDを確認してください。", {
+          theme_id: themeId,
+        }),
         context_selection: contextSelection,
-        ai_audience: this.audience,
-        ...summarizeAiExclusions(excluded ? [{ type: excluded.ref.type, id: excluded.ref.id, reason: excluded.reason }] : []),
       };
     }
     const graph = projectContextGraph(this.loadWorkspace(includeArchived));
-    const subgraph = getContextSubgraph(graph, { type: seedType, id: themeId }, {
-      maxHops: args.max_hops ?? 2,
-      maxNodes: args.max_nodes ?? Math.min(100, limit),
-      maxEdges: args.max_edges ?? Math.min(200, limit * 4),
-      tokenBudget: args.token_budget ?? 12_000,
-      includeSuggested: false,
-      nodeFilter: (node) => access.allowed.has(entityKey(node.ref.type, node.ref.id)),
-      nodeExclusion: (node) => access.exclusions.get(entityKey(node.ref.type, node.ref.id)),
-    });
+    const subgraph = getContextSubgraph(
+      graph,
+      { type: seedType, id: themeId },
+      {
+        maxHops: args.max_hops ?? 2,
+        maxNodes: args.max_nodes ?? Math.min(100, limit),
+        maxEdges: args.max_edges ?? Math.min(200, limit * 4),
+        tokenBudget: args.token_budget ?? 12_000,
+        includeSuggested: false,
+      },
+    );
     const relationGraph = contextGraphMcpShape(subgraph);
     const budget = new TaskContextTextBudget(textLimit);
     const selected = [];
-    const selectionExclusions = [...relationGraph.excluded_nodes];
+    const selectionExclusions = [];
     for (const node of relationGraph.nodes) {
       const record = access.records.get(entityKey(node.type, node.id));
       if (!record) continue;
-      if (["task", "waiting", "plan_node", "item"].includes(node.type)
-        && ["done", "cancelled", "received"].includes(record.status || record.state)) {
-        selectionExclusions.push({ ref: { type: node.type, id: String(node.id) }, reason: "not_open", count: 1 });
+      if (
+        ["task", "waiting", "plan_node", "item"].includes(node.type) &&
+        ["done", "cancelled", "received"].includes(record.status || record.state)
+      ) {
+        selectionExclusions.push({
+          ref: { type: node.type, id: String(node.id) },
+          reason: "not_open",
+          count: 1,
+        });
         continue;
       }
       const relation = relationForNode(relationGraph, node.type, node.id);
-      const output = publicThemeGraphEntity(node.type, record, budget, relation, Boolean(args.include_raw_body));
-      if (output) selected.push({
-        type: node.type,
-        output: {
-          ...output,
-          included_because: node.type === seedType && String(node.id) === themeId ? "seed" : relation.includedBecause,
-          relation_path: relation.path,
-        },
-      });
-      else selectionExclusions.push({ ref: { type: node.type, id: String(node.id) }, reason: "theme_context_scope", count: 1 });
+      const output = publicThemeGraphEntity(
+        node.type,
+        record,
+        budget,
+        relation,
+        Boolean(args.include_raw_body),
+      );
+      if (output)
+        selected.push({
+          type: node.type,
+          output: {
+            ...output,
+            included_because:
+              node.type === seedType && String(node.id) === themeId
+                ? "seed"
+                : relation.includedBecause,
+            relation_path: relation.path,
+          },
+        });
+      else
+        selectionExclusions.push({
+          ref: { type: node.type, id: String(node.id) },
+          reason: "theme_context_scope",
+          count: 1,
+        });
     }
     const selectedKeys = new Set(selected.map((entry) => entityKey(entry.type, entry.output.id)));
-    const retainedEdges = relationGraph.edges.filter((edge) => selectedKeys.has(entityKey(edge.source.type, edge.source.id))
-      && selectedKeys.has(entityKey(edge.target.type, edge.target.id)));
+    const retainedEdges = relationGraph.edges.filter(
+      (edge) =>
+        selectedKeys.has(entityKey(edge.source.type, edge.source.id)) &&
+        selectedKeys.has(entityKey(edge.target.type, edge.target.id)),
+    );
     const retainedEdgeIds = new Set(retainedEdges.map((edge) => String(edge.id)));
     const contextGraph = {
       ...relationGraph,
       nodes: relationGraph.nodes.filter((node) => selectedKeys.has(entityKey(node.type, node.id))),
       edges: retainedEdges,
-      paths: relationGraph.paths.filter((path) => selectedKeys.has(entityKey(path.from.type, path.from.id))
-        && selectedKeys.has(entityKey(path.to.type, path.to.id))
-        && path.edge_ids.every((edgeId) => retainedEdgeIds.has(String(edgeId)))),
+      paths: relationGraph.paths.filter(
+        (path) =>
+          selectedKeys.has(entityKey(path.from.type, path.from.id)) &&
+          selectedKeys.has(entityKey(path.to.type, path.to.id)) &&
+          path.edge_ids.every((edgeId) => retainedEdgeIds.has(String(edgeId))),
+      ),
     };
     contextGraph.estimated_tokens = graphPayloadTokens(contextGraph);
-    const byType = (type) => selected.filter((entry) => entry.type === type).map((entry) => entry.output);
-    const themeEntries = selected.filter((entry) => entry.type === "project" || entry.type === "theme");
+    const byType = (type) =>
+      selected.filter((entry) => entry.type === type).map((entry) => entry.output);
+    const themeEntries = selected.filter(
+      (entry) => entry.type === "project" || entry.type === "theme",
+    );
     const themes = themeEntries.map((entry) => entry.output);
     const repositoryContexts = byType("repository_context");
     const openItems = selected
@@ -1279,18 +1558,26 @@ export class ReadOnlyTaskenContext {
     const recentNotes = byType("note");
     const knowledgeNodes = byType("knowledge_node");
     const knowledgeNodeIds = new Set(knowledgeNodes.map((node) => String(node.id)));
-    const knowledgeEdges = contextGraph.edges.filter((edge) => edge.source.type === "knowledge_node"
-      && edge.target.type === "knowledge_node"
-      && knowledgeNodeIds.has(String(edge.source.id))
-      && knowledgeNodeIds.has(String(edge.target.id)));
-    const repositoryContextById = new Map(repositoryContexts.map((context) => [String(context.id), context]));
+    const knowledgeEdges = contextGraph.edges.filter(
+      (edge) =>
+        edge.source.type === "knowledge_node" &&
+        edge.target.type === "knowledge_node" &&
+        knowledgeNodeIds.has(String(edge.source.id)) &&
+        knowledgeNodeIds.has(String(edge.target.id)),
+    );
+    const repositoryContextById = new Map(
+      repositoryContexts.map((context) => [String(context.id), context]),
+    );
     const themeRepositoryContexts = themeEntries.map(({ type, output: theme }) => {
       const contextIds = contextGraph.edges
-        .filter((edge) => edge.predicate === "uses_repository_context"
-          && edge.source.type === type
-          && String(edge.source.id) === String(theme.id)
-          && edge.target.type === "repository_context"
-          && repositoryContextById.has(String(edge.target.id)))
+        .filter(
+          (edge) =>
+            edge.predicate === "uses_repository_context" &&
+            edge.source.type === type &&
+            String(edge.source.id) === String(theme.id) &&
+            edge.target.type === "repository_context" &&
+            repositoryContextById.has(String(edge.target.id)),
+        )
         .map((edge) => String(edge.target.id));
       const uniqueContextIds = [...new Set(contextIds)].sort();
       return {
@@ -1301,20 +1588,29 @@ export class ReadOnlyTaskenContext {
         contexts: uniqueContextIds.map((id) => repositoryContextById.get(id)),
       };
     });
-    const included = selected.map(({ type, output }) => contextSelectionEntry(type, output, {
-      reason: type === seedType && String(output.id) === themeId ? "seed" : output.included_because,
-      relationPath: output.relation_path,
-    }));
+    const included = selected.map(({ type, output }) =>
+      contextSelectionEntry(type, output, {
+        reason:
+          type === seedType && String(output.id) === themeId ? "seed" : output.included_because,
+        relationPath: output.relation_path,
+      }),
+    );
     const normalizedExclusions = contextSelectionExclusions(selectionExclusions);
     const truncation = {};
     const warnings = [];
     if (contextGraph.truncated) {
       truncation.graph = { reason: "bounded_relation_query", limits: contextGraph.limits };
-      warnings.push({ code: "relation_graph_truncated", message: "Theme contextのrelation traversalが上限に達しました。" });
+      warnings.push({
+        code: "relation_graph_truncated",
+        message: "Theme contextのrelation traversalが上限に達しました。",
+      });
     }
     if (budget.truncated) {
       truncation.text = { reason: "max_text_length", limit: budget.limit, used: budget.used };
-      warnings.push({ code: "text_truncated", message: "Theme context本文が文字数上限に達しました。" });
+      warnings.push({
+        code: "text_truncated",
+        message: "Theme context本文が文字数上限に達しました。",
+      });
     }
     const contextSelection = buildContextSelection({
       seed: { type: seedType, id: themeId },
@@ -1328,11 +1624,13 @@ export class ReadOnlyTaskenContext {
       estimatedTokens: Math.ceil(budget.used / 4) + Number(contextGraph.estimated_tokens || 0),
       policy: contextGraph.policy,
     });
-    const exclusionSummary = summarizeAiExclusions(normalizedExclusions.map((entry) => ({
-      type: entry.ref.type,
-      id: entry.ref.id,
-      reason: entry.reason,
-    })));
+    const exclusionSummary = summarizeAiExclusions(
+      normalizedExclusions.map((entry) => ({
+        type: entry.ref.type,
+        id: entry.ref.id,
+        reason: entry.reason,
+      })),
+    );
     return {
       themes,
       repository_contexts: repositoryContexts,
@@ -1350,7 +1648,6 @@ export class ReadOnlyTaskenContext {
       truncation,
       warnings,
       truncated: Boolean(contextGraph.truncated || budget.truncated),
-      ai_audience: this.audience,
       read_only: true,
       ...exclusionSummary,
     };
@@ -1366,14 +1663,13 @@ export class ReadOnlyTaskenContext {
 
   /** ActivityはMarkdown/JSON/MCPで同じstructured queryを投影するread-only入口。 */
   toolGetActivity(args = {}) {
-    if (args.audience && args.audience !== this.audience) {
-      return this.withAudience(args.audience, () => this.toolGetActivity({ ...args, audience: null }));
-    }
     const workspace = this.loadWorkspace(Boolean(args.include_archived));
     const entityId = text(args.entity_id || args.entityId);
-    const sourceEvents = this.list("change_event", Boolean(args.include_archived))
-      .filter((event) => !entityId || String(event.entity_ref?.id || event.entity_id || "") === entityId);
+    const sourceEvents = this.list("change_event", Boolean(args.include_archived)).filter(
+      (event) => !entityId || String(event.entity_ref?.id || event.entity_id || "") === entityId,
+    );
     const result = queryActivityEvents({
+      currentEntityOnly: true,
       events: sourceEvents,
       workspace,
       themes: this.list("theme", Boolean(args.include_archived)),
@@ -1385,8 +1681,6 @@ export class ReadOnlyTaskenContext {
       entity_type: args.entity_type || "",
       event_kinds: Array.isArray(args.event_kinds) ? args.event_kinds : [],
       timezone: args.timezone || "Asia/Tokyo",
-      audience: this.audience,
-      workspaceDefault: this.workspaceVisibilityDefault(),
       roots: workspace.canonical_root_status,
       limit: args.limit,
       sort_direction: args.sort_direction,
@@ -1395,9 +1689,9 @@ export class ReadOnlyTaskenContext {
     const format = args.format === "markdown" ? "markdown" : "json";
     return {
       ...projectActivityJson(result),
-      activity: format === "markdown" ? projectActivityMarkdown(result) : projectActivityJson(result),
+      activity:
+        format === "markdown" ? projectActivityMarkdown(result) : projectActivityJson(result),
       format,
-      ai_audience: this.audience,
       read_only: true,
     };
   }
@@ -1411,26 +1705,33 @@ export class ReadOnlyTaskenContext {
     const id = text(args.entity_id || args.id);
     const graph = projectContextGraph(this.loadWorkspace(Boolean(args.include_archived)));
     const access = this.aiGraphAccess(Boolean(args.include_archived));
-    const result = getContextSubgraph(graph, { type, id }, {
-      maxHops: args.max_hops,
-      maxNodes: args.max_nodes,
-      maxEdges: args.max_edges,
-      tokenBudget: args.token_budget,
-      includeSuggested: Boolean(args.include_suggested),
-      nodeFilter: (node) => access.allowed.has(entityKey(node.ref.type, node.ref.id)),
-      nodeExclusion: (node) => access.exclusions.get(entityKey(node.ref.type, node.ref.id)),
-    });
+    const result = getContextSubgraph(
+      graph,
+      { type, id },
+      {
+        maxHops: args.max_hops,
+        maxNodes: args.max_nodes,
+        maxEdges: args.max_edges,
+        tokenBudget: args.token_budget,
+        includeSuggested: Boolean(args.include_suggested),
+      },
+    );
     const baseShape = contextGraphMcpShape(result);
     const tokenBudget = Number(result.limits?.tokenBudget || 12_000);
-    const remainingText = Math.max(0, tokenBudget * 4 - JSON.stringify({
-      nodes: baseShape.nodes,
-      edges: baseShape.edges,
-      paths: baseShape.paths,
-      diagnostics: baseShape.diagnostics,
-      excluded_nodes: baseShape.excluded_nodes,
-    }).length);
+    const remainingText = Math.max(
+      0,
+      tokenBudget * 4 -
+        JSON.stringify({
+          nodes: baseShape.nodes,
+          edges: baseShape.edges,
+          paths: baseShape.paths,
+          diagnostics: baseShape.diagnostics,
+        }).length,
+    );
     const metadataBudget = remainingText > 0 ? new TaskContextTextBudget(remainingText) : null;
-    const shape = metadataBudget ? this.publicContextGraph(result, access, metadataBudget) : baseShape;
+    const shape = metadataBudget
+      ? this.publicContextGraph(result, access, metadataBudget)
+      : baseShape;
     let metadataTruncated = Boolean(metadataBudget?.truncated || !metadataBudget);
     while (graphPayloadTokens(shape) > tokenBudget) {
       const node = [...shape.nodes].reverse().find((candidate) => candidate.ai);
@@ -1453,13 +1754,20 @@ export class ReadOnlyTaskenContext {
     const contextSelection = buildContextSelection({
       seed: shape.seed,
       included,
-      excluded: shape.excluded_nodes,
       relations: shape.edges,
       limits: shape.limits,
       truncated: shape.truncated,
       truncation: {
         reasons: shape.exclusions,
-        ...(metadataTruncated ? { text: { reason: "ai_metadata_budget", limit: remainingText, used: metadataBudget?.used || 0 } } : {}),
+        ...(metadataTruncated
+          ? {
+              text: {
+                reason: "ai_metadata_budget",
+                limit: remainingText,
+                used: metadataBudget?.used || 0,
+              },
+            }
+          : {}),
       },
       estimatedCharacters: JSON.stringify(shape).length,
       estimatedTokens: shape.estimated_tokens,
@@ -1468,27 +1776,11 @@ export class ReadOnlyTaskenContext {
     return {
       ...shape,
       context_selection: contextSelection,
-      ai_audience: this.audience,
       read_only: true,
     };
   }
 
-  /** OneDrive AI Pack等はm365で、Coding Agentはcoding_agentで同じ関数を呼ぶ（#294 / #295）。 */
-  withAudience(audience, run) {
-    if (!audience || audience === this.audience) return run();
-    const previous = this.audience;
-    this.audience = audience;
-    try {
-      return run();
-    } finally {
-      this.audience = previous;
-    }
-  }
-
   toolExportAiContext(args = {}) {
-    if (args.audience && args.audience !== this.audience) {
-      return this.withAudience(args.audience, () => this.toolExportAiContext({ ...args, audience: null }));
-    }
     const format = args.format === "json" ? "json" : "markdown";
     const scope = args.scope || "recent";
     const maxItems = clampLimit(args.max_items, 40);
@@ -1496,14 +1788,19 @@ export class ReadOnlyTaskenContext {
     const maxKnowledgeNodes = clampLimit(args.max_knowledge_nodes, 50);
     const textLimit = clampTextLimit(args.max_chars);
     const themeId = args.theme_id || "";
-    const filteredThemes = this.filterForAi("theme", this.list("theme").filter((theme) => !themeId || theme.id === themeId));
+    const filteredThemes = this.filterForAi(
+      "theme",
+      this.list("theme").filter((theme) => !themeId || theme.id === themeId),
+    );
     const themes = filteredThemes.records;
     const themeIds = new Set(themes.map((theme) => theme.id));
     const contextRecords = this.visibleRepositoryContexts(false);
     const repositoryContextsById = new Map();
     const themeRepositoryContexts = themes.map((theme) => {
       const resolution = resolveThemeRepositoryContexts(theme, contextRecords);
-      resolution.contexts.forEach((context) => repositoryContextsById.set(String(context.id), publicRepositoryContext(context)));
+      resolution.contexts.forEach((context) =>
+        repositoryContextsById.set(String(context.id), publicRepositoryContext(context)),
+      );
       return {
         theme_id: theme.id,
         context_ids: resolution.contextIds,
@@ -1512,16 +1809,25 @@ export class ReadOnlyTaskenContext {
       };
     });
     const allItems = this.mergedItems().filter((item) => !themeId || item.theme_id === themeId);
-    const filteredItems = this.filterForAi("item", scope === "open_items" ? allItems.filter(isOpenItem) : allItems);
+    const filteredItems = this.filterForAi(
+      "item",
+      scope === "open_items" ? allItems.filter(isOpenItem) : allItems,
+    );
     const items = filteredItems.records.slice(0, maxItems);
-    const filteredNotes = this.filterForAi("note", this.list("note").filter((note) => !themeId || themeIds.has(note.theme_id)));
+    const filteredNotes = this.filterForAi(
+      "note",
+      this.list("note").filter((note) => !themeId || themeIds.has(note.theme_id)),
+    );
     const notes = filteredNotes.records
       .slice(0, maxNotes)
       .map((note) => withoutRawBody(note, Boolean(args.include_raw_body), textLimit));
     const legacyLinks = this.list("link").filter((link) => !themeId || themeIds.has(link.theme_id));
     const resources = this.list("resource").filter((r) => !themeId || themeIds.has(r.project_id));
     const resourceIds = new Set(resources.map((r) => r.id));
-    const filteredResources = this.filterForAi("resource", [...resources, ...legacyLinks.filter((l) => !resourceIds.has(l.id))]);
+    const filteredResources = this.filterForAi("resource", [
+      ...resources,
+      ...legacyLinks.filter((l) => !resourceIds.has(l.id)),
+    ]);
     const mergedResources = filteredResources.records.slice(0, maxItems);
     const knowledge = this.toolGetKnowledgeContext({
       theme_id: themeId,
@@ -1537,12 +1843,10 @@ export class ReadOnlyTaskenContext {
       format: "json",
       limit: maxItems,
       include_archived: false,
-      audience: null,
     });
     const pack = {
       generated_at: new Date().toISOString(),
       scope,
-      ai_audience: this.audience,
       themes,
       repository_contexts: [...repositoryContextsById.values()],
       theme_repository_contexts: themeRepositoryContexts,
@@ -1555,19 +1859,11 @@ export class ReadOnlyTaskenContext {
       activity_meta: {
         schema_version: activity.schema_version,
         timezone: activity.timezone,
-        excluded_count: activity.excluded_count,
-        excluded_reasons: activity.excluded_reasons,
       },
       health: {
         ...this.buildPlanHealth(themeId),
         ...this.buildKnowledgeHealth(themeId),
       },
-      ...summarizeAiExclusions([
-        ...filteredThemes.exclusions,
-        ...filteredItems.exclusions,
-        ...filteredNotes.exclusions,
-        ...filteredResources.exclusions,
-      ]),
     };
     if (format === "json") return pack;
     return renderContextMarkdown(pack);
@@ -1589,28 +1885,35 @@ function aiMark(record) {
   return marks.length ? ` [${marks.join(" / ")}]` : "";
 }
 
-function exclusionLines(pack) {
-  if (!pack.excluded_count) return ["- 除外なし"];
-  return pack.excluded_reasons.map((entry) => `- ${entry.type}: ${entry.reason}（${entry.count}件）`);
-}
-
 function renderContextMarkdown(pack) {
   const lines = [
     "# Tasken Context",
     "",
-    `> 公開先: ${pack.ai_audience} / 除外: ${pack.excluded_count || 0}件`,
-    "",
     "## Theme",
-    ...(pack.themes.length ? pack.themes.map((theme) => `- ${theme.name}: ${theme.description || ""}${aiMark(theme)}`) : ["- なし"]),
+    ...(pack.themes.length
+      ? pack.themes.map((theme) => `- ${theme.name}: ${theme.description || ""}${aiMark(theme)}`)
+      : ["- なし"]),
     "",
     "## Current Open Items",
-    ...(pack.items.length ? pack.items.map((item) => `- ${itemDate(item) || "予定なし"} / ${item.status || "todo"}: ${item.title}${aiMark(item)}`) : ["- なし"]),
+    ...(pack.items.length
+      ? pack.items.map(
+          (item) =>
+            `- ${itemDate(item) || "予定なし"} / ${item.status || "todo"}: ${item.title}${aiMark(item)}`,
+        )
+      : ["- なし"]),
     "",
     "## Recent Notes",
-    ...(pack.notes.length ? pack.notes.map((note) => `- ${note.title}: ${note.body_excerpt || ""}${aiMark(note)}`) : ["- なし"]),
+    ...(pack.notes.length
+      ? pack.notes.map((note) => `- ${note.title}: ${note.body_excerpt || ""}${aiMark(note)}`)
+      : ["- なし"]),
     "",
     "## Activity",
-    ...(pack.activity?.length ? pack.activity.map((event) => `- ${event.local_date} ${event.local_time} / ${event.event_kind}: ${event.entity_title} (${event.entity_ref.type}:${event.entity_ref.id})`) : ["- なし"]),
+    ...(pack.activity?.length
+      ? pack.activity.map(
+          (event) =>
+            `- ${event.local_date} ${event.local_time} / ${event.event_kind}: ${event.entity_title} (${event.entity_ref.type}:${event.entity_ref.id})`,
+        )
+      : ["- なし"]),
     "",
     "## Questions",
     ...nodeLines(pack.knowledge_nodes, "question"),
@@ -1625,18 +1928,21 @@ function renderContextMarkdown(pack) {
     ...nodeLines(pack.knowledge_nodes, "decision"),
     "",
     "## Risks / Contradictions",
-    ...(pack.health.contradicted_claims.length ? pack.health.contradicted_claims.map((node) => `- ${node.title}`) : ["- なし"]),
+    ...(pack.health.contradicted_claims.length
+      ? pack.health.contradicted_claims.map((node) => `- ${node.title}`)
+      : ["- なし"]),
     "",
     "## Suggested Next Actions",
-    ...(pack.health.unresolved_questions.length ? pack.health.unresolved_questions.map((node) => `- Questionを処理: ${node.title}`) : ["- なし"]),
-    "",
-    "## AI公開範囲で除外した情報",
-    ...exclusionLines(pack),
+    ...(pack.health.unresolved_questions.length
+      ? pack.health.unresolved_questions.map((node) => `- Questionを処理: ${node.title}`)
+      : ["- なし"]),
   ];
   return lines.join("\n");
 }
 
 function nodeLines(nodes, nodeType) {
   const scoped = nodes.filter((node) => node.node_type === nodeType);
-  return scoped.length ? scoped.map((node) => `- ${node.title}${node.body ? `: ${node.body}` : ""}${aiMark(node)}`) : ["- なし"];
+  return scoped.length
+    ? scoped.map((node) => `- ${node.title}${node.body ? `: ${node.body}` : ""}${aiMark(node)}`)
+    : ["- なし"];
 }

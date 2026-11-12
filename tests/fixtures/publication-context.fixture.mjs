@@ -54,8 +54,8 @@ export function publicationFixture(snapshot = "initial") {
   if (!["initial", "updated"].includes(snapshot)) throw new Error("Unknown fixture snapshot");
   const updated = snapshot === "updated";
   const themes = [
-    { id: "theme-a", name: "材料Aの探索", version: 1, default_ai_visibility: ["m365"] },
-    { id: "theme-b", name: "材料Bの探索", version: 1, default_ai_visibility: ["m365"] },
+    { id: "theme-a", name: "材料Aの探索", version: 1 },
+    { id: "theme-b", name: "材料Bの探索", version: 1 },
   ];
   const taskOld = {
     id: "task-history",
@@ -105,18 +105,11 @@ export function publicationFixture(snapshot = "initial") {
       "前処理が関係するかもしれない。原因が判明したわけではない。",
     ),
     workLog(
-      "log-private",
-      "2026-09-06",
-      "NEVER_EXPORT_548 個人でも業務でもない非公開の架空文字列。",
-      undefined,
-      { ai_visibility: [] },
-    ),
-    workLog(
       "log-withdraw",
       "2026-09-06",
       "WITHDRAW_548 公開取消しを検証するための架空記録。",
       undefined,
-      updated ? { ai_visibility: [], version: 2 } : {},
+      updated ? { deleted_at: "2026-09-08T00:30:00.000Z", version: 2 } : {},
     ),
   ];
   if (updated)
@@ -282,7 +275,6 @@ export function truncationFixture() {
     id: "task-truncation",
     title: "取得上限の架空Task",
     version: 1,
-    ai_visibility: ["m365"],
   };
   return {
     tasks: [task],

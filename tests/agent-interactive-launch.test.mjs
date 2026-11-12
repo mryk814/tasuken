@@ -127,7 +127,6 @@ test("起動成功・失敗のどちらでもTaskの着手状態を書き換え�
     state: "todo",
     intended_executor: "ai_agent",
     work_state: "ready_for_agent",
-    ai_visibility: ["coding_agent"],
     work_attempt_id: workAttemptId,
   };
   const repository = { get: () => task, getPreference: () => ["coding_agent"] };
@@ -170,7 +169,6 @@ test("別ウィンドウから同じTaskへ重なる起動を拒否し、失敗�
     state: "todo",
     intended_executor: "ai_agent",
     work_state: "ready_for_agent",
-    ai_visibility: ["coding_agent"],
     work_attempt_id: workAttemptId,
   };
   const repository = { get: () => task, getPreference: () => ["coding_agent"] };

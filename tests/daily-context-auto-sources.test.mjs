@@ -19,7 +19,6 @@ const { collectDailyContextAutoChanges: collect } = await import(
 function input(workspace = {}) {
   return {
     workspace,
-    workspaceDefault: ["m365"],
     sourceHashes: {},
     checkedThrough: null,
     fromDate: "2026-09-01",
@@ -56,7 +55,6 @@ test("late Android work log selects its reported date rather than receive or cre
     id: "late-note",
     title: "過去日の記録",
     body_markdown: "結果",
-    ai_visibility: ["m365"],
   };
   value.workspace = {
     notes: [note],
@@ -90,29 +88,23 @@ test("capture and ordinary event dates use configured timezone independent of ho
   }
 });
 test("private, deleted and missing sources requeue old published dates outside backfill", () => {
-  const note = { id: "old-note", title: "公開Note", ai_visibility: ["m365"] };
+  const note = { id: "old-note", title: "公開Note" };
   const base = checkpoint({
     ...input({ notes: [note] }),
     publishedDays: { "2026-08-01": day("note", note.id) },
   });
-  for (const notes of [
-    [{ ...note, ai_visibility: [] }],
-    [{ ...note, deleted_at: "2026-09-08T01:00:00Z" }],
-    [],
-  ]) {
+  for (const notes of [[{ ...note, deleted_at: "2026-09-08T01:00:00Z" }], []]) {
     assert.deepEqual(collect({ ...base, workspace: { notes } }).dates, ["2026-08-01"]);
   }
 });
-test("Theme movement and visibility policy changes refresh all previously published dates", () => {
-  const theme = { id: "theme", name: "Before", ai_visibility: ["m365"] };
+test("Theme movement refreshes all previously published dates", () => {
+  const theme = { id: "theme", name: "Before" };
   const base = checkpoint({
     ...input({ themes: [theme] }),
     publishedDays: { "2026-08-01": day("note", "old-note") },
   });
   for (const change of [
     { workspace: { themes: [{ ...theme, name: "Renamed", parent_id: "other" }] } },
-    { workspaceDefault: [] },
-    { workspace: { themes: [{ ...theme, ai_visibility: [] }] } },
   ]) {
     const dates = collect({ ...base, ...change }).dates;
     assert.ok(dates.includes("2026-08-01"));

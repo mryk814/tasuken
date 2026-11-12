@@ -94,8 +94,6 @@ function createFixture(prefix) {
     id: "theme-context",
     name: "Conversation Theme",
     code: "CONV",
-    default_ai_visibility: ["m365", "coding_agent"],
-    ai_visibility: ["m365"],
     ai_freshness: "current",
     ai_authority: "user_confirmed",
     ai_summary: "Conversation publication test",
@@ -121,7 +119,6 @@ function createFixture(prefix) {
       "## Assistant",
       "Answer two",
     ].join("\n\n"),
-    ai_visibility: ["m365", "coding_agent"],
     ai_summary: "Conversation summary",
     ai_summary_authority: "user_confirmed",
     ai_freshness: "current",
@@ -217,7 +214,7 @@ test("Viewer previewから明示公開し、stable path・selected turns・AI Pa
   }
 });
 
-test("title変更でbindingを動かさず更新し、visibility解除後はhard blockしてPack参照を外す", () => {
+test("title変更でbindingを動かさず更新し、解除すると本文は残して公開だけを外す", () => {
   const item = createFixture("tasken-conversation-context-dirty");
   try {
     const service = new WorkspaceService(
@@ -249,19 +246,7 @@ test("title変更でbindingを動かさず更新し、visibility解除後はhard
       firstPublication.relative_path,
     );
 
-    const visible = item.database.get("resource", "conversation-context");
-    item.database.save("resource", { ...visible, ai_visibility: ["coding_agent"] });
-    const blocked = service.getConversationContextPreview({
-      conversationId: "conversation-context",
-    });
-    assert.equal(blocked.publicationState, "published_but_blocked");
-    assert.equal(blocked.allowed, false);
-    assert.throws(() => service.publishConversationContext(publishRequest(blocked)), /公開|M365/);
-    const packPreview = service.getThemeAiPackPreview("theme-context");
-    const meetings = packPreview.files.find((file) => file.name === "03 Meetings.md").content;
-    assert.doesNotMatch(meetings, /AI Context\/Conversations/);
-
-    const originalBody = visible.body_markdown;
+    const originalBody = item.database.get("resource", "conversation-context").body_markdown;
     const removed = service.removeConversationContext({ conversationId: "conversation-context" });
     assert.equal(removed.publicationState, "removed");
     const after = item.database.get("resource", "conversation-context");
@@ -279,8 +264,6 @@ test("通常Resource保存は公開bindingを保持し、Theme変更後は旧公
       id: "theme-next",
       name: "Next Conversation Theme",
       code: "NEXT",
-      default_ai_visibility: ["m365", "coding_agent"],
-      ai_visibility: ["m365"],
       ai_freshness: "current",
       ai_authority: "user_confirmed",
       ai_summary: "Next theme",

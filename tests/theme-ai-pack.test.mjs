@@ -11,8 +11,6 @@ const theme = {
   id: "theme-materials",
   name: "Materials",
   description: "材料研究の正本Theme",
-  ai_visibility: ["m365"],
-  default_ai_visibility: ["m365"],
   ai_freshness: "current",
   ai_authority: "user_confirmed",
   ai_summary: "材料研究",
@@ -26,7 +24,6 @@ function candidate(type, entity, extra = {}) {
       id: `${type}-1`,
       title: `${type} title`,
       project_id: theme.id,
-      ai_visibility: ["m365"],
       ai_freshness: "current",
       ai_authority: "user_confirmed",
       ai_summary: `${type} summary`,
@@ -44,7 +41,11 @@ test("Theme AI Packは00〜06の固定7ファイルとtasken-ai-pack/v1 manifest
     sourceRevision: 42,
     candidates: [
       candidate("task", { body_markdown: "次の実験を実施", state: "doing" }),
-      candidate("knowledge_node", { id: "decision-1", node_type: "decision", body: "温度を固定する" }),
+      candidate("knowledge_node", {
+        id: "decision-1",
+        node_type: "decision",
+        body: "温度を固定する",
+      }),
       candidate("note", { id: "meeting-1", note_type: "meeting", body_markdown: "会議メモ" }),
       candidate("note", { id: "procedure-1", note_type: "procedure", body_markdown: "手順本文" }),
       candidate("knowledge_node", { id: "claim-1", node_type: "claim", body: "知識本文" }),
@@ -56,8 +57,11 @@ test("Theme AI Packは00〜06の固定7ファイルとtasken-ai-pack/v1 manifest
   assert.equal(plan.manifest.themeId, theme.id);
   assert.equal(plan.manifest.sourceRevision, "42");
   assert.equal(plan.manifest.projection, "generated_read_only");
-  assert.equal(plan.audience, "m365");
-  assert.deepEqual(plan.files.map((file) => file.name), THEME_AI_PACK_FILES.map((file) => file.name));
+  assert.equal("audience" in plan, false);
+  assert.deepEqual(
+    plan.files.map((file) => file.name),
+    THEME_AI_PACK_FILES.map((file) => file.name),
+  );
   assert.equal(plan.files.length, 7);
   assert.match(plan.files[1].content, /task title/);
   assert.match(plan.files[2].content, /温度を固定する/);
@@ -69,14 +73,17 @@ test("Theme AI Packは00〜06の固定7ファイルとtasken-ai-pack/v1 manifest
     assert.match(file.content_hash, /^sha256:/);
   }
   assert.equal(plan.preview.files.length, 7);
-  assert.equal(plan.preview.totalCharacterCount, plan.files.reduce((sum, file) => sum + file.content.length, 0));
+  assert.equal(
+    plan.preview.totalCharacterCount,
+    plan.files.reduce((sum, file) => sum + file.content.length, 0),
+  );
   assert.deepEqual(
     plan.preview.files.map((file) => file.characterCount),
     plan.files.map((file) => file.content.length),
   );
 });
 
-test("M365許可だけを本文へ含め、除外理由・鮮度・authority・安全なsource refを保持する（#295）", () => {
+test("鮮度・authority・安全なsource refを保持し、危険なsource refは載せない（#295）", () => {
   const plan = buildThemeAiPackPlan({
     theme,
     generatedAt: "2026-08-09T00:00:00.000Z",
@@ -87,16 +94,15 @@ test("M365許可だけを本文へ含め、除外理由・鮮度・authority・�
         ai_freshness: "stale",
         ai_authority: "ai_generated",
         ai_source_refs: [
-          { kind: "canonical_document", locator: "ignored", storage_root_id: "onedrive", relative_path: "Themes/MAT/Notes/source.md" },
+          {
+            kind: "canonical_document",
+            locator: "ignored",
+            storage_root_id: "onedrive",
+            relative_path: "Themes/MAT/Notes/source.md",
+          },
           { kind: "file", locator: "C:\\Users\\private\\secret.md" },
           { kind: "url", locator: "https://alice:secret@example.com/private" },
         ],
-      }),
-      candidate("note", {
-        id: "local-note",
-        title: "秘密のheader",
-        body_markdown: "外へ出してはいけない本文",
-        ai_visibility: [],
       }),
     ],
   });
@@ -106,11 +112,12 @@ test("M365許可だけを本文へ含め、除外理由・鮮度・authority・�
   assert.match(knowledge, /Freshness: stale/);
   assert.match(knowledge, /Authority: ai_generated/);
   assert.match(knowledge, /onedrive:Themes\/MAT\/Notes\/source\.md/);
-  assert.doesNotMatch(knowledge, /秘密のheader|外へ出してはいけない本文|C:\\Users|alice|secret@example/);
-  assert.equal(plan.excluded_count, 1);
-  assert.equal(plan.excluded_reasons[0].count, 1);
-  assert.match(plan.files[0].content, /AI公開範囲に含まれていません/);
-  assert.deepEqual(plan.preview.warnings.map((warning) => warning.kind), ["stale"]);
+  assert.doesNotMatch(knowledge, /C:\\Users|alice|secret@example/);
+  assert.equal(plan.excluded_count, 0);
+  assert.deepEqual(
+    plan.preview.warnings.map((warning) => warning.kind),
+    ["stale"],
+  );
   assert.equal(plan.preview.excludedCount, plan.excluded_count);
 });
 
@@ -144,7 +151,10 @@ test("supersededと巨大本文は概要だけにし、未確認suggestionを除
   assert.ok(plan.excluded_reasons.some((entry) => /置き換え済みEntityの本文/.test(entry.reason)));
   assert.ok(plan.excluded_reasons.some((entry) => /20文字を超える/.test(entry.reason)));
   assert.ok(plan.excluded_reasons.some((entry) => /ユーザー未確認/.test(entry.reason)));
-  assert.deepEqual(plan.preview.warnings.map((warning) => warning.kind), ["superseded"]);
+  assert.deepEqual(
+    plan.preview.warnings.map((warning) => warning.kind),
+    ["superseded"],
+  );
 });
 
 test("未公開Conversation本文はexcerptにもせず、公開済みでも参照だけをMeetingsへ載せる（#295 / #304）", () => {
@@ -158,34 +168,45 @@ test("未公開Conversation本文はexcerptにもせず、公開済みでも参�
         ai_summary: null,
         ai_summary_authority: null,
       }),
-      candidate("resource", {
-        id: "published-chat",
-        resource_scope: "chat_ref",
-        body_markdown: "公開済みでも全文は複製しない",
-        ai_summary: "公開済み会話の要約",
-      }, {
-        publication: {
-          published: true,
-          storage_root_id: `theme:${theme.id}`,
-          relative_path: "AI Context/Conversations/published-chat.md",
+      candidate(
+        "resource",
+        {
+          id: "published-chat",
+          resource_scope: "chat_ref",
+          body_markdown: "公開済みでも全文は複製しない",
+          ai_summary: "公開済み会話の要約",
         },
-      }),
-      candidate("resource", {
-        id: "unsafe-published-chat",
-        resource_scope: "chat_ref",
-        body_markdown: "参照先が不十分な公開会話",
-        ai_summary: "参照先なし",
-      }, {
-        publication: {
-          published: true,
-          storage_root_id: `theme:${theme.id}`,
+        {
+          publication: {
+            published: true,
+            storage_root_id: `theme:${theme.id}`,
+            relative_path: "AI Context/Conversations/published-chat.md",
+          },
         },
-      }),
+      ),
+      candidate(
+        "resource",
+        {
+          id: "unsafe-published-chat",
+          resource_scope: "chat_ref",
+          body_markdown: "参照先が不十分な公開会話",
+          ai_summary: "参照先なし",
+        },
+        {
+          publication: {
+            published: true,
+            storage_root_id: `theme:${theme.id}`,
+          },
+        },
+      ),
     ],
   });
 
   const meetings = plan.files.find((file) => file.name === "03 Meetings.md").content;
-  assert.doesNotMatch(meetings, /未公開会話の先頭も漏らさない|公開済みでも全文は複製しない|参照先が不十分な公開会話|参照先なし/);
+  assert.doesNotMatch(
+    meetings,
+    /未公開会話の先頭も漏らさない|公開済みでも全文は複製しない|参照先が不十分な公開会話|参照先なし/,
+  );
   assert.doesNotMatch(meetings, /private-chat/);
   assert.match(meetings, /公開済み会話の要約/);
   assert.match(meetings, /theme:theme-materials:AI Context\/Conversations\/published-chat\.md/);
@@ -199,8 +220,6 @@ test("Activityはincluded entityだけを使いstable ID・canonical・source・
     theme,
     candidates: [candidate("task", { id: "task-active", state: "doing" })],
     activity: {
-      excluded_count: 2,
-      excluded_reasons: [{ type: "note", reason: "M365 policy", count: 2 }],
       events: [
         {
           id: "event-1",
@@ -212,7 +231,13 @@ test("Activityはincluded entityだけを使いstable ID・canonical・source・
           entity_title: "実験",
           theme_ref: { kind: "theme", id: theme.id },
           summary: "完了",
-          canonical_refs: [{ kind: "canonical_document", storage_root_id: "onedrive", relative_path: "Themes/MAT/Notes/task.md" }],
+          canonical_refs: [
+            {
+              kind: "canonical_document",
+              storage_root_id: "onedrive",
+              relative_path: "Themes/MAT/Notes/task.md",
+            },
+          ],
           source_refs: [{ type: "resource", id: "chat-1" }],
           relation_refs: [{ type: "knowledge_node", id: "decision-1", relation: "supports" }],
           work_receipt_ref: { type: "work_receipt", id: "receipt-1" },
@@ -234,8 +259,7 @@ test("Activityはincluded entityだけを使いstable ID・canonical・source・
   assert.match(activity, /supports `knowledge_node:decision-1`/);
   assert.match(activity, /work_receipt:receipt-1/);
   assert.doesNotMatch(activity, /漏らさない/);
-  assert.equal(plan.excluded_count, 2);
-  assert.deepEqual(plan.excluded_reasons, [{ type: "note", reason: "M365 policy", count: 2 }]);
+  assert.equal(plan.excluded_count, 0);
 });
 
 test("generated時刻・source revision・入力順だけの変化ではstable content hashが変わらない（#295）", () => {
@@ -259,7 +283,10 @@ test("generated時刻・source revision・入力順だけの変化ではstable c
   assert.notEqual(first.manifest.generatedAt, second.manifest.generatedAt);
   assert.notEqual(first.manifest.sourceRevision, second.manifest.sourceRevision);
   assert.equal(first.content_hash, second.content_hash);
-  assert.deepEqual(first.files.map((file) => file.content_hash), second.files.map((file) => file.content_hash));
+  assert.deepEqual(
+    first.files.map((file) => file.content_hash),
+    second.files.map((file) => file.content_hash),
+  );
   assert.ok(first.files.every((file) => !file.content.includes(first.manifest.generatedAt)));
   assert.ok(second.files.every((file) => !file.content.includes(second.manifest.generatedAt)));
 });
@@ -270,20 +297,26 @@ test("Theme外Entityと完了済みCurrent Workは理由付きで除外する（
     candidates: [
       candidate("note", { id: "other-theme", project_id: "theme-other", body_markdown: "別Theme" }),
       candidate("task", { id: "done-task", state: "done", description: "完了済み" }),
-      candidate("note", { id: "related-note", project_id: null, body_markdown: "明示relation" }, { relatedToTheme: true }),
+      candidate(
+        "note",
+        { id: "related-note", project_id: null, body_markdown: "明示relation" },
+        { relatedToTheme: true },
+      ),
     ],
     activity: {
-      events: [{
-        id: "done-event",
-        occurred_at: "2026-08-09T00:00:00.000Z",
-        local_date: "2026-08-09",
-        local_time: "09:00",
-        event_kind: "task_completed",
-        entity_ref: { type: "task", id: "done-task" },
-        entity_title: "完了済みTask",
-        theme_ref: { kind: "theme", id: theme.id },
-        summary: "完了イベントはActivityへ残す",
-      }],
+      events: [
+        {
+          id: "done-event",
+          occurred_at: "2026-08-09T00:00:00.000Z",
+          local_date: "2026-08-09",
+          local_time: "09:00",
+          event_kind: "task_completed",
+          entity_ref: { type: "task", id: "done-task" },
+          entity_title: "完了済みTask",
+          theme_ref: { kind: "theme", id: theme.id },
+          summary: "完了イベントはActivityへ残す",
+        },
+      ],
     },
   });
 

@@ -1489,7 +1489,6 @@ test("CommitAudioCapture is a Main-owned typed command and persists the Capture-
       transcription_status: "not_requested",
       captured_at: "2026-08-08T00:00:00.000Z",
       state: "untriaged",
-      ai_visibility: [],
     },
     artifact: {
       id: "audio-artifact",
@@ -1505,7 +1504,6 @@ test("CommitAudioCapture is a Main-owned typed command and persists the Capture-
       media_kind: "audio",
       duration_ms: 1000,
       content_hash: `sha256:${"a".repeat(64)}`,
-      ai_visibility: [],
     },
   };
   const command = { ...envelope("CommitAudioCapture", payload, "audio-command"), source: "inbox" };
@@ -1707,7 +1705,6 @@ test("CommitTrimmedVideoArtifact atomically saves a derived Artifact and its lin
     container: "mp4",
     content_hash: `sha256:${"a".repeat(64)}`,
     media_availability: "available",
-    ai_visibility: [],
     version: 1,
   };
   repo.records.set("artifact:source-video", source);
@@ -2509,7 +2506,6 @@ test("Desktop organized execution time and original text survive canonical Creat
       text: original,
       captured_at: "2026-09-06T12:34:00",
       state: "untriaged",
-      ai_visibility: ["external_ai"],
       properties_json: { capture_timezone: "Asia/Tokyo" },
     });
     f.request = { captureId: "source", captureVersion: f.capture.version, timeZone: "Asia/Tokyo" };
@@ -2524,7 +2520,7 @@ test("Desktop organized execution time and original text survive canonical Creat
     return f;
   }
 
-  test("saved Capture proposes zero without mutation and sends only its permitted source context", async (t) => {
+  test("saved Capture proposes zero without mutation and sends only its source context", async (t) => {
     let input;
     const f = await fixture(t, async (value) => {
       input = value;
@@ -2605,36 +2601,6 @@ test("Desktop organized execution time and original text survive canonical Creat
     assert.deepEqual(f.db.get("capture_entry", "source"), capture);
     assert.equal(f.db.list("task").length, 1);
     assert.equal(f.db.list("reference")[0].target_id, capture.id);
-  });
-
-  test("source visibility is enforced before network, after response, and before adoption", async (t) => {
-    let calls = 0;
-    const f = await fixture(t, async () => {
-      calls++;
-      return { tasks: [proposal], warnings: [] };
-    });
-    const privateSource = f.db.save("capture_entry", { ...f.capture, ai_visibility: [] });
-    await assert.rejects(
-      f.service().organize({ ...f.request, captureVersion: privateSource.version }),
-      /外部AI/,
-    );
-    assert.equal(calls, 0);
-    const inherited = f.db.save("capture_entry", { ...privateSource, ai_visibility: null });
-    f.request.captureVersion = inherited.version;
-    f.db.setPreference("aiVisibilityDefault", ["external_ai"]);
-    const service = new SavedCaptureOrganizer({
-      repository: f.db,
-      organize: async () => {
-        f.db.setPreference("aiVisibilityDefault", []);
-        return { tasks: [proposal], warnings: [] };
-      },
-      executeCommands: () => assert.fail("visibility change must not write"),
-    });
-    await assert.rejects(service.organize(f.request), /公開範囲/);
-    assert.equal(
-      service.save({ ...f.submission(), captureVersion: inherited.version }).status,
-      "not_saved",
-    );
   });
 
   test("source update, deletion and provider failure preserve the source and create no Tasks", async (t) => {

@@ -25,7 +25,7 @@ test("Context Preview/Data Health IPCはtyped requestだけをMainへ渡す (#29
   assert.match(contracts, /aiContextPreview: "ai-context:preview"/);
   assert.match(
     contracts,
-    /interface AiContextPreviewRequest\s*{\s*audience: AiContextPreviewAudience;\s*scope: AiContextPreviewScope;/s,
+    /interface AiContextPreviewRequest\s*{\s*channel: AiContextPreviewChannel;\s*scope: AiContextPreviewScope;/s,
   );
   assert.doesNotMatch(
     contracts.match(/interface AiContextPreviewRequest[\s\S]*?\n}/)?.[0] || "",
@@ -46,7 +46,6 @@ test("compact UIはThemeの4状態とrequest raceを守り、Task編集には重
   assert.match(previewPanel, /state === "empty"/);
   assert.match(previewPanel, /alert-note danger/);
   assert.match(previewPanel, /さらに \{preview\.excluded\.length - 12\} 件/);
-  assert.match(previewPanel, /visibility\.join/);
   assert.match(previewPanel, /relationPath/);
   assert.match(previewPanel, /stale|superseded/);
   assert.match(knowledgePage, /setUpdatingIssueId\(issue\.id\)/);

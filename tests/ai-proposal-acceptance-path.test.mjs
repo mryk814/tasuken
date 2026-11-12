@@ -743,7 +743,6 @@ test("Note create and edit acceptance keep canonical Markdown, DB, Proposal, rec
   );
   const details = new ContentDetailQueryService({
     list: database.list.bind(database),
-    workspaceAiVisibilityDefault: () => ["coding_agent"],
   });
   try {
     const verifyLegacyNoteReplay = (command, receipt) => {
@@ -1045,7 +1044,6 @@ test("canonical Note create recovers file-first DB failure and restart retry wri
     assert.equal(recoveredNote.note_type, "memo");
     const recoveredDetails = new ContentDetailQueryService({
       list: recovered.list.bind(recovered),
-      workspaceAiVisibilityDefault: () => ["coding_agent"],
     });
     assert.equal(recoveredDetails.getNote({ note_id: recoveredNote.id }).note.note_type, "memo");
     assert.equal(recovered.get("ai_proposal", proposal.id).status, "accepted");

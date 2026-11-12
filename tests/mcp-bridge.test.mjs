@@ -32,7 +32,10 @@ test("MCP Proposal is queued as an atomic envelope and imported by the Tasken re
   const files = fs.readdirSync(inboxPath);
   assert.equal(files.length, 1);
   assert.ok(files[0].endsWith(".json"));
-  assert.equal(files.some((name) => name.endsWith(".tmp")), false);
+  assert.equal(
+    files.some((name) => name.endsWith(".tmp")),
+    false,
+  );
 
   const saved = [];
   const repository = {
@@ -43,7 +46,9 @@ test("MCP Proposal is queued as an atomic envelope and imported by the Tasken re
     },
   };
   const importedNotifications = [];
-  const service = new McpProposalInboxService(repository, root, (entities) => importedNotifications.push(entities));
+  const service = new McpProposalInboxService(repository, root, (entities) =>
+    importedNotifications.push(entities),
+  );
   const imported = service.drain();
   assert.equal(imported.length, 1);
   assert.equal(saved[0].type, "ai_proposal");
@@ -58,25 +63,27 @@ test("MCP Proposal is queued as an atomic envelope and imported by the Tasken re
 
 test("invalid MCP Proposal is rejected before it reaches the repository", () => {
   assert.throws(
-    () => validateMcpProposalEnvelope({
-      schema_version: 1,
-      id: "not-a-uuid",
-      created_at: new Date().toISOString(),
-      source_app: "test",
-      payload_type: "notes",
-      payload: {},
-    }),
+    () =>
+      validateMcpProposalEnvelope({
+        schema_version: 1,
+        id: "not-a-uuid",
+        created_at: new Date().toISOString(),
+        source_app: "test",
+        payload_type: "notes",
+        payload: {},
+      }),
     /Proposal ID/,
   );
   assert.throws(
-    () => validateMcpProposalEnvelope({
-      schema_version: 1,
-      id: crypto.randomUUID(),
-      created_at: new Date().toISOString(),
-      source_app: "test",
-      payload_type: "notes",
-      payload: { notes: [{ action: "create", title: "本文がない" }] },
-    }),
+    () =>
+      validateMcpProposalEnvelope({
+        schema_version: 1,
+        id: crypto.randomUUID(),
+        created_at: new Date().toISOString(),
+        source_app: "test",
+        payload_type: "notes",
+        payload: { notes: [{ action: "create", title: "本文がない" }] },
+      }),
     /body/,
   );
 });
@@ -105,16 +112,31 @@ test("canonical MCP launcher fails closed for migrated reads without Core and ex
     VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 1)
   `);
   const fixtureAt = "2026-08-20T00:00:00.000Z";
-  insert.run("theme-mcp-launcher", "theme", JSON.stringify({
-    name: "MCP Launcher",
-    code: "MCP",
-    default_ai_visibility: ["coding_agent"],
-  }), fixtureAt, fixtureAt, "fixture-device", "test");
-  insert.run("task-mcp-launcher", "task", JSON.stringify({
-    title: "Canonical launcher fixture",
-    state: "todo",
-    project_id: "theme-mcp-launcher",
-  }), fixtureAt, fixtureAt, "fixture-device", "test");
+  insert.run(
+    "theme-mcp-launcher",
+    "theme",
+    JSON.stringify({
+      name: "MCP Launcher",
+      code: "MCP",
+    }),
+    fixtureAt,
+    fixtureAt,
+    "fixture-device",
+    "test",
+  );
+  insert.run(
+    "task-mcp-launcher",
+    "task",
+    JSON.stringify({
+      title: "Canonical launcher fixture",
+      state: "todo",
+      project_id: "theme-mcp-launcher",
+    }),
+    fixtureAt,
+    fixtureAt,
+    "fixture-device",
+    "test",
+  );
   database.close();
   const transport = new StdioClientTransport({
     command: process.env.TASKEN_NODE_EXEC_PATH || "node",

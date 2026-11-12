@@ -5,16 +5,8 @@ import { queryActivityEvents } from "../src/shared/activityProjection.mjs";
 import { buildThemeAiPackPlan } from "../src/shared/themeAiPack.mjs";
 
 const at = "2026-09-01T00:00:00.000Z";
-const themeA = {
-  id: "theme-a",
-  name: "現在のA名",
-  default_ai_visibility: ["coding_agent", "m365"],
-};
-const themeB = {
-  id: "theme-b",
-  name: "現在のB名",
-  default_ai_visibility: ["coding_agent", "m365"],
-};
+const themeA = { id: "theme-a", name: "現在のA名" };
+const themeB = { id: "theme-b", name: "現在のB名" };
 const oldTask = { id: "task-1", title: "当時のTask名", project_id: themeA.id, state: "todo" };
 const currentTask = { ...oldTask, title: "現在のTask名", project_id: themeB.id };
 const completed = buildActivityEvent({
@@ -41,7 +33,6 @@ const fixture = (extra = {}) => ({
     themes: [themeA, themeB],
     change_events: [completed, themeCreated],
   },
-  audience: "coding_agent",
   profile: "recall",
   ...extra,
 });
@@ -68,46 +59,7 @@ test("recall retains historical Task/Theme names and affiliation after move; def
   assert.ok(currentWork(pack(themeB)).includes(currentTask.title));
 });
 
-test("recall never republishes historical titles or bodies after current entity or either Theme becomes private", () => {
-  for (const audience of ["coding_agent", "m365", "external_ai"]) {
-    const visibleThemes = [themeA, themeB].map((theme) => ({
-      ...theme,
-      default_ai_visibility: [audience],
-    }));
-    const base = fixture({
-      audience,
-      workspace: { tasks: [currentTask], themes: visibleThemes, change_events: [themeCreated] },
-    });
-    assert.equal(queryActivityEvents(base).events.length, 1);
-    const variants = [
-      { ...base.workspace, tasks: [{ ...currentTask, ai_visibility: [] }] },
-      {
-        ...base.workspace,
-        themes: visibleThemes.map((theme) =>
-          theme.id === themeA.id ? { ...theme, default_ai_visibility: [] } : theme,
-        ),
-      },
-      {
-        ...base.workspace,
-        themes: visibleThemes.map((theme) =>
-          theme.id === themeB.id ? { ...theme, default_ai_visibility: [] } : theme,
-        ),
-      },
-      { ...base.workspace, themes: [visibleThemes[1]] },
-    ];
-    for (const workspace of variants) {
-      const result = queryActivityEvents({ ...base, workspace });
-      assert.equal(result.events.length, 0);
-      assert.equal(result.excluded_count, 1);
-      assert.doesNotMatch(
-        JSON.stringify(result),
-        /当時のTask名|当時のA名|当時の作業記録|現在のTask名/,
-      );
-    }
-  }
-});
-
-test("archived visible entities retain history; deleted or missing entities cannot revive snapshot bodies", () => {
+test("archived entities retain history; deleted or missing entities cannot revive snapshot bodies", () => {
   const archived = fixture();
   archived.workspace.tasks = [{ ...currentTask, state: "archived" }];
   archived.workspace.themes = [{ ...themeA, state: "archived" }, themeB];
@@ -118,7 +70,6 @@ test("archived visible entities retain history; deleted or missing entities cann
       workspace: { ...archived.workspace, tasks },
     });
     assert.equal(result.events.length, 0);
-    assert.equal(result.excluded_count, 1);
     assert.doesNotMatch(JSON.stringify(result), /当時のTask名|当時の作業記録/);
   }
 });
@@ -182,103 +133,4 @@ test("saved before snapshots and Theme rename evidence remain distinguishable fr
   const fallback = queryActivityEvents(input).events[0];
   assert.equal(fallback.recall.history.theme_title, themeA.name);
   assert.equal(fallback.recall.history.theme_title_source, "current_fallback");
-});
-
-test("private, deleted or missing source references never disclose old links; query does not mutate history", () => {
-  const input = fixture();
-  const privateNote = {
-    id: "source-note",
-    project_id: themeA.id,
-    ai_visibility: [],
-    title: "private source",
-  };
-  input.workspace.notes = [privateNote];
-  input.events = [
-    {
-      ...completed,
-      source_refs: [{ type: "note", id: privateNote.id }],
-      relation_refs: [{ type: "note", id: privateNote.id }],
-    },
-  ];
-  const before = JSON.stringify(input);
-  const result = queryActivityEvents(input).events[0];
-  assert.deepEqual(result.source_refs, []);
-  assert.deepEqual(result.relation_refs, []);
-  assert.equal(result.id, completed.id);
-  assert.deepEqual(result.entity_ref, completed.entity_ref);
-  assert.equal(JSON.stringify(input), before);
-  input.workspace.notes = [{ ...privateNote, ai_visibility: ["coding_agent"], deleted_at: at }];
-  assert.deepEqual(queryActivityEvents(input).events[0].source_refs, []);
-  input.workspace.notes = [];
-  assert.deepEqual(queryActivityEvents(input).events[0].source_refs, []);
-});
-
-test("canonical entity IDs obey current policy without guessing kind or leaking ambiguous targets", () => {
-  const noteId = "referenced-note";
-  const privateUrl = "https://example.test/referenced-document";
-  const externalUrl = "https://example.test/external-document";
-  for (const audience of ["coding_agent", "m365", "external_ai"]) {
-    const task = { id: "public-task", title: "public", ai_visibility: [audience] };
-    const event = buildActivityEvent({
-      id: "canonical-policy",
-      entity_type: "task",
-      entity_id: task.id,
-      event_kind: "task_work_recorded",
-      after: task,
-      occurred_at: at,
-      canonical_refs: [
-        { kind: "note", entity_id: noteId, web_url: privateUrl },
-        {
-          kind: "canonical_markdown",
-          entity_id: noteId,
-          storage_root_id: "root",
-          relative_path: "private.md",
-        },
-        { kind: "canonical_document", web_url: externalUrl },
-      ],
-      source_refs: [
-        { type: "note", id: noteId },
-        { kind: "canonical_document", entity_id: noteId, web_url: privateUrl },
-        { kind: "url", locator: externalUrl },
-      ],
-    });
-    // The producer must retain the canonical source: this is not only a
-    // malformed raw-event fixture bypassing normal normalization.
-    assert.equal(
-      event.source_refs.some((ref) => ref.entity_id === noteId),
-      true,
-    );
-    const query = (notes, tasks = [task]) =>
-      queryActivityEvents({
-        events: [event],
-        workspace: { tasks, notes },
-        audience,
-        profile: "recall",
-      }).events[0];
-    const visible = { id: noteId, title: "source", ai_visibility: [audience] };
-    const publicResult = query([visible]);
-    assert.equal(publicResult.canonical_refs.length, 3);
-    assert.equal(publicResult.source_refs.length, 3);
-    for (const notes of [
-      [{ ...visible, ai_visibility: [] }],
-      [{ ...visible, deleted_at: at }],
-      [],
-    ]) {
-      const result = query(notes);
-      assert.equal(result.canonical_refs.length, 1);
-      assert.equal(result.canonical_refs[0].web_url, externalUrl);
-      assert.equal(result.source_refs.length, 1);
-      assert.equal(result.source_refs[0].web_url, externalUrl);
-      assert.doesNotMatch(
-        JSON.stringify(result),
-        /referenced-note|referenced-document|private\.md/,
-      );
-    }
-    const ambiguous = query([visible], [task, { ...visible, id: noteId }]);
-    assert.equal(ambiguous.canonical_refs.length, 1);
-    // A typed Note reference still has an unambiguous type; the canonical
-    // reference carrying only the duplicated ID cannot borrow that permission.
-    assert.equal(ambiguous.source_refs.length, 2);
-    assert.ok(!ambiguous.source_refs.some((ref) => ref.entity_id));
-  }
 });

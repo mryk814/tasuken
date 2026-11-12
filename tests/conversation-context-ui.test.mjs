@@ -2,8 +2,14 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
-const panel = fs.readFileSync("src/renderer/src/features/workspace/components/ConversationContextPanel.tsx", "utf8");
-const viewer = fs.readFileSync("src/renderer/src/features/workspace/components/ContentViewer.tsx", "utf8");
+const panel = fs.readFileSync(
+  "src/renderer/src/features/workspace/components/ConversationContextPanel.tsx",
+  "utf8",
+);
+const viewer = fs.readFileSync(
+  "src/renderer/src/features/workspace/components/ContentViewer.tsx",
+  "utf8",
+);
 const contracts = fs.readFileSync("src/shared/ipc/contracts.ts", "utf8");
 const preload = fs.readFileSync("src/preload/index.ts", "utf8");
 const ipc = fs.readFileSync("src/main/ipc/registerIpc.ts", "utf8");
@@ -27,7 +33,7 @@ test("再読込の初回Previewはpersisted scopeを採用し、古い応答を�
 });
 
 test("Previewはpathと公開判断metadataをtyped resultで表示する", () => {
-  for (const field of ["sourceUrl", "theme", "summary", "freshness", "authority", "aiVisibility"]) {
+  for (const field of ["sourceUrl", "theme", "summary", "freshness", "authority"]) {
     assert.match(contracts, new RegExp(`${field}:`));
     assert.match(panel, new RegExp(`preview\\.${field}`));
   }

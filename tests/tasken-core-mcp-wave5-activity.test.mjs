@@ -181,13 +181,11 @@ class FixturePort {
         themes: filter(this.workspace.themes),
         change_events: filter(this.workspace.change_events),
       },
-      visibilityThemes: this.workspace.themes,
-      workspaceAiVisibilityDefault: ["coding_agent"],
     };
   }
 }
 
-test("Task Activity Core query preserves legacy projection, visibility, refs, and public bounds", () => {
+test("Task Activity Core query preserves legacy projection, refs, and public bounds", () => {
   const service = new ActivityEntriesQueryService(new FixturePort(activityFixture()));
 
   const page = service.execute({ task_id: "task-visible", limit: 100 });
@@ -234,10 +232,8 @@ test("Task Activity Core query preserves legacy projection, visibility, refs, an
   assert.equal(defaults.limit, 50);
   assert.equal(defaults.events.length, 50);
   const missing = service.execute({ task_id: "missing" });
-  const hidden = service.execute({ task_id: "task-hidden" });
   assert.equal(missing.error.code, "not_found");
-  assert.equal(hidden.error.code, missing.error.code);
-  assert.equal(hidden.error.message, missing.error.message);
+  assert.equal("ai_audience" in missing, false);
   assert.equal(service.execute({ task_id: "task-deleted" }).error.code, "not_found");
   assert.equal(
     service.execute({ task_id: "task-deleted", include_archived: true }).events.length,
@@ -245,7 +241,7 @@ test("Task Activity Core query preserves legacy projection, visibility, refs, an
   );
 });
 
-test("Daily Activity Core query uses the canonical local day and retains AI visibility bounds", () => {
+test("Daily Activity Core query uses the canonical local day and public bounds", () => {
   const service = new ActivityEntriesQueryService(new FixturePort(activityFixture()));
 
   const page = service.execute({ date: "2026-08-20", limit: 100 });
@@ -254,10 +250,6 @@ test("Daily Activity Core query uses the canonical local day and retains AI visi
   assert.equal(
     page.events.every((event) => event.local_date === "2026-08-20"),
     true,
-  );
-  assert.equal(
-    page.events.some((event) => event.id === "hidden-day-event"),
-    false,
   );
   assert.equal(JSON.stringify(page).includes("Users\\private"), false);
   assert.deepEqual(page.next_tools, []);
@@ -309,7 +301,6 @@ test("daily Activity and Session queries use the runtime local day without chang
       listAiProposals: () => [],
       listWorkingCopies: () => [],
       listReferences: () => [],
-      workspaceAiVisibilityDefault: () => ["coding_agent"],
       listAgentSessions: () =>
         workspace.change_events.map((event) => ({
           id: event.id,
@@ -347,7 +338,6 @@ test("Task work ending at midnight is not returned on the next local day", () =>
       listWorkingCopies: () => [],
       listReferences: () => [],
       listAgentSessions: () => [],
-      workspaceAiVisibilityDefault: () => ["coding_agent"],
       listWorkReceipts: () => [
         {
           id: "receipt-midnight",
@@ -450,7 +440,7 @@ function legacyActivityContext(count) {
   });
 }
 
-test("#423 legacy Task Activity applies visibility and descending order before its public limit", () => {
+test("#423 legacy Task Activity applies descending order before its public limit", () => {
   for (const count of [0, 50, 100, 101]) {
     const context = legacyActivityContext(count);
     try {
@@ -479,10 +469,6 @@ test("#423 legacy Task Activity applies visibility and descending order before i
     assert.equal(defaults.limit, 50);
     assert.equal(defaults.result_meta.returned_count, 50);
     assert.equal(defaults.result_meta.truncated, false);
-    assert.equal(
-      context.toolGetActivityEntries({ task_id: "task-hidden" }).error.code,
-      "not_found",
-    );
     assert.equal(
       context.toolGetActivityEntries({ task_id: "task-deleted" }).error.code,
       "not_found",

@@ -39,20 +39,8 @@ function fixture() {
     name: "Wave 8",
     state: "active",
     repository_context_ids: ["repo-wave8"],
-    default_ai_visibility: ["coding_agent"],
-  });
-  const m365Theme = record("theme-m365", {
-    name: "M365 only",
-    state: "active",
-    default_ai_visibility: ["m365"],
   });
   const task = record("task-wave8", { title: "Visible task", state: "todo", project_id: theme.id });
-  const hidden = record("task-hidden", {
-    title: "PRIVATE",
-    state: "todo",
-    project_id: theme.id,
-    ai_visibility: [],
-  });
   const event = buildActivityEvent({
     id: "event-wave8",
     entity_type: "task",
@@ -62,16 +50,6 @@ function fixture() {
     after: task,
     summary: "safe",
     metadata: { dedupe_key: "wave8" },
-  });
-  const hiddenEvent = buildActivityEvent({
-    id: "event-hidden",
-    entity_type: "task",
-    entity_id: hidden.id,
-    event_kind: "task_work_recorded",
-    occurred_at: "2026-08-20T15:31:00.000Z",
-    after: hidden,
-    summary: "PRIVATE",
-    metadata: { dedupe_key: "wave8-hidden" },
   });
   const note = record("note-wave8", {
     title: "Visible note",
@@ -93,34 +71,14 @@ function fixture() {
     source_id: task.id,
   });
   return {
-    themes: [theme, m365Theme],
-    tasks: [
-      task,
-      hidden,
-      record("task-m365", { title: "M365 task", state: "todo", project_id: m365Theme.id }),
-    ],
+    themes: [theme],
+    tasks: [task],
     waitings: [],
     plan_nodes: [],
     schedules: [],
     items: [],
-    notes: [
-      note,
-      record("note-m365", {
-        title: "M365 note",
-        body_markdown: "m365 body",
-        project_id: m365Theme.id,
-      }),
-    ],
-    knowledge_nodes: [
-      knowledge,
-      evidence,
-      record("knowledge-m365", {
-        title: "M365 question",
-        body: "m365",
-        node_type: "question",
-        theme_id: m365Theme.id,
-      }),
-    ],
+    notes: [note],
+    knowledge_nodes: [knowledge, evidence],
     knowledge_edges: [
       record("knowledge-support", {
         source_node_id: evidence.id,
@@ -141,11 +99,6 @@ function fixture() {
         url: "https://user:pass@example.com/private?token=SECRET#frag",
         local_path: "C:/private/resource.md",
         token: "SECRET",
-      }),
-      record("resource-m365", {
-        title: "M365 resource",
-        project_id: m365Theme.id,
-        url: "https://example.com/m365",
       }),
     ],
     repository_contexts: [
@@ -174,16 +127,8 @@ function fixture() {
         target_id: knowledge.id,
         relation_type: "answers",
       }),
-      record("ref-hidden-public-endpoints", {
-        source_type: "task",
-        source_id: task.id,
-        target_type: "knowledge_node",
-        target_id: knowledge.id,
-        relation_type: "related_to",
-        ai_visibility: [],
-      }),
     ],
-    change_events: [event, hiddenEvent],
+    change_events: [event],
   };
 }
 
@@ -236,9 +181,8 @@ async function mcpCall(coreClient, name, args) {
 
 function healthMarkdown(markdown) {
   const start = markdown.indexOf("## Risks / Contradictions");
-  const end = markdown.indexOf("## AI公開範囲で除外した情報");
-  assert.ok(start >= 0 && end > start);
-  return markdown.slice(start, end);
+  assert.ok(start >= 0);
+  return markdown.slice(start);
 }
 
 test("Wave 8 Core, loopback, and MCP return one canonical result without legacy fallback", async () => {
@@ -307,15 +251,6 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
           delete response.page.generated_at;
         }
       }
-      if (method === "getContextSubgraph") {
-        for (const response of [inProcess, overHttp]) {
-          assert.equal(
-            response.edges.some((edge) => edge.assertion_id === "ref-hidden-public-endpoints"),
-            false,
-          );
-          assert.doesNotMatch(JSON.stringify(response), /ref-hidden-public-endpoints/);
-        }
-      }
       assert.deepEqual(overHttp, inProcess, `${tool} HTTP`);
       if (overMcp) assert.deepEqual(overMcp, inProcess, `${tool} MCP`);
       assert.equal(inProcess.read_only, true);
@@ -325,8 +260,6 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
     assert.equal(typeof markdown, "string");
 
     const legacy = new ReadOnlyTaskenContext("wave8-health-parity.sqlite", {
-      audience: "coding_agent",
-      aiVisibilityDefault: ["coding_agent"],
       workspace: fixture(),
     });
     try {
@@ -381,7 +314,7 @@ test("Wave 8 Core, loopback, and MCP return one canonical result without legacy 
   }
 });
 
-test("Wave 8 applies visibility before caps and recursively removes secret/path/resource fields", () => {
+test("Wave 8 applies caps and recursively removes secret/path/resource fields", () => {
   const core = createTaskenCore(new FixturePersistence(fixture()));
   const activity = core.getActivity.execute({
     date: "2026-08-21",
@@ -397,10 +330,6 @@ test("Wave 8 applies visibility before caps and recursively removes secret/path/
   assert.ok(graph.nodes.some((node) => node.id === "task-wave8"));
   assert.ok(graph.nodes.some((node) => node.id === "note-wave8"));
   assert.ok(graph.nodes.some((node) => node.id === "knowledge-wave8"));
-  assert.equal(
-    graph.nodes.some((node) => node.id === "task-hidden"),
-    false,
-  );
   assert.equal(
     graph.paths.some((entry) => entry.hops === 2),
     true,
@@ -419,71 +348,6 @@ test("Wave 8 applies visibility before caps and recursively removes secret/path/
     JSON.stringify({ graph, exported }),
     /PRIVATE|user:pass|token=SECRET|C:\/private|#frag|local_path/,
   );
-  const m365 = core.exportAiContext.execute({ format: "json", audience: "m365" });
-  assert.deepEqual(
-    m365.themes.map((entry) => entry.id),
-    ["theme-m365"],
-  );
-  assert.deepEqual(
-    m365.items.map((entry) => entry.id),
-    ["task-m365"],
-  );
-  assert.deepEqual(
-    m365.notes.map((entry) => entry.id),
-    ["note-m365"],
-  );
-  assert.deepEqual(
-    m365.knowledge_nodes.map((entry) => entry.id),
-    ["knowledge-m365"],
-  );
-  assert.deepEqual(
-    m365.resources.map((entry) => entry.id),
-    ["resource-m365"],
-  );
-  assert.equal(m365.ai_audience, "m365");
-});
-
-test("Wave 8 context subgraph uses canonical Note project_id for visibility", () => {
-  const workspace = fixture();
-  workspace.notes.push(
-    record("note-canonical-private", {
-      title: "Canonical private",
-      body_markdown: "PRIVATE_CANONICAL_SUBGRAPH",
-      project_id: "theme-m365",
-      theme_id: "theme-wave8",
-    }),
-    record("note-canonical-public", {
-      title: "Canonical public",
-      body_markdown: "canonical public subgraph",
-      project_id: "theme-wave8",
-      theme_id: "theme-m365",
-    }),
-  );
-  workspace.references.push(
-    record("ref-canonical-private", {
-      source_type: "task",
-      source_id: "task-wave8",
-      target_type: "note",
-      target_id: "note-canonical-private",
-      relation_type: "related_to",
-    }),
-    record("ref-canonical-public", {
-      source_type: "task",
-      source_id: "task-wave8",
-      target_type: "note",
-      target_id: "note-canonical-public",
-      relation_type: "related_to",
-    }),
-  );
-  const core = createTaskenCore(new FixturePersistence(workspace));
-  const result = core.getContextSubgraph.execute({ entity_type: "task", entity_id: "task-wave8" });
-  const serialized = JSON.stringify(result);
-  assert.match(serialized, /note-canonical-public/);
-  assert.equal(
-    result.nodes.some((node) => node.id === "note-canonical-private"),
-    false,
-  );
-  assert.doesNotMatch(serialized, /PRIVATE_CANONICAL_SUBGRAPH/);
 });
 
 test("Wave 8 public inputs, named capabilities, and nested responses fail closed", async () => {
@@ -549,16 +413,12 @@ test("Wave 8 public inputs, named capabilities, and nested responses fail closed
             timezone: "UTC",
             date: null,
             events: [],
-            excluded_count: 0,
-            excluded_reasons: [],
             truncated: false,
             activity: {
               schema_version: 1,
               timezone: "UTC",
               date: null,
               events: [],
-              excluded_count: 0,
-              excluded_reasons: [],
               truncated: false,
               nested_extra: true,
             },
@@ -569,7 +429,6 @@ test("Wave 8 public inputs, named capabilities, and nested responses fail closed
               matched_visible_count: 0,
               truncated: false,
             },
-            ai_audience: "coding_agent",
             read_only: true,
           }),
           {

@@ -77,14 +77,6 @@ function contextFixture() {
       project_id: theme.id,
       updated_at: "2026-08-09T01:00:00.000Z",
     },
-    {
-      id: "note-hidden",
-      title: "Private",
-      body_markdown: "must never leak",
-      project_id: theme.id,
-      ai_visibility: [],
-      updated_at: "2026-08-09T04:00:00.000Z",
-    },
   ];
   const conversation = {
     id: "conversation-1",
@@ -133,14 +125,6 @@ function contextFixture() {
       source_id: task.id,
       target_type: "note",
       target_id: "note-2",
-      relation_type: "context",
-    },
-    {
-      id: "ref-note-hidden",
-      source_type: "task",
-      source_id: task.id,
-      target_type: "note",
-      target_id: "note-hidden",
       relation_type: "context",
     },
     {
@@ -291,7 +275,10 @@ test("get_task_context returns bounded related summaries, safe locators, reposit
     );
     assert.ok(
       result.context_selection.excluded.some(
-        (entry) => entry.ref.type === "note" && entry.ref.id === "note-hidden",
+        (entry) =>
+          entry.ref.type === "note" &&
+          entry.ref.id === "note-2" &&
+          entry.reason === "max_items_per_type",
       ),
     );
     const preview = previewTaskCoding(result);
@@ -303,7 +290,6 @@ test("get_task_context returns bounded related summaries, safe locators, reposit
       preview.excluded.map((entry) => ({ ref: entry.ref, reason: entry.reason })),
       result.context_selection.excluded.map((entry) => ({ ref: entry.ref, reason: entry.reason })),
     );
-    assert.equal(JSON.stringify(result).includes("must never leak"), false);
     assert.equal(JSON.stringify(result).includes("C:/private"), false);
     assert.equal(JSON.stringify(result).includes("token=secret"), false);
     assert.equal(result.truncated, true);
@@ -317,7 +303,6 @@ test("Task context budgets AI metadata, rejects private source roots, and keeps 
   try {
     Object.assign(context.workspace.tasks[0], {
       ai_summary: "S".repeat(12_000),
-      ai_visibility: ["coding_agent"],
       ai_source_refs: [
         {
           kind: "canonical_document",
@@ -382,7 +367,6 @@ test("Theme Coding uses the common bounded relation query and Preview preserves 
     assert.ok(
       result.open_items.some((entry) => entry.entity_type === "task" && entry.id === "task-1"),
     );
-    assert.ok(result.context_selection.excluded.some((entry) => entry.ref.id === "note-hidden"));
     const preview = previewThemeCoding(result);
     assert.deepEqual(
       preview.included.map((entry) => entry.ref),
@@ -392,7 +376,6 @@ test("Theme Coding uses the common bounded relation query and Preview preserves 
       preview.excluded.map((entry) => ({ ref: entry.ref, reason: entry.reason })),
       result.context_selection.excluded.map((entry) => ({ ref: entry.ref, reason: entry.reason })),
     );
-    assert.equal(JSON.stringify(result).includes("must never leak"), false);
     assert.equal(JSON.stringify(result).includes("C:/private"), false);
   } finally {
     context.close();
@@ -434,13 +417,13 @@ test("Theme repository contexts remain attributed by each Theme edge when the gr
   }
 });
 
-test("task detail tools require stable IDs, preserve AI visibility, and never read external Artifact content", () => {
+test("task detail tools require stable IDs and never read external Artifact content", () => {
   const context = contextFixture();
   try {
     const note = context.toolGetNote({ note_id: "note-1", max_text_length: 8 });
     assert.equal(note.note.body_markdown.length, 8);
     assert.equal(note.truncated, true);
-    assert.equal(context.toolGetNote({ note_id: "note-hidden" }).error.code, "not_found");
+    assert.equal(context.toolGetNote({ note_id: "note-missing" }).error.code, "not_found");
 
     const conversation = context.toolGetConversation({
       conversation_id: "conversation-1",
@@ -741,12 +724,10 @@ test("Agent Session proposals queue reviewable records at Core level without MCP
     id: "theme-session",
     name: "Session provenance",
     repository_context_ids: ["repo-session"],
-    default_ai_visibility: ["coding_agent"],
   });
   database.save("theme", {
     id: "theme-session-hidden",
     name: "Private session provenance",
-    default_ai_visibility: [],
     repository_context_ids: ["repo-session-hidden"],
   });
   database.save("working_copy", {
@@ -858,12 +839,15 @@ test("Agent Session proposals queue reviewable records at Core level without MCP
     date: "2026-08-25",
     source_session: "tasken-daily-report",
   });
-  assert.deepEqual(
-    dailySessions.sessions.map((session) => session.id),
-    ["daily-visible-session"],
-  );
-  assert.equal("request_events" in dailySessions.sessions[0], false);
-  assert.equal("response_checkpoints" in dailySessions.sessions[0], false);
+  // 公開範囲の区別は無いので、削除済みThemeに紐づく作業も、同じ日の作業として並ぶ。
+  assert.deepEqual(dailySessions.sessions.map((session) => session.id).sort(), [
+    "daily-hidden-session",
+    "daily-visible-session",
+  ]);
+  for (const session of dailySessions.sessions) {
+    assert.equal("request_events" in session, false);
+    assert.equal("response_checkpoints" in session, false);
+  }
   assert.deepEqual(
     core.getAgentSessionContext.execute({
       date: "2026-08-25",

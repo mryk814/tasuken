@@ -23,7 +23,7 @@ const { planWorkLog, publicActivityEntrySchema } = await import(
 const fixture = JSON.parse(
   readFileSync(new URL("./fixtures/work-log-v1.json", import.meta.url), "utf8"),
 );
-const theme = { id: "recall-theme", name: "測定", ai_visibility: ["coding_agent"] };
+const theme = { id: "recall-theme", name: "測定" };
 function workLog(id, performedDate, issuedAt = "2026-09-08T12:30:00+09:00") {
   return planWorkLog(
     {
@@ -89,7 +89,6 @@ test("performed days and precise task operations retain chronological coverage a
     id: "task",
     title: "測定を完了",
     project_id: theme.id,
-    ai_visibility: ["coding_agent"],
   };
   source.workspace.tasks = [task];
   source.events.push(
@@ -138,7 +137,7 @@ test("timestamp periods include intersecting reported days but never claim an ex
   );
 });
 
-test("ordinary edits and malformed work dates are not promoted, while current privacy still applies", () => {
+test("ordinary edits and malformed work dates are not promoted, while deleted sources drop out", () => {
   const source = input([workLog("private-report", "2026-09-06")]);
   const original = source.events[0];
   for (const event of [
@@ -153,8 +152,7 @@ test("ordinary edits and malformed work dates are not promoted, while current pr
     assert.equal(result.events[0].recall.stage, "changed");
     assert.equal(result.events[0].recall.date_basis, "event_time");
   }
-  source.workspace.notes[0].ai_visibility = [];
-  const hidden = queryActivityEvents({ ...source, date: "2026-09-06" });
-  assert.equal(hidden.events.length, 0);
-  assert.equal(hidden.excluded_count, 1);
+  source.workspace.notes[0].deleted_at = "2026-09-07T00:00:00.000Z";
+  const deleted = queryActivityEvents({ ...source, date: "2026-09-06" });
+  assert.equal(deleted.events.length, 0);
 });

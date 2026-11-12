@@ -267,7 +267,6 @@ export async function createMobileOfflineGateway({
           name: theme.title,
           theme_charter: theme.charter,
           theme_state: theme.currentState,
-          ai_visibility: [],
         });
       } else {
         const theme = database.get("theme", id);
@@ -294,7 +293,6 @@ export async function createMobileOfflineGateway({
           id,
           title: `比較資料 ${index}`,
           body_markdown: index === 0 ? "測定条件\n🔬".repeat(10000) : `原文 ${index}`,
-          ai_visibility: [],
         });
         database.save("reference", {
           id: `related-ref-${index}`,
@@ -358,21 +356,6 @@ export async function createMobileOfflineGateway({
         payload: { taskId: task.id },
         expectedVersions: [{ type: "task", id: task.id, version: task.version }],
       });
-    }
-    if (Object.hasOwn(action, "workspaceAiVisibility")) {
-      database.setPreference("aiVisibilityDefault", action.workspaceAiVisibility);
-    }
-    if (action.workLogAiVisibility) {
-      const { id, audiences } = action.workLogAiVisibility;
-      const note = database.get("note", id);
-      assert.ok(note?.properties_json?.work_log);
-      database.save("note", { ...note, ai_visibility: audiences });
-    }
-    if (action.themeAiVisibility) {
-      const { id, audiences } = action.themeAiVisibility;
-      const theme = database.get("theme", id);
-      assert.ok(theme);
-      database.save("theme", { ...theme, default_ai_visibility: audiences });
     }
     if (action.editWorkLog) {
       const { id, body } = action.editWorkLog;

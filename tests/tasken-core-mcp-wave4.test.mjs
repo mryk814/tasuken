@@ -52,13 +52,6 @@ function fixture() {
     ],
     tasks: [
       {
-        id: "task-hidden",
-        title: "Needle hidden newest",
-        state: "todo",
-        project_id: "theme-hidden",
-        updated_at: "2026-08-23T00:00:00.000Z",
-      },
-      {
         id: "task-visible",
         legacy_item_id: "legacy-shadowed",
         title: "Needle task",
@@ -121,10 +114,7 @@ function fixture() {
         updated_at: now,
       },
     ],
-    themes: [
-      { id: "theme-visible", name: "Visible", default_ai_visibility: ["coding_agent"] },
-      { id: "theme-hidden", name: "Hidden", default_ai_visibility: [] },
-    ],
+    themes: [{ id: "theme-visible", name: "Visible" }],
   };
 }
 
@@ -170,7 +160,7 @@ async function callMcp(coreClient, name, args) {
   }
 }
 
-test("Wave 4 mixed Item queries preserve ordering, dedupe, visibility-before-limit, locators, and guidance", () => {
+test("Wave 4 mixed Item queries preserve ordering, dedupe, limits, locators, and guidance", () => {
   const repository = new FixtureRepository(fixture());
   const core = createTaskenCore(repository);
 
@@ -188,7 +178,7 @@ test("Wave 4 mixed Item queries preserve ordering, dedupe, visibility-before-lim
     tool: "tasken.get_task_context",
     arguments: { task_id: "task-visible" },
   });
-  assert.equal(search.excluded_count, 1);
+  assert.equal("excluded_count" in search, false);
   assert.equal(search.read_only, true);
   assert.equal(search.next_tools[0].tool, "tasken.get_task_context");
   assert.deepEqual(search.result_meta, {
@@ -248,7 +238,7 @@ test("Wave 4 mixed Item queries preserve ordering, dedupe, visibility-before-lim
     truncated: false,
   });
   const openOne = core.listOpenItems.execute({ limit: 1 });
-  assert.equal(openOne.excluded_count, 1);
+  assert.equal("excluded_count" in openOne, false);
   assert.deepEqual(openOne.result_meta, {
     contract_version: 1,
     returned_count: 1,

@@ -54,13 +54,6 @@ function context() {
         {
           id: "theme-visible",
           name: "Visible",
-          default_ai_visibility: ["coding_agent"],
-          updated_at: now,
-        },
-        {
-          id: "theme-hidden",
-          name: "Hidden",
-          default_ai_visibility: ["m365"],
           updated_at: now,
         },
       ],
@@ -75,8 +68,6 @@ function context() {
         task("human", { intended_executor: "self" }),
         task("done", { state: "done" }),
         task("cancelled", { state: "cancelled" }),
-        task("hidden-entity", { ai_visibility: ["m365"] }),
-        task("hidden-theme", { project_id: "theme-hidden" }),
         task("archived", {
           deleted_at: "2026-08-20T04:00:00.000Z",
           updated_at: "2026-08-20T04:00:00.000Z",
@@ -86,7 +77,7 @@ function context() {
   });
 }
 
-test("Phase 0: agent-ready Task selection, ordering, AI visibility, and metadata stay compatible", () => {
+test("Phase 0: agent-ready Task selection, ordering, and metadata stay compatible", () => {
   const readContext = context();
   try {
     const result = readContext.toolListAgentReadyTasks();
@@ -96,17 +87,10 @@ test("Phase 0: agent-ready Task selection, ordering, AI visibility, and metadata
       ["ready-new", "ready-explicit", "ready-other-theme"],
     );
     assert.equal(result.limit, 20);
-    assert.equal(result.ai_audience, "coding_agent");
     assert.equal(result.read_only, true);
-    assert.equal(result.excluded_count, 2);
-    assert.deepEqual(
-      result.excluded_reasons.map((entry) => ({ type: entry.type, count: entry.count })),
-      [
-        { type: "task", count: 1 },
-        { type: "task", count: 1 },
-      ],
-    );
-    assert.ok(result.tasks.every((entry) => entry.ai?.ai_visibility.includes("coding_agent")));
+    assert.equal("ai_audience" in result, false);
+    assert.equal("excluded_count" in result, false);
+    assert.ok(result.tasks.every((entry) => entry.ai?.id === entry.id));
   } finally {
     readContext.close();
   }

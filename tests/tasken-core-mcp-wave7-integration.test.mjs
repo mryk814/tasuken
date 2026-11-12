@@ -43,18 +43,11 @@ const record = (id, fields = {}) => ({
 function fixture() {
   const publicTheme = record("theme-public", {
     name: "Public",
-    default_ai_visibility: ["coding_agent"],
   });
-  const privateTheme = record("theme-private", { name: "Private", default_ai_visibility: [] });
   const visibleNote = record("note-visible", {
     title: "Visible note",
     project_id: publicTheme.id,
     body_markdown: "visible note body",
-  });
-  const hiddenNote = record("note-hidden", {
-    title: "Hidden note",
-    project_id: privateTheme.id,
-    body_markdown: "PRIVATE_NOTE",
   });
   const visibleClaim = record("knowledge-visible-claim", {
     title: "Visible query claim",
@@ -71,26 +64,15 @@ function fixture() {
     node_type: "evidence",
     theme_id: publicTheme.id,
   });
-  const hiddenNode = record("knowledge-hidden", {
-    title: "Hidden query",
-    body: "PRIVATE_KNOWLEDGE",
-    node_type: "claim",
-    theme_id: privateTheme.id,
-  });
   return {
-    themes: [publicTheme, privateTheme],
-    notes: [visibleNote, hiddenNote],
-    knowledge_nodes: [visibleClaim, visibleEvidence, hiddenNode],
+    themes: [publicTheme],
+    notes: [visibleNote],
+    knowledge_nodes: [visibleClaim, visibleEvidence],
     knowledge_edges: [
       record("edge-public", {
         source_node_id: visibleClaim.id,
         target_node_id: visibleEvidence.id,
         relation_type: "supports",
-      }),
-      record("edge-hidden", {
-        source_node_id: visibleClaim.id,
-        target_node_id: hiddenNode.id,
-        relation_type: "similar_to",
       }),
     ],
     tasks: [
@@ -108,7 +90,6 @@ function fixture() {
 function equalTimestampCapFixture() {
   const publicTheme = record("theme-stable", {
     name: "Stable",
-    default_ai_visibility: ["coding_agent"],
   });
   const descending = (prefix, count, fields) =>
     Array.from({ length: count }, (_, index) => {
@@ -204,10 +185,7 @@ test("Wave 7 safe legacy fields are exact across Core and HTTP (MCP exposure rem
   const workspace = fixture();
   const core = createTaskenCore(new FixturePersistence(workspace));
   const host = new TaskenCoreHost({ userDataPath: root, ...core });
-  const legacy = new ReadOnlyTaskenContext("ignored.sqlite", {
-    workspace,
-    aiVisibilityDefault: ["coding_agent"],
-  });
+  const legacy = new ReadOnlyTaskenContext("ignored.sqlite", { workspace });
   try {
     await host.start();
     const client = new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
@@ -243,50 +221,6 @@ test("Wave 7 safe legacy fields are exact across Core and HTTP (MCP exposure rem
     await host.stop();
     fs.rmSync(root, { recursive: true, force: true });
   }
-});
-
-test("Wave 7 drops every relation with a non-public endpoint", () => {
-  const workspace = fixture();
-  const core = createTaskenCore(new FixturePersistence(workspace));
-  const result = core.getKnowledgeContext.execute({ theme_id: "theme-public" });
-  assert.deepEqual(
-    result.knowledge_edges.map((edge) => edge.id),
-    ["edge-public"],
-  );
-  assert.doesNotMatch(JSON.stringify(result), /edge-hidden|knowledge-hidden|PRIVATE_/);
-});
-
-test("Wave 7 Note visibility and Theme filters prefer canonical project_id", () => {
-  const workspace = fixture();
-  workspace.notes.push(
-    record("note-canonical-private", {
-      title: "Canonical private",
-      body_markdown: "PRIVATE_CANONICAL_NOTE",
-      project_id: "theme-private",
-      theme_id: "theme-public",
-    }),
-    record("note-canonical-public", {
-      title: "Canonical public",
-      body_markdown: "canonical public body",
-      project_id: "theme-public",
-      theme_id: "theme-private",
-    }),
-  );
-  const core = createTaskenCore(new FixturePersistence(workspace));
-  const result = core.getRecentNotes.execute({ theme_id: "theme-public", include_raw_body: true });
-  const serialized = JSON.stringify(result);
-  assert.match(serialized, /note-canonical-public|canonical public body/);
-  assert.doesNotMatch(serialized, /note-canonical-private|PRIVATE_CANONICAL_NOTE/);
-
-  // search_notesの検索語は公開範囲の判定後に当てる。非公開Noteの本文に一致しても件数に出ない。
-  const byBody = core.getRecentNotes.execute({ query: "PUBLIC BODY" });
-  assert.deepEqual(
-    byBody.notes.map((note) => note.id),
-    ["note-canonical-public"],
-  );
-  const hiddenMatch = core.getRecentNotes.execute({ query: "PRIVATE_CANONICAL_NOTE" });
-  assert.equal(hiddenMatch.notes.length, 0);
-  assert.equal(hiddenMatch.result_meta.matched_visible_count, 0);
 });
 
 test("Wave 7 all five tools allowlist fields and recursively redact adversarial values", () => {

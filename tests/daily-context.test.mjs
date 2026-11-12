@@ -21,7 +21,7 @@ const { buildDailyContextPlan, publishDailyContext, planWorkLog } = await import
 );
 
 function fixture(count = 1) {
-  const task = { id: "test-task", title: "公開された作業", state: "done", ai_visibility: ["m365"] };
+  const task = { id: "test-task", title: "公開された作業", state: "done" };
   return {
     workspaceId: "test-workspace",
     generatedAt: "2026-09-06T15:00:00.000Z",
@@ -71,7 +71,6 @@ test("explicit capture bodies use stable managed paths and recover a missing sou
     state: "untriaged",
     captured_at: "2026-09-06T10:00:00.000Z",
     version: 1,
-    ai_visibility: ["m365"],
   };
   input.workspace.capture_entries = [capture];
   assert.equal(buildDailyContextPlan(input).publicSources.length, 0);
@@ -112,7 +111,6 @@ test("source replacement failure remains retryable and a new destination does no
       state: "untriaged",
       captured_at: "2026-09-06T10:00:00.000Z",
       version: 1,
-      ai_visibility: ["m365"],
     },
   ];
   input.selection.includeFullText = true;
@@ -158,7 +156,6 @@ test("Sources junction is refused before the published day changes", (t) => {
       state: "untriaged",
       captured_at: "2026-09-06T10:00:00.000Z",
       version: 1,
-      ai_visibility: ["m365"],
     },
   ];
   const root = temporary(t);
@@ -198,15 +195,14 @@ test("one published day distinguishes incomplete work, input, plans, AI reports 
     "personal",
     { kind: "user", id: "fixture-user" },
   );
-  input.workspace.themes = [{ id: "personal", name: "個人業務", ai_visibility: ["m365"] }];
-  input.workspace.notes = [{ ...work.note, ai_visibility: ["m365"] }];
+  input.workspace.themes = [{ id: "personal", name: "個人業務" }];
+  input.workspace.notes = [{ ...work.note }];
   input.workspace.capture_entries = [
     {
       id: "loose-input",
       text: "未整理の観測",
       captured_at: "2026-09-06T10:00:00.000Z",
       state: "untriaged",
-      ai_visibility: ["m365"],
     },
   ];
   input.workspace.change_events.push(
@@ -243,7 +239,7 @@ test("one published day distinguishes incomplete work, input, plans, AI reports 
   assert.equal(JSON.stringify(input.workspace), before);
 });
 
-test("preview bytes match publication and republishing removes private records", (t) => {
+test("preview bytes match publication and republishing removes deleted records", (t) => {
   const root = temporary(t);
   const input = fixture();
   const plan = buildDailyContextPlan(input);
@@ -251,7 +247,7 @@ test("preview bytes match publication and republishing removes private records",
   assert.equal(result.cloudStatus, "unknown");
   assert.equal(fs.readFileSync(result.path, "utf8"), plan.content);
   assert.equal(publish(root, plan).path, result.path);
-  input.workspace.tasks[0].ai_visibility = [];
+  input.workspace.tasks[0].deleted_at = "2026-09-06T12:00:00.000Z";
   const privatePlan = buildDailyContextPlan(input);
   assert.equal(privatePlan.includedCount, 0);
   assert.throws(

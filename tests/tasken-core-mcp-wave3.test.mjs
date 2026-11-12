@@ -44,7 +44,6 @@ function fixture() {
     id: "theme-visible",
     name: "Visible",
     state: "active",
-    default_ai_visibility: ["coding_agent"],
     repository_context_ids: ["repo-visible"],
     primary_repository_context_id: "repo-visible",
     updated_at: now,
@@ -74,7 +73,6 @@ function fixture() {
     title: "Private",
     body_markdown: "HIDDEN_BODY_SENTINEL",
     project_id: theme.id,
-    ai_visibility: [],
     updated_at: now,
   });
   const conversation = {
@@ -173,14 +171,12 @@ function fixture() {
         id: "theme-hidden",
         name: "Hidden",
         state: "active",
-        default_ai_visibility: ["m365"],
         updated_at: now,
       },
       {
         id: "theme-archived-private",
         name: "Archived private",
         state: "active",
-        default_ai_visibility: ["m365"],
         deleted_at: now,
         updated_at: now,
       },
@@ -308,10 +304,7 @@ test("MCP Wave 3 get_task_context preserves legacy fields and the empty capture 
   const repository = new FixtureRepository(workspace);
   const core = createTaskenCore(repository);
   const host = new TaskenCoreHost({ userDataPath: root, ...core });
-  const legacy = new ReadOnlyTaskenContext("wave3.sqlite", {
-    workspace,
-    aiVisibilityDefault: ["coding_agent"],
-  });
+  const legacy = new ReadOnlyTaskenContext("wave3.sqlite", { workspace });
   try {
     await host.start();
     const client = new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
@@ -336,10 +329,6 @@ test("MCP Wave 3 get_task_context preserves legacy fields and the empty capture 
       // The frozen legacy fixture predates photo summaries. This workspace has no captures;
       // require the additive empty collection while keeping every legacy field exact.
       if (expected.related) expected.related.captures = [];
-      if (request.task_id === "task-active-under-archived-private-theme") {
-        assert.equal(expected.error.code, "not_found");
-        assert.equal(expected.excluded_count, 1);
-      }
       assert.deepEqual(withoutAgentState(core.getTaskContext.execute(request)), expected);
       assert.deepEqual(withoutAgentState(await client.getTaskContext(request)), expected);
       const mcp = await callMcp(client, "tasken.get_task_context", request);
@@ -356,10 +345,7 @@ test("MCP Wave 3 get_task_context preserves legacy fields and the empty capture 
 
 test("Wave 3 preserves graph/text bounds and redacts receipt, URL, and local path secrets", () => {
   const workspace = fixture();
-  const legacy = new ReadOnlyTaskenContext("wave3-security.sqlite", {
-    workspace,
-    aiVisibilityDefault: ["coding_agent"],
-  });
+  const legacy = new ReadOnlyTaskenContext("wave3-security.sqlite", { workspace });
   const core = createTaskenCore(new FixtureRepository(workspace));
   try {
     const request = { task_id: "task-visible", max_items_per_type: 25, max_text_length: 100_000 };
@@ -377,10 +363,6 @@ test("Wave 3 preserves graph/text bounds and redacts receipt, URL, and local pat
     assert.ok(result.context_graph.nodes.length <= 100);
     assert.ok(result.context_graph.edges.length <= 200);
     assert.ok(result.context_selection.estimated_characters <= 100_000);
-    assert.equal(
-      result.related.notes.some((note) => note.id === "note-hidden"),
-      false,
-    );
     assert.equal(result.related.work_receipts[0].summary.includes("普通の説明は保持"), true);
     const serialized = JSON.stringify(result);
     assert.doesNotMatch(
@@ -388,7 +370,6 @@ test("Wave 3 preserves graph/text bounds and redacts receipt, URL, and local pat
       /TOP_SECRET|VERY_SECRET|SESSION_SECRET|URL_SECRET|URL_KEY|KIND_SECRET|EXTERNAL_PROVIDER_SECRET|EXTERNAL_ID_SECRET|REPO_PROVIDER_SECRET|BRANCH_SECRET|RUNTIME_PROVIDER_SECRET|MODEL_SECRET|REPORT_SECRET|alice:secret|bob:password/,
     );
     assert.doesNotMatch(serialized, /C:\\\\Users|\/home\/private|\/mnt\/c\/private|\/tmp\/private/);
-    assert.doesNotMatch(serialized, /HIDDEN_BODY_SENTINEL/);
     assert.doesNotMatch(serialized, /local_path|stored_path|original_path|diagnostic_path/);
     assert.equal(
       result.related.work_receipts[0].external_references[0].url,
@@ -407,61 +388,6 @@ test("Wave 3 preserves graph/text bounds and redacts receipt, URL, and local pat
   } finally {
     legacy.close();
   }
-});
-
-test("Wave 3 Task context uses canonical Note project_id for visibility", () => {
-  const workspace = fixture();
-  workspace.themes.push({
-    id: "theme-private-note",
-    name: "Private Note Theme",
-    default_ai_visibility: [],
-    updated_at: now,
-  });
-  workspace.notes.push(
-    {
-      id: "note-canonical-private",
-      title: "Canonical private",
-      body_markdown: "PRIVATE_CANONICAL_TASK_CONTEXT",
-      project_id: "theme-private-note",
-      theme_id: "theme-visible",
-      updated_at: "2026-08-22T00:00:00.000Z",
-    },
-    {
-      id: "note-canonical-public",
-      title: "Canonical public",
-      body_markdown: "canonical public task context",
-      project_id: "theme-visible",
-      theme_id: "theme-private-note",
-      updated_at: "2026-08-22T00:00:01.000Z",
-    },
-  );
-  workspace.references.push(
-    {
-      id: "ref-canonical-private",
-      source_type: "task",
-      source_id: "task-visible",
-      target_type: "note",
-      target_id: "note-canonical-private",
-      relation_type: "context",
-    },
-    {
-      id: "ref-canonical-public",
-      source_type: "task",
-      source_id: "task-visible",
-      target_type: "note",
-      target_id: "note-canonical-public",
-      relation_type: "context",
-    },
-  );
-  const core = createTaskenCore(new FixtureRepository(workspace));
-  const result = core.getTaskContext.execute({ task_id: "task-visible", max_items_per_type: 100 });
-  const serialized = JSON.stringify(result);
-  assert.match(serialized, /note-canonical-public|canonical public task context/);
-  assert.equal(
-    result.related.notes.some((note) => note.id === "note-canonical-private"),
-    false,
-  );
-  assert.doesNotMatch(serialized, /PRIVATE_CANONICAL_TASK_CONTEXT/);
 });
 
 test("Work Receipt sanitizer rejects URL-like locators, local paths, and short authorization credentials across public fields", () => {

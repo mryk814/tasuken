@@ -77,24 +77,15 @@ function fixture() {
       "repository-amb-a",
       "repository-amb-b",
     ],
-    default_ai_visibility: ["coding_agent"],
     updated_at: now,
   };
   return {
     themes: [
       theme,
       {
-        id: "theme-hidden",
-        name: "Hidden",
-        repository_context_ids: ["repository-hidden"],
-        default_ai_visibility: [],
-        updated_at: now,
-      },
-      {
         id: "theme-archived",
         name: "Archived",
         repository_context_ids: ["repository-archived"],
-        default_ai_visibility: ["coding_agent"],
         deleted_at: now,
         updated_at: now,
       },
@@ -104,13 +95,6 @@ function fixture() {
       { ...repository, id: "repository-subdir", label: "Subdir", subdirectory: "packages/core" },
       { ...repository, id: "repository-amb-a", label: "Ambiguous A" },
       { ...repository, id: "repository-amb-b", label: "Ambiguous B" },
-      {
-        id: "repository-hidden",
-        provider: "local",
-        local_path: "C:\\Users\\private\\hidden",
-        active: true,
-        updated_at: now,
-      },
       { ...repository, id: "repository-archived", label: "Archived repo", deleted_at: now },
     ],
     tasks: [
@@ -129,13 +113,6 @@ function fixture() {
         state: "done",
         project_id: theme.id,
         updated_at: "2026-08-20T00:00:00.000Z",
-      },
-      {
-        id: "task-hidden",
-        title: "Hidden work",
-        state: "doing",
-        project_id: "theme-hidden",
-        updated_at: now,
       },
       {
         id: "task-archived",
@@ -179,7 +156,6 @@ function fixture() {
           authorization: "Bearer METADATA_SECRET",
           "C:\\Users\\private\\key": "OBJECT_KEY_SECRET",
         },
-        ai_visibility: ["m365"],
         updated_at: now,
       },
     ],
@@ -241,10 +217,7 @@ test("Wave 6 repository/theme reads are exact across legacy, Core, HTTP, and pur
   const workspace = fixture();
   const core = createTaskenCore(new FixturePersistence(workspace));
   const host = new TaskenCoreHost({ userDataPath: root, ...core });
-  const legacy = new ReadOnlyTaskenContext("ignored.sqlite", {
-    workspace,
-    aiVisibilityDefault: ["coding_agent"],
-  });
+  const legacy = new ReadOnlyTaskenContext("ignored.sqlite", { workspace });
   try {
     await host.start();
     const client = new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });

@@ -37,7 +37,6 @@ function fixture() {
     updated_at: expected.updatedAt,
     theme_charter: structuredClone(expected.charter),
     theme_state: structuredClone(expected.currentState),
-    ai_visibility: [],
     source_locator: "C:/private/document",
     secret: "hidden-secret",
     color: "chart-3",

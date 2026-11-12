@@ -20,7 +20,6 @@ function fixture() {
     id: "task-1",
     title: "モデル学習",
     project_id: "theme-1",
-    ai_visibility: ["m365"],
   };
   const receipt = {
     id: "receipt-1",

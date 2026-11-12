@@ -66,7 +66,6 @@ function fixtureRepository() {
         id: "theme-1",
         name: "Theme",
         state: "active",
-        ai_visibility: ["m365", "coding_agent"],
         ai_summary: "Theme summary",
         ai_freshness: "current",
         ai_authority: "user_confirmed",
@@ -78,7 +77,6 @@ function fixtureRepository() {
         title: "Task",
         state: "todo",
         project_id: "theme-1",
-        ai_visibility: ["m365", "coding_agent"],
         ai_summary: "Task summary",
         ai_freshness: "current",
         ai_authority: "user_confirmed",
@@ -90,7 +88,6 @@ function fixtureRepository() {
         title: "Context",
         project_id: "theme-1",
         body_markdown: "Context",
-        ai_visibility: ["coding_agent"],
         ai_summary: "Note summary",
         ai_freshness: "current",
         ai_authority: "user_confirmed",
@@ -131,7 +128,7 @@ function fixtureRepository() {
     list: (type) => structuredClone(workspace[keyByType[type]] || []),
     get: (type, id) =>
       structuredClone((workspace[keyByType[type]] || []).find((entry) => entry.id === id) || null),
-    getPreference: (key) => (key === "aiVisibilityDefault" ? ["coding_agent"] : ""),
+    getPreference: () => "",
     setPreference: () => true,
     getDataHealthState: () => ({
       schema: "tasken-data-health-state/v1",
@@ -146,7 +143,6 @@ function fixtureRepository() {
 test("WorkspaceService PreviewはCore context_selectionとTheme AI Pack planをそのままadapterへ通す (#296)", async () => {
   const repository = fixtureRepository();
   const taskResponse = {
-    ai_audience: "coding_agent",
     task: repository.workspace.tasks[0],
     theme: repository.workspace.projects[0],
     related: {
@@ -159,7 +155,6 @@ test("WorkspaceService PreviewはCore context_selectionとTheme AI Pack planを�
     },
   };
   const themeResponse = {
-    ai_audience: "coding_agent",
     themes: repository.workspace.projects,
     open_items: repository.workspace.tasks.map((entry) => ({ ...entry, entity_type: "task" })),
     recent_notes: repository.workspace.notes,
@@ -184,13 +179,13 @@ test("WorkspaceService PreviewはCore context_selectionとTheme AI Pack planを�
     coreClient,
   );
   const task = await service.getAiContextPreview({
-    audience: "coding_agent",
+    channel: "mcp",
     scope: { type: "task", id: "task-1" },
   });
   assert.deepEqual(task.preview, previewTaskCoding(taskResponse));
 
   const theme = await service.getAiContextPreview({
-    audience: "coding_agent",
+    channel: "mcp",
     scope: { type: "theme", id: "theme-1" },
   });
   assert.deepEqual(theme.preview, previewThemeCoding(themeResponse));
@@ -200,11 +195,11 @@ test("WorkspaceService PreviewはCore context_selectionとTheme AI Pack planを�
   ]);
 
   const m365Theme = await service.getAiContextPreview({
-    audience: "m365",
+    channel: "ai_pack",
     scope: { type: "theme", id: "theme-1" },
   });
   const m365Task = await service.getAiContextPreview({
-    audience: "m365",
+    channel: "ai_pack",
     scope: { type: "task", id: "task-1" },
   });
   assert.equal(m365Theme.preview.schema, "tasken-ai-context-preview/v1");
@@ -230,7 +225,7 @@ test("WorkspaceService Previewはraw Core/discovery errorをRendererへ公開し
     coreClient,
   );
   const result = await service.getAiContextPreview({
-    audience: "coding_agent",
+    channel: "mcp",
     scope: { type: "task", id: "task-1" },
   });
   assert.equal(result.state, "error");

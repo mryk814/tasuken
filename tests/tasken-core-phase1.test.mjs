@@ -153,10 +153,8 @@ test("Phase 1 adapter uses only the injected Workspace repository instance", () 
 
   adapter.listTasks(false);
   adapter.listThemes();
-  assert.deepEqual(adapter.workspaceAiVisibilityDefault(), ["coding_agent"]);
   assert.deepEqual(repository.calls, [
     { operation: "list", type: "task", includeDeleted: false },
     { operation: "list", type: "theme", includeDeleted: true },
-    { operation: "getPreference", key: "aiVisibilityDefault" },
   ]);
 });

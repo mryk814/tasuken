@@ -197,9 +197,9 @@ test("doctor exercises stdio and a read, without exposing Task content or writin
       const coreClient = { listAgentReadyTasks: async () => ({
         tasks: [{ id: "doctor-fixture", intended_executor: "ai_agent", state: "todo", ai: {
           id: "doctor-fixture", type: "task", title: "PRIVATE_TASK_CONTENT", summary: "PRIVATE_TASK_CONTENT",
-          ai_visibility: ["coding_agent"], ai_visibility_source: "workspace_default", theme_id: null, updated_at: null,
+          theme_id: null, updated_at: null,
         }}],
-        limit: 1, ai_audience: "coding_agent", read_only: true, excluded_count: 0, excluded_reasons: [],
+        limit: 1, read_only: true,
       }) };
       const server = createTaskenMcpServer({ coreClient, env: { TASKEN_MCP_READ_ONLY: ${JSON.stringify(readOnly ? "1" : "0")} } });
       await server.connect(new StdioServerTransport());
@@ -246,8 +246,7 @@ test("doctor respects core-only and meta-only toolsets without probing hidden to
       import { StdioServerTransport } from ${JSON.stringify(transportUrl)};
       const server = createTaskenMcpServer({ env: {}, readOnly: true, toolsets: ${JSON.stringify(toolsets)},
         coreClient: { listOpenItems: async () => ({
-          items: [], limit: 1, ai_audience: "coding_agent", read_only: true,
-          excluded_count: 0, excluded_reasons: [], next_tools: [],
+          items: [], limit: 1, read_only: true, next_tools: [],
           result_meta: { contract_version: 1, returned_count: 0, matched_visible_count: 0, truncated: false },
         }) },
       });

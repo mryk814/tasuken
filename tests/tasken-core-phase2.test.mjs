@@ -53,10 +53,9 @@ function fixture() {
       {
         id: "theme-visible",
         name: "Visible",
-        default_ai_visibility: ["coding_agent"],
         updated_at: now,
       },
-      { id: "theme-hidden", name: "Hidden", default_ai_visibility: ["m365"], updated_at: now },
+      { id: "theme-hidden", name: "Hidden", updated_at: now },
     ],
     tasks: [
       task("ready-new", { updated_at: "2026-08-20T03:00:00.000Z", legacy_extension: "retained" }),
@@ -123,10 +122,7 @@ test("Phase 2: legacy, in-process, HTTP, and MCP agent-ready results are deep-eq
     userDataPath: root,
     listAgentReadyTasks: core.listAgentReadyTasks,
   });
-  const context = new ReadOnlyTaskenContext("phase2.sqlite", {
-    workspace,
-    aiVisibilityDefault: ["coding_agent"],
-  });
+  const context = new ReadOnlyTaskenContext("phase2.sqlite", { workspace });
   try {
     await host.start();
     const request = { theme_id: "theme-visible", limit: 20 };

@@ -53,7 +53,6 @@ function fixture() {
       title: `資料 ${id}`,
       body_markdown: " private owner text ",
       version: 1,
-      ai_visibility: [],
       ...extra,
     });
     rows.reference.push({

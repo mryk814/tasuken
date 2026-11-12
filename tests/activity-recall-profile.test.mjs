@@ -5,13 +5,12 @@ import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
 import { queryActivityEvents, projectActivityMarkdown } from "../src/shared/activityProjection.mjs";
 
 const at = "2026-09-05T23:00:00.000Z";
-const task = { id: "task-1", title: "実験を計画", state: "todo", ai_visibility: ["coding_agent"] };
+const task = { id: "task-1", title: "実験を計画", state: "todo" };
 const capture = {
   id: "capture-1",
   text: "未整理の観測",
   captured_at: at,
   state: "untriaged",
-  ai_visibility: ["coding_agent"],
 };
 const event = (kind, fields = {}) =>
   buildActivityEvent({
@@ -27,7 +26,6 @@ const query = (events, extra = {}) =>
   queryActivityEvents({
     events,
     workspace: { tasks: [task], capture_entries: [capture] },
-    audience: "coding_agent",
     profile: "recall",
     ...extra,
   });
@@ -136,52 +134,31 @@ test("recall includes meaningful plan changes, omits autosave, and explicit kind
   assert.equal(query(events, { event_kinds: ["unknown"] }).events.length, 0);
 });
 
-test("recall preserves current visibility, source privacy, AI authority, exclusion counts and limits", () => {
-  const privateCapture = { ...capture, ai_visibility: [] };
+test("recall preserves AI authority and limits", () => {
   const aiTask = { ...task, source: "ai" };
   const reported = event("task_ai_reported", {
     source_refs: [{ type: "capture_entry", id: capture.id }],
   });
   const result = query([reported, event("task_created")], {
-    workspace: { tasks: [aiTask], capture_entries: [privateCapture] },
+    workspace: { tasks: [aiTask] },
     limit: 1,
     include_match_metadata: true,
   });
-  assert.equal(result.excluded_count, 1);
   assert.equal(result.matched_count, 2);
   assert.equal(result.truncated, true);
   assert.equal(result.events[0].recall.stage, "ai_reported");
   assert.equal(result.events[0].recall.authority, "ai_generated");
-  assert.deepEqual(result.events[0].source_refs, []);
-  const privateRelation = {
-    id: "private-relation",
-    source_type: "task",
-    source_id: task.id,
-    target_type: "task",
-    target_id: "other-task",
-    relation_type: "related_to",
-    ai_visibility: [],
-  };
-  const relations = query([reported], {
-    workspace: {
-      tasks: [task, { ...task, id: "other-task" }],
-      references: [privateRelation],
-    },
-  });
-  assert.deepEqual(relations.events[0].relation_refs, []);
-  assert.ok(!JSON.stringify(result).includes(capture.text));
   assert.equal(query([], { workspace: {} }).events.length, 0);
   assert.equal(query([], { date: "2026-09-05" }).events.length, 0);
   assert.equal(query([], { date: "2026-09-06" }).events.length, 1);
 });
 
-test("recall schedule changes require a visible owner and ignore timestamp autosave", () => {
+test("recall schedule changes are planned work and ignore timestamp autosave", () => {
   const schedule = {
     id: "schedule-1",
     owner_type: "task",
     owner_id: task.id,
     start_date: "2026-09-06",
-    ai_visibility: ["coding_agent"],
   };
   const change = buildActivityEvent({
     id: "schedule-change",
@@ -195,11 +172,6 @@ test("recall schedule changes require a visible owner and ignore timestamp autos
   const workspace = { tasks: [task], schedules: [schedule] };
   assert.equal(query([change], { workspace, profile: "default" }).events.length, 0);
   assert.equal(query([change], { workspace }).events[0].recall.stage, "planned");
-  const hidden = query([change], {
-    workspace: { ...workspace, tasks: [{ ...task, ai_visibility: [] }] },
-  });
-  assert.equal(hidden.events.length, 0);
-  assert.equal(hidden.excluded_count, 1);
   assert.equal(
     query([{ ...change, changed_fields: ["updated_at"] }], { workspace }).events.length,
     0,
@@ -237,8 +209,6 @@ test("Core query and ActivityEntries consumers validate and carry recall through
       capture_entries: [capture],
       change_events: [event("task_created")],
     },
-    visibilityThemes: [],
-    workspaceAiVisibilityDefault: ["coding_agent"],
   };
   const before = JSON.stringify(snapshot);
   const agent = new AgentContextQueryService({ readAgentContextSnapshot: () => snapshot });

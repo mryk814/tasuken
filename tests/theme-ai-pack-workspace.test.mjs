@@ -107,7 +107,6 @@ test("自動公開は停止中に公開先へ触れず、初回の各日を1件�
   try {
     const now = () => "2026-09-08T01:00:00.000Z";
     const service = new WorkspaceService(item.database, item.userDataPath, now);
-    item.database.setPreference("aiVisibilityDefault", ["m365"]);
     service.recordWorkLog({
       schemaVersion: 1,
       commandName: "RecordWorkLog",
@@ -218,10 +217,9 @@ test("端末受信の観測だけが変わってもREADMEを更新し日別フ�
   }
 });
 
-test("自動公開は初回範囲より古い公開済み本文もprivateへの変更で撤去する（#547）", async () => {
+test("自動公開は初回範囲より古い公開済み本文も、元のNoteの削除で撤去する（#547）", async () => {
   const item = fixture("tasken-auto-private");
   try {
-    item.database.setPreference("aiVisibilityDefault", ["m365"]);
     const service = new WorkspaceService(
       item.database,
       item.userDataPath,
@@ -253,7 +251,7 @@ test("自動公開は初回範囲より古い公開済み本文もprivateへの�
     service.configureDailyContextAuto(autoConfig(item.syncRoot, { fromDate: "2026-09-08" }));
     await finishAutoQueue(service);
     const note = item.database.get("note", "auto-private-note");
-    item.database.save("note", { ...note, ai_visibility: [] });
+    item.database.remove("note", "auto-private-note");
     await finishAutoQueue(service);
     assert.equal(fs.existsSync(bodyPath), false);
     for (const relative of fs.readdirSync(path.join(item.syncRoot, "Tasken Context"), {
@@ -263,7 +261,10 @@ test("自動公開は初回範囲より古い公開済み本文もprivateへの�
       if (fs.statSync(file).isFile())
         assert.doesNotMatch(fs.readFileSync(file, "utf8"), /auto-old-private-body/);
     }
-    assert.equal(item.database.get("note", "auto-private-note").body_markdown, note.body_markdown);
+    assert.equal(
+      item.database.get("note", "auto-private-note", true).body_markdown,
+      note.body_markdown,
+    );
   } finally {
     item.close();
   }
@@ -363,10 +364,9 @@ test(
   },
 );
 
-test("明示した長文を日別と既存Packから読み、再公開で全公開日のprivate本文と参照を除去する（#546）", () => {
+test("明示した長文を日別と既存Packから読み、再公開で元のNoteを削除した後の本文と参照を全公開日から除去する（#546）", () => {
   const item = fixture("tasken-full-body");
   try {
-    item.database.setPreference("aiVisibilityDefault", ["m365"]);
     const service = new WorkspaceService(
       item.database,
       item.userDataPath,
@@ -433,7 +433,7 @@ test("明示した長文を日別と既存Packから読み、再公開で全公�
       "\nunique-private-2026-09-05 external addition\n",
     );
     const note = item.database.get("note", "full-2026-09-05");
-    item.database.save("note", { ...note, ai_visibility: [] });
+    item.database.remove("note", "full-2026-09-05");
     publishDate("2026-09-06");
     assert.equal(fs.existsSync(sourcePath), false);
     for (const relative of fs.readdirSync(item.syncRoot, { recursive: true })) {
@@ -457,7 +457,10 @@ test("明示した長文を日別と既存Packから読み、再公開で全公�
       ).length,
       0,
     );
-    assert.equal(item.database.get("note", "full-2026-09-05").body_markdown, note.body_markdown);
+    assert.equal(
+      item.database.get("note", "full-2026-09-05", true).body_markdown,
+      note.body_markdown,
+    );
   } finally {
     item.close();
   }
@@ -467,7 +470,6 @@ test("複数日の更新中断はDBに残り、同じ公開先で再公開が完
   const item = fixture("tasken-full-body-recovery");
   let reopened;
   try {
-    item.database.setPreference("aiVisibilityDefault", ["m365"]);
     const service = new WorkspaceService(item.database, item.userDataPath);
     const publish = (target, date, root = item.syncRoot) => {
       const plan = target.getDailyContextPreview({
@@ -525,7 +527,6 @@ test("保存先変更は旧管理本文を撤去し、外部編集による撤�
   const item = fixture("tasken-full-body-root-change");
   let reopened;
   try {
-    item.database.setPreference("aiVisibilityDefault", ["m365"]);
     const service = new WorkspaceService(item.database, item.userDataPath);
     service.recordWorkLog({
       schemaVersion: 1,
@@ -575,7 +576,7 @@ test("保存先変更は旧管理本文を撤去し、外部編集による撤�
     assert.equal(fs.existsSync(bodyPath), false);
     assert.equal(reopened.getPreference("dailyContextPublication").retiring, undefined);
     const note = reopened.get("note", "root-change-note");
-    reopened.save("note", { ...note, ai_visibility: [] });
+    reopened.remove("note", "root-change-note");
     publish(recovered, newRoot);
     for (const root of [item.syncRoot, newRoot]) {
       for (const relative of fs.readdirSync(path.join(root, "Tasken Context"), {
@@ -586,7 +587,7 @@ test("保存先変更は旧管理本文を撤去し、外部編集による撤�
           assert.doesNotMatch(fs.readFileSync(file, "utf8"), /root-change-private-body/);
       }
     }
-    assert.equal(reopened.get("note", "root-change-note").body_markdown, note.body_markdown);
+    assert.equal(reopened.get("note", "root-change-note", true).body_markdown, note.body_markdown);
   } finally {
     reopened?.db.close();
     item.close();
@@ -603,7 +604,6 @@ function fixture(prefix) {
     id: "theme-pack",
     name: "AI Pack Theme",
     code: "PACK",
-    ai_visibility: ["m365"],
     ai_freshness: "current",
     ai_authority: "user_confirmed",
     ai_summary: "公開対象Theme",
@@ -615,7 +615,6 @@ function fixture(prefix) {
     description: "M365へ共有する作業",
     project_id: "theme-pack",
     state: "doing",
-    ai_visibility: ["m365"],
     ai_freshness: "current",
     ai_authority: "user_confirmed",
     ai_summary: "作業を進める",
@@ -635,12 +634,10 @@ function fixture(prefix) {
 test("本文の改名とTheme移動で現在の索引を更新し、既存Pack保存先不達を未完了にする（#546）", () => {
   const item = fixture("tasken-full-body-move");
   try {
-    item.database.setPreference("aiVisibilityDefault", ["m365"]);
     item.database.save("theme", {
       id: "theme-second",
       name: "Second",
       code: "SECOND",
-      ai_visibility: ["m365"],
     });
     const service = new WorkspaceService(item.database, item.userDataPath);
     service.recordWorkLog({
