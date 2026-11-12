@@ -4,17 +4,10 @@ import { queryActivityEvents } from "../src/shared/activityProjection.mjs";
 
 function fixture() {
   return {
-    audience: "m365",
-    themes: [
-      { id: "public", default_ai_visibility: ["m365"] },
-      { id: "private", default_ai_visibility: [] },
-    ],
+    themes: [{ id: "public" }, { id: "other" }],
     workspace: {
       tasks: [{ id: "task", title: "task title", project_id: "public" }],
-      notes: [
-        { id: "allowed-note", project_id: "public" },
-        { id: "private-note", project_id: "public", ai_visibility: [] },
-      ],
+      notes: [{ id: "allowed-note", project_id: "public" }],
     },
     events: [
       {
@@ -29,38 +22,10 @@ function fixture() {
   };
 }
 
-test("publication follows current theme after moving an entity out of a public theme", () => {
+test("the event keeps its own theme_ref when the entity theme differs", () => {
   const input = fixture();
-  input.workspace.tasks[0].project_id = "private";
-  assert.equal(queryActivityEvents(input).events.length, 0);
-  const local = queryActivityEvents({ ...input, audience: null });
-  assert.equal(local.events.length, 1);
-  assert.equal(local.events[0].theme_ref.id, "public");
-});
-
-test("publication follows current theme when moved to a public theme", () => {
-  const input = fixture();
-  input.events[0].theme_ref.id = "private";
+  input.events[0].theme_ref.id = "other";
   assert.equal(queryActivityEvents(input).events.length, 1);
-});
-
-test("secondary typed references exclude private and missing entities only for publication", () => {
-  const input = fixture();
-  const refs = ["allowed-note", "private-note", "missing-note"].map((id) => ({ type: "note", id }));
-  input.events[0].source_refs = refs;
-  input.events[0].relation_refs = refs;
-  const published = queryActivityEvents(input).events[0];
-  assert.deepEqual(
-    published.source_refs.map((ref) => ref.id),
-    ["allowed-note"],
-  );
-  assert.deepEqual(
-    published.relation_refs.map((ref) => ref.id),
-    ["allowed-note"],
-  );
-  const local = queryActivityEvents({ ...input, audience: null }).events[0];
-  assert.equal(local.source_refs.length, 3);
-  assert.equal(local.relation_refs.length, 3);
 });
 
 test("a permitted record retains its own canonical output location", () => {

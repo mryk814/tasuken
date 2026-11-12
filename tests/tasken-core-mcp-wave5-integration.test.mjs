@@ -42,7 +42,6 @@ function fixture() {
   const theme = {
     id: "theme-wave5",
     name: "Wave 5",
-    default_ai_visibility: ["coding_agent"],
     updated_at: now,
   };
   const task = {
@@ -178,8 +177,6 @@ function legacyFields(response) {
   const {
     next_tools: _nextTools,
     page: _page,
-    excluded_count: _excludedCount,
-    excluded_reasons: _excludedReasons,
     // get_noteの本文の署名は旧来の読み取りに無い欄（#703 で足した。edit_noteが全文の読みを確かめる）。
     body_signature: _bodySignature,
     ...rest
@@ -213,10 +210,7 @@ test("Wave 5 detail/activity are exact across legacy fields, Core, and HTTP (MCP
   const workspace = fixture();
   const core = createTaskenCore(new FixturePersistence(workspace));
   const host = new TaskenCoreHost({ userDataPath: root, ...core });
-  const legacy = new ReadOnlyTaskenContext("ignored.sqlite", {
-    workspace,
-    aiVisibilityDefault: ["coding_agent"],
-  });
+  const legacy = new ReadOnlyTaskenContext("ignored.sqlite", { workspace });
   try {
     await host.start();
     const client = new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
@@ -256,8 +250,6 @@ test("Wave 5 detail/activity are exact across legacy fields, Core, and HTTP (MCP
           assert.equal(response.page.returned_count, 100);
           assert.equal(response.page.matched_visible_count, 101);
           assert.equal(typeof response.page.next_cursor, "string");
-          assert.equal(response.excluded_count, 0);
-          assert.deepEqual(response.excluded_reasons, []);
           delete response.page.generated_at;
         }
       }

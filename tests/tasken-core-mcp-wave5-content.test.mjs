@@ -301,55 +301,15 @@ test("Wave 5 preserves detail budgets, Chat Ref URL policy, and Artifact path/co
   );
 });
 
-test("Wave 5 Note detail visibility prefers canonical project_id over legacy theme_id", () => {
-  const { workspace, service } = serviceFixture();
-  workspace.notes.push(
-    {
-      id: "note-canonical-private",
-      title: "Canonical private",
-      body_markdown: "PRIVATE_CANONICAL_DETAIL",
-      project_id: "theme-hidden",
-      theme_id: "theme-visible",
-      updated_at: now,
-    },
-    {
-      id: "note-canonical-public",
-      title: "Canonical public",
-      body_markdown: "canonical public detail",
-      project_id: "theme-visible",
-      theme_id: "theme-hidden",
-      updated_at: now,
-    },
-  );
-  const hidden = service.getNote({ note_id: "note-canonical-private" });
-  assert.equal(hidden.error?.code, "not_found");
-  // search_itemsはNoteを検索できないため、Note専用の検索へ案内する。
-  assert.deepEqual(
-    hidden.next_tools.map((entry) => entry.tool),
-    ["tasken.search_notes"],
-  );
-  assert.deepEqual(
-    service
-      .getArtifactMetadata({ artifact_id: "artifact-missing" })
-      .next_tools.map((entry) => entry.tool),
-    ["tasken.get_task_context"],
-  );
-  const visible = service.getNote({ note_id: "note-canonical-public" });
-  assert.equal(visible.note?.project_id, "theme-visible");
-  assert.match(visible.note?.body_markdown || "", /canonical public detail/);
-});
-
 test("Wave 5 read adapter remains narrow and does not invoke a write API", () => {
   const workspace = fixture();
   const persistence = new FixturePersistence(workspace);
   const adapter = new WorkspaceContentDetailReadAdapter(persistence);
   assert.equal(adapter.list("note", false).length, 2);
   assert.equal(adapter.list("note", true).length, 3);
-  assert.deepEqual(adapter.workspaceAiVisibilityDefault(), ["coding_agent"]);
   assert.deepEqual(persistence.calls, [
     { operation: "list", type: "note", includeDeleted: false },
     { operation: "list", type: "note", includeDeleted: true },
-    { operation: "readPreference", key: "aiVisibilityDefault" },
   ]);
   assert.equal("save" in persistence, false);
 });

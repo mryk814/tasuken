@@ -96,8 +96,7 @@ function fixture() {
 function serviceFixture(workspace, themes) {
   const port = {
     loadTaskContextWorkspace: () => workspace,
-    loadTaskContextVisibilityThemes: () => themes,
-    workspaceAiVisibilityDefault: () => ["coding_agent"],
+    loadTaskContextThemes: () => themes,
   };
   return new TaskContextQueryService(port);
 }

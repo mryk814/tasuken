@@ -14,7 +14,6 @@ function visibleTheme() {
     description: "Characterization fixture",
     state: "active",
     repository_context_ids: ["repo-visible"],
-    default_ai_visibility: ["coding_agent"],
     updated_at: now,
   };
 }
@@ -47,13 +46,11 @@ function activityEvent(id, occurredAt, entity, overrides = {}) {
 function activityFixture() {
   const theme = visibleTheme();
   const seed = task("task-seed");
-  const hidden = task("task-hidden", { ai_visibility: [] });
   const archived = task("task-archived", { deleted_at: "2026-08-19T00:00:00.000Z" });
   const events = [
     activityEvent("event-prior", "2026-08-20T14:59:00.000Z", seed),
     activityEvent("event-b", "2026-08-20T15:30:00.000Z", seed),
     activityEvent("event-a", "2026-08-20T15:30:00.000Z", seed),
-    activityEvent("event-hidden", "2026-08-20T15:31:00.000Z", hidden),
     activityEvent("event-archived", "2026-08-20T15:32:00.000Z", archived),
     activityEvent("event-suppressed", "2026-08-20T15:33:00.000Z", seed, {
       metadata: { include_in_activity: false },
@@ -89,7 +86,7 @@ function activityFixture() {
   ];
   return {
     themes: [theme],
-    tasks: [seed, hidden, archived],
+    tasks: [seed, archived],
     change_events: events,
   };
 }
@@ -98,14 +95,6 @@ function contextFixture() {
   const theme = visibleTheme();
   const seed = task("task-seed");
   const suggested = task("task-suggested", { title: "Suggested endpoint", project_id: null });
-  const hiddenNote = {
-    id: "note-hidden",
-    title: "Hidden note",
-    body_markdown: "must not be returned",
-    project_id: THEME_ID,
-    ai_visibility: [],
-    updated_at: now,
-  };
   const note = {
     id: "note-visible",
     title: "Visible note",
@@ -156,14 +145,6 @@ function contextFixture() {
       status: "suggested",
     },
     {
-      id: "ref-hidden",
-      source_type: "task",
-      source_id: seed.id,
-      target_type: "note",
-      target_id: hiddenNote.id,
-      relation_type: "related_to",
-    },
-    {
       id: "ref-dangling",
       source_type: "task",
       source_id: seed.id,
@@ -175,7 +156,7 @@ function contextFixture() {
   return {
     themes: [theme],
     tasks: [seed, suggested],
-    notes: [note, hiddenNote],
+    notes: [note],
     knowledge_nodes: [knowledge],
     references,
   };
@@ -183,14 +164,8 @@ function contextFixture() {
 
 function exportFixture() {
   const theme = visibleTheme();
-  const hiddenTheme = {
-    id: "theme-hidden",
-    name: "Hidden theme",
-    default_ai_visibility: [],
-    updated_at: now,
-  };
   return {
-    themes: [theme, hiddenTheme],
+    themes: [theme],
     tasks: [
       task("task-visible", {
         title: "Visible item",
@@ -202,11 +177,6 @@ function exportFixture() {
         state: "done",
         updated_at: "2026-08-21T02:00:00.000Z",
       }),
-      task("task-hidden", {
-        title: "Hidden item",
-        ai_visibility: [],
-        updated_at: "2026-08-21T04:00:00.000Z",
-      }),
     ],
     notes: [
       {
@@ -215,14 +185,6 @@ function exportFixture() {
         body_markdown: "A very long note body with C:/private/note.md and token=SECRET.",
         project_id: THEME_ID,
         updated_at: now,
-      },
-      {
-        id: "note-hidden",
-        title: "Hidden note",
-        body_markdown: "private note",
-        project_id: THEME_ID,
-        ai_visibility: [],
-        updated_at: "2026-08-20T00:00:00.000Z",
       },
     ],
     resources: [
@@ -272,12 +234,11 @@ function exportFixture() {
 function openContext(workspace) {
   return new ReadOnlyTaskenContext("wave8-in-memory.sqlite", {
     audience: "coding_agent",
-    aiVisibilityDefault: ["coding_agent"],
     workspace,
   });
 }
 
-test("Wave 8 legacy get_activity: timezone/date/order, visibility-before-limit, archive, and safe event projection", () => {
+test("Wave 8 legacy get_activity: timezone/date/order, archive, and safe event projection", () => {
   const context = openContext(activityFixture());
   try {
     const result = context.toolGetActivity({
@@ -287,7 +248,7 @@ test("Wave 8 legacy get_activity: timezone/date/order, visibility-before-limit, 
       limit: 1,
       include_match_metadata: true,
     });
-    // Hidden/suppressed events are filtered before the result limit.
+    // Suppressed events are filtered before the result limit.
     assert.equal(result.events.length, 1);
     assert.equal(result.events[0].id, "event-unsafe");
     assert.equal(result.matched_count, 3);
@@ -328,7 +289,7 @@ test("Wave 8 legacy get_activity: timezone/date/order, visibility-before-limit, 
       ["event-a", "event-b"],
     );
     // This legacy adapter uses the current shared projection: explicit kinds
-    // override display hints, while hidden and archived entities stay excluded.
+    // override display hints, while archived entities stay excluded.
     assert.deepEqual(
       context
         .toolGetActivity({
@@ -394,7 +355,7 @@ test("Wave 8 legacy get_activity exposes direct-method event_kinds without the M
   }
 });
 
-test("Wave 8 legacy get_context_subgraph: bounded two-hop graph, cycles, suggested edges, hidden endpoints, and token limits", () => {
+test("Wave 8 legacy get_context_subgraph: bounded two-hop graph, cycles, suggested edges, and token limits", () => {
   const context = openContext(contextFixture());
   try {
     const result = context.toolGetContextSubgraph({ entity_type: "task", entity_id: "task-seed" });
@@ -410,15 +371,9 @@ test("Wave 8 legacy get_context_subgraph: bounded two-hop graph, cycles, suggest
       result.nodes.some((node) => node.id === "task-suggested"),
       false,
     );
-    assert.equal(
-      result.nodes.some((node) => node.id === "note-hidden"),
-      false,
-    );
-    assert.ok(result.excluded_nodes.some((entry) => entry.ref.id === "note-hidden"));
     assert.ok(result.diagnostics.some((entry) => entry.kind === "broken_relation"));
     assert.ok(result.paths.some((path) => path.hops === 2 && path.to.id === "knowledge-visible"));
     assert.equal(result.policy.suggested_included, false);
-    assert.doesNotMatch(JSON.stringify(result), /must not be returned/);
 
     const suggested = context.toolGetContextSubgraph({
       entity_type: "task",
@@ -498,8 +453,6 @@ test("Wave 8 legacy export_ai_context: exact empty Markdown and bounded JSON sco
       [
         "# Tasken Context",
         "",
-        "> 公開先: coding_agent / 除外: 0件",
-        "",
         "## Theme",
         "- なし",
         "",
@@ -529,9 +482,6 @@ test("Wave 8 legacy export_ai_context: exact empty Markdown and bounded JSON sco
         "",
         "## Suggested Next Actions",
         "- なし",
-        "",
-        "## AI公開範囲で除外した情報",
-        "- 除外なし",
       ].join("\n"),
     );
   } finally {
@@ -550,17 +500,13 @@ test("Wave 8 legacy export_ai_context: exact empty Markdown and bounded JSON sco
       include_raw_body: false,
     });
     assert.equal(json.scope, "open_items");
-    assert.equal(json.ai_audience, "coding_agent");
+    assert.equal("ai_audience" in json, false);
     assert.deepEqual(
       json.items.map((item) => item.id),
       ["task-visible"],
     );
     assert.equal(
       json.items.some((item) => item.id === "task-done"),
-      false,
-    );
-    assert.equal(
-      json.items.some((item) => item.id === "task-hidden"),
       false,
     );
     assert.deepEqual(

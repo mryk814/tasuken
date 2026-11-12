@@ -13,12 +13,10 @@ const task = {
   id: "page-task",
   title: "期間内の作業",
   state: "done",
-  ai_visibility: ["coding_agent"],
 };
 function fixture(count) {
   return {
     workspace: { tasks: [{ ...task }] },
-    audience: "coding_agent",
     events: Array.from({ length: count }, (_, index) =>
       buildActivityEvent({
         id: `page-${String(index).padStart(5, "0")}`,
@@ -75,7 +73,7 @@ test("descending pages preserve stable ID tie ordering and enforce the chosen li
   assert.deepEqual(ids, input.events.map((event) => event.id).reverse());
 });
 
-test("a changed record, event set, or current visibility requires explicit resync", () => {
+test("a changed record or event set requires explicit resync", () => {
   const original = fixture(501);
   const cursor = queryActivityEvents(original).page.next_cursor;
   const changes = [
@@ -96,9 +94,6 @@ test("a changed record, event set, or current visibility requires explicit resyn
       input.workspace.tasks[0].title = "訂正した題名";
     },
     (input) => {
-      input.workspace.tasks[0].ai_visibility = [];
-    },
-    (input) => {
       input.workspace.tasks = [];
     },
   ];
@@ -112,17 +107,6 @@ test("a changed record, event set, or current visibility requires explicit resyn
     assert.equal(result.page.matched_visible_count, null);
     assert.match(projectActivityMarkdown(result), /resync_required/);
   }
-});
-
-test("workspace policy changes require resync instead of blaming the client's criteria", () => {
-  const input = fixture(2);
-  delete input.workspace.tasks[0].ai_visibility;
-  const cursor = queryActivityEvents({ ...input, workspaceDefault: ["coding_agent"], limit: 1 })
-    .page.next_cursor;
-  const result = queryActivityEvents({ ...input, workspaceDefault: [], limit: 1, cursor });
-  assert.equal(result.page.status, "resync_required");
-  assert.deepEqual(result.events, []);
-  assert.equal(result.page.matched_visible_count, null);
 });
 
 test("invalid cursors and reuse with other criteria never silently become first-page queries", () => {
@@ -140,7 +124,6 @@ test("invalid cursors and reuse with other criteria never silently become first-
     { sort_direction: "desc" },
     { profile: "recall" },
     { theme_id: "different" },
-    { audience: "external_ai" },
     { event_kinds: ["task_reopened"] },
   ]) {
     const result = queryActivityEvents({ ...input, ...changed, cursor });
@@ -179,22 +162,9 @@ test("calendar boundaries use the requested timezone while timestamp boundaries 
   assert.equal(result.page.period.from, "2026-09-06T23:55:00+09:00");
 });
 
-test("all serializers preserve coverage and policy explanations without private identifiers", () => {
+test("all serializers preserve coverage and the next cursor", () => {
   const input = fixture(501);
-  const privateTask = { ...task, id: "private-identifier", title: "秘密の題名", ai_visibility: [] };
-  input.workspace.tasks.push(privateTask);
-  input.events.push(
-    buildActivityEvent({
-      id: "private-event",
-      entity_type: "task",
-      entity_id: privateTask.id,
-      event_kind: "task_completed",
-      occurred_at: at,
-      after: privateTask,
-    }),
-  );
   const result = queryActivityEvents({ ...input, date: "2026-09-06" });
-  assert.equal(result.excluded_count, 1);
   assert.deepEqual(projectActivityJson(result).page, result.page);
   assert.deepEqual(projectActivityMcp(result).page, result.page);
   const markdown = projectActivityMarkdown(result);
@@ -202,6 +172,4 @@ test("all serializers preserve coverage and policy explanations without private 
   assert.match(markdown, /500/);
   assert.match(markdown, /truncated: true/);
   assert.match(markdown, /next_cursor:/);
-  assert.match(markdown, /Excluded by policy/);
-  assert.doesNotMatch(markdown, /private-identifier|秘密の題名|private-event/);
 });

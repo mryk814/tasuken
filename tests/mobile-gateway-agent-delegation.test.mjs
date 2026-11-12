@@ -508,7 +508,6 @@ test("Preview policy, delegation conflicts, and response-loss replay share one c
   const discover = new ListAgentReadyTasksService({
     listTasks: (includeArchived) => repository.list("task", includeArchived),
     listThemes: () => repository.list("theme"),
-    workspaceAiVisibilityDefault: () => ["coding_agent"],
   }).execute({ limit: 20 });
   assert.deepEqual(
     discover.tasks.map((task) => task.id),

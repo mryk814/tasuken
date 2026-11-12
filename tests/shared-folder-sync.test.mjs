@@ -1033,6 +1033,72 @@ test("a relay never overwrites or conflicts with a newer local revision", async 
   }
 });
 
+test("更新前の端末の同期差分が運ぶ ai_visibility / default_ai_visibility は、拒否せず捨てて取り込む", () => {
+  // 廃止した概念。拒否するとNAS replicaの同期が止まるので、受け取って保存せずに捨てる。
+  const pair = createPair();
+  try {
+    const packet = (type, entity, sequence) => ({
+      format: "tasken-sync-change",
+      formatVersion: 1,
+      workspaceId: pair.second.workspaceId,
+      changeId: `legacy-${type}-${sequence}`,
+      revisionId: `legacy-${type}-${sequence}`,
+      parentRevisionIds: [],
+      deviceId: pair.first.deviceId,
+      deviceSequence: sequence,
+      entityType: type,
+      entityId: entity.id,
+      entity: {
+        created_at: "2026-11-01T00:00:00.000Z",
+        updated_at: "2026-11-01T00:00:00.000Z",
+        deleted_at: null,
+        version: 1,
+        ...entity,
+      },
+      createdAt: "2026-11-01T00:00:00.000Z",
+    });
+    const taskResult = pair.second.applySyncPacket(
+      packet("task", task("task-legacy", "旧形式", { ai_visibility: ["m365", "external_ai"] }), 1),
+    );
+    const nullResult = pair.second.applySyncPacket(
+      packet("task", task("task-legacy-null", "旧形式の未設定", { ai_visibility: null }), 2),
+    );
+    const themeResult = pair.second.applySyncPacket(
+      packet(
+        "theme",
+        {
+          id: "theme-legacy",
+          name: "旧Theme",
+          default_ai_visibility: [],
+          ai_visibility: ["slack"],
+        },
+        3,
+      ),
+    );
+    assert.deepEqual(
+      [taskResult.status, nullResult.status, themeResult.status],
+      ["applied", "applied", "applied"],
+    );
+    for (const [type, id] of [
+      ["task", "task-legacy"],
+      ["task", "task-legacy-null"],
+      ["theme", "theme-legacy"],
+    ]) {
+      const stored = pair.second.get(type, id);
+      assert.ok(stored, `${id} は取り込まれる`);
+      assert.equal("ai_visibility" in stored, false, `${id} の ai_visibility は捨てる`);
+      assert.equal(
+        "default_ai_visibility" in stored,
+        false,
+        `${id} の default_ai_visibility は捨てる`,
+      );
+    }
+    assert.equal(pair.second.get("task", "task-legacy").title, "旧形式");
+  } finally {
+    pair.close();
+  }
+});
+
 // ---- 鮮度（#701）: devices/<id>/status.json と sourceStatus ----
 
 const T0 = Date.parse("2026-11-01T00:00:00.000Z");

@@ -292,7 +292,6 @@ test("AI共通metadataは欄がある編集では保存され、欄が無い保�
     ai_summary: "既存の概要",
     ai_summary_authority: "user_confirmed",
     ai_authority: "user_confirmed",
-    ai_visibility: ["coding_agent"],
     ai_source_refs: [{ kind: "url", locator: "https://example.com" }],
   };
 
@@ -307,7 +306,6 @@ test("AI共通metadataは欄がある編集では保存され、欄が無い保�
   );
   const carriedTask = carried.operations.find((operation) => operation.type === "task").entity;
   assert.equal(carriedTask.ai_summary, "既存の概要");
-  assert.deepEqual(carriedTask.ai_visibility, ["coding_agent"]);
   assert.deepEqual(carriedTask.ai_source_refs, [{ kind: "url", locator: "https://example.com" }]);
 
   const edited = plan(
@@ -321,8 +319,6 @@ test("AI共通metadataは欄がある編集では保存され、欄が無い保�
       ["ai_freshness", "current"],
       ["ai_authority", "user_confirmed"],
       ["ai_last_verified_at", "2026-08-06"],
-      ["ai_visibility_override", "true"],
-      ["ai_visibility", "m365"],
     ],
     base,
   );
@@ -330,21 +326,6 @@ test("AI共通metadataは欄がある編集では保存され、欄が無い保�
   assert.equal(editedTask.ai_summary, "新しい概要");
   assert.equal(editedTask.ai_freshness, "current");
   assert.equal(editedTask.ai_last_verified_at, "2026-08-06");
-  assert.deepEqual(editedTask.ai_visibility, ["m365"]);
-
-  // 個別設定を外したら未設定（null）へ戻し、Theme・全体の既定へ継承させる。
-  const inherited = plan(
-    "task",
-    [
-      ["title", "解析する"],
-      ["state", "doing"],
-      ["ai_context_present", "true"],
-      ["ai_visibility", "m365"],
-    ],
-    base,
-  );
-  const inheritedTask = inherited.operations.find((operation) => operation.type === "task").entity;
-  assert.equal(inheritedTask.ai_visibility, null);
 
   // 置き換え先が無いままsupersededにはしない。
   const superseded = plan(

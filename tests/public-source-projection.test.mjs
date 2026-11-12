@@ -21,7 +21,6 @@ const note = {
   body_markdown: "測定条件を確認した。",
   project_id: "theme-1",
   version: 3,
-  ai_visibility: ["m365"],
 };
 const project = (entity = note, options = {}) =>
   buildPublicSourceProjection({
@@ -32,18 +31,8 @@ const project = (entity = note, options = {}) =>
     ...options,
   });
 
-test("full source requires explicit consent and effective M365 permission", () => {
+test("full source requires explicit consent", () => {
   assert.equal(project(note, { explicitlyAllowed: false }), null);
-  assert.equal(project({ ...note, ai_visibility: [] }), null);
-  const inherited = { ...note, ai_visibility: null };
-  assert.equal(
-    project(inherited, { theme: { default_ai_visibility: [] }, workspaceDefault: ["m365"] }),
-    null,
-  );
-  assert.ok(
-    project(inherited, { theme: { default_ai_visibility: ["m365"] }, workspaceDefault: [] }),
-  );
-  assert.equal(project(inherited, { workspaceDefault: [] }), null);
 });
 
 test("deleted, unsupported, and superseded records never expose a body", () => {

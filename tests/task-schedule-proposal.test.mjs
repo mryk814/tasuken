@@ -76,31 +76,17 @@ const wire = (patch, warnings = []) => ({
   warnings,
 });
 
-test("canonical external_ai grants and versions gate transmission and returned proposals", async () => {
-  let canonicalTask = { ...task, ai_visibility: [] };
-  let theme = { id: task.project_id, default_ai_visibility: ["external_ai"] };
-  let workspaceDefault = ["external_ai"];
+test("the Task version gates transmission and returned proposals", async () => {
+  let canonicalTask = { ...task };
   const repository = {
-    get: (type) => (type === "task" ? canonicalTask : theme),
+    get: (type) => (type === "task" ? canonicalTask : { id: task.project_id }),
     list: () => [schedule],
-    getPreference: () => workspaceDefault,
   };
   let calls = 0;
   const provider = async () => {
     calls++;
     return { patch: { plannedStartTime: "15:00" }, warnings: [] };
   };
-  await assert.rejects(proposeTaskSchedule(repository, request, provider), /外部AI/);
-  assert.equal(calls, 0);
-  canonicalTask = { ...task, ai_visibility: null };
-  theme = { ...theme, default_ai_visibility: [] };
-  await assert.rejects(proposeTaskSchedule(repository, request, provider), /外部AI/);
-  assert.equal(calls, 0);
-  theme = { ...theme, default_ai_visibility: null };
-  workspaceDefault = ["coding_agent"];
-  await assert.rejects(proposeTaskSchedule(repository, request, provider), /外部AI/);
-  assert.equal(calls, 0);
-  canonicalTask = { ...task, ai_visibility: ["external_ai"] };
   assert.deepEqual(await proposeTaskSchedule(repository, request, provider), {
     patch: { plannedStartTime: "15:00" },
     warnings: [],
@@ -115,14 +101,6 @@ test("canonical external_ai grants and versions gate transmission and returned p
     /更新/,
   );
   assert.equal(calls, 1);
-  await assert.rejects(
-    proposeTaskSchedule(repository, request, async () => {
-      canonicalTask = { ...canonicalTask, ai_visibility: [] };
-      return { patch: { plannedStartTime: "15:00" }, warnings: [] };
-    }),
-    /外部AI/,
-  );
-  canonicalTask = { ...task, ai_visibility: ["external_ai"] };
   await assert.rejects(
     proposeTaskSchedule(repository, request, async () => {
       canonicalTask = { ...canonicalTask, version: 2 };

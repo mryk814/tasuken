@@ -49,7 +49,7 @@ const THEME_ID = "theme-feed-post";
 const TASK_ID = "task-feed-post";
 
 function seedDatabase(database) {
-  database.save("theme", { id: THEME_ID, name: "粘度測定の条件", ai_visibility: ["coding_agent"] });
+  database.save("theme", { id: THEME_ID, name: "粘度測定の条件" });
   database.save("task", {
     id: TASK_ID,
     title: "保存のやり直しを直す",

@@ -266,7 +266,7 @@ test("renderer autosave dedupe has a five-second session boundary", async () => 
   await rm(directory, { recursive: true, force: true });
 });
 
-test("canonical refs are root-relative, private absolute paths stay out, and policy is projection-time", () => {
+test("canonical refs are root-relative and private absolute paths stay out", () => {
   const event = buildActivityEvent({
     id: "event-canonical",
     entityType: "note",
@@ -276,7 +276,6 @@ test("canonical refs are root-relative, private absolute paths stay out, and pol
     after: {
       id: "note-local",
       title: "local",
-      ai_visibility: [],
       canonical_refs: [
         { kind: "canonical_document", storage_root_id: "root-a", relative_path: "Notes/local.md" },
       ],
@@ -286,20 +285,9 @@ test("canonical refs are root-relative, private absolute paths stay out, and pol
       source_refs: [{ type: "file", absolute_path: "C:\\Users\\private\\secret.md" }],
     },
   });
-  const result = queryActivityEvents({
-    events: [event],
-    workspace: { notes: [{ id: "note-local", title: "local", ai_visibility: [] }] },
-    audience: "m365",
-    workspaceDefault: ["coding_agent"],
-    roots: { "root-a": "C:\\Users\\private\\sync" },
-  });
-  assert.equal(result.events.length, 0);
-  assert.equal(result.excluded_count, 1);
-
   const coding = queryActivityEvents({
     events: [event],
-    workspace: { notes: [{ id: "note-local", title: "local", ai_visibility: ["coding_agent"] }] },
-    audience: "coding_agent",
+    workspace: { notes: [{ id: "note-local", title: "local" }] },
     roots: { "root-a": "C:\\Users\\private\\sync" },
   });
   assert.equal(coding.events.length, 1);
@@ -323,7 +311,7 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
     entity_id: "task-safe",
     event_kind: "task_work_recorded",
     occurred_at: "2026-08-21T00:00:00.000Z",
-    after: { id: "task-safe", title: "Safe Task", ai_visibility: ["coding_agent"] },
+    after: { id: "task-safe", title: "Safe Task" },
     summary:
       "See https://user:pass@example.com/report?q=secret#fragment and C:\\private\\report.txt token=secret",
     canonical_refs: [
@@ -418,11 +406,10 @@ test("public Activity projection sanitizes URLs and typed refs while allowlistin
   const result = queryActivityEvents({
     events: [event],
     workspace: {
-      tasks: [{ id: "task-safe", title: "Safe Task", ai_visibility: ["coding_agent"] }],
-      artifacts: [{ id: "artifact-safe", ai_visibility: ["coding_agent"] }],
-      notes: [{ id: "note-safe", ai_visibility: ["coding_agent"] }],
+      tasks: [{ id: "task-safe", title: "Safe Task" }],
+      artifacts: [{ id: "artifact-safe" }],
+      notes: [{ id: "note-safe" }],
     },
-    audience: "coding_agent",
   });
   const projected = result.events[0];
   assert.equal(projected.canonical_refs[0].web_url, "https://example.com/report");
@@ -787,4 +774,18 @@ test("schema v3 migrates a real legacy row idempotently without parsing plain af
   assert.deepEqual(second.get("change_event", "legacy-event", true), migrated);
   second.db.close();
   await rm(directory, { recursive: true, force: true });
+});
+
+test("currentEntityOnly drops events of entities that are no longer in the workspace", () => {
+  const event = buildActivityEvent({
+    id: "event-gone",
+    entity_type: "task",
+    entity_id: "task-gone",
+    event_kind: "task_work_recorded",
+    occurred_at: "2026-09-01T00:00:00.000Z",
+    after: { id: "task-gone", title: "消えたTask" },
+  });
+  const input = { events: [event], workspace: { tasks: [] } };
+  assert.equal(queryActivityEvents(input).events.length, 1);
+  assert.equal(queryActivityEvents({ ...input, currentEntityOnly: true }).events.length, 0);
 });

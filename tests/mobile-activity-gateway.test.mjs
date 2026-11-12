@@ -272,20 +272,19 @@ test("source availability distinguishes Capture and Desktop-only Note details", 
   );
 });
 
-test("owner recall keeps private historical and current names and private secondary references", async () => {
+test("owner recall keeps historical and current names and secondary references", async () => {
   const oldTask = {
     id: "moved-task",
     title: "当時の非公開Task",
     project_id: "old-theme",
     state: "done",
-    ai_visibility: [],
   };
   const workspace = {
     tasks: [{ ...oldTask, title: "現在の非公開Task", project_id: "new-theme" }],
-    notes: [{ id: "private-note", title: "非公開の参照", ai_visibility: [] }],
+    notes: [{ id: "private-note", title: "参照Note" }],
     themes: [
-      { id: "old-theme", name: "以前の所属", default_ai_visibility: [] },
-      { id: "new-theme", name: "現在の所属", default_ai_visibility: [] },
+      { id: "old-theme", name: "以前の所属" },
+      { id: "new-theme", name: "現在の所属" },
     ],
     change_events: [
       buildActivityEvent({
@@ -315,9 +314,6 @@ test("owner recall keeps private historical and current names and private second
   workspace.tasks[0].deleted_at = now;
   const deleted = await source.request();
   assert.equal(deleted.body.data.events.length, 0);
-  assert.deepEqual(deleted.body.data.excluded_reasons, [
-    { type: "task", reason: "entity_deleted", count: 1 },
-  ]);
 });
 
 test("shared mobile fixtures retain complete, empty, continuation and unsupported-source distinctions", () => {

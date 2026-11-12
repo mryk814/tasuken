@@ -48,7 +48,6 @@ function voiceCapture(overrides = {}) {
     transcription_status: "not_requested",
     captured_at: "2026-08-09T00:00:00.000Z",
     state: "untriaged",
-    ai_visibility: [],
     ...overrides,
   };
 }

@@ -81,7 +81,7 @@ async function createWorkspace() {
   const dbPath = path.join(root, "workspace.sqlite");
   const database = new WorkspaceDatabase(dbPath);
   database.loadWorkspace();
-  database.save("theme", { id: THEME_ID, name: "往復の確認", ai_visibility: ["coding_agent"] });
+  database.save("theme", { id: THEME_ID, name: "往復の確認" });
   database.setPreference("artifactDirectory", path.join(root, "Canonical"));
   const application = new ApplicationCommandService(database);
   // Desktopと同じく、開始はCoreの限定の入口（Themeと依頼者を問わない`any`）を通す。

@@ -194,10 +194,7 @@ test("MCP Wave 2 is exact across legacy, in-process, HTTP, and MCP", async () =>
   const workspace = fixture();
   const core = createTaskenCore(new FixtureRepository(workspace));
   const host = new TaskenCoreHost({ userDataPath: root, ...core });
-  const legacy = new ReadOnlyTaskenContext("wave2.sqlite", {
-    workspace,
-    aiVisibilityDefault: ["coding_agent"],
-  });
+  const legacy = new ReadOnlyTaskenContext("wave2.sqlite", { workspace });
   try {
     await host.start();
     const client = new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
@@ -230,22 +227,6 @@ test("MCP Wave 2 is exact across legacy, in-process, HTTP, and MCP", async () =>
           limit: 1,
         },
       ],
-      [
-        "tasken.resolve_repository_context",
-        "toolResolveRepositoryContext",
-        "resolveRepositoryContext",
-        {
-          remote_url: "https://github.com/private/archived",
-        },
-      ],
-      [
-        "tasken.get_task_assignment",
-        "toolGetTaskAssignment",
-        "getTaskAssignment",
-        {
-          task_id: "task-active-under-archived-private-theme",
-        },
-      ],
     ];
     for (const [toolName, legacyMethod, clientMethod, request] of cases) {
       const expected = legacy[legacyMethod](request);
@@ -257,10 +238,6 @@ test("MCP Wave 2 is exact across legacy, in-process, HTTP, and MCP", async () =>
       assert.deepEqual(withoutAgentState(mcp.structuredContent), expected, `${toolName}: MCP`);
       if (inProcess.task) assert.equal(inProcess.agent_state.runnable, true);
       assert.doesNotMatch(JSON.stringify(expected), /\/private\//);
-      if (request.task_id === "task-active-under-archived-private-theme") {
-        assert.equal(expected.task, null);
-        assert.equal(expected.excluded_count, 1);
-      }
     }
 
     for (const request of [

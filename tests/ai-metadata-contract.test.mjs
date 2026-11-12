@@ -2,16 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  DEFAULT_AI_VISIBILITY,
   buildAiEntityHeader,
   normalizeAiMetadata,
-  normalizeAiVisibility,
-  projectEntityForAi,
   resolveAiAuthority,
   resolveAiFreshness,
   resolveAiSummary,
-  resolveAiVisibility,
-  summarizeAiExclusions,
 } from "../src/shared/aiMetadata.mjs";
 import { normalizeEntity, validateEntity } from "../src/main/repositories/domain.mjs";
 import { ReadOnlyTaskenContext } from "./fixtures/legacyReadOnlyContext.mjs";
@@ -21,21 +16,49 @@ test("AI共通metadataは未設定と明示指定を区別して正規化する�
   assert.equal(empty.ai_summary, null);
   assert.equal(empty.ai_freshness, null);
   assert.equal(empty.ai_authority, null);
-  // 未設定はnull、明示的な「ローカルのみ」は空配列。両者を潰さない。
-  assert.equal(empty.ai_visibility, null);
   assert.deepEqual(empty.ai_source_refs, []);
+  // AI公開範囲は廃止した概念。出力に欄を持たない。
+  assert.equal("ai_visibility" in empty, false);
+});
 
-  assert.deepEqual(normalizeAiVisibility([]), []);
-  assert.deepEqual(normalizeAiVisibility("m365_allowed"), ["m365"]);
-  assert.deepEqual(normalizeAiVisibility(["external_ai", "m365"]), ["m365", "external_ai"]);
-  assert.throws(() => normalizeAiVisibility(["slack"]), /ai_visibility/);
+test("更新前の端末が送る ai_visibility / default_ai_visibility は、拒否せず捨てる", () => {
+  // どんな値でも（不正な値でも）受け取り、同期やコマンドを止めない。
+  for (const legacy of [
+    null,
+    [],
+    ["m365"],
+    ["coding_agent", "external_ai"],
+    ["slack"],
+    "local_only",
+  ]) {
+    const metadata = normalizeAiMetadata("theme", {
+      ai_summary: "概要",
+      ai_visibility: legacy,
+      default_ai_visibility: legacy,
+    });
+    assert.equal(metadata.ai_summary, "概要");
+    assert.equal("ai_visibility" in metadata, false);
+    assert.equal("default_ai_visibility" in metadata, false);
+
+    const task = { id: "task-1", title: "旧データ", state: "todo", ai_visibility: legacy };
+    assert.doesNotThrow(() => validateEntity("task", task));
+    assert.equal("ai_visibility" in normalizeEntity("task", task), false);
+
+    const theme = {
+      id: "theme-1",
+      name: "材料A",
+      default_ai_visibility: legacy,
+      ai_visibility: legacy,
+    };
+    assert.doesNotThrow(() => validateEntity("theme", theme));
+    const normalizedTheme = normalizeEntity("theme", theme);
+    assert.equal("default_ai_visibility" in normalizedTheme, false);
+    assert.equal("ai_visibility" in normalizedTheme, false);
+  }
 });
 
 test("supersededは置き換え先なしで名乗れない（#294）", () => {
-  assert.throws(
-    () => normalizeAiMetadata("note", { ai_freshness: "superseded" }),
-    /置き換え先/,
-  );
+  assert.throws(() => normalizeAiMetadata("note", { ai_freshness: "superseded" }), /置き換え先/);
   const ok = normalizeAiMetadata("note", {
     ai_freshness: "superseded",
     ai_superseded_by: { type: "note", id: "note-2" },
@@ -49,11 +72,17 @@ test("既存Entityは本文を変えずに扱え、不正な値だけ弾く（#2
   const normalized = normalizeEntity("task", legacy);
   assert.equal(normalized.description, "本文");
   assert.equal(normalized.ai_freshness, null);
-  assert.throws(() => validateEntity("task", { ...legacy, ai_authority: "guessed" }), /ai_authority/);
+  assert.throws(
+    () => validateEntity("task", { ...legacy, ai_authority: "guessed" }),
+    /ai_authority/,
+  );
 });
 
 test("概要はユーザー確定と本文からの暫定生成を混同しない（#294）", () => {
-  const explicit = resolveAiSummary("note", { ai_summary: "手で書いた概要", ai_summary_authority: "user_confirmed" });
+  const explicit = resolveAiSummary("note", {
+    ai_summary: "手で書いた概要",
+    ai_summary_authority: "user_confirmed",
+  });
   assert.equal(explicit.origin, "explicit");
   assert.equal(explicit.authority, "user_confirmed");
 
@@ -71,7 +100,10 @@ test("鮮度と根拠は未設定を理由付きで返し、日付だけでstale
   assert.equal(unset.origin, "unset");
   assert.ok(unset.reason);
 
-  assert.equal(resolveAiFreshness({ ai_superseded_by: { type: "note", id: "n" } }).origin, "derived");
+  assert.equal(
+    resolveAiFreshness({ ai_superseded_by: { type: "note", id: "n" } }).origin,
+    "derived",
+  );
 
   // 推定はDBへ書き戻さず、推定であることを添えて返す。
   const imported = resolveAiAuthority("note", { source: "imported" });
@@ -81,44 +113,7 @@ test("鮮度と根拠は未設定を理由付きで返し、日付だけでstale
   assert.equal(resolveAiAuthority("note", {}).authority, null);
 });
 
-test("公開範囲はEntity→Theme→全体既定の順に継承し、由来を返す（#294）", () => {
-  const theme = { id: "theme-1", name: "材料A", default_ai_visibility: ["m365"] };
-
-  const entityLevel = resolveAiVisibility({ entity: { ai_visibility: [] }, theme });
-  assert.deepEqual(entityLevel.audiences, []);
-  assert.equal(entityLevel.source, "entity");
-
-  const themeLevel = resolveAiVisibility({ entity: {}, theme });
-  assert.deepEqual(themeLevel.audiences, ["m365"]);
-  assert.equal(themeLevel.source, "theme");
-
-  const fallback = resolveAiVisibility({ entity: {}, theme: null });
-  assert.deepEqual(fallback.audiences, DEFAULT_AI_VISIBILITY);
-  assert.equal(fallback.source, "workspace_default");
-});
-
-test("公開範囲外のEntityはheaderも本文も返さず、理由だけを集計する（#294）", () => {
-  const local = { id: "note-1", title: "下書き", body_markdown: "秘密", ai_visibility: [] };
-  const denied = projectEntityForAi("note", local, { audience: "coding_agent" });
-  assert.equal(denied.included, false);
-  assert.equal(denied.header, null);
-  assert.ok(denied.exclusion.reason);
-
-  const allowed = projectEntityForAi("note", { ...local, ai_visibility: ["coding_agent"] }, { audience: "coding_agent" });
-  assert.equal(allowed.included, true);
-  assert.deepEqual(allowed.header.ai_visibility, ["coding_agent"]);
-
-  // M365可でもCoding Agent可とは限らない。単一のladderに潰さない。
-  const m365Only = projectEntityForAi("note", { ...local, ai_visibility: ["m365"] }, { audience: "coding_agent" });
-  assert.equal(m365Only.included, false);
-
-  const summary = summarizeAiExclusions([denied.exclusion, m365Only.exclusion]);
-  assert.equal(summary.excluded_count, 2);
-  assert.equal(summary.excluded_reasons.length, 1);
-  assert.equal(summary.excluded_reasons[0].count, 2);
-});
-
-test("headerは概要・鮮度・根拠・公開範囲・出典をまとめて返す（#294）", () => {
+test("headerは概要・鮮度・根拠・出典をまとめて返す（#294）", () => {
   const header = buildAiEntityHeader("task", {
     id: "task-1",
     title: "測定結果を確認",
@@ -128,13 +123,14 @@ test("headerは概要・鮮度・根拠・公開範囲・出典をまとめて�
     ai_freshness: "current",
     ai_authority: "user_confirmed",
     ai_last_verified_at: "2026-08-05",
-    ai_source_refs: [{ kind: "canonical_document", locator: "notes/measure.md", storage_root_id: "sync" }],
-  }, { theme: { id: "theme-1", name: "材料A", default_ai_visibility: ["coding_agent"] } });
+    ai_source_refs: [
+      { kind: "canonical_document", locator: "notes/measure.md", storage_root_id: "sync" },
+    ],
+  });
   assert.equal(header.summary, "条件Bの再測定");
   assert.equal(header.freshness, "current");
   assert.equal(header.authority, "user_confirmed");
-  assert.deepEqual(header.ai_visibility, ["coding_agent"]);
-  assert.equal(header.ai_visibility_source, "theme");
+  assert.equal("ai_visibility" in header, false);
   assert.equal(header.source_refs[0].storage_root_id, "sync");
 });
 
@@ -142,17 +138,37 @@ function workspaceFixture() {
   const stamp = "2026-08-06T00:00:00.000Z";
   return {
     themes: [
-      { id: "theme-1", name: "材料A", default_ai_visibility: ["coding_agent"], updated_at: stamp },
-      { id: "theme-2", name: "個人", default_ai_visibility: [], updated_at: stamp },
+      { id: "theme-1", name: "材料A", updated_at: stamp },
+      { id: "theme-2", name: "個人", updated_at: stamp },
     ],
     tasks: [
-      { id: "task-1", title: "公開してよい作業", state: "todo", project_id: "theme-1", updated_at: stamp },
-      { id: "task-2", title: "個人的な作業", state: "todo", project_id: "theme-2", updated_at: stamp },
-      { id: "task-3", title: "M365だけ許可", state: "todo", project_id: "theme-1", ai_visibility: ["m365"], updated_at: stamp },
+      { id: "task-1", title: "作業A", state: "todo", project_id: "theme-1", updated_at: stamp },
+      { id: "task-2", title: "作業B", state: "todo", project_id: "theme-2", updated_at: stamp },
+      // 更新前の端末が残した欄。値は読まれない。
+      {
+        id: "task-3",
+        title: "作業C",
+        state: "todo",
+        project_id: "theme-1",
+        ai_visibility: [],
+        updated_at: stamp,
+      },
     ],
     notes: [
-      { id: "note-1", title: "共有メモ", body_markdown: "共有してよい", theme_id: "theme-1", updated_at: stamp },
-      { id: "note-2", title: "個人メモ", body_markdown: "秘密の下書き", theme_id: "theme-2", updated_at: stamp },
+      {
+        id: "note-1",
+        title: "メモ1",
+        body_markdown: "本文1",
+        theme_id: "theme-1",
+        updated_at: stamp,
+      },
+      {
+        id: "note-2",
+        title: "メモ2",
+        body_markdown: "本文2",
+        theme_id: "theme-2",
+        updated_at: stamp,
+      },
     ],
     items: [],
     waitings: [],
@@ -172,35 +188,26 @@ function workspaceFixture() {
   };
 }
 
-test("MCPはvisibility違反の本文を返さず、除外理由を返す（#294）", () => {
-  const context = new ReadOnlyTaskenContext("", { workspace: workspaceFixture(), audience: "coding_agent" });
+test("MCPは全Entityを返す。公開範囲の欄が残っていても値は読まれない", () => {
+  const context = new ReadOnlyTaskenContext("", { workspace: workspaceFixture() });
   const items = context.toolListOpenItems({});
-  const titles = items.items.map((item) => item.title);
-  assert.deepEqual(titles, ["公開してよい作業"]);
-  assert.equal(items.excluded_count, 2);
-  assert.ok(items.excluded_reasons.length >= 1);
+  assert.deepEqual(items.items.map((item) => item.title).sort(), ["作業A", "作業B", "作業C"]);
+  assert.equal("excluded_count" in items, false);
+  assert.equal("ai_audience" in items, false);
 
   const notes = context.toolGetRecentNotes({ include_raw_body: true });
-  assert.deepEqual(notes.notes.map((note) => note.title), ["共有メモ"]);
-  assert.equal(JSON.stringify(notes).includes("秘密の下書き"), false);
-  assert.equal(notes.notes[0].ai.ai_visibility_source, "theme");
+  assert.deepEqual(notes.notes.map((note) => note.title).sort(), ["メモ1", "メモ2"]);
+  assert.equal("ai_visibility" in notes.notes[0].ai, false);
 });
 
-test("AI Packはm365許可分だけを使い、公開先ごとに結果が変わる（#294）", () => {
-  const context = new ReadOnlyTaskenContext("", { workspace: workspaceFixture(), audience: "coding_agent" });
+test("export_ai_contextは公開先を切り替えず、全Entityを一つの形で返す", () => {
+  const context = new ReadOnlyTaskenContext("", { workspace: workspaceFixture() });
+  const pack = context.toolExportAiContext({ format: "json" });
+  assert.deepEqual(pack.items.map((item) => item.title).sort(), ["作業A", "作業B", "作業C"]);
+  assert.equal("ai_audience" in pack, false);
+  assert.equal("excluded_count" in pack, false);
 
-  const m365 = context.toolExportAiContext({ format: "json", audience: "m365" });
-  assert.deepEqual(m365.items.map((item) => item.title), ["M365だけ許可"]);
-  assert.equal(m365.ai_audience, "m365");
-  assert.deepEqual(m365.notes, []);
-
-  // 公開先を切り替えても、呼び出し後は元の公開先へ戻る。
-  const codingAgent = context.toolExportAiContext({ format: "json" });
-  assert.deepEqual(codingAgent.items.map((item) => item.title), ["公開してよい作業"]);
-  assert.equal(codingAgent.ai_audience, "coding_agent");
-
-  const markdown = context.toolExportAiContext({ audience: "m365" });
-  assert.match(markdown, /公開先: m365/);
-  assert.match(markdown, /AI公開範囲で除外した情報/);
-  assert.equal(markdown.includes("秘密の下書き"), false);
+  const markdown = context.toolExportAiContext({});
+  assert.doesNotMatch(markdown, /公開先|除外した情報/);
+  assert.match(markdown, /メモ1/);
 });

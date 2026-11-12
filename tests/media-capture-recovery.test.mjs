@@ -497,7 +497,6 @@ const COMMAND_TAMPERS = [
   ["capture.captured_at", "2020-01-01T00:00:00.000Z"],
   ["capture.state", "triaged"],
   ["capture.project_id", "00000000-0000-4000-8000-000000000099"],
-  ["capture.ai_visibility", ["coding_agent"]],
   ["artifact.title", "tampered"],
   ["artifact.filename", "other.wav"],
   ["artifact.file_type", "mp3"],
@@ -515,7 +514,6 @@ const COMMAND_TAMPERS = [
   ["artifact.container", "mp3"],
   ["artifact.content_hash", `sha256:${"b".repeat(64)}`],
   ["artifact.media_availability", "changed"],
-  ["artifact.ai_visibility", ["coding_agent"]],
   ["command.issuedAt", "2020-01-01T00:00:00.000Z"],
 ];
 
@@ -534,6 +532,22 @@ for (const [field, replacement] of COMMAND_TAMPERS) {
     assert.equal(executor.calls, 0);
   });
 }
+
+test("AI公開範囲の廃止前に書いた復旧用commandの ai_visibility は拒否せず、そのまま復旧する", (t) => {
+  const state = finalizedAfterDbFailure(t);
+  const manifest = JSON.parse(fs.readFileSync(state.manifestPath, "utf8"));
+  manifest.command.payload.capture.ai_visibility = [];
+  manifest.command.payload.artifact.ai_visibility = [];
+  fs.writeFileSync(
+    state.manifestPath,
+    `${JSON.stringify(manifest, null, 2)}
+`,
+  );
+  const executor = commandExecutor({ fail: false });
+
+  assert.deepEqual(service(state.paths, executor).recoverPending(), { recovered: 1, pending: 0 });
+  assert.equal(executor.calls, 1);
+});
 
 test("manifest themeId accepts a safe legacy ID and rejects untrimmed IDs before any DB write", (t) => {
   const paths = fixture(t);

@@ -112,7 +112,6 @@ function createLegacyFixture() {
         id: THEME_ID,
         name: "Legacy AI collaboration Theme",
         code: "AIE2E",
-        default_ai_visibility: ["coding_agent"],
       },
     ],
     tasks: [
@@ -130,7 +129,6 @@ function createLegacyFixture() {
         title: "Implementation context",
         body_markdown: "Use the typed proposal and human review boundaries.",
         theme_id: THEME_ID,
-        ai_visibility: ["coding_agent"],
         ai_summary: "Typed proposal implementation context",
       },
     ],

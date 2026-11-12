@@ -16,7 +16,6 @@ import {
   PERSONAL_DEFAULT_THEME_ID,
 } from "../src/shared/personalTheme.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
-import { queryActivityEvents } from "../src/shared/activityProjection.mjs";
 
 async function importWorkspaceService() {
   const outputDirectory = mkdtempSync(path.join(os.tmpdir(), "tasken-canonical-service-bundle-"));
@@ -310,42 +309,6 @@ test("RecordWorkLog recovers the canonical Note and event together after a faile
         .filter((event) => event.command_id === command.commandId).length,
       1,
     );
-  } finally {
-    closeFixture(fixture);
-  }
-});
-
-test("RecordWorkLog inherits private Theme exclusion in Activity export", () => {
-  const fixture = createFixture("tasken-work-log-private");
-  try {
-    fixture.database.save("theme", {
-      id: "private-theme",
-      name: "非公開Theme",
-      default_ai_visibility: "local_only",
-    });
-    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
-    const receipt = service.recordWorkLog({
-      schemaVersion: 1,
-      commandName: "RecordWorkLog",
-      commandId: "private-log",
-      issuedAt: "2026-09-06T06:00:00Z",
-      performedDate: "2026-09-01",
-      body: "非公開の作業",
-      themeId: "private-theme",
-    });
-    const workspace = service.loadWorkspace();
-    const result = queryActivityEvents({
-      events: [fixture.database.get("change_event", receipt.eventId)],
-      workspace,
-      audience: "coding_agent",
-    });
-    assert.equal(result.events.length, 0);
-    const local = queryActivityEvents({
-      events: [fixture.database.get("change_event", receipt.eventId)],
-      workspace,
-    });
-    assert.equal(local.events.length, 1);
-    assert.equal(local.events[0].metadata.work_log.performed_date, "2026-09-01");
   } finally {
     closeFixture(fixture);
   }
@@ -1061,7 +1024,6 @@ test("Note AI accept couples canonical file, Note, Proposal, and command receipt
       id: "note-ai-canonical",
       title: "AI Note",
       body_markdown: "before",
-      ai_visibility: ["external_ai"],
     });
     const workspace = new WorkspaceService(fixture.database, fixture.userDataPath);
     const initial = workspace.saveCanonicalNote(

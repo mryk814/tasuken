@@ -256,7 +256,6 @@ test("Headless replica joins a shared-folder sync and serves read-only MCP reads
         title: "Replica shared task B",
         state: "todo",
         priority: "normal",
-        ai_visibility: ["coding_agent"],
       });
       await hostSync.syncNow();
       await handle.syncNow();
@@ -1004,7 +1003,6 @@ test("Headless replica serves synced capture and task images over Core HTTP (MCP
       priority: "normal",
       theme_id: "theme-image",
       images: [manifest],
-      ai_visibility: ["coding_agent"],
     });
     host.save("capture_entry", {
       id: "capture-image",
@@ -1016,7 +1014,6 @@ test("Headless replica serves synced capture and task images over Core HTTP (MCP
       captured_at: new Date().toISOString(),
       theme_id: "theme-image",
       images: [manifest],
-      ai_visibility: ["coding_agent"],
     });
     await hostSync.configure(shared);
 

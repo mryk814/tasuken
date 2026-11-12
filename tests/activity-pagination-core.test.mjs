@@ -27,7 +27,6 @@ const task = {
   id: "pagination-task",
   title: "公開作業",
   state: "doing",
-  ai_visibility: ["coding_agent"],
 };
 const timestamp = (index) =>
   new Date(Date.parse("2026-09-05T15:00:00.000Z") + index * 1000).toISOString();
@@ -48,8 +47,6 @@ function fixture(count) {
       tasks: [{ ...task }, { ...task, id: "other-task", title: "別の公開作業" }],
       change_events: Array.from({ length: count }, (_, index) => makeEvent(index)),
     },
-    visibilityThemes: [],
-    workspaceAiVisibilityDefault: ["coding_agent"],
   };
   return {
     snapshot,
@@ -175,12 +172,9 @@ test("Core cursor misuse fails explicitly and keeps unknown counts null", () => 
   );
 });
 
-test("Core continuation rejects additions, deletions and changed visibility instead of combining revisions", () => {
+test("Core continuation rejects additions and deletions instead of combining revisions", () => {
   for (const route of ["activity", "daily", "task"]) {
-    for (const change of ["added", "deleted", "private"]) {
-      // Hiding the explicitly addressed Task retains its existing not_found
-      // contract; daily/general queries must report the changed public result.
-      if (route === "task" && change === "private") continue;
+    for (const change of ["added", "deleted"]) {
       const { activity, entries, snapshot } = fixture(3);
       const request = {
         ...(route === "task" ? { task_id: task.id } : { date }),
@@ -192,7 +186,6 @@ test("Core continuation rejects additions, deletions and changed visibility inst
       const cursor = call(request).page.next_cursor;
       if (change === "added") snapshot.workspace.change_events.push(makeEvent(3));
       if (change === "deleted") snapshot.workspace.change_events.pop();
-      if (change === "private") snapshot.workspace.tasks[0].ai_visibility = [];
       const result = call({ ...request, cursor });
       assertPage(result, "resync_required");
       assert.ok(!JSON.stringify(result).includes(task.title));
