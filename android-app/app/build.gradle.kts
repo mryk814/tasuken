@@ -116,6 +116,8 @@ dependencies {
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     implementation("androidx.work:work-runtime-ktx:$workVersion")
+    // 場所のリマインダー（#727）のジオフェンス。端末に Play Services が無ければ何もしない。
+    implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
 
     ksp("androidx.room:room-compiler:$roomVersion")

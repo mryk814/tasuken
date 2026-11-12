@@ -262,6 +262,7 @@ internal fun TodayApp(
     val pendingCount by todayViewModel.pendingCount.collectAsState()
     val conflictCount by todayViewModel.conflictCount.collectAsState()
     val allTasks by todayViewModel.allTasks.collectAsState()
+    val previousPlaces = remember(allTasks) { previousPlaceReminders(allTasks) }
     val themeCatalogState by todayViewModel.themeCatalogState.collectAsState()
     val workReceiptDetailState by todayViewModel.workReceiptDetailState.collectAsState()
     val taskWorkProposals by todayViewModel.taskWorkProposals.collectAsState()
@@ -1024,6 +1025,8 @@ internal fun TodayApp(
                         onTodayDateUpdate = todayViewModel::updateTaskTodayDate,
                         onThemeUpdate = todayViewModel::updateTaskTheme,
                         onScheduleUpdate = todayViewModel::updateTaskSchedule,
+                        previousPlaces = previousPlaces,
+                        onPlaceReminderUpdate = todayViewModel::updateTaskPlaceReminder,
                         onChecklistUpdate = todayViewModel::updateTaskChecklist,
                         onRejectedThemeDiscard = todayViewModel::discardRejectedThemeUpdate,
                         onConflictResolution = todayViewModel::resolveConflict,
@@ -3206,6 +3209,8 @@ internal fun TodayDetailPane(
     onTodayDateUpdate: (MobileTask, LocalDate?) -> Unit = { _, _ -> },
     onThemeUpdate: (MobileTask, String?) -> Unit = { _, _ -> },
     onScheduleUpdate: (MobileTask, MobileTaskScheduleDraft) -> Unit = { _, _ -> },
+    previousPlaces: List<MobilePlaceReminder> = emptyList(),
+    onPlaceReminderUpdate: (MobileTask, MobilePlaceReminder?) -> Unit = { _, _ -> },
     onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit = { _, _ -> },
     onRejectedThemeDiscard: (MobileTask) -> Unit = {},
     onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
@@ -3359,6 +3364,9 @@ internal fun TodayDetailPane(
                 themes.firstOrNull { it.id == task.themeId }?.let { theme ->
                     TaskDetailChip(text = theme.title, icon = R.drawable.ic_tabler_target)
                 }
+                task.placeReminder?.let { place ->
+                    TaskDetailChip(text = place.name, icon = R.drawable.ic_tabler_map_pin, modifier = Modifier.testTag("task-place-chip"))
+                }
                 task.schedule?.let { schedule ->
                     val start = schedule.startDate?.let(LocalDate::parse)
                     val end = schedule.endDate?.let(LocalDate::parse)
@@ -3465,7 +3473,10 @@ internal fun TodayDetailPane(
                     ) {
                         Text("同期できなかった変更", fontWeight = FontWeight.Bold)
                         if (conflict.intendedAction == "UpdateTask") {
-                            if (conflict.localThemeIdChanged) {
+                            if (conflict.localPlaceReminderChanged) {
+                                Text("Desktop  場所 ${conflict.serverPlaceReminder?.name ?: "なし"}")
+                                Text("この端末  場所 ${conflict.localPlaceReminder?.name ?: "なし"}")
+                            } else if (conflict.localThemeIdChanged) {
                                 Text("Desktop  Theme ${themeTitleForDisplay(themes, conflict.serverThemeId)}")
                                 Text("この端末  Theme ${themeTitleForDisplay(themes, conflict.localThemeId)}")
                             } else if (conflict.localChecklistItemsChanged) {
@@ -3613,6 +3624,18 @@ internal fun TodayDetailPane(
                     else -> null
                 },
                 onSave = { onScheduleUpdate(task, it) },
+            )
+            TaskPlaceReminderEditor(
+                place = task.placeReminder,
+                previousPlaces = previousPlaces,
+                enabled = (!task.pending || task.canEditPendingCreate || task.canEditPendingTask) && task.conflict == null &&
+                    actionState !is TaskActionUiState.Saving,
+                stateDescription = when {
+                    task.pending -> "送信待ち"
+                    task.conflict != null -> "競合を解決してから変更"
+                    else -> null
+                },
+                onChange = { onPlaceReminderUpdate(task, it) },
             )
             taskWorkProposals.forEach { proposal ->
                 TaskWorkProposalReviewCard(

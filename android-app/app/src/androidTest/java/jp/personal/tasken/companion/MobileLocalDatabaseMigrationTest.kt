@@ -19,7 +19,7 @@ class MobileLocalDatabaseMigrationTest {
         helper.createDatabase(DatabaseName, 29).apply {
             execSQL("INSERT INTO task_cache (id,serverVersion,title,themeId,state,workState,todayDate,updatedAt,optimisticCommandId,checklistJson) VALUES ('task',4,'保持するTask',NULL,'todo','not_delegated',NULL,'2026-11-12T08:00:00Z','command','[]')")
             execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt) VALUES ('command','key','request','device','2026-11-12T08:00:00Z','UpdateTask','保持する入力','server','pending',0,'2026-11-12T08:00:00Z')")
-            execSQL("INSERT INTO task_conflict (commandId,taskId,intendedAction,expectedVersion,serverVersion,serverState,serverTitle,serverUpdatedAt,detectedAt) VALUES ('command','task','UpdateTask',3,4,'todo','Desktop側','2026-11-12T08:00:00Z','2026-11-12T08:00:00Z')")
+            execSQL("INSERT INTO task_conflict (commandId,taskId,intendedAction,expectedVersion,serverVersion,serverState,serverTitle,localTodayDateChanged,localThemeIdChanged,localChecklistChanged,serverUpdatedAt,detectedAt,localScheduleChanged,localPlannedScheduleChanged) VALUES ('command','task','UpdateTask',3,4,'todo','Desktop側',0,0,0,'2026-11-12T08:00:00Z','2026-11-12T08:00:00Z',0,0)")
             close()
         }
         helper.runMigrationsAndValidate(DatabaseName, 30, true, MIGRATION_29_30).use { db ->
