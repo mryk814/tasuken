@@ -201,6 +201,6 @@ NASの開始専用権限は`task.start_work`です。本人の個人業務のAI 
 
 開発時の作業・検証は [AGENTS.md](./AGENTS.md)、設計・保存の境界は [設計・データ契約](./docs/engineering-contracts.md)、未完了の作業は [GitHub Issues](https://github.com/mryk814/tasuken/issues) を参照してください。
 Knowledge ModelとAI/MCP連携の次期方針は [`knowledge-mcp-policy.md`](./docs/knowledge-mcp-policy.md) を参照してください。
-AIへ渡す概要・鮮度・根拠・公開範囲の共通契約は [`ai-metadata-contract.md`](./docs/ai-metadata-contract.md) を参照してください。
+AIへ渡す概要・鮮度・根拠・出典の共通契約は [`ai-metadata-contract.md`](./docs/ai-metadata-contract.md) を参照してください。
 
 接続ごとのツール選択と作業報告の移行方法は[MCPのツール選択と軽量化](docs/mcp-toolsets.md)を参照してください。汎用クライアントは`TASKEN_MCP_TOOLSETS=core`で6ツールに絞れます。
