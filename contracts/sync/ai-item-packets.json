@@ -144,6 +144,14 @@
       "$.entity.device_id: string",
       "$.entity.id: string",
       "$.entity.intended_executor: string=\"self\"",
+      "$.entity.place_reminder.days: array",
+      "$.entity.place_reminder.latitude: number",
+      "$.entity.place_reminder.longitude: number",
+      "$.entity.place_reminder.name: string",
+      "$.entity.place_reminder.radius_m: number",
+      "$.entity.place_reminder.time_from: null",
+      "$.entity.place_reminder.time_to: null",
+      "$.entity.place_reminder: object",
       "$.entity.primary_repository_context_id: null",
       "$.entity.priority: string=\"normal\"",
       "$.entity.project_id: string=\"theme-personal-default\"",
@@ -188,6 +196,7 @@
       "$.entity.change_type: string=\"updated\"",
       "$.entity.changed_at: string",
       "$.entity.changed_fields: array",
+      "$.entity.changed_fields[]: string=\"place_reminder\"",
       "$.entity.changed_fields[]: string=\"title\"",
       "$.entity.command_fingerprint: string",
       "$.entity.command_id: string",
@@ -269,6 +278,12 @@
       "shape_sha256": "9f4b3814a2c8c9278f7247c3b10c4ed0faa995bd36118f12e2028f49b5072f87",
       "desktop_first": false,
       "note": "AI 公開範囲を廃止し、replica が書く Task・Note から ai_visibility（常に null）の欄を外した。古い Desktop は欄が無い差分を、未設定として今までどおり取り込める。新しい Desktop は古い replica の欄を捨てて取り込む"
+    },
+    {
+      "date": "2026-11-12",
+      "shape_sha256": "202d70ae37cce3dd2bd39d8f6ac8bf509c8652709bd81ae683041bc1b4e937b7",
+      "desktop_first": false,
+      "note": "replica が書く Task に、場所のリマインダー（place_reminder と、Change Event の changed_fields への印）が出るようになった。古い Desktop は未知の欄を検査せずそのまま保存して取り込める。欄を使わない Task の形は変わらない"
     }
   ]
 }

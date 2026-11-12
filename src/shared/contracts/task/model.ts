@@ -148,6 +148,39 @@ export const taskRepeatRuleSchema = z
   })
   .strict();
 
+const placeReminderTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+
+/**
+ * 場所のリマインダー（#727）。スマホがこの場所に居続けたときに、そのTaskを通知する条件。
+ * 場所と発火条件の正本はTask。`time_from > time_to`は日またぎ。`days`の空は毎日（0=日〜6=土）。
+ * 入力で省かれた`radius_m`は300m、`days`は毎日、時間帯は無し。
+ */
+export const taskPlaceReminderSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+    radius_m: z.number().int().min(100).max(2000).default(300),
+    days: z.array(z.number().int().min(0).max(6)).max(7).default([]),
+    time_from: placeReminderTimeSchema.nullable().default(null),
+    time_to: placeReminderTimeSchema.nullable().default(null),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.days.some((day, index) => index > 0 && day <= value.days[index - 1]))
+      context.addIssue({
+        code: "custom",
+        path: ["days"],
+        message: "daysは重複なしの昇順で指定してください。",
+      });
+    if ((value.time_from === null) !== (value.time_to === null))
+      context.addIssue({
+        code: "custom",
+        path: ["time_to"],
+        message: "time_fromとtime_toは両方指定するか、両方nullにしてください。",
+      });
+  });
+
 export const taskChecklistItemSchema = z
   .object({
     id: entityIdSchema,
@@ -242,6 +275,7 @@ const taskFields = {
     .optional(),
   planned_duration_minutes: z.number().int().positive().max(10080).nullable().optional(),
   reminder_at: optionalTimestamp,
+  place_reminder: taskPlaceReminderSchema.nullable().optional(),
   completed_at: optionalTimestamp,
   completion_note: optionalText(10000),
   repeat_rule: taskRepeatRuleSchema.nullable().optional(),
@@ -320,6 +354,7 @@ export type TaskScheduleWrite = z.output<typeof taskScheduleWriteSchema>;
 export type TaskScheduleEdit = z.output<typeof taskScheduleEditSchema>;
 export type TaskScheduleReadModel = z.output<typeof taskScheduleReadModelSchema>;
 export type TaskRepeatRule = z.output<typeof taskRepeatRuleSchema>;
+export type TaskPlaceReminder = z.output<typeof taskPlaceReminderSchema>;
 export type TaskChecklistItem = z.output<typeof taskChecklistItemSchema>;
 export type TaskImageManifest = z.output<typeof taskImageManifestSchema>;
 export type TaskReadModel = z.output<typeof taskReadModelSchema>;

@@ -550,7 +550,10 @@ test("replica が書く AI の Task・Note の差分の形（作成・直接変�
       task_id: target.entity.id,
       expected_version: target.entity.version,
       action: "update",
-      changes: { title: "contract changed title" },
+      changes: {
+        title: "contract changed title",
+        place_reminder: { name: "contract place", latitude: 34.69, longitude: 135.19 },
+      },
       why: "contract shape check",
       caller: "dot",
       source_app: "test-dot",
@@ -576,6 +579,7 @@ test("replica が書く AI の Task・Note の差分の形（作成・直接変�
       ...Object.values(request("task", "contract-change")),
       ...Object.values(changeRequest),
       ...Object.values(changeRequest.changes),
+      ...Object.values(changeRequest.changes.place_reminder),
     ]);
     const changeEvent = packets
       .filter(
