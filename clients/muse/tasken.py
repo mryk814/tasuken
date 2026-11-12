@@ -52,6 +52,12 @@ def host():
     return name
 
 
+def credential_host():
+    """The host name without the port. Muse matches the credential against the URL's hostname,
+    which never carries a port, so `name:8444` would refuse every request (#720)."""
+    return urllib.parse.urlsplit("//" + host()).hostname
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args):
         raise RuntimeError("redirect refused, verify the endpoint")
@@ -63,7 +69,7 @@ def opener_for(request):
     sys.path.insert(0, "/opt/muse/skills/custom-connector-setup/bin")
     from dynamic_credentials import add_surrogate_to_request
 
-    add_surrogate_to_request(request, "custom.tasken", allowed_hosts=[host()])
+    add_surrogate_to_request(request, "custom.tasken", allowed_hosts=[credential_host()])
     proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
     if not proxy:
         raise RuntimeError(

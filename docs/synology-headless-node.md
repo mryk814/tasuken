@@ -318,7 +318,7 @@ Museの実行環境への置き方（本人が行う）:
 1. `tasken.py`と`CONNECTOR.md`を、Museの`~/workspace/custom-connectors/custom.tasken/`に置く（`tasken.py`は`bin/`の下）。
 2. `bin/host`に1行で`<NASのtailnet名>:<HTTPSポート>`（例`nas.example.ts.net:8444`）を書く。tokenはどこにも書かない。
 3. NASの`mcp_http_clients`にMuse用のclient（例`muse`）を、新しい32byte乱数のtokenと`"readOnly": false`で足す。書き込みの前提条件は上の「クライアント別Bearer token」と同じ。足したら`mcp-http`を再作成する。
-4. Museで`credentials.request_api_access`を、`CONNECTOR.md`のConnectにあるprovider・`api_key`・`bearer_header`・`api_hosts`（`bin/host`と同じ値）で呼び、tokenを登録する。tokenはMuseの資格情報の登録経路にだけ渡す。
+4. Museで`credentials.request_api_access`を、`CONNECTOR.md`のConnectにあるprovider・`api_key`・`bearer_header`・`api_hosts`（`bin/host`のホスト名。ポートは付けない）で呼び、tokenを登録する。tokenはMuseの資格情報の登録経路にだけ渡す。
 
 ### 起動・Serve route追加
 
