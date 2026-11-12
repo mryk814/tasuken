@@ -25,6 +25,7 @@
 - 原因: 不明。PR は hook collector に触れていない。全体実行で重いときに、並行の子プロセスが排他を待ちきれなかったと見ている（EBUSY の件と同じく負荷の推測）。
 - 直し方: 単独で流し直して通ることを確かめた。
 - 再発防止: 記録だけ。もう一度起きたら、試験の排他待ちの上限を見直す。
+- 追記（2026-11-12）: #724 の GitHub の Windows の CI で、同じファイルの「Stop racing SessionEnd keeps the latest outcome in the terminal observation」が同じ `OBSERVATION_LOCK_TIMEOUT` で落ちた（3.2 秒）。待ちの上限は 10ms×200 回（約 2 秒）で、重いと待ちきれない。本番でも Hook が重なると出来事の記録を落とす形なので、試験ではなく本体の上限を時間で決めて 10 秒にした（`agentSessionHookCollector.mjs` の `LOCK_WAIT_MS`）。
 
 ## 2026-11-08 手順書のツール名を確かめる試験が、何も確かめずに通っていた
 

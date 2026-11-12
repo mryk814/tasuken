@@ -13,6 +13,9 @@ const RECEIPT_SCHEMA_VERSION = 1;
 const MAX_SESSION_CHECKPOINTS = 200;
 const LOCK_OWNER_FILE = "owner.json";
 const LOCK_STALE_MS = 35_000;
+// 排他の待ちの上限は回数でなく時間で決める。10ms×200回（約2秒）では、重いWindowsでHookが重なると
+// 待ちきれず、その出来事の記録を落とした（CIで2度、FAILURES.md 2026-11-11・11-12）。
+const LOCK_WAIT_MS = 10_000;
 
 function text(value, max) {
   return typeof value === "string" ? redactAgentText(sanitizeText(value)).trim().slice(0, max) : "";
@@ -249,7 +252,8 @@ async function withStateLock(filePath, callback, options = {}) {
     ? Math.max(1_000, options.lockStaleMs)
     : LOCK_STALE_MS;
   await fs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  const waitUntil = Date.now() + LOCK_WAIT_MS;
+  while (Date.now() < waitUntil) {
     try {
       await fs.mkdir(lockPath, { mode: 0o700 });
       const ownerToken = randomUUID();
