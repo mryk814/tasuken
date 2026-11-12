@@ -369,22 +369,25 @@ HTTPを確認後、トンネル停止を承認された場合は同じComposeフ
 
 ### 有効にする
 
-1. 共有フォルダ同期へ参加済みのreplica（前述）を用意する。Gatewayは参加が済むまで待ち受けず、`--sync-directory`が無いと起動を止める。
-2. `docker-compose.mobile.yml`を重ねて、Coreを再作成する（host networkへ切り替わる。`--remove-orphans`は使わない）。
+共有フォルダ同期へ参加済みのreplica（前述）が前提です。Gatewayは参加が済むまで待ち受けず、`--sync-directory`が無いと起動を止めます。待ち受けは127.0.0.1の48177（`TASKEN_CORE_MOBILE_GATEWAY_PORT`で変更）だけです。
 
-   ```bash
-   sudo /var/packages/ContainerManager/target/usr/bin/docker-compose \
-     --env-file .env -f docker-compose.yml -f docker-compose.mobile.yml \
-     up -d --no-build --force-recreate tasken-headless
-   ```
+**本番（nas-pull）**: `docker-compose.json`の`tasken-headless`の`environment`へ`TASKEN_CORE_MOBILE_GATEWAY=1`を書き、Coreを作り直します（「既存Taskの直接変更を許す」と同じ書き方）。`network_mode: host`は、HTTP MCPの追加（#673）のときに`tasken-headless`へ既に入っているので、足すのは環境変数だけです。`docker-compose.json`の`tasken-headless`が`network_mode: host`でないことを確認してから作り直してください（Dockerの`ports`転送や`0.0.0.0`へのbindでは代替しません）。
 
-3. NASのroot権限で、承認したTailscale Serveのポート（例`8447`）を`127.0.0.1:48177`へ向ける（HTTPSの終端はTailscale。tailnet内だけに公開し、Funnelは使わない）。
+**このrepoのcompose（開発・初回の配置）**: `docker-compose.mobile.yml`を重ねます（`network_mode: host`と環境変数）。
 
-   ```bash
-   sudo tailscale serve --bg --https=8447 http://127.0.0.1:48177
-   ```
+```bash
+sudo /var/packages/ContainerManager/target/usr/bin/docker-compose \
+  --env-file .env -f docker-compose.yml -f docker-compose.mobile.yml \
+  up -d --no-build --force-recreate tasken-headless
+```
 
-起動すると、READYの行の`mobile_gateway`にポートが出る。DBの自動バックアップが`/data/Backups`に5世代できる（DBの約5倍の空きを見ておく）。
+どちらも、そのあとNASのroot権限で、承認したTailscale Serveのポート（例`8447`）を`127.0.0.1:48177`へ向けます（HTTPSの終端はTailscale。tailnet内だけに公開し、Funnelは使わない）。
+
+```bash
+sudo tailscale serve --bg --https=8447 http://127.0.0.1:48177
+```
+
+起動すると、READYの行の`mobile_gateway`にポートが出ます。DBの自動バックアップが`/data/Backups`に5世代できます（DBの約5倍の空きを見ておく）。
 
 ### ペアリングと取り消し
 
@@ -400,8 +403,19 @@ Androidの接続画面に、`https://<NASのtailnet名>:8447`とコードを入�
 
 - 乗り換える前に、スマホのoutboxを空にする（Desktopへ送って応答を失った操作を、NASへ再送して二重に適用しないため）。
 - NASが取り込みの途中（`starting`・`waiting_*`・`blocked`・`io_error`）の間と、そのEntityが同期の競合中の間は、既存Entityの編集を503で断る。端末のoutboxに残り、取り込みが追いつくと自動で通る。競合はDesktopの画面で解く。
-- NASのDBを古いバックアップから戻すと、共有フォルダへ公開済みの連番より後戻りする。検出すると公開と取り込みを止め（`blocked`）、端末の書き込みも断る。最新のバックアップから戻し直す。
+- NASのDBを古いバックアップから戻すと、共有フォルダへ公開済みの連番より後戻りする。検出すると公開と取り込みを止め（`blocked`）、端末の書き込みも断る。抜け出し方は下の「後戻りで止まったとき」。
 - 委任はNASではできない。写真・Capture・Task・WorkLog・Feedの反応と返信・続けること・手入れは、Desktopと同じ範囲を書ける。
+
+### 後戻りで止まったとき
+
+公開済みの記録は共有フォルダに残っているので、バックアップで戻して追いつくのではなく、**空のnodeとして参加し直します**（Backupsの写しは、たいてい公開済みより古く、戻しても同じ検出で止まります）。
+
+1. `tasken-headless`を止める。
+2. `/data/research-desk.sqlite`と`-wal`・`-shm`を、別のフォルダへ**移す（消さない）**。`/data/attachments`と共有フォルダの`devices/`は触らない。
+3. 同じ設定でCoreを起動する。空のnodeとして共有フォルダへ参加し直し、新しいdevice idで始まる。旧device idの公開済みの記録（スマホ・NASで書いたもの）は、共有フォルダの`devices/<旧id>/`から全部取り込まれ、続きから公開される。
+4. スマホを組み直す（`mobile_devices`は同期せず、DBと一緒に退けたので、新しいコードで`pair`する）。スマホのoutboxは残るので、組み直すと再送される。
+
+退けたDBに残るのは、後戻りした後・検出する前に書いた、公開されていない変更（ごく短い間のもの）と、旧のペアリングだけです。必要なら退けたDBを開いて確かめ、不要になったら本人が消します。共有フォルダの`devices/<旧id>/`は、新しいnodeが取り込み終えるまで、消さずに残します。
 
 ## コンテナ設定（堅牢化）
 

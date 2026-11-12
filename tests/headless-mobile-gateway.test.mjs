@@ -632,3 +632,74 @@ test("続けること・手入れの記録は、本体（habit・maintenance）�
     { kind: "create", targets: [] },
   ]);
 });
+
+test("古い写しへ戻して止まったnodeは、DBを脇へ退けて空のnodeとして参加し直すと、公開済みの記録がすべて戻って続きから動く", async (t) => {
+  const dir = temporary();
+  const { host, sync, shared } = await desktop(dir);
+  const userDataPath = path.join(dir, "nas");
+  const databasePath = path.join(userDataPath, "research-desk.sqlite");
+  const handles = [() => sync.stop(), () => host.db.close()];
+  t.after(() => finish(dir, handles));
+  let first = await nas(dir, shared);
+  handles.push(() => first.core.stop());
+  let api = call(first.base, await pair(first.base, first.userDataPath));
+
+  // 参加直後の状態を古い写しとして取り、その後にスマホで書く（共有フォルダへ公開される）。
+  const snapshotPath = path.join(dir, "old-snapshot.sqlite");
+  const reader = new WorkspaceDatabase(databasePath);
+  await reader.backupTo(snapshotPath);
+  const oldDeviceId = reader.deviceId;
+  reader.db.close();
+  const created = await api.post(
+    TASKEN_MOBILE_ENDPOINTS.commands,
+    createTask("task-published-before-restore"),
+  );
+  assert.equal(created.status, 200);
+  await first.core.syncNow();
+  await first.core.stop();
+  handles.pop();
+
+  // 古い写しをDBの場所へ戻す。起動はするが、公開と取り込みは止まる。
+  for (const suffix of ["", "-wal", "-shm"]) fs.rmSync(databasePath + suffix, { force: true });
+  fs.copyFileSync(snapshotPath, databasePath);
+  first = await nas(dir, shared);
+  handles.push(() => first.core.stop());
+  await first.core.syncNow().then(
+    () => assert.fail("止まるはず"),
+    (error) => assert.equal(error.code, "SYNC_SEQUENCE_ROLLBACK"),
+  );
+  await first.core.stop();
+  handles.pop();
+
+  // 抜け出し方: DBを脇へ退け（消さない）、空のnodeとして参加し直す。
+  const aside = path.join(dir, "nas-db-aside");
+  fs.mkdirSync(aside);
+  for (const suffix of ["", "-wal", "-shm"]) {
+    if (fs.existsSync(databasePath + suffix))
+      fs.renameSync(databasePath + suffix, path.join(aside, `research-desk.sqlite${suffix}`));
+  }
+  assert.ok(fs.existsSync(path.join(aside, "research-desk.sqlite")), "退けたDBは残る");
+  const rejoined = await nas(dir, shared);
+  handles.push(() => rejoined.core.stop());
+  api = call(rejoined.base, await pair(rejoined.base, rejoined.userDataPath));
+
+  // 新しいdevice idで参加し、旧IDの公開済みの記録がすべて戻っている。
+  assert.notEqual(
+    fs
+      .readdirSync(path.join(shared, "devices"))
+      .filter((id) => id !== host.deviceId && id !== oldDeviceId).length,
+    0,
+    "新しいdevice idのディレクトリができる",
+  );
+  const bootstrap = await api.get(TASKEN_MOBILE_ENDPOINTS.bootstrap, { limit: 50 });
+  assert.ok(bootstrap.body.data.tasks.some((task) => task.id === "task-published-before-restore"));
+  assert.ok(bootstrap.body.data.tasks.some((task) => task.id === "task-a"));
+
+  // 続きから動く: 新しい書き込みがDesktopへ届く。
+  const again = await api.post(TASKEN_MOBILE_ENDPOINTS.commands, createTask("task-after-recovery"));
+  assert.equal(again.status, 200, JSON.stringify(again.body));
+  await rejoined.core.syncNow();
+  await sync.syncNow();
+  assert.equal(host.get("task", "task-after-recovery").title, "スマホで作ったタスク");
+  assert.ok(host.get("task", "task-published-before-restore"));
+});

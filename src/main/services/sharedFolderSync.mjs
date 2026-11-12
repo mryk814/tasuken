@@ -438,7 +438,7 @@ export class SharedFolderSyncService {
         this.sequenceRolledBack = true;
         throw codedError(
           "この端末のDBが、共有フォルダに公開済みの状態より古くなっています（古いバックアップへ戻した可能性）。" +
-            "続けると連番が重なり、他の端末へ変更が届かなくなるため、公開を止めました。最新のバックアップから戻してください。",
+            "続けると連番が重なり、他の端末へ変更が届かなくなるため、公開を止めました。止めて、DBを脇へ退け（消さない）、空のnodeとして共有フォルダへ参加し直してください（docs/synology-headless-node.md）。",
           SYNC_SEQUENCE_ROLLBACK,
         );
       }
