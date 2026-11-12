@@ -7,7 +7,13 @@ import {
   localDateSchema,
 } from "../../kernel/public.ts";
 import { aiTaskScheduleInputSchema } from "./aiSchedule.ts";
-import { taskIdSchema, taskPrioritySchema, taskReadModelSchema, taskShelfSchema } from "./model.ts";
+import {
+  taskIdSchema,
+  taskPlaceReminderSchema,
+  taskPrioritySchema,
+  taskReadModelSchema,
+  taskShelfSchema,
+} from "./model.ts";
 
 /**
  * 変更の根拠。本人の言葉（`said`）か、AIの理由（`why`）。何に本人の言葉が要るかはCoreが決め、
@@ -73,6 +79,12 @@ export const aiTaskEditSchema = z
       .optional(),
     planned_duration_minutes: z.number().int().positive().max(10_080).nullable().optional(),
     reminder_at: isoTimestampSchema.nullable().optional(),
+    place_reminder: taskPlaceReminderSchema
+      .nullable()
+      .optional()
+      .describe(
+        "Notify on the phone when it stays at this place. Only coordinates the user gave or a reliable source states; never guess. null removes it.",
+      ),
     checklist: z
       .array(aiChecklistItemInputSchema)
       .max(100)

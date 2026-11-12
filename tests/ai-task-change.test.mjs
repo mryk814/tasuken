@@ -714,3 +714,63 @@ test("レビューの指摘: 元に無かった欄の取り消し、本人の言
   });
   assert.equal(second.stopped.code, "ALREADY_UNDONE");
 });
+
+test("場所のリマインダー（#727）: 本人の言葉で付け、取り消しで外れ、外す変更も取り消しで戻る", async (t) => {
+  const { db, core } = await desktop(t);
+  const task = humanTask(db, "task-place");
+  const place = {
+    name: "三ノ宮",
+    latitude: 34.6937,
+    longitude: 135.1956,
+    radius_m: 300,
+    days: [1, 3],
+    time_from: "17:00",
+    time_to: "21:00",
+  };
+  const undoOf = (changed, key) => ({
+    change_id: changed.change_id,
+    said: "戻して",
+    idempotency_key: key,
+    caller: "Claude Code",
+    source_session: "conversation-a",
+  });
+  // 半径などを省いた入力は、既定（300m・毎日・時間帯なし）で保存される。
+  const attached = await core.changeTask(
+    change(task, {
+      changes: { place_reminder: { name: "三ノ宮", latitude: 34.6937, longitude: 135.1956 } },
+      said: "帰りに三ノ宮で買うのを、三ノ宮の近くで知らせて",
+    }),
+  );
+  assert.deepEqual(attached.task.place_reminder, {
+    name: "三ノ宮",
+    latitude: 34.6937,
+    longitude: 135.1956,
+    radius_m: 300,
+    days: [],
+    time_from: null,
+    time_to: null,
+  });
+  await core.undoChange(undoOf(attached, "undo-place-1"));
+  assert.equal(db.get("task", task.id).place_reminder ?? null, null);
+
+  const withPlace = await core.changeTask(
+    change(db.get("task", task.id), { changes: { place_reminder: place }, said: "平日の夜だけ" }),
+  );
+  assert.deepEqual(db.get("task", task.id).place_reminder, place);
+  const removed = await core.changeTask(
+    change(withPlace.task, { changes: { place_reminder: null }, said: "場所の通知はやめて" }),
+  );
+  assert.equal(db.get("task", task.id).place_reminder, null);
+  await core.undoChange(undoOf(removed, "undo-place-2"));
+  assert.deepEqual(db.get("task", task.id).place_reminder, place);
+  // 範囲外の座標は保存せずに断る。
+  await assert.rejects(
+    core.changeTask(
+      change(db.get("task", task.id), {
+        changes: { place_reminder: { ...place, latitude: 120 } },
+        said: "ここ",
+      }),
+    ),
+  );
+  assert.deepEqual(db.get("task", task.id).place_reminder, place);
+});
