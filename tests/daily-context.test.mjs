@@ -327,3 +327,12 @@ test("junction descendants are refused without writing outside the chosen folder
   assert.throws(() => publish(root, plan), /symlink\/junction/);
   assert.deepEqual(fs.readdirSync(outside), []);
 });
+
+test("公開履歴の日ごとの entry は、旧版の readManifest が必須にする excludedCount: 0 を書き続ける", (t) => {
+  const root = temporary(t);
+  publish(root, buildDailyContextPlan(fixture()));
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(root, "Tasken Context", ".tasken-context.json"), "utf8"),
+  );
+  assert.equal(manifest.days["2026-09-06"].excludedCount, 0);
+});
