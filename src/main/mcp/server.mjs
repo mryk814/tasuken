@@ -1058,7 +1058,7 @@ export function createTaskenMcpServer(options = {}) {
     task: {
       fields: aiTaskCreationFields,
       description:
-        "Save a new Task directly (marked AI-created/unseen); returns the official ID. Theme defaults to 個人業務; schedule, priority, today_date, checklist and place_reminder (phone notice at a place; coordinates only from the user or a reliable source) are optional. Reuse idempotency_key on retries.",
+        "Save a new Task directly (AI-created, unseen); returns the official ID. Theme defaults to 個人業務; schedule, priority, today_date, checklist, place_reminder optional. Reuse idempotency_key on retries.",
     },
     note: {
       fields: aiNoteCreationFields,
@@ -1079,7 +1079,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.change_task",
     {
       description:
-        "Update, complete, reopen, delete or delegate one Task directly; recorded and undoable. Put the user's words in said (why alone may get ASK_USER). place_reminder (null removes) makes the phone notify at a place: coordinates only from the user or a reliable source, never guessed. See tasken://guide/proposals.",
+        "Update, complete, reopen, delete or delegate one Task directly; recorded and undoable. Put the user's words in said (why alone may get ASK_USER). place_reminder: user-given coordinates only.",
       inputSchema: aiTaskChangeRequestSchema,
       annotations: DESTRUCTIVE_WRITE_ANNOTATIONS,
     },

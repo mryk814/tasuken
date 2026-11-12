@@ -2,6 +2,21 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-12 ドロワーに制御した入力欄を足したら、フォームの最初の1文字が消えた
+
+- しようとしたこと: #727 で Task のドロワーに「場所」の欄を足す。名前などを useState で制御した。
+- 起きたこと: 実際の画面（Playwright）で、フォームの最初の入力だけが元の値に戻された（"abc" と打つと "bc"）。型検査・単体試験は通っていた。
+- 原因: ドロワーはフォームの最初の入力で同期的に描き直す。制御した欄は、React の onChange が読む前に元の値へ戻される。他の欄は defaultValue（制御しない）なので起きない。
+- 直し方: 入力欄は defaultValue のままにし、表示用の値だけ onInput で写す。「外す」は部品の key を変えて作り直す。
+- 再発防止: PlaceReminderFields.tsx の冒頭のコメントに書いた。ドロワーに欄を足したら、実画面で最初の1文字を打って確かめる。
+
+## 2026-11-12 MCP の説明文を伸ばして discovery budgets の試験が落ちた
+
+- しようとしたこと: #727 で create_task・change_task の説明文に place_reminder の注意を足した。
+- 起きたこと: tests/mcp-lightweight.test.mjs が「tasken.create_task: 210」（説明は 200 字以内）で落ちた。同時に新しい試験・部品が architecture の互換基準に無いと architecture-audit が落ちた。
+- 直し方: 説明を縮め、基準の consumers に足した。注意の本文は入力欄の describe に置く。
+- 再発防止: 記録だけ（試験が落ちた文で直せる）。説明文を足すときは、長い注意は欄の describe に置く。
+
 ## 2026-11-11 新しい試験が WorkspaceDatabase を直に使い、アーキテクチャ監査の試験が「24 !== 23」で落ちた
 
 - しようとしたこと: #688 で `tests/core-capability-parity.test.mjs`（Desktop と NAS の Core を本物の DB で組み立てて capability を比べる）を足し、`npm run ci` を流す。
