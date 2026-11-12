@@ -59,6 +59,10 @@ private fun checklistPatch(items: List<MobileChecklistItem>): JsonObject = build
     put("checklistItems", checklistValue(items))
 }
 
+private fun placeReminderPatch(place: MobilePlaceReminder?): JsonObject = buildJsonObject {
+    put("placeReminder", placeReminderPatchValue(place))
+}
+
 private fun checklistItems(value: Any?): List<MobileChecklistItem> {
     require(value is kotlinx.serialization.json.JsonArray)
     return value.map { element ->
@@ -655,6 +659,15 @@ class MobileOutbox(
         return enqueueScalarEdit(taskId, themeIdPatch(themeId)) { themeIdPatch(it.themeId) }
     }
 
+    /**
+     * 場所のリマインダーの付け外し。作成（CreateTask）は場所を受けないので、送信前の作成にも
+     * 「作ってから付ける」の続きの更新として積む（editUnsentCreate は使わない）。
+     */
+    suspend fun enqueueUpdatePlaceReminder(taskId: String, place: MobilePlaceReminder?): String {
+        validateMobilePlaceReminder(place)
+        return enqueueScalarEdit(taskId, placeReminderPatch(place)) { placeReminderPatch(decodeMobilePlaceReminder(it.placeReminderJson)) }
+    }
+
     suspend fun enqueueUpdateSchedule(taskId: String, schedule: MobileTaskScheduleDraft): String {
         val normalized = normalizeScheduleDraft(schedule)
         editUnsentCreate(taskId) {
@@ -748,6 +761,7 @@ class MobileOutbox(
                 conflict.localTodayDateChanged -> todayDatePatch(conflict.localTodayDate)
                 conflict.localThemeIdChanged -> themeIdPatch(conflict.localThemeId)
                 conflict.localChecklistChanged -> checklistPatch(requireNotNull(localChecklist))
+                conflict.localPlaceReminderChanged -> placeReminderPatch(decodeMobilePlaceReminder(conflict.localPlaceReminderJson))
                 conflict.localScheduleChanged || conflict.localPlannedScheduleChanged -> buildJsonObject {
                     if (conflict.localScheduleChanged) put("schedule", scheduleValue(requireNotNull(localSchedule)))
                     if (conflict.localPlannedScheduleChanged) put("plannedSchedule", plannedScheduleValue(conflict.localPlannedStartTime, conflict.localPlannedDurationMinutes))
@@ -759,6 +773,7 @@ class MobileOutbox(
                 conflict.localTodayDateChanged -> todayDatePatch(conflict.serverTodayDate)
                 conflict.localThemeIdChanged -> themeIdPatch(conflict.serverThemeId)
                 conflict.localChecklistChanged -> checklistPatch(decodeMobileChecklist(task.checklistJson))
+                conflict.localPlaceReminderChanged -> placeReminderPatch(decodeMobilePlaceReminder(task.placeReminderJson))
                 conflict.localScheduleChanged || conflict.localPlannedScheduleChanged -> buildJsonObject {
                     if (conflict.localScheduleChanged) put("schedule", task.scheduleDraftOrNull()?.let(::scheduleValue) ?: JsonNull)
                     if (conflict.localPlannedScheduleChanged) put("plannedSchedule", plannedScheduleValue(task.plannedStartTime, task.plannedDurationMinutes))
@@ -814,6 +829,7 @@ class MobileOutbox(
             themeId = if (conflict.localThemeIdChanged) conflict.localThemeId else task.themeId,
             plannedStartTime = if (conflict.localPlannedScheduleChanged) conflict.localPlannedStartTime else task.plannedStartTime,
             plannedDurationMinutes = if (conflict.localPlannedScheduleChanged) conflict.localPlannedDurationMinutes else task.plannedDurationMinutes,
+            placeReminderJson = if (conflict.localPlaceReminderChanged) conflict.localPlaceReminderJson else task.placeReminderJson,
             checklistJson = if (conflict.localChecklistChanged) {
                 encodeMobileChecklist(requireNotNull(localChecklist))
             } else {
@@ -1067,6 +1083,7 @@ class MobileOutbox(
                                 latestReceiptExecutorLabel = task.latestWorkReceipt?.executorLabel,
                                 latestReceiptSummary = task.latestWorkReceipt?.summary,
                                 checklistJson = encodeMobileChecklist(task.checklistItems),
+                                placeReminderJson = encodeMobilePlaceReminder(task.placeReminder),
                                 scheduleId = task.schedule?.id,
                                 scheduleVersion = task.schedule?.version,
                                 scheduleStartDate = task.schedule?.startDate,
@@ -1211,6 +1228,8 @@ class MobileOutbox(
                             },
                         )
                     }
+                    val localPlaceReminderChanged = localPatch?.containsKey("placeReminder") == true
+                    val localPlaceReminder = localPatch?.get("placeReminder")?.let(::decodePlaceReminderPatchValue)
                     val localPlannedScheduleChanged = localPatch?.containsKey("plannedSchedule") == true
                     val localPlannedSchedule = localPatch?.get("plannedSchedule")?.let { value ->
                         require(value is JsonObject)
@@ -1241,6 +1260,7 @@ class MobileOutbox(
                             latestReceiptExecutorLabel = current.latestWorkReceipt?.executorLabel,
                             latestReceiptSummary = current.latestWorkReceipt?.summary,
                             checklistJson = encodeMobileChecklist(current.checklistItems),
+                            placeReminderJson = encodeMobilePlaceReminder(current.placeReminder),
                             scheduleId = current.schedule?.id,
                             scheduleVersion = current.schedule?.version,
                             scheduleStartDate = current.schedule?.startDate,
@@ -1277,6 +1297,8 @@ class MobileOutbox(
                             localPlannedStartTime = localPlannedSchedule?.startTime,
                             localPlannedDurationMinutes = localPlannedSchedule?.durationMinutes,
                             localPlannedScheduleChanged = localPlannedScheduleChanged,
+                            localPlaceReminderJson = encodeMobilePlaceReminder(localPlaceReminder),
+                            localPlaceReminderChanged = localPlaceReminderChanged,
                             serverWorkState = current.workState,
                             serverUpdatedAt = current.updatedAt,
                             detectedAt = response.meta.generatedAt,
@@ -1309,7 +1331,7 @@ class MobileOutbox(
                     val scheduleBase = scheduleUpdateBase(command)
                     val checklistBase = checklistUpdateBase(command)
                     if (command.taskId != null && (dao.dependents(command.commandId).isNotEmpty() ||
-                            command.taskIntentJson?.let { command.taskEditIntent().changes.keys.any { field -> field in setOf("schedule", "plannedSchedule", "checklistItems") } } == true)) {
+                            command.taskIntentJson?.let { command.taskEditIntent().changes.keys.any { field -> field in setOf("schedule", "plannedSchedule", "checklistItems", "placeReminder") } } == true)) {
                         dao.rejectTaskChain(command.commandId, reason)
                     } else if (command.commandName == "DeleteTask" && result.code == "not_found") {
                         dao.acceptMissingDelete(

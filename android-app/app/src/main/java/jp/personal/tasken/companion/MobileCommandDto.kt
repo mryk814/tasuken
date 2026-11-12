@@ -468,6 +468,7 @@ object MobileTaskCommandContract {
                 require(start == JsonNull || (start is JsonPrimitive && start.isString && isPlannedStartTime(start.content)))
                 require(duration == JsonNull || (duration is JsonPrimitive && !duration.isString && duration.content.toIntOrNull()?.let(::isPlannedDurationMinutes) == true))
             }
+            "placeReminder" -> decodePlaceReminderPatchValue(patch[field])
             "checklistItems" -> validateChecklistPatch(patch[field])
             else -> error("Unsupported Task patch field: $field")
         }
@@ -535,6 +536,7 @@ object MobileTaskCommandContract {
         require(task.title.isNotBlank() && task.title.length <= 500)
         require(task.description == null || task.description.length <= 50000)
         validateMobileAiOrigin(task.aiOrigin)
+        validateMobilePlaceReminder(task.placeReminder)
         require(task.themeId == null || isThemeId(task.themeId))
         require(task.state in setOf("todo", "doing", "waiting", "review", "done", "cancelled"))
         require(task.todayDate == null || runCatching { LocalDate.parse(task.todayDate) }.isSuccess)

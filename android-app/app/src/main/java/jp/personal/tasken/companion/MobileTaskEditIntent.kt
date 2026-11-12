@@ -25,6 +25,9 @@ internal data class MobileTaskEditIntent(val changes: JsonObject, val base: Json
             todayDate = string("todayDate", task.todayDate),
             state = requireNotNull(string("state", task.state)),
             checklistJson = changes["checklistItems"]?.toString() ?: task.checklistJson,
+            placeReminderJson = if (changes.containsKey("placeReminder")) {
+                encodeMobilePlaceReminder(decodePlaceReminderPatchValue(changes["placeReminder"]))
+            } else task.placeReminderJson,
             plannedStartTime = if (planned != null) planned["startTime"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content else task.plannedStartTime,
             plannedDurationMinutes = if (planned != null) planned["durationMinutes"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content?.toInt() else task.plannedDurationMinutes,
             updatedAt = issuedAt,
@@ -100,6 +103,7 @@ internal fun OutboxCommandEntity.heldTaskChange(): MobileHeldTaskChange? {
                         "予定: 開始 ${label("startDate")}・期限 ${label("endDate")}" +
                             when (label("rangeSemantics")) { "ongoing" -> "（期間中継続）"; "once_within_window" -> "（期間内に一度）"; else -> "" }
                     } ?: "予定: 未指定"
+                    "placeReminder" -> decodePlaceReminderPatchValue(value)?.let { "場所: ${it.name}（${it.radiusMeters}m）" } ?: "場所: 外す"
                     "plannedSchedule" -> value.jsonObject.let { fields ->
                         val time = fields["startTime"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content ?: "未指定"
                         val duration = fields["durationMinutes"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content?.let { "${it}分" } ?: "未指定"
