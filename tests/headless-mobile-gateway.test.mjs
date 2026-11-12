@@ -162,7 +162,8 @@ function call(base, token) {
 }
 
 let sequence = 0;
-function command(name, fields) {
+/** CreateCapture は capture.capturedAt と issuedAt が同じ時刻でなければ 400（schema）。そろえたいときは issuedAt を渡す。 */
+function command(name, fields, issuedAt = new Date().toISOString()) {
   sequence += 1;
   return {
     ...API,
@@ -170,7 +171,7 @@ function command(name, fields) {
     commandId: `command-headless-mobile-${sequence}`,
     idempotencyKey: `command-headless-mobile-${sequence}`,
     clientDeviceId: DEVICE_ID,
-    issuedAt: new Date().toISOString(),
+    issuedAt,
     command: { name, ...fields },
   };
 }
@@ -384,22 +385,26 @@ test("写真つきのCaptureはNASに保存され、差分と写真が共有フ�
   const capturedAt = new Date().toISOString();
   const saved = await api.post(
     TASKEN_MOBILE_ENDPOINTS.commands,
-    command("CreateCapture", {
-      capture: {
-        id: "capture-with-photo",
-        text: "写真つきのメモ",
-        projectId: null,
-        capturedAt,
-        images: [
-          {
-            reference_id: "photo-1",
-            file_name: "photo.png",
-            media_type: "image/png",
-            data_base64: PNG_BASE64,
-          },
-        ],
+    command(
+      "CreateCapture",
+      {
+        capture: {
+          id: "capture-with-photo",
+          text: "写真つきのメモ",
+          projectId: null,
+          capturedAt,
+          images: [
+            {
+              reference_id: "photo-1",
+              file_name: "photo.png",
+              media_type: "image/png",
+              data_base64: PNG_BASE64,
+            },
+          ],
+        },
       },
-    }),
+      capturedAt,
+    ),
   );
   assert.equal(saved.status, 200, JSON.stringify(saved.body));
   const stored = fs.readdirSync(path.join(userDataPath, "attachments", "capture-images"));
@@ -418,24 +423,30 @@ test("写真つきのCaptureはNASに保存され、差分と写真が共有フ�
   // 画像として読めないものは、保存せずに断る。
   const broken = await api.post(
     TASKEN_MOBILE_ENDPOINTS.commands,
-    command("CreateCapture", {
-      capture: {
-        id: "capture-with-broken-photo",
-        text: "壊れた写真",
-        projectId: null,
-        capturedAt,
-        images: [
-          {
-            reference_id: "photo-1",
-            file_name: "photo.png",
-            media_type: "image/png",
-            data_base64: Buffer.from("not an image").toString("base64"),
-          },
-        ],
+    command(
+      "CreateCapture",
+      {
+        capture: {
+          id: "capture-with-broken-photo",
+          text: "壊れた写真",
+          projectId: null,
+          capturedAt,
+          images: [
+            {
+              reference_id: "photo-1",
+              file_name: "photo.png",
+              media_type: "image/png",
+              data_base64: Buffer.from("not an image").toString("base64"),
+            },
+          ],
+        },
       },
-    }),
+      capturedAt,
+    ),
   );
+  // 時刻は1件目と同じ（そろえてある）ので、400の理由は寸法の検査だけ。
   assert.equal(broken.status, 400);
+  assert.equal(broken.body.error.code, "validation_failed");
   const images = fs.readdirSync(path.join(userDataPath, "attachments", "capture-images"));
   assert.deepEqual(
     images.filter((name) => !name.endsWith(".sync-origin.json")),
