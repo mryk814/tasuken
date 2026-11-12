@@ -83,3 +83,11 @@
 - 直し方: 手元の品質ゲートは PowerShell から流した（2,213件中 fail 0）。
 - 再発防止: 記録だけ。テストを直すなら、差し替える前に `COMSPEC` と `ComSpec` の両方を env から消す。
 - 追記（2026-11-09）: v0.1.85 のリリース作業で同じ2件にまた当たったため、テストを直した。子の env を作る前に、大文字小文字を問わず `comspec` のキーを全部除いてから `ComSpec` を入れる。Git Bash から流しても通る。
+
+## 2026-11-12 足した androidTest を「CI で走る」と思い込み、2 件が準備の段階で落ちるまま PR を出した
+
+- しようとしたこと: #688 で Android の接続先の乗り換えの守りを足し、androidTest（`MobileOutboxDatabaseTest`・`MobileNodeSwitchPairingTest`）を書いた。実装役は手元でコンパイルだけを確かめ、実行は CI の android-quality に任せるとして PR #722 を出した。CI は緑だった。
+- 起きたこと: 試験用のエミュレータ（Pixel_8）で `connectedDebugAndroidTest` を走らせると、足した 2 件が `UNIQUE constraint failed: outbox_command.commandId` で落ちた。
+- 原因: android-quality は `compileDebugAndroidTestKotlin` で androidTest をコンパイルするだけで、実行していない。試験の側は、`insertOutbox`（上書きしない insert）で既存の行を書き換えようとしていた。
+- 直し方: 試験で、消してから入れ直す `replaceOutbox` を使うようにした。エミュレータで 62 件通った。
+- 再発防止: android-quality.yml の Gradle の呼び出しの横に、androidTest は走らせないことと手元で走らせる手順を書いた。CI でエミュレータを動かすのは時間がかかるので、まだ入れていない。

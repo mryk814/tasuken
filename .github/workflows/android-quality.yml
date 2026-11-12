@@ -32,6 +32,8 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x gradlew
+          # androidTest はコンパイルだけで、ここでは走らせない（エミュレータが要る）。
+          # 足した androidTest は手元の試験用エミュレータで connectedDebugAndroidTest を走らせて確かめる（FAILURES.md 2026-11-12）。
           ./gradlew --no-daemon \
             testDebugUnitTest \
             compileDebugAndroidTestKotlin \
