@@ -21,6 +21,7 @@ import { buildSaveTaskOperations } from "../domain-model/persistence";
 import { DEFAULT_RANGE_SEMANTICS } from "../domain-model/scheduleSemantics";
 import type { Schedule, ScheduleRangeSemantics, Task } from "../domain-model/types";
 import { Field, ThemeSelect } from "./common";
+import { PlaceReminderFields } from "./PlaceReminderFields";
 
 const REPEAT_FREQUENCY_LABELS = {
   daily: "毎日",
@@ -162,6 +163,10 @@ export function TaskFields({
         priority: str(entity.priority) === "high" ? "high" : "normal",
         planning_shelf: normalizeTaskShelf(entity.planning_shelf),
         reminder_at: normalizeReminderDateTime(entity.reminder_at),
+        // チェックリストの自動保存は、場所の欄を開いたままの編集中の値ではなく保存済みの値を残す。
+        ...(entity.place_reminder
+          ? { place_reminder: entity.place_reminder as Task["place_reminder"] }
+          : {}),
         description: (entity.description as string | null) ?? null,
         completion_note: (entity.completion_note as string | null) ?? null,
         repeat_rule: repeatRule as Task["repeat_rule"],
@@ -429,6 +434,7 @@ export function TaskFields({
           </div>
         )}
       </section>
+      <PlaceReminderFields place={entity.place_reminder as Task["place_reminder"]} />
       <section className="drawer-subsection">
         <div className="section-heading">
           <h2>チェックリスト</h2>

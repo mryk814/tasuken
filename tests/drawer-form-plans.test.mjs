@@ -403,3 +403,103 @@ test("出典は空行を捨て、Import由来のlocator情報を保つ（#294）
   const removedTask = removed.operations.find((operation) => operation.type === "task").entity;
   assert.deepEqual(removedTask.ai_source_refs, []);
 });
+
+test("場所のリマインダー（#727）: 貼った座標を読み、空なら外し、欄が無い保存では残し、不正は欄を示して止める", async () => {
+  const { parsePlaceCoordinates, formatPlaceCoordinates } = await importBundled(
+    "src/renderer/src/features/workspace/lib/placeReminder.ts",
+  );
+  assert.deepEqual(parsePlaceCoordinates("34.6937, 135.1956"), {
+    latitude: 34.6937,
+    longitude: 135.1956,
+  });
+  assert.deepEqual(parsePlaceCoordinates(" (34.6937 135.1956) "), {
+    latitude: 34.6937,
+    longitude: 135.1956,
+  });
+  assert.equal(parsePlaceCoordinates("91, 135"), null);
+  assert.equal(parsePlaceCoordinates("34.69"), null);
+  assert.equal(parsePlaceCoordinates("三ノ宮"), null);
+  assert.equal(
+    formatPlaceCoordinates({ latitude: 34.69370001, longitude: 135.1 }),
+    "34.6937, 135.1",
+  );
+
+  const saved = (entries, base = { id: "task-place", title: "買う" }) =>
+    plan("task", [["title", "買う"], ...entries], base);
+  const entity = (result) =>
+    result.operations.find((operation) => operation.type === "task").entity;
+  const filled = entity(
+    saved([
+      ["place_name", " 三ノ宮 "],
+      ["place_coordinates", "34.6937, 135.1956"],
+      ["place_radius_m", "500"],
+      ["place_days", "3"],
+      ["place_days", "1"],
+      ["place_time_from", "17:00"],
+      ["place_time_to", "21:00"],
+    ]),
+  ).place_reminder;
+  assert.deepEqual(filled, {
+    name: "三ノ宮",
+    latitude: 34.6937,
+    longitude: 135.1956,
+    radius_m: 500,
+    days: [1, 3],
+    time_from: "17:00",
+    time_to: "21:00",
+  });
+  // 名前と座標が空なら外す。半径は省かれたら300m。
+  const base = { id: "task-place", title: "買う", place_reminder: filled };
+  assert.equal(
+    entity(
+      saved(
+        [
+          ["place_name", ""],
+          ["place_coordinates", ""],
+        ],
+        base,
+      ),
+    ).place_reminder,
+    null,
+  );
+  assert.equal(
+    entity(
+      saved([
+        ["place_name", "駅"],
+        ["place_coordinates", "1,2"],
+      ]),
+    ).place_reminder.radius_m,
+    300,
+  );
+  // 場所の欄が無いフォームは、保存済みの値を残す。
+  assert.deepEqual(entity(saved([], base)).place_reminder, filled);
+  for (const [entries, field] of [
+    [
+      [
+        ["place_name", "駅"],
+        ["place_coordinates", "どこか"],
+      ],
+      "place_coordinates",
+    ],
+    [
+      [
+        ["place_name", ""],
+        ["place_coordinates", "1, 2"],
+      ],
+      "place_name",
+    ],
+    [
+      [
+        ["place_name", "駅"],
+        ["place_coordinates", "1, 2"],
+        ["place_time_from", "09:00"],
+        ["place_time_to", ""],
+      ],
+      "place_time_to",
+    ],
+  ]) {
+    const invalid = saved(entries);
+    assert.equal(invalid.kind, "invalid");
+    assert.equal(invalid.field, field);
+  }
+});

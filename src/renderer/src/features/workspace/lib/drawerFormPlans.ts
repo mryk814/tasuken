@@ -25,6 +25,7 @@ import { inferChatServiceFromUrl } from "./chatServices";
 import { resolveSubmittedChatCapturedAt } from "./chatRefs";
 import { aiMetadataFromForm } from "./aiMetadataForm";
 import { formText, uuid } from "./format";
+import { placeReminderFromForm } from "./placeReminder";
 import { normalizeReminderDateTime } from "./reminders";
 import { listTaskSections, normalizeTaskSectionId } from "./taskSections";
 import { normalizeTaskShelf } from "./taskShelves";
@@ -178,6 +179,11 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
     const taskId = (base.id as string) || uuid();
     const projectId = themeIdFromForm(formText(values, "theme_id"));
     const taskSections = projectId ? listTaskSections(data.views || [], projectId) : [];
+    // 場所の欄が無いフォーム（一括の編集など）では、保存済みの値をそのまま残す。
+    const place = hasField("place_name")
+      ? placeReminderFromForm(values)
+      : { ok: true as const, value: (base.place_reminder as Task["place_reminder"]) ?? null };
+    if (!place.ok) return { kind: "invalid", field: place.field, message: place.message };
     const task: Task = {
       id: taskId,
       title,
@@ -207,6 +213,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
         : ((base.planned_duration_minutes as number | null) ?? null),
       planning_shelf: normalizeTaskShelf(formText(values, "planning_shelf")),
       reminder_at: normalizeReminderDateTime(formText(values, "reminder_at")),
+      place_reminder: place.value,
       description: formText(values, "description") || null,
       completion_note: hasField("completion_note")
         ? formText(values, "completion_note") || null

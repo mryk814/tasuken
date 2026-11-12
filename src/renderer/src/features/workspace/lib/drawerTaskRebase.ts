@@ -106,6 +106,7 @@ const FIELD_LABELS: Record<string, string> = {
   planned_start_time: "開始時刻",
   planned_duration_minutes: "所要時間",
   reminder_at: "リマインダー",
+  place_reminder: "場所",
   checklist_items: "チェックリスト",
   completion_note: "完了メモ",
   repeat_rule: "繰り返し",
