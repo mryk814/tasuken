@@ -109,3 +109,11 @@
 - 原因: Android は実行時の権限を取り消すとそのアプリのプロセスを殺す。Gradle の connected 系は終了時に両 APK を消す。
 - 直し方: 権限が無い状態は関数の引数（`canPost`・`readinessOverride`）で作り、許可の画面が出ないよう操作する試験では先に許可しておく。撮影物は `assembleDebug*` の APK を `adb install` し、`am instrument -e class ...#screenshots` で走らせて取り出す。画面の形は `wm size` / `wm density` / `cmd uimode night` / `font_scale` をエミュレータ側で変えて撮る。
 - 再発防止: 試験のコメントに書いた。`ANDROID_SERIAL=emulator-5554` を付けないと、無線 adb でつながった本人の実機にも connected 系が入るので、必ず付ける。
+
+## 2026-11-12 Play Services を足したら、リリースのビルドだけが lint で落ちた（PR の CI の署名の確認で発覚）
+
+- しようとしたこと: #727 で `play-services-location` を足し、`testDebugUnitTest`・`compileDebugAndroidTestKotlin`・`assembleDebug` を手元で通して PR（#730）を出した。
+- 起きたこと: CI の `verify-release-signing` の「署名なしのリリースは止まる」確認が落ちた。`assembleRelease` は止まったが、理由が署名ではなく `lintVitalRelease` の `InvalidFragmentVersionForActivityResult`（`WidgetVoiceCaptureActivity.kt:29`、既存のコード）だった。
+- 原因: Play Services が `androidx.fragment` 1.1.0 を連れてきて、`registerForActivityResult` が要求する 1.3.0 を下回った。リリースの lint は debug のビルドでは走らない。
+- 直し方: `androidx.fragment:fragment` の新しい版を明示した。
+- 再発防止: 依存を足したときは、手元でも `./gradlew assembleRelease` を流し、「Release signing is not configured」で止まる所まで進むことを確かめる（lint と R8 を通ったことになる）。CI の `verify-release-signing` が同じことを確かめている。
