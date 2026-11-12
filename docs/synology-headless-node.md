@@ -381,10 +381,10 @@ sudo /var/packages/ContainerManager/target/usr/bin/docker-compose \
   up -d --no-build --force-recreate tasken-headless
 ```
 
-どちらも、そのあとNASのroot権限で、承認したTailscale Serveのポート（例`8447`）を`127.0.0.1:48177`へ向けます（HTTPSの終端はTailscale。tailnet内だけに公開し、Funnelは使わない）。
+どちらも、そのあとNASのroot権限で、空いているTailscale Serveのポート（例`8448`。8444〜8447は使用中。`tailscale serve status`で確かめる）を`127.0.0.1:48177`へ向けます（HTTPSの終端はTailscale。tailnet内だけに公開し、Funnelは使わない）。
 
 ```bash
-sudo tailscale serve --bg --https=8447 http://127.0.0.1:48177
+sudo tailscale serve --bg --https=8448 http://127.0.0.1:48177
 ```
 
 起動すると、READYの行の`mobile_gateway`にポートが出ます。DBの自動バックアップが`/data/Backups`に5世代できます（DBの約5倍の空きを見ておく）。
@@ -397,7 +397,7 @@ docker exec tasken-headless node core-dist/mobile-pair.mjs list     # ペア済�
 docker exec tasken-headless node core-dist/mobile-pair.mjs revoke <deviceId>
 ```
 
-Androidの接続画面に、`https://<NASのtailnet名>:8447`とコードを入れる。端末の一覧はNASのDBにだけあり（同期しない）、Desktopの設定画面には出ない。取り消しはここで行う。
+Androidの接続画面に、`https://<NASのtailnet名>:8448`とコードを入れる。端末の一覧はNASのDBにだけあり（同期しない）、Desktopの設定画面には出ない。取り消しはここで行う。
 
 ### 乗り換えと守り
 
