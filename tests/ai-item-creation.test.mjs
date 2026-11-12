@@ -412,7 +412,7 @@ test("Desktop: 直接の書き込みは設定をその場で読み、Theme・期
   }
 });
 
-test("NAS replica（personal）は今までどおり、個人業務への題名と本文だけを作る", () => {
+test("NAS replica は Task の Theme・日程・優先度・チェックリスト・今日の割当を受け、Note の種類だけ断る", () => {
   const dir = temporary();
   const db = open(dir);
   db.save("theme", { id: "theme-work", name: "仕事" });
@@ -424,22 +424,34 @@ test("NAS replica（personal）は今までどおり、個人業務への題名�
     createAiItemCreationPort(new ApplicationCommandService(db), workspace),
   );
   try {
+    // Museの依頼（2026-11-12）: 作ってからchange_taskで直す二段にしない。
+    const wide = service.execute({
+      ...request("task", "nas-wide"),
+      theme_id: "theme-work",
+      priority: "high",
+      schedule: { end_date: "2026-11-20" },
+      today_date: "2026-11-11",
+      checklist: ["a"],
+    });
+    const task = db.get("task", wide.entity.id);
+    assert.equal(task.project_id, "theme-work");
+    assert.equal(task.priority, "high");
+    assert.equal(task.today_date, "2026-11-11");
+    assert.deepEqual(
+      task.checklist_items.map((item) => item.title),
+      ["a"],
+    );
+    const schedule = db.list("schedule").find((entry) => entry.owner_id === task.id);
+    assert.equal(schedule.end_date, "2026-11-20");
+    // Noteの種類（日報など）はDesktopの保存先に関わるので、NASでは断る。
     for (const extra of [
-      { theme_id: "theme-work" },
-      { priority: "high" },
-      { schedule: { end_date: "2026-11-20" } },
-      { today_date: "2026-11-11" },
-      { checklist: ["a"] },
+      { note_type: "prompt" },
+      { note_type: "report", report_date: "2026-11-10" },
     ])
       assert.throws(
-        () => service.execute({ ...request("task", "nas-wide"), ...extra }),
+        () => service.execute({ ...request("note", "nas-note-kind"), ...extra }),
         (e) => e.code === "WRITE_NOT_ALLOWED" && e.status === 403,
       );
-    assert.throws(
-      () => service.execute({ ...request("note", "nas-wide"), note_type: "prompt" }),
-      (e) => e.code === "WRITE_NOT_ALLOWED",
-    );
-    assert.equal(db.list("task").length, 0);
     const saved = service.execute(request("task", "nas-basic"));
     assert.equal(db.get("task", saved.entity.id).project_id, "theme-personal-default");
   } finally {

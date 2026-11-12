@@ -748,7 +748,7 @@ export class TaskenCoreRuntime {
    */
   enableAiItemCreation(
     port: AiItemCreationPort,
-    options: { isEnabled?: () => boolean; scope?: "personal" | "any" } = {},
+    options: { isEnabled?: () => boolean; scope?: "replica" | "any" } = {},
   ) {
     this.host.enableAiItemCreation(
       new AiItemCreationService(this.persistence, port, {
