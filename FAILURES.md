@@ -116,3 +116,11 @@
 - 直し方: `command()` が `issuedAt` を受け取れるようにし、Capture の試験は同じ時刻を渡す。壊れた写真も同じ時刻にそろえ、寸法の検査で断られファイルが残らないことを確かめる。
 - 再発防止: `command()` の上のコメントに制約を書いた。「不明」「負荷の推測」で済ませず、validation_failed は本文のどの検査かを先に疑う。
 - 同じ作業で、新しい試験が WorkspaceDatabase を使い architecture-audit が落ちた（`compatibility.consumer_added`。baseline の consumers に足して直した）。また `prettier --write` を ディレクトリに掛けると CRLF の作業ツリーで無関係なファイルが変わるので、ファイルを名指しして掛ける。
+
+## 2026-11-12 GitHub の Windows の CI で、パッケージ版の起動確認がアクセス違反で一度落ちた
+
+- しようとしたこと: #728（Muse の道具と、NAS の作成で受ける欄）の PR の CI。
+- 起きたこと: 試験は全部通り、最後の「Packaged Desktop Proposal verification」が `exit 3221225477`（0xC0000005、アクセス違反）で落ちた。落ちた所だけ流し直すと通った。
+- 原因: 不明。変更は Python の道具と Core の作成の欄だけで、パッケージ版の起動には関わらない。Electron の起動時の不安定と見ている。
+- 直し方: 流し直した。
+- 再発防止: 記録だけ。もう一度起きたら、起動確認の側で落ちた時のログ（Electron の crash dump）を残すようにする。
