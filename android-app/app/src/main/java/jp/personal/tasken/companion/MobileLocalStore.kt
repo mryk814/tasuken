@@ -66,6 +66,14 @@ data class TaskCacheEntity(
     val checklistJson: String = "[]",
     val description: String? = null,
     val aiOriginJson: String? = null,
+    val placeReminderJson: String? = null,
+)
+
+/** Task ごとの最終通知日（端末のローカル日付）。場所のリマインダーを 1 日 1 回に抑える。 */
+@Entity(tableName = "place_reminder_notice")
+data class PlaceReminderNoticeEntity(
+    @PrimaryKey val taskId: String,
+    val notifiedDate: String,
 )
 
 @Entity(tableName = "work_log_cache")
@@ -436,6 +444,8 @@ data class TaskConflictEntity(
     val localPlannedStartTime: String? = null,
     val localPlannedDurationMinutes: Int? = null,
     val localPlannedScheduleChanged: Boolean = false,
+    val localPlaceReminderJson: String? = null,
+    val localPlaceReminderChanged: Boolean = false,
 )
 
 data class TaskCacheWithConflict(
@@ -726,6 +736,23 @@ abstract class MobileLocalDao {
 
     @Query("SELECT * FROM task_cache WHERE id = :taskId")
     abstract suspend fun task(taskId: String): TaskCacheEntity?
+
+    @Query("SELECT notifiedDate FROM place_reminder_notice WHERE taskId = :taskId")
+    abstract suspend fun placeReminderNoticeDate(taskId: String): String?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun putPlaceReminderNotice(notice: PlaceReminderNoticeEntity)
+
+    /** 今日まだ通知していなければ記録して true。DWELL が重なって届いても 1 回しか通さない。 */
+    @Transaction
+    open suspend fun claimPlaceReminderNotice(taskId: String, today: String): Boolean {
+        if (placeReminderNoticeDate(taskId) == today) return false
+        putPlaceReminderNotice(PlaceReminderNoticeEntity(taskId, today))
+        return true
+    }
+
+    @Query("DELETE FROM place_reminder_notice WHERE taskId NOT IN (SELECT id FROM task_cache)")
+    abstract suspend fun prunePlaceReminderNotices()
 
     @Query("SELECT * FROM capture_receipt WHERE id = :captureId")
     abstract suspend fun captureReceipt(captureId: String): CaptureReceiptEntity?
@@ -1276,7 +1303,7 @@ abstract class MobileLocalDao {
             val previous = parent.taskEditIntent()
             val incoming = command.taskEditIntent()
             if (previous.changes.keys == incoming.changes.keys &&
-                incoming.changes.keys.all { it in setOf("schedule", "plannedSchedule", "checklistItems") }) {
+                incoming.changes.keys.all { it in setOf("schedule", "plannedSchedule", "checklistItems", "placeReminder") }) {
                 val combined = MobileTaskEditIntent(incoming.changes, previous.base)
                 deleteOutbox(parent.commandId)
                 if (combined.changes == combined.base) {
@@ -2293,8 +2320,9 @@ abstract class MobileLocalDao {
         PendingAgentReplyEntity::class,
         FeedCacheEntity::class,
         FeedPendingActionEntity::class,
+        PlaceReminderNoticeEntity::class,
     ],
-    version = 29,
+    version = 30,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -2338,8 +2366,18 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                     MIGRATION_26_27,
                     MIGRATION_27_28,
                     MIGRATION_28_29,
+                    MIGRATION_29_30,
             ).build().also { instance = it }
         }
+    }
+}
+
+internal val MIGRATION_29_30 = object : Migration(29, 30) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN placeReminderJson TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localPlaceReminderJson TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localPlaceReminderChanged INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("CREATE TABLE IF NOT EXISTS place_reminder_notice (taskId TEXT NOT NULL PRIMARY KEY, notifiedDate TEXT NOT NULL)")
     }
 }
 
@@ -2689,6 +2727,7 @@ fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     title = title,
     description = description,
     aiOrigin = decodeMobileAiOrigin(aiOriginJson),
+    placeReminder = decodeMobilePlaceReminder(placeReminderJson),
     themeId = themeId,
     state = state,
     workState = workState,
@@ -2754,6 +2793,9 @@ fun TaskCacheWithConflict.toMobileTask(activeServerId: String? = null): MobileTa
             localPlannedStartTime = if (it.localPlannedScheduleChanged) it.localPlannedStartTime else null,
             localPlannedDurationMinutes = if (it.localPlannedScheduleChanged) it.localPlannedDurationMinutes else null,
             localPlannedScheduleChanged = it.localPlannedScheduleChanged,
+            serverPlaceReminder = decodeMobilePlaceReminder(task.placeReminderJson),
+            localPlaceReminder = if (it.localPlaceReminderChanged) decodeMobilePlaceReminder(it.localPlaceReminderJson) else null,
+            localPlaceReminderChanged = it.localPlaceReminderChanged,
             detectedAt = it.detectedAt,
         )
     },

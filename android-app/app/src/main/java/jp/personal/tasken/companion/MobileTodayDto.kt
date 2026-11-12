@@ -64,6 +64,8 @@ data class MobileTaskSummaryDto(
     val description: String? = null,
     val images: List<MobileTaskImageSummaryDto> = emptyList(),
     val aiOrigin: MobileAiOrigin? = null,
+    /** X-Tasken-Place-Reminder: 1 を付けた要求にだけ返る。場所の条件が無い Task は null。 */
+    val placeReminder: MobilePlaceReminder? = null,
 )
 
 @Serializable
@@ -179,6 +181,7 @@ object MobileTodayContract {
             requireContract(item.title.trim().isNotEmpty() && item.title.length <= 500, "Invalid Task title.")
             requireContract(item.description == null || item.description.length <= 50000, "Invalid Task description.")
             validateMobileAiOrigin(item.aiOrigin)
+            requireContract(runCatching { validateMobilePlaceReminder(item.placeReminder) }.isSuccess, "Invalid Task placeReminder.")
             requireContract(item.themeId == null || isEntityId(item.themeId), "Invalid Theme ID.")
             requireContract(item.state in taskStates, "Invalid Task state.")
             requireContract(item.workState == null || item.workState in workStates, "Invalid work state.")

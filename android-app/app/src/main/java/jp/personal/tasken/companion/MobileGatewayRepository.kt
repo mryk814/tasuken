@@ -646,6 +646,9 @@ class AndroidMobileTaskRepository(
     override suspend fun enqueueUpdateTaskSchedule(taskId: String, schedule: MobileTaskScheduleDraft): String =
         outbox.enqueueUpdateSchedule(taskId, schedule)
 
+    override suspend fun enqueueUpdateTaskPlaceReminder(taskId: String, place: MobilePlaceReminder?): String =
+        outbox.enqueueUpdatePlaceReminder(taskId, place)
+
     override suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String?): String =
         outbox.enqueueUpdateTheme(taskId, themeId)
 
@@ -2225,6 +2228,7 @@ class AndroidMobileTaskRepository(
         title = title,
         description = description,
         aiOriginJson = encodeMobileAiOrigin(aiOrigin),
+        placeReminderJson = encodeMobilePlaceReminder(placeReminder),
         themeId = themeId,
         state = state,
         workState = workState,
@@ -2372,6 +2376,8 @@ class AndroidMobileTaskRepository(
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", "application/json")
             connection.setRequestProperty("X-Tasken-Ai-Origin", "1")
+            // これが無いと Gateway は placeReminder を返さない（古い APK を守る取り決め）。
+            connection.setRequestProperty("X-Tasken-Place-Reminder", "1")
             if (accessToken != null) connection.setRequestProperty("Authorization", "Bearer $accessToken")
             if (body != null) {
                 connection.doOutput = true

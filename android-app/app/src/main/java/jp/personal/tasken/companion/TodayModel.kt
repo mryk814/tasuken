@@ -54,6 +54,7 @@ data class MobileTask(
     val version: Int = 0,
     val description: String? = null,
     val aiOrigin: MobileAiOrigin? = null,
+    val placeReminder: MobilePlaceReminder? = null,
 )
 
 @Serializable
@@ -335,6 +336,9 @@ data class MobileTaskConflict(
     val localPlannedStartTime: String? = null,
     val localPlannedDurationMinutes: Int? = null,
     val localPlannedScheduleChanged: Boolean = false,
+    val serverPlaceReminder: MobilePlaceReminder? = null,
+    val localPlaceReminder: MobilePlaceReminder? = null,
+    val localPlaceReminderChanged: Boolean = false,
 )
 
 sealed interface MobileTodayResult {
@@ -1422,6 +1426,36 @@ class TodayViewModel(
         }
     }
 
+    fun updateTaskPlaceReminder(task: MobileTask, place: MobilePlaceReminder?) {
+        viewModelScope.launch { updateTaskPlaceReminderNow(task, place) }
+    }
+
+    internal suspend fun updateTaskPlaceReminderNow(task: MobileTask, place: MobilePlaceReminder?) {
+        if (task.placeReminder == place) return
+        try {
+            validateMobilePlaceReminder(place)
+        } catch (error: Exception) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "場所の指定を確認してください。")
+            return
+        }
+        if ((task.pending && !task.canEditPendingCreate && !task.canEditPendingTask) || task.conflict != null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "このTaskの同期を解決してから場所を変更してください。")
+            return
+        }
+        val offlineRepository = repository as? MobileOfflineTaskRepository
+        if (offlineRepository == null) {
+            mutableTaskActionState.value = TaskActionUiState.Error(task.id, "この環境ではTaskの場所を変更できません。")
+            return
+        }
+        mutableTaskActionState.value = TaskActionUiState.Saving(task.id)
+        mutableTaskActionState.value = try {
+            withContext(ioDispatcher) { offlineRepository.enqueueUpdateTaskPlaceReminder(task.id, place) }
+            TaskActionUiState.Queued(task.id)
+        } catch (error: Exception) {
+            TaskActionUiState.Error(task.id, error.message ?: "Taskの場所を変更できませんでした。")
+        }
+    }
+
     private fun normalizeScheduleDraft(draft: MobileTaskScheduleDraft): MobileTaskScheduleDraft {
         val start = draft.startDate?.takeIf(String::isNotBlank)?.let(java.time.LocalDate::parse)
         val end = draft.endDate?.takeIf(String::isNotBlank)?.let(java.time.LocalDate::parse)
@@ -2049,6 +2083,8 @@ interface MobileOfflineTaskRepository {
         error("この環境ではTaskの予定を変更できません。")
     suspend fun enqueueUpdateTaskSchedule(taskId: String, schedule: MobileTaskScheduleDraft): String =
         error("この環境ではTaskの予定を変更できません。")
+    suspend fun enqueueUpdateTaskPlaceReminder(taskId: String, place: MobilePlaceReminder?): String =
+        error("この環境ではTaskの場所を変更できません。")
     suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String?): String =
         error("この環境ではTaskのThemeを変更できません。")
     suspend fun enqueueUpdateTaskChecklist(taskId: String, items: List<MobileChecklistItem>): String =
