@@ -91,3 +91,12 @@
 - 原因: android-quality は `compileDebugAndroidTestKotlin` で androidTest をコンパイルするだけで、実行していない。試験の側は、`insertOutbox`（上書きしない insert）で既存の行を書き換えようとしていた。
 - 直し方: 試験で、消してから入れ直す `replaceOutbox` を使うようにした。エミュレータで 62 件通った。
 - 再発防止: android-quality.yml の Gradle の呼び出しの横に、androidTest は走らせないことと手元で走らせる手順を書いた。CI でエミュレータを動かすのは時間がかかるので、まだ入れていない。
+
+## 2026-11-12 NASのMobile Gatewayの写真の試験が、全体実行の一回目だけ validation_failed で落ちた
+
+- しようとしたこと: #688 段階3で `tests/headless-mobile-gateway.test.mjs` を足し、`npm run ci` を流す。
+- 起きたこと: 一回目の全体実行で「写真つきのCapture」の CreateCapture が 400 validation_failed（2,314件中1件）。単独で4回、他の重い試験と並べて1回流すと通り、二回目の全体実行も全件通った。
+- 原因: 不明。写真のstageが失敗すると Gateway は理由を出さず validation_failed を返す。負荷の高い間にファイルの書き込み（fsync・rename）が失敗した推測。
+- 直し方: 流し直して通ることを確かめた。試験は変えていない。
+- 再発防止: 記録だけ。もう一度起きたら、stage の失敗の理由を試験の失敗文に出す。
+- 同じ作業で、新しい試験が WorkspaceDatabase を使い architecture-audit が落ちた（`compatibility.consumer_added`。baseline の consumers に足して直した）。また `prettier --write` を ディレクトリに掛けると CRLF の作業ツリーで無関係なファイルが変わるので、ファイルを名指しして掛ける。
