@@ -176,6 +176,18 @@ export interface TaskRepeatRule {
   until?: string | null;
 }
 
+/** 場所のリマインダー（#727）。スマホがこの場所に居続けたときに、そのTaskを通知する条件。 */
+export interface TaskPlaceReminder {
+  name: string;
+  latitude: number;
+  longitude: number;
+  radius_m: number;
+  /** 0=日〜6=土。空は毎日。 */
+  days: number[];
+  time_from: string | null;
+  time_to: string | null;
+}
+
 export interface TaskChecklistItem {
   id: string;
   title: string;
@@ -216,6 +228,7 @@ export interface Task extends AiMetadata {
   planned_start_time?: string | null;
   planned_duration_minutes?: number | null;
   reminder_at?: string | null;
+  place_reminder?: TaskPlaceReminder | null;
   completed_at?: string | null;
   /** 完了時のひとこと。説明とは別に、完了の記録として保持する（#308）。 */
   completion_note?: string | null;

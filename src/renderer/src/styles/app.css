@@ -17501,3 +17501,72 @@ kbd {
   color: var(--color-warning-strong);
   font-weight: var(--weight-bold);
 }
+
+/* Taskの場所のリマインダー（#727）。曜日は選択中が塗られた形で、何も選ばなければ「毎日」が塗られる。 */
+.place-reminder .section-heading {
+  gap: var(--space-2);
+}
+.place-reminder .section-heading > .place-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-accent-subtle-bd);
+  border-radius: 999px;
+  background: var(--color-accent-subtle-bg);
+  color: var(--color-accent-strong);
+  font: var(--text-sm) var(--font-base);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.place-reminder .section-heading .text-button {
+  margin-left: auto;
+}
+.place-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.place-day {
+  position: relative;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text) !important;
+  cursor: pointer;
+  user-select: none;
+}
+.place-day input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.place-day.is-selected {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-surface) !important;
+}
+.place-day:focus-within {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.place-time {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+}
+.place-days-choices {
+  display: contents;
+}

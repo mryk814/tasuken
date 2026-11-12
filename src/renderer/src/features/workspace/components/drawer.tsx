@@ -44,6 +44,7 @@ import {
 import { dateOnly, formatDate, localDateIso, num, str, uuid } from "../lib/format";
 import { notePublishEnabled } from "../lib/io";
 import { normalizeTaskShelf } from "../lib/taskShelves";
+import { placeReminderSummary } from "../lib/placeReminder";
 import { buildKnowledgeLinkContext } from "../lib/knowledgeLinks";
 import { sketchCanvasMode } from "../lib/sketch";
 import {
@@ -1343,6 +1344,12 @@ export function EntityDrawer({
                     .filter(Boolean)
                     .join(" / ")}
                 </dd>
+              </>
+            )}
+            {task.place_reminder && (
+              <>
+                <dt>場所</dt>
+                <dd>{placeReminderSummary(task.place_reminder)}</dd>
               </>
             )}
             {/* 完了時のひとことは本文と分けて保存する（#308）。 */}
