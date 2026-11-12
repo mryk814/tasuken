@@ -32,9 +32,21 @@ const ARTIFACT_SOURCE_TYPES = new Map([
 ]);
 
 const LEGACY_THEME_TYPES = new Set([
-  "item", "note", "link", "view", "status_update", "source_record", "entity_source",
-  "field_definition", "field_value", "log_entry", "import_batch", "knowledge_node", "ai_proposal",
-  "resource", "artifact",
+  "item",
+  "note",
+  "link",
+  "view",
+  "status_update",
+  "source_record",
+  "entity_source",
+  "field_definition",
+  "field_value",
+  "log_entry",
+  "import_batch",
+  "knowledge_node",
+  "ai_proposal",
+  "resource",
+  "artifact",
 ]);
 
 function text(value) {
@@ -56,7 +68,17 @@ function validRef(type, id) {
 function normalizeStatus(value) {
   const status = text(value).toLowerCase();
   if (!status) return ASSERTED_STATUS;
-  if ([ASSERTED_STATUS, ACCEPTED_STATUS, SUGGESTED_STATUS, REJECTED_STATUS, SUPERSEDED_STATUS, UNKNOWN_STATUS].includes(status)) return status;
+  if (
+    [
+      ASSERTED_STATUS,
+      ACCEPTED_STATUS,
+      SUGGESTED_STATUS,
+      REJECTED_STATUS,
+      SUPERSEDED_STATUS,
+      UNKNOWN_STATUS,
+    ].includes(status)
+  )
+    return status;
   return UNKNOWN_STATUS;
 }
 
@@ -73,7 +95,9 @@ function stableSourceRef(record) {
   const refs = Array.isArray(record.ai_source_refs) ? record.ai_source_refs : [];
   return refs
     .map((entry) => text(entry?.id || entry?.ref).trim())
-    .filter((entry) => entry && entry.length <= 200 && !/[\s\\/]/.test(entry) && !/^file:/i.test(entry))
+    .filter(
+      (entry) => entry && entry.length <= 200 && !/[\s\\/]/.test(entry) && !/^file:/i.test(entry),
+    )
     .sort();
 }
 
@@ -89,22 +113,35 @@ function nodeMetadata(record, type, id) {
   const sourceRefs = stableSourceRef(record);
   if (sourceRefs.length) metadata.source_refs = sourceRefs;
   if (record.ai_authority) metadata.ai_authority = text(record.ai_authority);
-  if (record.ai_visibility) metadata.ai_visibility = text(record.ai_visibility);
   if (record.ai_freshness) metadata.ai_freshness = text(record.ai_freshness);
   return metadata;
 }
 
 function compareEdges(a, b) {
-  const factRank = (status) => status === ASSERTED_STATUS || status === ACCEPTED_STATUS ? 0 : status === SUGGESTED_STATUS ? 1 : 2;
+  const factRank = (status) =>
+    status === ASSERTED_STATUS || status === ACCEPTED_STATUS
+      ? 0
+      : status === SUGGESTED_STATUS
+        ? 1
+        : 2;
   const statusCompare = factRank(a.status) - factRank(b.status);
   if (statusCompare) return statusCompare;
   const layerCompare = (LAYER_ORDER.get(a.layer) ?? 9) - (LAYER_ORDER.get(b.layer) ?? 9);
   if (layerCompare) return layerCompare;
-  return `${a.predicate}:${a.target.type}:${a.target.id}:${a.id}`.localeCompare(`${b.predicate}:${b.target.type}:${b.target.id}:${b.id}`);
+  return `${a.predicate}:${a.target.type}:${a.target.id}:${a.id}`.localeCompare(
+    `${b.predicate}:${b.target.type}:${b.target.id}:${b.id}`,
+  );
 }
 
 function edgeKey(edge) {
-  return JSON.stringify([edge.source.type, edge.source.id, edge.predicate, edge.target.type, edge.target.id, edge.id]);
+  return JSON.stringify([
+    edge.source.type,
+    edge.source.id,
+    edge.predicate,
+    edge.target.type,
+    edge.target.id,
+    edge.id,
+  ]);
 }
 
 function isActive(record) {
@@ -126,7 +163,13 @@ function stableEvidenceRefs(value) {
       continue;
     }
     const candidate = text(entry);
-    if (!candidate || /[\s\\/]/.test(candidate) || /^file:/i.test(candidate) || candidate.length > 200) continue;
+    if (
+      !candidate ||
+      /[\s\\/]/.test(candidate) ||
+      /^file:/i.test(candidate) ||
+      candidate.length > 200
+    )
+      continue;
     const key = JSON.stringify(["legacy", candidate]);
     if (!seen.has(key)) refs.push(candidate);
     seen.add(key);
@@ -153,7 +196,25 @@ export function projectContextGraph(workspace, options = {}) {
 
   const edges = new Map();
   const diagnostics = [];
-  const addEdge = ({ assertionId = "", edgeId = "", sourceType, sourceId, targetType, targetId, predicate, layer = "operational", status = ASSERTED_STATUS, origin = "explicit", evidenceRefs = [], legacyEvidenceRefs = [], confidence = null, metadata = {}, validFrom = null, validTo = null, allowDangling = false }) => {
+  const addEdge = ({
+    assertionId = "",
+    edgeId = "",
+    sourceType,
+    sourceId,
+    targetType,
+    targetId,
+    predicate,
+    layer = "operational",
+    status = ASSERTED_STATUS,
+    origin = "explicit",
+    evidenceRefs = [],
+    legacyEvidenceRefs = [],
+    confidence = null,
+    metadata = {},
+    validFrom = null,
+    validTo = null,
+    allowDangling = false,
+  }) => {
     if (!validRef(sourceType, sourceId) || !validRef(targetType, targetId)) return;
     const source = ref(sourceType, sourceId);
     const target = ref(targetType, targetId);
@@ -162,7 +223,9 @@ export function projectContextGraph(workspace, options = {}) {
     if ((!sourcePresent || !targetPresent) && !allowDangling) return;
     const rawStatus = text(status).toLowerCase();
     const normalizedStatus = normalizeStatus(status);
-    const canonicalAssertionId = text(assertionId) || `projection:${JSON.stringify([source.type, source.id, text(predicate), target.type, target.id, text(origin)])}`;
+    const canonicalAssertionId =
+      text(assertionId) ||
+      `projection:${JSON.stringify([source.type, source.id, text(predicate), target.type, target.id, text(origin)])}`;
     const id = text(edgeId) || canonicalAssertionId;
     const edge = {
       id,
@@ -174,11 +237,23 @@ export function projectContextGraph(workspace, options = {}) {
       status: normalizedStatus,
       origin: text(origin) || "explicit",
       evidence_refs: stableEvidenceRefs(evidenceRefs),
-      ...(legacyEvidenceRefs.length ? { legacy_evidence_refs: [...new Set(legacyEvidenceRefs.map(text).filter(Boolean))].sort() } : {}),
+      ...(legacyEvidenceRefs.length
+        ? {
+            legacy_evidence_refs: [...new Set(legacyEvidenceRefs.map(text).filter(Boolean))].sort(),
+          }
+        : {}),
     };
-    if (confidence != null && Number.isFinite(Number(confidence))) edge.confidence = Number(confidence);
-    if (metadata && typeof metadata === "object" && !Array.isArray(metadata) && Object.keys(metadata).length) edge.metadata = { ...metadata };
-    if (rawStatus && normalizedStatus === UNKNOWN_STATUS && rawStatus !== UNKNOWN_STATUS) edge.status_raw = rawStatus;
+    if (confidence != null && Number.isFinite(Number(confidence)))
+      edge.confidence = Number(confidence);
+    if (
+      metadata &&
+      typeof metadata === "object" &&
+      !Array.isArray(metadata) &&
+      Object.keys(metadata).length
+    )
+      edge.metadata = { ...metadata };
+    if (rawStatus && normalizedStatus === UNKNOWN_STATUS && rawStatus !== UNKNOWN_STATUS)
+      edge.status_raw = rawStatus;
     if (validFrom) edge.valid_from = text(validFrom);
     if (validTo) edge.valid_to = text(validTo);
     if (!sourcePresent || !targetPresent) {
@@ -187,10 +262,7 @@ export function projectContextGraph(workspace, options = {}) {
       const diagnostic = {
         kind: "broken_relation",
         assertion_id: canonicalAssertionId,
-        missing_refs: [
-          ...(!sourcePresent ? [source] : []),
-          ...(!targetPresent ? [target] : []),
-        ],
+        missing_refs: [...(!sourcePresent ? [source] : []), ...(!targetPresent ? [target] : [])],
       };
       diagnostics.push(diagnostic);
       edge.diagnostic = diagnostic;
@@ -204,20 +276,31 @@ export function projectContextGraph(workspace, options = {}) {
 
   const addFieldRef = (type, record, field, targetType, predicate, layer = "operational") => {
     const targetId = text(record[field]);
-    if (targetId) addEdge({ sourceType: type, sourceId: record.id, targetType, targetId, predicate, layer });
+    if (targetId)
+      addEdge({ sourceType: type, sourceId: record.id, targetType, targetId, predicate, layer });
   };
 
   for (const [key, record] of records) {
     const entity = nodes.get(key)?.ref;
     if (!entity) continue;
     const { type, id } = entity;
-    const themeId = text(record.project_id || (LEGACY_THEME_TYPES.has(type) ? record.theme_id : ""));
+    const themeId = text(
+      record.project_id || (LEGACY_THEME_TYPES.has(type) ? record.theme_id : ""),
+    );
     if (themeId) {
       const targetThemeType = nodes.has(refKey("project", themeId)) ? "project" : "theme";
-      addEdge({ sourceType: type, sourceId: id, targetType: targetThemeType, targetId: themeId, predicate: "belongs_to_theme" });
+      addEdge({
+        sourceType: type,
+        sourceId: id,
+        targetType: targetThemeType,
+        targetId: themeId,
+        predicate: "belongs_to_theme",
+      });
     }
     if (type === "theme" || type === "project") {
-      for (const repositoryContextId of Array.isArray(record.repository_context_ids) ? record.repository_context_ids : []) {
+      for (const repositoryContextId of Array.isArray(record.repository_context_ids)
+        ? record.repository_context_ids
+        : []) {
         addEdge({
           assertionId: `${type}:${id}:repository_context:${text(repositoryContextId)}`,
           sourceType: type,
@@ -230,19 +313,45 @@ export function projectContextGraph(workspace, options = {}) {
         });
       }
     }
-    if (record.source_record_id) addEdge({ sourceType: type, sourceId: id, targetType: "source_record", targetId: record.source_record_id, predicate: "captured_from", layer: "provenance", origin: "source_record_id" });
+    if (record.source_record_id)
+      addEdge({
+        sourceType: type,
+        sourceId: id,
+        targetType: "source_record",
+        targetId: record.source_record_id,
+        predicate: "captured_from",
+        layer: "provenance",
+        origin: "source_record_id",
+      });
     if (type === "task") {
       addFieldRef(type, record, "parent_task_id", "task", "child_of");
       addFieldRef(type, record, "plan_node_id", "plan_node", "planned_under");
-      if (record.repeat_parent_task_id) addFieldRef(type, record, "repeat_parent_task_id", "task", "repeats");
+      if (record.repeat_parent_task_id)
+        addFieldRef(type, record, "repeat_parent_task_id", "task", "repeats");
     }
-    if (type === "plan_node") addFieldRef(type, record, "parent_plan_node_id", "plan_node", "child_of");
+    if (type === "plan_node")
+      addFieldRef(type, record, "parent_plan_node_id", "plan_node", "child_of");
     if (type === "waiting") addFieldRef(type, record, "task_id", "task", "waiting_on");
     if (type === "capture_entry" && record.triaged_to_type && record.triaged_to_id) {
-      addEdge({ sourceType: type, sourceId: id, targetType: record.triaged_to_type, targetId: record.triaged_to_id, predicate: "triaged_to", origin: "triage" });
+      addEdge({
+        sourceType: type,
+        sourceId: id,
+        targetType: record.triaged_to_type,
+        targetId: record.triaged_to_id,
+        predicate: "triaged_to",
+        origin: "triage",
+      });
     }
     if (type === "schedule" && record.owner_type && record.owner_id) {
-      addEdge({ sourceType: record.owner_type, sourceId: record.owner_id, targetType: type, targetId: id, predicate: "scheduled_as", layer: "operational", origin: "schedule" });
+      addEdge({
+        sourceType: record.owner_type,
+        sourceId: record.owner_id,
+        targetType: type,
+        targetId: id,
+        predicate: "scheduled_as",
+        layer: "operational",
+        origin: "schedule",
+      });
     }
     if (type === "reference") {
       try {
@@ -261,7 +370,9 @@ export function projectContextGraph(workspace, options = {}) {
           // keep that read-only signal for #279 consumers. Canonical rows use
           // the explicit assertion origin contract.
           origin: assertion.legacy_read ? "reference" : assertion.origin,
-          evidenceRefs: assertion.evidence_refs.length ? assertion.evidence_refs : [{ type: "reference", id: assertion.id }],
+          evidenceRefs: assertion.evidence_refs.length
+            ? assertion.evidence_refs
+            : [{ type: "reference", id: assertion.id }],
           legacyEvidenceRefs: assertion.legacy_evidence_refs || [],
           confidence: assertion.confidence,
           metadata: assertion.metadata,
@@ -269,41 +380,149 @@ export function projectContextGraph(workspace, options = {}) {
           allowDangling: true,
         });
       } catch (error) {
-        diagnostics.push({ kind: "invalid_relation", assertion_id: text(record.assertion_id || record.id), message: String(error?.message || error) });
+        diagnostics.push({
+          kind: "invalid_relation",
+          assertion_id: text(record.assertion_id || record.id),
+          message: String(error?.message || error),
+        });
       }
     }
     if (type === "task_dependency") {
-      addEdge({ assertionId: `task_dependency:${id}`, sourceType: "task", sourceId: record.task_id, targetType: "task", targetId: record.depends_on_task_id, predicate: "depends_on", origin: "task_dependency", evidenceRefs: [{ type: "task_dependency", id }] });
+      addEdge({
+        assertionId: `task_dependency:${id}`,
+        sourceType: "task",
+        sourceId: record.task_id,
+        targetType: "task",
+        targetId: record.depends_on_task_id,
+        predicate: "depends_on",
+        origin: "task_dependency",
+        evidenceRefs: [{ type: "task_dependency", id }],
+      });
     }
     if (type === "plan_dependency") {
-      addEdge({ assertionId: `plan_dependency:${id}`, sourceType: "plan_node", sourceId: record.plan_node_id, targetType: "plan_node", targetId: record.depends_on_plan_node_id, predicate: "depends_on", origin: "plan_dependency", evidenceRefs: [{ type: "plan_dependency", id }] });
+      addEdge({
+        assertionId: `plan_dependency:${id}`,
+        sourceType: "plan_node",
+        sourceId: record.plan_node_id,
+        targetType: "plan_node",
+        targetId: record.depends_on_plan_node_id,
+        predicate: "depends_on",
+        origin: "plan_dependency",
+        evidenceRefs: [{ type: "plan_dependency", id }],
+      });
     }
     if (type === "knowledge_edge") {
-      addEdge({ assertionId: `knowledge_edge:${id}`, sourceType: "knowledge_node", sourceId: record.source_node_id, targetType: "knowledge_node", targetId: record.target_node_id, predicate: record.relation_type || "related_to", layer: "semantic", status: record.status, origin: record.origin || "legacy_knowledge_edge", evidenceRefs: record.evidence_refs });
+      addEdge({
+        assertionId: `knowledge_edge:${id}`,
+        sourceType: "knowledge_node",
+        sourceId: record.source_node_id,
+        targetType: "knowledge_node",
+        targetId: record.target_node_id,
+        predicate: record.relation_type || "related_to",
+        layer: "semantic",
+        status: record.status,
+        origin: record.origin || "legacy_knowledge_edge",
+        evidenceRefs: record.evidence_refs,
+      });
     }
     if (type === "work_receipt") {
-      addEdge({ assertionId: `work_receipt:${id}:created_for`, sourceType: "work_receipt", sourceId: id, targetType: "task", targetId: record.task_id, predicate: "created_for", layer: "provenance", origin: "system_action", evidenceRefs: [{ type: "work_receipt", id }] });
+      addEdge({
+        assertionId: `work_receipt:${id}:created_for`,
+        sourceType: "work_receipt",
+        sourceId: id,
+        targetType: "task",
+        targetId: record.task_id,
+        predicate: "created_for",
+        layer: "provenance",
+        origin: "system_action",
+        evidenceRefs: [{ type: "work_receipt", id }],
+      });
     }
     if (type === "artifact") {
       const targetType = ARTIFACT_SOURCE_TYPES.get(text(record.source_type));
-      if (targetType) addEdge({ sourceType: type, sourceId: id, targetType, targetId: record.source_id, predicate: "derived_from", layer: "provenance", origin: "artifact.source", evidenceRefs: record.origin_note_id ? [record.origin_note_id] : [] });
-      if (record.origin_note_id) addEdge({ sourceType: type, sourceId: id, targetType: "note", targetId: record.origin_note_id, predicate: "exported_from", layer: "provenance", origin: "artifact.origin_note_id" });
+      if (targetType)
+        addEdge({
+          sourceType: type,
+          sourceId: id,
+          targetType,
+          targetId: record.source_id,
+          predicate: "derived_from",
+          layer: "provenance",
+          origin: "artifact.source",
+          evidenceRefs: record.origin_note_id ? [record.origin_note_id] : [],
+        });
+      if (record.origin_note_id)
+        addEdge({
+          sourceType: type,
+          sourceId: id,
+          targetType: "note",
+          targetId: record.origin_note_id,
+          predicate: "exported_from",
+          layer: "provenance",
+          origin: "artifact.origin_note_id",
+        });
     }
-    if (type === "entity_source" && record.entity_type && record.entity_id && record.source_record_id) {
-      addEdge({ sourceType: record.entity_type, sourceId: record.entity_id, targetType: "source_record", targetId: record.source_record_id, predicate: "captured_from", layer: "provenance", origin: "entity_source", evidenceRefs: [id] });
+    if (
+      type === "entity_source" &&
+      record.entity_type &&
+      record.entity_id &&
+      record.source_record_id
+    ) {
+      addEdge({
+        sourceType: record.entity_type,
+        sourceId: record.entity_id,
+        targetType: "source_record",
+        targetId: record.source_record_id,
+        predicate: "captured_from",
+        layer: "provenance",
+        origin: "entity_source",
+        evidenceRefs: [id],
+      });
     }
     if (type === "change_event") {
       const entityType = record.entity_ref?.type || record.entity_type;
       const entityId = record.entity_ref?.id || record.entity_id;
       if (entityType && entityId) {
-        addEdge({ sourceType: type, sourceId: id, targetType: entityType, targetId: entityId, predicate: "records_change_for", layer: "provenance", origin: record.origin?.kind || record.source || "change_event", validFrom: record.occurred_at || record.changed_at });
+        addEdge({
+          sourceType: type,
+          sourceId: id,
+          targetType: entityType,
+          targetId: entityId,
+          predicate: "records_change_for",
+          layer: "provenance",
+          origin: record.origin?.kind || record.source || "change_event",
+          validFrom: record.occurred_at || record.changed_at,
+        });
       }
     }
-    if (type === "resource" && record.parent_resource_id) addFieldRef(type, record, "parent_resource_id", "resource", "continued_as", "provenance");
+    if (type === "resource" && record.parent_resource_id)
+      addFieldRef(type, record, "parent_resource_id", "resource", "continued_as", "provenance");
     if (type === "knowledge_node") {
-      if (record.source_type && record.source_id) addEdge({ sourceType: type, sourceId: id, targetType: record.source_type, targetId: record.source_id, predicate: "based_on", layer: "provenance", origin: "knowledge_node.source" });
-      for (const [field, targetType, predicate] of [["source_note_id", "note", "based_on"], ["source_link_id", "resource", "based_on"], ["source_item_id", "task", "based_on"]]) {
-        if (record[field]) addEdge({ sourceType: type, sourceId: id, targetType, targetId: record[field], predicate, layer: "provenance", origin: `knowledge_node.${field}` });
+      if (record.source_type && record.source_id)
+        addEdge({
+          sourceType: type,
+          sourceId: id,
+          targetType: record.source_type,
+          targetId: record.source_id,
+          predicate: "based_on",
+          layer: "provenance",
+          origin: "knowledge_node.source",
+        });
+      for (const [field, targetType, predicate] of [
+        ["source_note_id", "note", "based_on"],
+        ["source_link_id", "resource", "based_on"],
+        ["source_item_id", "task", "based_on"],
+      ]) {
+        if (record[field])
+          addEdge({
+            sourceType: type,
+            sourceId: id,
+            targetType,
+            targetId: record[field],
+            predicate,
+            layer: "provenance",
+            origin: `knowledge_node.${field}`,
+          });
       }
     }
   }
@@ -322,18 +541,31 @@ export function projectContextGraph(workspace, options = {}) {
   for (const list of outgoing.values()) list.sort(compareEdges);
   for (const list of incoming.values()) list.sort(compareEdges);
   diagnostics.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-  return { nodes, records, edges: orderedEdges, outgoing, incoming, diagnostics, options: { ...options } };
+  return {
+    nodes,
+    records,
+    edges: orderedEdges,
+    outgoing,
+    incoming,
+    diagnostics,
+    options: { ...options },
+  };
 }
 
 function normalizeLimits(options = {}) {
-  const positiveInt = (value, fallback) => Number.isFinite(Number(value)) && Number(value) > 0 ? Math.floor(Number(value)) : fallback;
-  const nonNegativeInt = (value, fallback) => Number.isFinite(Number(value)) && Number(value) >= 0 ? Math.floor(Number(value)) : fallback;
+  const positiveInt = (value, fallback) =>
+    Number.isFinite(Number(value)) && Number(value) > 0 ? Math.floor(Number(value)) : fallback;
+  const nonNegativeInt = (value, fallback) =>
+    Number.isFinite(Number(value)) && Number(value) >= 0 ? Math.floor(Number(value)) : fallback;
   return {
     maxHops: Math.min(2, positiveInt(options.maxHops, DEFAULT_MAX_HOPS)),
     maxNodes: Math.min(100, positiveInt(options.maxNodes, DEFAULT_MAX_NODES)),
     maxEdges: Math.min(200, nonNegativeInt(options.maxEdges, DEFAULT_MAX_EDGES)),
     maxDiagnostics: Math.min(100, nonNegativeInt(options.maxDiagnostics, DEFAULT_MAX_EDGES)),
-    tokenBudget: Math.min(12000, Math.max(16, positiveInt(options.tokenBudget, DEFAULT_TOKEN_BUDGET))),
+    tokenBudget: Math.min(
+      12000,
+      Math.max(16, positiveInt(options.tokenBudget, DEFAULT_TOKEN_BUDGET)),
+    ),
   };
 }
 
@@ -346,7 +578,6 @@ function estimatedTokens(value) {
     paths: value.paths,
     diagnostics: value.diagnostics || [],
   };
-  if (value.excluded_nodes?.length) payload.excluded_nodes = value.excluded_nodes;
   return Math.ceil(JSON.stringify(payload).length / 4);
 }
 
@@ -355,23 +586,6 @@ function edgeAllowed(edge, options) {
   if (edge.status === SUGGESTED_STATUS) return Boolean(options.includeSuggested);
   if (edge.status !== ASSERTED_STATUS && edge.status !== ACCEPTED_STATUS) return false;
   return true;
-}
-
-function nodeAllowed(node, options) {
-  return typeof options.nodeFilter !== "function" || options.nodeFilter(node);
-}
-
-function nodeExclusion(node, options) {
-  const proposed = typeof options.nodeExclusion === "function" ? options.nodeExclusion(node) : null;
-  const value = proposed && typeof proposed === "object" && !Array.isArray(proposed) ? proposed : {};
-  const proposedRef = value.ref && typeof value.ref === "object" && !Array.isArray(value.ref) ? value.ref : node?.ref;
-  const excludedRef = ref(proposedRef?.type, proposedRef?.id);
-  if (!validRef(excludedRef.type, excludedRef.id)) return null;
-  return {
-    ref: excludedRef,
-    reason: text(value.reason) || "node_filter",
-    count: 1,
-  };
 }
 
 function nodeOutput(graph, key) {
@@ -393,11 +607,17 @@ export function traceProvenance(graph, seed, options = {}) {
   const provenance = new Set(["provenance"]);
   return getContextSubgraph(graph, seed, {
     ...options,
-    edgeFilter: (edge) => provenance.has(edge.layer) && (!options.edgeFilter || options.edgeFilter(edge)),
+    edgeFilter: (edge) =>
+      provenance.has(edge.layer) && (!options.edgeFilter || options.edgeFilter(edge)),
     // Upstream follows subject -> object (Artifact -> source, Entity ->
     // source_record); downstream follows object -> subject. The default is
     // both because a Note may be both source and output of separate edges.
-    direction: options.direction === "upstream" ? "outgoing" : options.direction === "downstream" ? "incoming" : "both",
+    direction:
+      options.direction === "upstream"
+        ? "outgoing"
+        : options.direction === "downstream"
+          ? "incoming"
+          : "both",
   });
 }
 
@@ -405,34 +625,40 @@ export function getContextSubgraph(graph, seed, options = {}) {
   const seedRef = ref(seed?.type, seed?.id);
   const seedKey = refKey(seedRef.type, seedRef.id);
   const limits = normalizeLimits(options);
-  if (!graph?.nodes?.has(seedKey)) return { seed: seedRef, nodes: [], edges: [], paths: [], diagnostics: [], excluded_nodes: [], truncated: false, limits, estimated_tokens: 0, exclusions: ["seed_not_found"] };
-  if (!nodeAllowed(graph.nodes.get(seedKey), options)) return {
-    seed: seedRef,
-    nodes: [],
-    edges: [],
-    paths: [],
-    diagnostics: [],
-    excluded_nodes: [nodeExclusion(graph.nodes.get(seedKey), options)].filter(Boolean),
-    truncated: false,
-    limits,
-    estimated_tokens: 0,
-    exclusions: ["seed_not_allowed"],
-  };
-  const direction = options.direction === "incoming" ? "incoming" : options.direction === "outgoing" ? "outgoing" : "both";
+  if (!graph?.nodes?.has(seedKey))
+    return {
+      seed: seedRef,
+      nodes: [],
+      edges: [],
+      paths: [],
+      diagnostics: [],
+      truncated: false,
+      limits,
+      estimated_tokens: 0,
+      exclusions: ["seed_not_found"],
+    };
+  const direction =
+    options.direction === "incoming"
+      ? "incoming"
+      : options.direction === "outgoing"
+        ? "outgoing"
+        : "both";
   const included = new Set([seedKey]);
   const queue = [{ key: seedKey, depth: 0, path: [] }];
   const selectedEdges = [];
   const selectedKeys = new Set();
   const selectedDiagnostics = [];
   const selectedDiagnosticKeys = new Set();
-  const excludedNodes = [];
-  const excludedNodeKeys = new Set();
   const paths = [];
   let truncated = false;
   const neighborEdges = (key) => {
     const edges = [];
-    if (direction !== "incoming") for (const edge of graph.outgoing.get(key) || []) edges.push({ edge, next: refKey(edge.target.type, edge.target.id) });
-    if (direction !== "outgoing") for (const edge of graph.incoming.get(key) || []) edges.push({ edge, next: refKey(edge.source.type, edge.source.id) });
+    if (direction !== "incoming")
+      for (const edge of graph.outgoing.get(key) || [])
+        edges.push({ edge, next: refKey(edge.target.type, edge.target.id) });
+    if (direction !== "outgoing")
+      for (const edge of graph.incoming.get(key) || [])
+        edges.push({ edge, next: refKey(edge.source.type, edge.source.id) });
     return edges.sort((a, b) => compareEdges(a.edge, b.edge));
   };
   while (queue.length) {
@@ -451,30 +677,31 @@ export function getContextSubgraph(graph, seed, options = {}) {
         }
         continue;
       }
-      if (!nodeAllowed(nextNode, options)) {
-        const exclusion = nodeExclusion(nextNode, options);
-        const exclusionKey = exclusion ? refKey(exclusion.ref.type, exclusion.ref.id) : "";
-        if (exclusion && !excludedNodeKeys.has(exclusionKey)) {
-          if (excludedNodes.length >= limits.maxDiagnostics) truncated = true;
-          else {
-            excludedNodeKeys.add(exclusionKey);
-            excludedNodes.push(exclusion);
-          }
-        }
+      const nextPath = [...current.path, edge.id];
+      if (!selectedKeys.has(edge.id) && selectedEdges.length >= limits.maxEdges) {
+        truncated = true;
         continue;
       }
-      const nextPath = [...current.path, edge.id];
-      if (!selectedKeys.has(edge.id) && selectedEdges.length >= limits.maxEdges) { truncated = true; continue; }
       if (!included.has(next)) {
-        if (included.size >= limits.maxNodes) { truncated = true; continue; }
+        if (included.size >= limits.maxNodes) {
+          truncated = true;
+          continue;
+        }
         included.add(next);
         queue.push({ key: next, depth: current.depth + 1, path: nextPath });
       }
       if (!selectedKeys.has(edge.id)) {
         selectedKeys.add(edge.id);
-        selectedEdges.push(edgeOutput(edge, current.depth === 0 ? "direct_relation" : "bounded_path", nextPath));
+        selectedEdges.push(
+          edgeOutput(edge, current.depth === 0 ? "direct_relation" : "bounded_path", nextPath),
+        );
       }
-      paths.push({ from: { ...graph.nodes.get(current.key).ref }, to: { ...nextNode.ref }, hops: current.depth + 1, edge_ids: nextPath });
+      paths.push({
+        from: { ...graph.nodes.get(current.key).ref },
+        to: { ...nextNode.ref },
+        hops: current.depth + 1,
+        edge_ids: nextPath,
+      });
     }
   }
   const nodes = [...included].map((key) => nodeOutput(graph, key)).filter(Boolean);
@@ -485,9 +712,12 @@ export function getContextSubgraph(graph, seed, options = {}) {
     paths,
     truncated,
     limits,
-    policy: { asserted_first: true, suggested_included: Boolean(options.includeSuggested), suggested_is_fact: false },
+    policy: {
+      asserted_first: true,
+      suggested_included: Boolean(options.includeSuggested),
+      suggested_is_fact: false,
+    },
     diagnostics: selectedDiagnostics,
-    excluded_nodes: excludedNodes,
     exclusions: [],
   };
   sanitizeResult(result);
@@ -506,10 +736,6 @@ export function getContextSubgraph(graph, seed, options = {}) {
     }
     while (result.estimated_tokens > limits.tokenBudget && result.diagnostics.length) {
       result.diagnostics.pop();
-      result.estimated_tokens = estimatedTokens(result);
-    }
-    while (result.estimated_tokens > limits.tokenBudget && result.excluded_nodes.length) {
-      result.excluded_nodes.pop();
       result.estimated_tokens = estimatedTokens(result);
     }
     if (result.estimated_tokens > limits.tokenBudget) {
@@ -542,17 +768,19 @@ function sanitizeResult(result) {
   }
   result.nodes = result.nodes.filter((node) => reachable.has(refKey(node.type, node.id)));
   const nodeKeys = new Set(result.nodes.map((node) => refKey(node.type, node.id)));
-  result.edges = result.edges.filter((edge) => (
-    nodeKeys.has(refKey(edge.source.type, edge.source.id))
-      && nodeKeys.has(refKey(edge.target.type, edge.target.id))
-      && edgeIds.has(edge.id)
-  ));
+  result.edges = result.edges.filter(
+    (edge) =>
+      nodeKeys.has(refKey(edge.source.type, edge.source.id)) &&
+      nodeKeys.has(refKey(edge.target.type, edge.target.id)) &&
+      edgeIds.has(edge.id),
+  );
   const retainedEdgeIds = new Set(result.edges.map((edge) => edge.id));
-  result.paths = result.paths.filter((path) => (
-    nodeKeys.has(refKey(path.from.type, path.from.id))
-      && nodeKeys.has(refKey(path.to.type, path.to.id))
-      && path.edge_ids.every((edgeId) => retainedEdgeIds.has(edgeId))
-  ));
+  result.paths = result.paths.filter(
+    (path) =>
+      nodeKeys.has(refKey(path.from.type, path.from.id)) &&
+      nodeKeys.has(refKey(path.to.type, path.to.id)) &&
+      path.edge_ids.every((edgeId) => retainedEdgeIds.has(edgeId)),
+  );
 }
 
 export function explainContextSelection(result) {
@@ -570,7 +798,6 @@ export function explainContextSelection(result) {
     limits: result.limits,
     estimated_tokens: result.estimated_tokens,
     truncated: result.truncated,
-    excluded_nodes: result.excluded_nodes || [],
     exclusions: result.exclusions,
   };
 }
@@ -598,7 +825,6 @@ export function contextGraphMcpShape(result) {
     })),
     paths: result.paths,
     diagnostics: result.diagnostics || [],
-    excluded_nodes: result.excluded_nodes || [],
     limits: result.limits,
     estimated_tokens: result.estimated_tokens,
     truncated: result.truncated,

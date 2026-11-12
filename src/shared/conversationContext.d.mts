@@ -1,5 +1,6 @@
 export type ConversationContextScope = "full" | "selected_turns";
-export type ConversationContextPublicationStatus = "publishing" | "published" | "publish_failed" | "removing" | "removal_failed" | "removed";
+export type ConversationContextPublicationStatus =
+  "publishing" | "published" | "publish_failed" | "removing" | "removal_failed" | "removed";
 
 export interface ConversationContextPublication {
   schema: "tasken-conversation-context-publication/v1";
@@ -43,22 +44,40 @@ export interface ConversationContextPlan {
   summary: string;
   freshness: string;
   authority: string;
-  ai_visibility: string[];
 }
 
 export const CONVERSATION_CONTEXT_SCHEMA: "tasken-conversation-context/v1";
 export const CONVERSATION_CONTEXT_PUBLICATION_SCHEMA: "tasken-conversation-context-publication/v1";
 export const CONVERSATION_CONTEXT_DIRECTORY: "AI Context/Conversations";
 export const CONVERSATION_CONTEXT_SCOPES: readonly ConversationContextScope[];
-export function parseConversationContextMessages(body: unknown): Array<{ role: "user" | "assistant" | "system" | "tool"; displayName: string; index: number; content: string }>;
-export function normalizeConversationContextPublication(value: unknown): ConversationContextPublication | null;
-export function conversationContextRelativePath(resource: Record<string, unknown>, publication?: unknown): string;
+export function parseConversationContextMessages(
+  body: unknown,
+): Array<{
+  role: "user" | "assistant" | "system" | "tool";
+  displayName: string;
+  index: number;
+  content: string;
+}>;
+export function normalizeConversationContextPublication(
+  value: unknown,
+): ConversationContextPublication | null;
+export function conversationContextRelativePath(
+  resource: Record<string, unknown>,
+  publication?: unknown,
+): string;
 export function buildConversationContextPlan(input: {
   resource: Record<string, unknown>;
   theme: Record<string, unknown>;
-  workspaceDefault?: string[] | null;
   scope?: ConversationContextScope;
   selectedMessageIndexes?: number[];
   publishedAt?: string;
 }): ConversationContextPlan;
-export function publicationForThemeAiPack(entity: Record<string, unknown>): { published: true; title: string; theme_id: string; storage_root_id: string; relative_path: string } | null;
+export function publicationForThemeAiPack(
+  entity: Record<string, unknown>,
+): {
+  published: true;
+  title: string;
+  theme_id: string;
+  storage_root_id: string;
+  relative_path: string;
+} | null;

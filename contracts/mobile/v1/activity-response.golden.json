@@ -34,7 +34,7 @@
             "kind": "manual"
           },
           "summary": "task_completed: 測定を完了",
-          "changed_fields": ["ai_visibility", "state", "title"],
+          "changed_fields": ["ai_summary", "state", "title"],
           "canonical_refs": [],
           "source_refs": [],
           "relation_refs": [],
@@ -75,8 +75,6 @@
           }
         }
       ],
-      "excluded_count": 0,
-      "excluded_reasons": [],
       "truncated": false,
       "page": {
         "status": "ok",
@@ -112,8 +110,6 @@
       "timezone": "Asia/Tokyo",
       "date": "2026-09-06",
       "events": [],
-      "excluded_count": 0,
-      "excluded_reasons": [],
       "truncated": false,
       "page": {
         "status": "ok",
@@ -169,7 +165,7 @@
             "kind": "manual"
           },
           "summary": "task_completed: 測定Bを完了",
-          "changed_fields": ["ai_visibility", "state", "title"],
+          "changed_fields": ["ai_summary", "state", "title"],
           "canonical_refs": [],
           "source_refs": [],
           "relation_refs": [],
@@ -210,8 +206,6 @@
           }
         }
       ],
-      "excluded_count": 0,
-      "excluded_reasons": [],
       "truncated": true,
       "page": {
         "status": "ok",
@@ -267,7 +261,7 @@
             "kind": "manual"
           },
           "summary": "note_created: 測定手順のノート",
-          "changed_fields": ["ai_visibility", "body_markdown", "title"],
+          "changed_fields": ["ai_summary", "body_markdown", "title"],
           "canonical_refs": [],
           "source_refs": [],
           "relation_refs": [],
@@ -308,8 +302,6 @@
           }
         }
       ],
-      "excluded_count": 0,
-      "excluded_reasons": [],
       "truncated": false,
       "page": {
         "status": "ok",

@@ -5,11 +5,11 @@ function digest(value) {
 }
 
 /** Cursor contains only digests and an offset; never entity IDs or hidden values. */
-export function paginateActivity(projected, { criteria, exclusions, limit, cursor, period }) {
+export function paginateActivity(projected, { criteria, limit, cursor, period }) {
   const query = digest(criteria);
-  // A changed public projection or exclusion count invalidates all following pages.
+  // A changed public projection invalidates all following pages.
   // Re-projecting on every call also applies current policy before returning any row.
-  const revision = digest([projected, exclusions]);
+  const revision = digest(projected);
   let offset = 0;
   let status = "ok";
   if (cursor != null && cursor !== "") {

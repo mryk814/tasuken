@@ -1002,12 +1002,25 @@ export function normalizeTaskAssignment(input, previous = null) {
   return normalizeTaskAssignmentInModule(input, previous);
 }
 
+const RETIRED_AI_VISIBILITY_KEYS = ["ai_visibility", "default_ai_visibility"];
+
+/**
+ * AI公開範囲は廃止した概念（2026-11-12）。更新前の端末（NAS replica・別PCのDesktop・Android）が
+ * 同期やコマンドで送ってくるキーは、拒否せず、保存せずに捨てる。拒否すると同期が止まる。
+ * 保存済みの行に残る値は移行せず、どこからも読まれない。
+ */
+export function withoutRetiredAiVisibility(record) {
+  const result = { ...record };
+  for (const key of RETIRED_AI_VISIBILITY_KEYS) delete result[key];
+  return result;
+}
+
 export function normalizeEntity(type, input) {
-  const normalized = { ...input };
+  const normalized = withoutRetiredAiVisibility(input);
   if (type === "reference")
     Object.assign(normalized, normalizeReferenceAssertion(normalized, { writeBoundary: true }));
   if (type === "change_event") Object.assign(normalized, normalizeActivityEvent(normalized));
-  // AI共通metadata（#294）。本文フィールドには触れず、概要・鮮度・根拠・公開範囲だけを揃える。
+  // AI共通metadata（#294）。本文フィールドには触れず、概要・鮮度・根拠だけを揃える。
   if (hasAiMetadataContract(type)) Object.assign(normalized, normalizeAiMetadata(type, normalized));
   if (type === "repository_context") {
     const safeContext = normalizeRepositoryContext(normalized);

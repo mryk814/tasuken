@@ -942,7 +942,7 @@ export function ThemePage({
               )}
             </section>
 
-            {/* 公開範囲の確認も技術設定なので、同じ折り畳みへ置いて入口を失わない。 */}
+            {/* AIへ渡る内容の確認も技術設定なので、同じ折り畳みへ置いて入口を失わない。 */}
             <AiContextPreviewPanel
               scope={{ type: "theme", id: theme.id }}
               data={data}

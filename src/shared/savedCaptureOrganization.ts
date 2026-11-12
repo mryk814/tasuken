@@ -40,5 +40,4 @@ export interface SavedCaptureOrganizationSource {
   capturedAt: string;
   timeZone: string;
   themeId: string | null;
-  canOrganize: boolean;
 }

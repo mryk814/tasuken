@@ -1,11 +1,9 @@
 import type { TimelineItemState } from "../lib/timeline";
 import type {
-  AiAudience,
   AiAuthority,
   AiFreshness,
   AiSourceRefKind,
   AiSummaryAuthority,
-  AiVisibilityPreset,
 } from "../../../../../shared/aiMetadata.mjs";
 import type {
   CaptureEntryState,
@@ -241,20 +239,6 @@ export const ARTIFACT_LINK_STATUS_LABELS: Record<string, string> = {
 };
 
 /** AI可読metadata（#294）。内部コードを画面へ出さないための対応表。 */
-export const AI_AUDIENCE_LABELS: Record<AiAudience, string> = {
-  m365: "Microsoft 365",
-  coding_agent: "Coding Agent",
-  external_ai: "外部AI",
-};
-
-export const AI_VISIBILITY_PRESET_LABELS: Record<AiVisibilityPreset, string> = {
-  local_only: "ローカルのみ",
-  m365_allowed: "Microsoft 365まで",
-  coding_agent_allowed: "Coding Agentまで",
-  m365_and_coding_agent_allowed: "M365とCoding Agent",
-  external_ai_allowed: "外部AIまで",
-};
-
 export const AI_FRESHNESS_LABELS: Record<AiFreshness, string> = {
   current: "現在有効",
   stale: "要再確認",
@@ -286,14 +270,6 @@ export const AI_SOURCE_REF_KIND_LABELS: Record<AiSourceRefKind, string> = {
   repository: "リポジトリ",
   external_system: "外部システム",
 };
-
-/** 公開範囲がどこから来たか。未設定と明示許可を混同させないための語。 */
-export const AI_VISIBILITY_SOURCE_LABELS: Record<"entity" | "theme" | "workspace_default", string> =
-  {
-    entity: "この項目で設定",
-    theme: "Themeの既定を継承",
-    workspace_default: "全体の既定",
-  };
 
 /** 未設定であることを示す語。「無い」ではなく「決めていない」と読ませる。 */
 export const AI_UNSET_LABEL = "未設定";

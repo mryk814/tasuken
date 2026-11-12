@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { normalizeAiVisibility, resolveAiVisibility } from "../../shared/aiMetadata.mjs";
 import { changeEventCommandIdsWithPrefix } from "../../shared/activityEvent.mjs";
 import { canonicalThemeId } from "../../shared/themeRef.mjs";
 import type { CommandEnvelope, CommandReceipt } from "../../shared/applicationCommand";
@@ -16,7 +15,6 @@ interface Options {
   repository: {
     get(type: string, id: string, includeDeleted?: boolean): Entity | null;
     list(type: string, includeDeleted?: boolean): Entity[];
-    getPreference(key: string): unknown;
   };
   organize(input: CaptureOrganizerInput): Promise<CaptureOrganizerBatch>;
   executeCommands(commands: CommandEnvelope[]): CommandReceipt[];
@@ -36,19 +34,6 @@ export class SavedCaptureOrganizer {
     return entry;
   }
 
-  private allowed(entity: Entity) {
-    const theme = entity.project_id
-      ? this.options.repository.get("theme", String(entity.project_id))
-      : null;
-    return resolveAiVisibility({
-      entity,
-      theme,
-      workspaceDefault: normalizeAiVisibility(
-        this.options.repository.getPreference("aiVisibilityDefault"),
-      ),
-    }).audiences.includes("external_ai");
-  }
-
   source(id: string, version: number): SavedCaptureOrganizationSource {
     const entry = this.capture(
       z.string().min(1).max(200).parse(id),
@@ -64,22 +49,18 @@ export class SavedCaptureOrganizer {
       capturedAt,
       timeZone: typeof storedZone === "string" ? storedZone : "",
       themeId: typeof entry.project_id === "string" ? entry.project_id : null,
-      canOrganize: this.allowed(entry),
     };
   }
 
   async organize(value: unknown) {
     const input = savedCaptureOrganizationRequestSchema.parse(value);
     const capture = this.capture(input.captureId, input.captureVersion);
-    if (!this.allowed(capture))
-      throw new Error("CaptureのAI公開範囲で「外部AI」を許可してから整理してください。");
     const theme = capture.project_id
       ? this.options.repository.get("theme", String(capture.project_id))
       : null;
-    const themes =
-      theme && this.allowed(theme)
-        ? [{ id: theme.id, title: String(theme.name || theme.title || "Theme") }]
-        : [];
+    const themes = theme
+      ? [{ id: theme.id, title: String(theme.name || theme.title || "Theme") }]
+      : [];
     const result = savedCaptureOrganizationBatchSchema.parse(
       await this.options.organize({
         mode: "saved_capture",
@@ -92,15 +73,9 @@ export class SavedCaptureOrganizer {
         includePlannedTime: true,
       }),
     );
-    if (!this.allowed(this.capture(input.captureId, input.captureVersion)))
-      throw new Error("CaptureのAI公開範囲が変わりました。開き直してください。");
-    if (
-      themes.some((sentTheme) => {
-        const current = this.options.repository.get("theme", sentTheme.id);
-        return !current || !this.allowed(current);
-      })
-    )
-      throw new Error("ThemeのAI公開範囲が変わりました。開き直してください。");
+    this.capture(input.captureId, input.captureVersion);
+    if (themes.some((sentTheme) => !this.options.repository.get("theme", sentTheme.id)))
+      throw new Error("Themeが変わりました。開き直してください。");
     if (
       result.tasks.some(
         (task) => task.themeId !== null && !themes.some((theme) => theme.id === task.themeId),
@@ -125,8 +100,7 @@ export class SavedCaptureOrganizer {
       throw new Error("保存済みの候補集合を変更せずに再試行してください。");
     if (!existing.size) {
       try {
-        if (!this.allowed(this.capture(captureId, captureVersion)))
-          throw new Error("CaptureのAI公開範囲が変わりました。開き直してください。");
+        this.capture(captureId, captureVersion);
       } catch (error) {
         return { status: "not_saved" as const, message: (error as Error).message };
       }

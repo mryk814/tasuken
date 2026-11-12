@@ -1,4 +1,3 @@
-import { DEFAULT_AI_VISIBILITY, normalizeAiVisibility } from "../../../shared/aiMetadata.mjs";
 import type {
   AgentWorkspaceReadPort,
   AgentWorkspaceRecord,
@@ -19,7 +18,6 @@ export interface AgentWorkspacePersistence {
       | "ai_proposal",
     includeDeleted?: boolean,
   ): AgentWorkspaceRecord[];
-  readPreference(key: "aiVisibilityDefault"): unknown;
 }
 
 /** Query-specific adapter over the composition root's existing WorkspaceDatabase. */
@@ -56,13 +54,5 @@ export class WorkspaceAgentWorkspaceReadAdapter implements AgentWorkspaceReadPor
 
   listReferences(includeArchived: boolean) {
     return this.persistence.list("reference", includeArchived);
-  }
-
-  workspaceAiVisibilityDefault() {
-    return (
-      normalizeAiVisibility(this.persistence.readPreference("aiVisibilityDefault")) || [
-        ...DEFAULT_AI_VISIBILITY,
-      ]
-    );
   }
 }

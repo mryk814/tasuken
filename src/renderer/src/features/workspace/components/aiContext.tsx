@@ -2,40 +2,26 @@ import { AiCreationMark } from "./AiCreationMark";
 import { useState } from "react";
 
 import {
-  AI_AUDIENCES,
-  aiVisibilityPresetOf,
   hasAiMetadataContract,
   resolveAiAuthority,
   resolveAiFreshness,
   resolveAiSummary,
-  resolveAiVisibility,
 } from "../../../../../shared/aiMetadata.mjs";
-import type { AiAudience, AiSourceRef } from "../../../../../shared/aiMetadata.mjs";
+import type { AiSourceRef } from "../../../../../shared/aiMetadata.mjs";
 import {
-  AI_AUDIENCE_LABELS,
   AI_AUTHORITY_LABELS,
   AI_FRESHNESS_LABELS,
   ENTITY_REF_TYPE_LABELS,
   AI_SOURCE_REF_KIND_LABELS,
   AI_SUMMARY_AUTHORITY_LABELS,
   AI_UNSET_LABEL,
-  AI_VISIBILITY_PRESET_LABELS,
-  AI_VISIBILITY_SOURCE_LABELS,
 } from "../domain-model/labels";
 import type { EntityRefType } from "../domain-model/types";
 import { Field } from "./common";
-import type { Theme, WorkspaceData } from "../types";
-import { resolveThemeRef } from "../../../../../shared/themeRef.mjs";
 
 /** 共通metadataを持つEntityだけがこのセクションを出す（#294）。 */
 export function hasAiContextSection(type: string): boolean {
   return hasAiMetadataContract(type);
-}
-
-/** workspace既定のAI公開範囲。未取得のうちはnullを返し、契約側の既定へ委ねる。 */
-export function workspaceAiVisibility(data: WorkspaceData): AiAudience[] | null {
-  const value = data.meta?.aiVisibilityDefault;
-  return Array.isArray(value) ? value : null;
 }
 
 /** 置き換え先に指定できる種別。参照できるEntityだけを出す。 */
@@ -47,17 +33,6 @@ const SUPERSEDED_BY_TYPES: EntityRefType[] = [
   "plan_node",
 ];
 
-function audienceListLabel(audiences: AiAudience[]): string {
-  const preset = aiVisibilityPresetOf(audiences);
-  if (preset) return AI_VISIBILITY_PRESET_LABELS[preset];
-  return audiences.map((audience) => AI_AUDIENCE_LABELS[audience]).join(" / ");
-}
-
-function themeOf(entity: Record<string, unknown>, themes: Theme[]): Theme | null {
-  const resolved = resolveThemeRef(themes, entity, { legacyNullMeansPersonal: true });
-  return (resolved.theme as Theme | null) || null;
-}
-
 /**
  * 詳細ドロワーの「AI・情報状態」。通常編集を圧迫しないよう読み取り中心にし、
  * 未設定は空欄にせず理由の分かる語で示す。
@@ -65,23 +40,14 @@ function themeOf(entity: Record<string, unknown>, themes: Theme[]): Theme | null
 export function AiContextSummary({
   type,
   entity,
-  themes = [],
-  workspaceDefault,
 }: {
   type: string;
   entity: Record<string, unknown>;
-  themes?: Theme[];
-  workspaceDefault?: AiAudience[] | null;
 }) {
   if (!hasAiContextSection(type)) return null;
   const summary = resolveAiSummary(type, entity);
   const freshness = resolveAiFreshness(entity);
   const authority = resolveAiAuthority(type, entity);
-  const visibility = resolveAiVisibility({
-    entity,
-    theme: themeOf(entity, themes),
-    workspaceDefault,
-  });
   const sourceRefs: AiSourceRef[] = Array.isArray(entity.ai_source_refs)
     ? entity.ai_source_refs
     : [];
@@ -112,13 +78,6 @@ export function AiContextSummary({
           {authority.authority ? AI_AUTHORITY_LABELS[authority.authority] : AI_UNSET_LABEL}
           <span className="ai-context-note">{authority.reason}</span>
         </dd>
-        <dt>AI公開</dt>
-        <dd>
-          {visibility.audiences.length
-            ? audienceListLabel(visibility.audiences)
-            : AI_VISIBILITY_PRESET_LABELS.local_only}
-          <span className="ai-context-note">{AI_VISIBILITY_SOURCE_LABELS[visibility.source]}</span>
-        </dd>
         <dt>最終確認</dt>
         <dd>{lastVerified ? lastVerified.slice(0, 10) : AI_UNSET_LABEL}</dd>
         {sourceRefs.length > 0 && (
@@ -148,13 +107,9 @@ export function AiContextSummary({
 export function AiContextFields({
   type,
   entity,
-  themes = [],
-  workspaceDefault,
 }: {
   type: string;
   entity: Record<string, unknown>;
-  themes?: Theme[];
-  workspaceDefault?: AiAudience[] | null;
 }) {
   const [freshness, setFreshness] = useState(String(entity.ai_freshness || ""));
   const storedSourceRefs: AiSourceRef[] = Array.isArray(entity.ai_source_refs)
@@ -163,14 +118,6 @@ export function AiContextFields({
   // 空行は保存時に捨てるので、行数だけを状態に持つ（値はフォームが正本）。
   const [sourceRefRows, setSourceRefRows] = useState(storedSourceRefs.length + 1);
   if (!hasAiContextSection(type)) return null;
-  const inherited = resolveAiVisibility({
-    entity: null,
-    theme: themeOf(entity, themes),
-    workspaceDefault,
-  });
-  const visibility = Array.isArray(entity.ai_visibility)
-    ? (entity.ai_visibility as AiAudience[])
-    : null;
   const supersededBy = entity.ai_superseded_by as { type?: string; id?: string } | null | undefined;
   return (
     <details className="ai-context-fields">
@@ -288,78 +235,6 @@ export function AiContextFields({
         </button>
         <p className="ai-context-note">場所を空にすると、その行は保存時に外れます。</p>
       </fieldset>
-      <fieldset className="ai-context-visibility">
-        <legend>AI公開範囲</legend>
-        <label>
-          <input
-            type="checkbox"
-            name="ai_visibility_override"
-            value="true"
-            defaultChecked={Boolean(visibility)}
-          />
-          この項目で個別に設定する
-        </label>
-        {AI_AUDIENCES.map((audience) => (
-          <label key={audience}>
-            <input
-              type="checkbox"
-              name="ai_visibility"
-              value={audience}
-              defaultChecked={(visibility || inherited.audiences).includes(audience)}
-            />
-            {AI_AUDIENCE_LABELS[audience]}
-          </label>
-        ))}
-        <p className="ai-context-note">
-          個別設定を外すと{AI_VISIBILITY_SOURCE_LABELS[inherited.source]}（
-          {inherited.audiences.length
-            ? audienceListLabel(inherited.audiences)
-            : AI_VISIBILITY_PRESET_LABELS.local_only}
-          ）を使います。
-        </p>
-      </fieldset>
     </details>
-  );
-}
-
-/** ThemeのAI公開既定。配下Entityが未設定のときの継承元になる。 */
-export function ThemeAiVisibilityField({
-  value,
-  workspaceDefault,
-}: {
-  value?: AiAudience[] | null;
-  workspaceDefault?: AiAudience[] | null;
-}) {
-  const fallback = Array.isArray(workspaceDefault) ? workspaceDefault : [];
-  const current = Array.isArray(value) ? value : null;
-  return (
-    <fieldset className="ai-context-visibility">
-      <legend>配下のAI公開既定</legend>
-      <label>
-        <input
-          type="checkbox"
-          name="default_ai_visibility_override"
-          value="true"
-          defaultChecked={Boolean(current)}
-        />
-        このThemeで既定を決める
-      </label>
-      {AI_AUDIENCES.map((audience) => (
-        <label key={audience}>
-          <input
-            type="checkbox"
-            name="default_ai_visibility"
-            value={audience}
-            defaultChecked={(current || fallback).includes(audience)}
-          />
-          {AI_AUDIENCE_LABELS[audience]}
-        </label>
-      ))}
-      <p className="ai-context-note">
-        既定を決めないときは全体の既定（
-        {fallback.length ? audienceListLabel(fallback) : AI_VISIBILITY_PRESET_LABELS.local_only}
-        ）を使います。
-      </p>
-    </fieldset>
   );
 }

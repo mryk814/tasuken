@@ -13,7 +13,6 @@ type Persistence = WorkspaceTaskPersistence & {
   changeEventCommandIdsWithPrefix(prefix: string): Set<string>;
   listChangeEventsForEntity(recordType: string, entityId: string): Entity[];
   hasSyncConflict(entityType: string, entityId: string): boolean;
-  readPreference(key: "aiVisibilityDefault"): unknown;
 };
 
 /**

@@ -90,7 +90,6 @@ export async function runPublicationEvaluation({ output } = {}) {
     buildDailyContextPlan({
       workspace,
       workspaceId: identity.workspaceId,
-      workspaceDefault: ["m365"],
       generatedAt,
       selection: { date, timezone: identity.timezone, themeId: null, includeFullText: true },
       ...extra,
@@ -124,7 +123,6 @@ export async function runPublicationEvaluation({ output } = {}) {
     scan: (state) => ({
       ...collectDailyContextAutoChanges({
         workspace,
-        workspaceDefault: ["m365"],
         sourceHashes: state.sourceHashes,
         checkedThrough: state.checkedThrough,
         fromDate: state.config.fromDate,

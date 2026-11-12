@@ -20,7 +20,6 @@ type PreviewEntry = {
   ref?: { type?: string; id?: string } | null;
   label?: string | null;
   includedReason?: string | null;
-  visibility?: string[] | null;
   freshness?: string | null;
 };
 
@@ -29,7 +28,6 @@ type PreviewResult = {
   error?: string;
   preview?: {
     included?: PreviewEntry[];
-    excluded?: unknown[];
     warnings?: Array<{ code?: string; message?: string }>;
     truncation?: { truncated?: boolean; reasons?: string[] };
     estimatedCharacters?: number;
@@ -47,9 +45,7 @@ function previewSummary(result: PreviewResult | null): string {
   const included = preview.included?.length || 0;
   if (!included) return "渡せるContextがありません。Task本文とThemeを確認してください。";
   const parts = [`渡す項目 ${included}件`];
-  if (preview.excluded?.length) parts.push(`除外 ${preview.excluded.length}件`);
   if (preview.truncation?.truncated) parts.push("一部を切り詰めています");
-  if (result.state === "empty") parts.push("公開範囲が未設定です");
   return parts.join("／");
 }
 
@@ -98,7 +94,7 @@ export function TaskHandoffPanel({
     try {
       const result = (await workspaceApi.previewAiContext({
         scope: { type: "task", id: task.id },
-        audience: "coding_agent",
+        channel: "mcp",
       })) as PreviewResult;
       setPreview(result);
       return result;

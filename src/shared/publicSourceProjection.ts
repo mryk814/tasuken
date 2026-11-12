@@ -1,4 +1,4 @@
-import { aiEntityBodyText, projectEntityForAi, type AiProjectionContext } from "./aiMetadata.mjs";
+import { aiEntityBodyText, buildAiEntityHeader } from "./aiMetadata.mjs";
 import { markdownSignature } from "./canonicalMarkdown.mjs";
 import { safeReceiptText } from "./taskContext.mjs";
 
@@ -67,19 +67,15 @@ const sanitize = (value: string) =>
 const inline = (value: string) =>
   value.replace(/[\r\n]+/g, " ").replace(/[\\`*_{}[\]()<>#!|&]/g, "\\$&");
 
-/** Explicit full-body consent supplements, and never overrides, the M365 visibility policy. */
+/** A full-body copy is published only on explicit consent for that one source. */
 export function buildPublicSourceProjection({
   type,
   entity,
-  theme,
-  workspaceDefault,
   generatedAt,
   explicitlyAllowed,
 }: {
   type: string;
   entity: Record<string, unknown>;
-  theme?: Record<string, unknown> | null;
-  workspaceDefault?: AiProjectionContext["workspaceDefault"];
   generatedAt: string;
   explicitlyAllowed: boolean;
 }): PublicSourceProjection | null {
@@ -91,18 +87,8 @@ export function buildPublicSourceProjection({
     !text(entity.id).trim()
   )
     return null;
-  const projection = projectEntityForAi(type, entity, {
-    audience: "m365",
-    theme,
-    workspaceDefault,
-  });
-  if (
-    !projection.included ||
-    !projection.header ||
-    projection.header.freshness === "superseded" ||
-    projection.header.superseded_by
-  )
-    return null;
+  const header = buildAiEntityHeader(type, entity);
+  if (header.freshness === "superseded" || header.superseded_by) return null;
   if (
     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(generatedAt) ||
     !Number.isFinite(Date.parse(generatedAt))
@@ -114,7 +100,7 @@ export function buildPublicSourceProjection({
     id: text(entity.id),
     revision: Number.isSafeInteger(entity.version) ? (entity.version as number) : null,
   };
-  const rawTitle = projection.header.title || (type === "note" ? "Note" : "Capture");
+  const rawTitle = header.title || (type === "note" ? "Note" : "Capture");
   const rawBody = aiEntityBodyText(type, entity);
   const title = sanitize(rawTitle);
   const body = sanitize(rawBody);
@@ -155,7 +141,7 @@ export function buildPublicSourceProjection({
   ].join("\n");
   return {
     source,
-    themeId: projection.header.theme_id,
+    themeId: header.theme_id,
     title,
     relativePath,
     content,

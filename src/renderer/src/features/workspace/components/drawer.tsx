@@ -67,17 +67,11 @@ import {
   resolveChatService,
 } from "../lib/chatServices";
 import { isConversationMarkdown } from "../lib/conversationParser";
-import type { AiAudience } from "../../../../../shared/aiMetadata.mjs";
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import type { Entity } from "../../../../../shared/types/workspace";
 import { TaskScheduleProposal } from "./TaskScheduleProposal";
 import { AiCreationMark } from "./AiCreationMark";
-import {
-  AiContextFields,
-  AiContextSummary,
-  ThemeAiVisibilityField,
-  workspaceAiVisibility,
-} from "./aiContext";
+import { AiContextFields, AiContextSummary } from "./aiContext";
 import { ArtifactSection } from "./artifacts";
 import { ConversationPreview } from "./ConversationPreview";
 import { LineagePanel } from "./LineagePanel";
@@ -1055,12 +1049,7 @@ export function EntityDrawer({
           openDrawer={(next) => close(next)}
           openContentViewer={openContentViewer}
         />
-        <AiContextSummary
-          type="sketch"
-          entity={entity}
-          themes={data.themes}
-          workspaceDefault={workspaceAiVisibility(data)}
-        />
+        <AiContextSummary type="sketch" entity={entity} />
       </DetailDrawer>
     );
   }
@@ -1213,12 +1202,7 @@ export function EntityDrawer({
             </div>
           </>
         )}
-        <AiContextSummary
-          type="resource"
-          entity={entity}
-          themes={data.themes}
-          workspaceDefault={workspaceAiVisibility(data)}
-        />
+        <AiContextSummary type="resource" entity={entity} />
         {isChatRef && (
           <ArtifactSection
             sourceType="chat_ref"
@@ -1468,12 +1452,7 @@ export function EntityDrawer({
                 removeEntity={removeEntity}
                 setToast={setToast}
               />
-              <AiContextSummary
-                type="task"
-                entity={entity}
-                themes={data.themes}
-                workspaceDefault={workspaceAiVisibility(data)}
-              />
+              <AiContextSummary type="task" entity={entity} />
             </div>
           </details>
           <div className="drawer-actions">
@@ -1564,12 +1543,7 @@ export function EntityDrawer({
             openDrawer={(next) => close(next)}
             openContentViewer={openContentViewer}
           />
-          <AiContextSummary
-            type="waiting"
-            entity={entity}
-            themes={data.themes}
-            workspaceDefault={workspaceAiVisibility(data)}
-          />
+          <AiContextSummary type="waiting" entity={entity} />
           <div className="drawer-actions">
             <button
               className="secondary-button"
@@ -1657,12 +1631,7 @@ export function EntityDrawer({
             openDrawer={(next) => close(next)}
             openContentViewer={openContentViewer}
           />
-          <AiContextSummary
-            type="plan_node"
-            entity={entity}
-            themes={data.themes}
-            workspaceDefault={workspaceAiVisibility(data)}
-          />
+          <AiContextSummary type="plan_node" entity={entity} />
           <div className="drawer-actions">
             <button
               className="secondary-button"
@@ -1720,12 +1689,7 @@ export function EntityDrawer({
             openDrawer={(next) => close(next)}
             openContentViewer={openContentViewer}
           />
-          <AiContextSummary
-            type="capture_entry"
-            entity={entity}
-            themes={data.themes}
-            workspaceDefault={workspaceAiVisibility(data)}
-          />
+          <AiContextSummary type="capture_entry" entity={entity} />
           <div className="drawer-actions">
             {entry.state === "untriaged" && (
               <button
@@ -1853,7 +1817,6 @@ function EditDrawer({
       : null;
   const taskChecklistEditorKey =
     type === "task" ? `${entityId}:${str(entity._focusChecklistItem)}` : "";
-  const workspaceAiVisibilityDefault = workspaceAiVisibility(data);
   const requestInboxRecorder = useUiStore((state) => state.requestInboxRecorder);
   // Chat/Task/Note は常用が edit 直行なので、作業面として Artifact を同じドロワーに置く。
   const artifactSource = (() => {
@@ -1957,10 +1920,6 @@ function EditDrawer({
                 focusRepository={drawer.initialSection === "repository"}
                 saveEntities={saveEntities}
                 removeEntity={removeEntity}
-              />
-              <ThemeAiVisibilityField
-                value={entity.default_ai_visibility as AiAudience[] | null | undefined}
-                workspaceDefault={workspaceAiVisibilityDefault}
               />
             </>
           )}
@@ -2081,12 +2040,7 @@ function EditDrawer({
               detail
             />
           )}
-          <AiContextFields
-            type={type}
-            entity={entity}
-            themes={data.themes}
-            workspaceDefault={workspaceAiVisibilityDefault}
-          />
+          <AiContextFields type={type} entity={entity} />
         </form>
         {taskForWorkSection && saveEntities && (
           <TaskHandoffPanel
@@ -3158,12 +3112,7 @@ function NoteDetailDrawer({
             </button>
           </form>
         </section>
-        <AiContextSummary
-          type="note"
-          entity={note as unknown as Record<string, unknown>}
-          themes={data.themes}
-          workspaceDefault={workspaceAiVisibility(data)}
-        />
+        <AiContextSummary type="note" entity={note as unknown as Record<string, unknown>} />
         <div className="drawer-actions">
           <button
             className="primary-button"

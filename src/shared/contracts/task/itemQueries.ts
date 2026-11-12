@@ -2,18 +2,22 @@ import * as z from "zod/v4";
 
 const optionalText = z.string().trim().optional();
 
-export const searchItemsRequestSchema = z.object({
-  query: optionalText,
-  theme_id: optionalText,
-  limit: z.number().int().min(1).max(100).optional(),
-  include_archived: z.boolean().optional(),
-}).strict();
+export const searchItemsRequestSchema = z
+  .object({
+    query: optionalText,
+    theme_id: optionalText,
+    limit: z.number().int().min(1).max(100).optional(),
+    include_archived: z.boolean().optional(),
+  })
+  .strict();
 
-export const listOpenItemsRequestSchema = z.object({
-  theme_id: optionalText,
-  limit: z.number().int().min(1).max(100).optional(),
-  include_archived: z.boolean().optional(),
-}).strict();
+export const listOpenItemsRequestSchema = z
+  .object({
+    theme_id: optionalText,
+    limit: z.number().int().min(1).max(100).optional(),
+    include_archived: z.boolean().optional(),
+  })
+  .strict();
 
 const aiHeaderSchema = z.looseObject({
   id: z.string(),
@@ -22,12 +26,14 @@ const aiHeaderSchema = z.looseObject({
   summary: z.string(),
 });
 
-export const itemLocatorSchema = z.object({
-  entity_type: z.enum(["item", "task", "waiting", "plan_node"]),
-  entity_id: z.string(),
-  tool: z.string().optional(),
-  arguments: z.record(z.string(), z.string()).optional(),
-}).strict();
+export const itemLocatorSchema = z
+  .object({
+    entity_type: z.enum(["item", "task", "waiting", "plan_node"]),
+    entity_id: z.string(),
+    tool: z.string().optional(),
+    arguments: z.record(z.string(), z.string()).optional(),
+  })
+  .strict();
 
 /** Legacy Item fields remain lossless while Core adds a stable source locator. */
 export const publicItemSchema = z.looseObject({
@@ -40,29 +46,26 @@ export const publicItemSchema = z.looseObject({
   locator: itemLocatorSchema,
 });
 
-export const nextToolSchema = z.object({
-  tool: z.string(),
-  description: z.string(),
-}).strict();
+export const nextToolSchema = z
+  .object({
+    tool: z.string(),
+    description: z.string(),
+  })
+  .strict();
 
-export const itemQueryResultMetaSchema = z.object({
-  contract_version: z.literal(1),
-  returned_count: z.number().int().nonnegative(),
-  matched_visible_count: z.number().int().nonnegative(),
-  truncated: z.boolean(),
-}).strict();
+export const itemQueryResultMetaSchema = z
+  .object({
+    contract_version: z.literal(1),
+    returned_count: z.number().int().nonnegative(),
+    matched_visible_count: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })
+  .strict();
 
 const itemQueryResponseShape = {
   items: z.array(publicItemSchema),
   limit: z.number().int().min(1).max(100),
-  ai_audience: z.enum(["m365", "coding_agent", "external_ai"]),
   read_only: z.literal(true),
-  excluded_count: z.number().int().nonnegative(),
-  excluded_reasons: z.array(z.object({
-    type: z.string(),
-    reason: z.string(),
-    count: z.number().int().positive(),
-  }).strict()),
   next_tools: z.array(nextToolSchema).max(4),
   result_meta: itemQueryResultMetaSchema,
 };

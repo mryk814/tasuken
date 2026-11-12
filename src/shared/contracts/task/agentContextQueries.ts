@@ -2,7 +2,6 @@ import * as z from "zod/v4";
 
 import { activityPageSchema, publicActivityEntrySchema } from "./activityEntries.ts";
 
-export const aiContextAudienceSchema = z.enum(["m365", "coding_agent", "external_ai"]);
 export const agentContextEntityTypeSchema = z.enum([
   "theme",
   "item",
@@ -36,9 +35,6 @@ export const agentContextEntityTypeSchema = z.enum([
   "sketch",
 ]);
 
-const exclusionReasonSchema = z
-  .object({ type: z.string(), reason: z.string(), count: z.number().int().nonnegative() })
-  .strict();
 const PUBLIC_CONTEXT_MAX_DEPTH = 12;
 const PUBLIC_CONTEXT_MAX_ARRAY = 200;
 const PUBLIC_CONTEXT_MAX_KEYS = 200;
@@ -140,8 +136,6 @@ const activityPayloadSchema = z
     timezone: z.string(),
     date: z.string().nullable(),
     events: z.array(publicActivityEntrySchema).max(100),
-    excluded_count: z.number().int().nonnegative(),
-    excluded_reasons: z.array(exclusionReasonSchema).max(100),
     truncated: z.boolean(),
     page: activityPageSchema.optional(),
   })
@@ -160,7 +154,6 @@ export const getActivityRequestSchema = z
     timezone: z.string().trim().max(100).optional(),
     limit: z.number().int().min(1).max(100).optional(),
     format: z.enum(["json", "markdown"]).optional(),
-    audience: aiContextAudienceSchema.optional(),
     include_archived: z.boolean().optional(),
   })
   .strict();
@@ -177,7 +170,6 @@ export const getActivityResponseSchema = activityPayloadSchema
         truncated: z.boolean(),
       })
       .strict(),
-    ai_audience: aiContextAudienceSchema,
     read_only: z.literal(true),
   })
   .strict();
@@ -221,7 +213,6 @@ export const getContextSubgraphResponseSchema = z
     edges: z.array(graphEdgeSchema).max(200),
     paths: z.array(publicContextValueSchema).max(200),
     diagnostics: z.array(publicContextValueSchema).max(100),
-    excluded_nodes: z.array(publicContextValueSchema).max(100),
     limits: z
       .object({
         maxHops: z.number().int().min(1).max(2),
@@ -247,11 +238,9 @@ export const getContextSubgraphResponseSchema = z
         contract_version: z.literal(1),
         returned_node_count: z.number().int().nonnegative(),
         returned_edge_count: z.number().int().nonnegative(),
-        excluded_node_count: z.number().int().nonnegative(),
         truncated: z.boolean(),
       })
       .strict(),
-    ai_audience: z.literal("coding_agent"),
     read_only: z.literal(true),
   })
   .strict();
@@ -268,7 +257,6 @@ export const exportAiContextRequestSchema = z
     max_chars: z.number().int().min(1).max(8_000).optional(),
     format: z.enum(["markdown", "json"]).optional(),
     include_raw_body: z.boolean().optional(),
-    audience: aiContextAudienceSchema.optional(),
   })
   .strict();
 
@@ -288,7 +276,6 @@ export const exportAiContextPackSchema = z
   .object({
     generated_at: z.string(),
     scope: z.enum(["active_theme", "selected_theme", "recent", "open_items", "knowledge"]),
-    ai_audience: aiContextAudienceSchema,
     themes: z.array(publicContextValueSchema).max(100),
     repository_contexts: z.array(publicContextValueSchema).max(100),
     theme_repository_contexts: z.array(publicContextValueSchema).max(100),
@@ -302,13 +289,9 @@ export const exportAiContextPackSchema = z
       .object({
         schema_version: z.number().int().positive(),
         timezone: z.string(),
-        excluded_count: z.number().int().nonnegative(),
-        excluded_reasons: z.array(exclusionReasonSchema).max(100),
       })
       .strict(),
     health: publicContextValueSchema,
-    excluded_count: z.number().int().nonnegative(),
-    excluded_reasons: z.array(exclusionReasonSchema).max(100),
     result_meta: exportResultMetaSchema,
     read_only: z.literal(true),
   })

@@ -1,4 +1,5 @@
-import { projectEntityForAi, summarizeAiExclusions } from "../../../shared/aiMetadata.mjs";
+import { buildAiEntityHeader } from "../../../shared/aiMetadata.mjs";
+
 import { collectionKeyForEntityType, entityTypes } from "../../../shared/entityRegistry.mjs";
 import {
   contextGraphMcpShape,
@@ -19,6 +20,7 @@ import {
   buildContextSelection,
   contextSelectionEntry,
   contextSelectionExclusions,
+  summarizeExclusions,
 } from "../../../shared/contextSelection.mjs";
 import {
   getThemeContextRequestSchema,
@@ -29,7 +31,6 @@ import {
 import type { EntityType } from "../../../shared/types/workspace.ts";
 import type { ThemeContextReadPort, ThemeContextRecord } from "../ports/themeContextReadPort.ts";
 
-const AUDIENCE = "coding_agent";
 const ITEM_KIND_ENTITY_TYPES: Record<string, string> = {
   task: "task",
   waiting: "waiting",
@@ -58,7 +59,6 @@ function graphPayloadTokens(shape: Record<string, any>) {
       edges: shape.edges || [],
       paths: shape.paths || [],
       diagnostics: shape.diagnostics || [],
-      excluded_nodes: shape.excluded_nodes || [],
     }).length / 4,
   );
 }
@@ -149,50 +149,19 @@ export class ThemeContextQueryService {
     const themeId = text(args.theme_id).trim();
     const includeArchived = Boolean(args.include_archived);
     const workspace = this.port.loadThemeContextWorkspace(includeArchived);
-    const visibilityThemes = this.port.loadThemeContextVisibilityThemes();
-    const workspaceDefault = this.port.workspaceAiVisibilityDefault();
     const records = (type: string) =>
       sortUpdated([
         ...((workspace[collectionKeyForEntityType(type as EntityType)] ||
           []) as ThemeContextRecord[]),
       ]);
-    const themesById = new Map(visibilityThemes.map((theme) => [String(theme.id), theme]));
-    const filterForAi = (type: string, candidates: ThemeContextRecord[]) => {
-      const included: ThemeContextRecord[] = [];
-      const exclusions: Record<string, any>[] = [];
-      for (const record of candidates) {
-        const entityType = type === "item" ? ITEM_KIND_ENTITY_TYPES[record.kind] || "item" : type;
-        const themeId =
-          type === "note" ? noteProjectId(record) : record.theme_id || record.project_id;
-        const theme = type === "theme" ? record : themesById.get(String(themeId || "")) || null;
-        const result = projectEntityForAi(entityType as EntityType, record, {
-          audience: AUDIENCE,
-          theme,
-          workspaceDefault,
-        });
-        if (!result.included && result.exclusion) exclusions.push(result.exclusion);
-        else included.push({ ...record, ai: result.header });
-      }
-      return { records: included, exclusions };
-    };
-    const access = {
-      allowed: new Set<string>(),
-      records: new Map<string, ThemeContextRecord>(),
-      exclusions: new Map<string, Record<string, any>>(),
-    };
+    const access = { records: new Map<string, ThemeContextRecord>() };
     for (const entityType of entityTypes) {
-      const filtered = filterForAi(entityType, records(entityType));
-      for (const record of filtered.records) {
-        const key = entityKey(entityType, record.id);
-        access.allowed.add(key);
-        access.records.set(key, record);
-      }
-      for (const exclusion of filtered.exclusions) {
-        if (!exclusion?.type || !exclusion?.id) continue;
-        access.exclusions.set(entityKey(exclusion.type, exclusion.id), {
-          ref: { type: String(exclusion.type), id: String(exclusion.id) },
-          reason: String(exclusion.reason || "ai_visibility_policy"),
-          count: 1,
+      for (const record of records(entityType)) {
+        const headerType =
+          entityType === "item" ? ITEM_KIND_ENTITY_TYPES[record.kind] || "item" : entityType;
+        access.records.set(entityKey(entityType, record.id), {
+          ...record,
+          ai: buildAiEntityHeader(headerType, record),
         });
       }
     }
@@ -200,33 +169,20 @@ export class ThemeContextQueryService {
     const canonicalSeed = records("project").find((theme) => String(theme.id) === themeId);
     const legacySeed = records("theme").find((theme) => String(theme.id) === themeId);
     const seedType = canonicalSeed ? "project" : "theme";
-    const seedKey = entityKey(seedType, themeId);
     const seedRecord = canonicalSeed || legacySeed;
-    if (!seedRecord || !access.allowed.has(seedKey)) {
-      const excluded = access.exclusions.get(seedKey);
+    if (!seedRecord) {
       const contextSelection = (buildContextSelection as any)({
         seed: { type: seedType, id: themeId },
-        excluded: excluded ? [excluded] : [],
         limits: {},
       });
       return getThemeContextResponseSchema.parse({
-        ...structuredReadError(
-          "not_found",
-          "Themeが見つかりません。Theme IDまたはAI公開範囲を確認してください。",
-          { theme_id: themeId },
-        ),
+        ...structuredReadError("not_found", "Themeが見つかりません。Theme IDを確認してください。", {
+          theme_id: themeId,
+        }),
         context_selection: contextSelection,
-        ai_audience: AUDIENCE,
-        ...summarizeAiExclusions(
-          excluded
-            ? [{ type: excluded.ref.type, id: excluded.ref.id, reason: excluded.reason }]
-            : [],
-        ),
       });
     }
 
-    // Build the graph only from AI-visible records. In particular, a private
-    // Reference must not create an edge merely because both endpoints are public.
     const visibleWorkspace = { ...workspace };
     for (const entityType of entityTypes) {
       visibleWorkspace[collectionKeyForEntityType(entityType)] = records(entityType)
@@ -243,10 +199,6 @@ export class ThemeContextQueryService {
         maxEdges: args.max_edges ?? Math.min(200, limit * 4),
         tokenBudget: args.token_budget ?? 12_000,
         includeSuggested: false,
-        nodeFilter: (node: Record<string, any>) =>
-          access.allowed.has(entityKey(node.ref.type, node.ref.id)),
-        nodeExclusion: (node: Record<string, any>) =>
-          access.exclusions.get(entityKey(node.ref.type, node.ref.id)),
       },
     );
     const rawRelationGraph = contextGraphMcpShape(subgraph);
@@ -256,7 +208,7 @@ export class ThemeContextQueryService {
     const relationGraph = safeReceiptValue(rawRelationGraph);
     const budget = new TaskContextTextBudget(textLimit);
     const selected: { type: string; output: Record<string, any> }[] = [];
-    const selectionExclusions = [...relationGraph.excluded_nodes];
+    const selectionExclusions: Record<string, any>[] = [];
     for (const node of relationGraph.nodes) {
       const record = access.records.get(entityKey(node.type, node.id));
       if (!record) continue;
@@ -401,7 +353,7 @@ export class ThemeContextQueryService {
       estimatedTokens: Math.ceil(budget.used / 4) + Number(contextGraph.estimated_tokens || 0),
       policy: contextGraph.policy,
     });
-    const exclusionSummary = summarizeAiExclusions(
+    const exclusionSummary = summarizeExclusions(
       normalizedExclusions.map((entry: Record<string, any>) => ({
         type: entry.ref.type,
         id: entry.ref.id,
@@ -425,7 +377,6 @@ export class ThemeContextQueryService {
       truncation,
       warnings,
       truncated: Boolean(contextGraph.truncated || budget.truncated),
-      ai_audience: AUDIENCE,
       read_only: true,
       ...exclusionSummary,
     });

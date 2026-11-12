@@ -40,9 +40,6 @@ const publicAiHeaderSchema = z
     authority: z.string().nullable(),
     authority_origin: z.string(),
     authority_reason: z.string(),
-    ai_visibility: z.array(z.string()).max(3),
-    ai_visibility_source: z.string().nullable(),
-    ai_visibility_reason: z.string(),
     theme_id: z.string().nullable(),
     updated_at: z.string().nullable(),
     last_verified_at: z.string().nullable(),
@@ -178,23 +175,9 @@ const knowledgeHealthIssueSchema = z
     action: z.string(),
   })
   .strict();
-const exclusionReasonSchema = z
-  .object({
-    type: z.string(),
-    reason: z.string(),
-    count: z.number().int().nonnegative(),
-  })
-  .strict();
-
 const readMetadataShape = {
-  ai_audience: z.enum(["m365", "coding_agent", "external_ai"]),
   read_only: z.literal(true),
   next_tools: z.array(nextToolSchema).max(4),
-};
-
-const exclusionShape = {
-  excluded_count: z.number().int().nonnegative(),
-  excluded_reasons: z.array(exclusionReasonSchema),
 };
 
 const listResultMetaSchema = z
@@ -208,7 +191,7 @@ const listResultMetaSchema = z
 
 export const getRecentNotesRequestSchema = z
   .object({
-    /** title・本文の部分一致。AI公開範囲の判定後に絞るため、非公開Noteの有無は漏れない。 */
+    /** title・本文の部分一致。 */
     query: z.string().trim().min(1).max(1_000).optional(),
     theme_id: z.string().trim().min(1).max(200).optional(),
     limit: z.number().int().min(1).max(100).optional(),
@@ -225,7 +208,6 @@ export const getRecentNotesResponseSchema = z
     include_raw_body: z.boolean(),
     truncated: z.boolean(),
     result_meta: listResultMetaSchema,
-    ...exclusionShape,
     ...readMetadataShape,
   })
   .strict();
@@ -247,7 +229,6 @@ export const searchKnowledgeResponseSchema = z
     limit: z.number().int().min(1).max(100),
     truncated: z.boolean(),
     result_meta: listResultMetaSchema,
-    ...exclusionShape,
     ...readMetadataShape,
   })
   .strict();
@@ -290,7 +271,6 @@ export const getKnowledgeContextResponseSchema = z
         truncated: z.boolean(),
       })
       .strict(),
-    ...exclusionShape,
     ...readMetadataShape,
   })
   .strict();

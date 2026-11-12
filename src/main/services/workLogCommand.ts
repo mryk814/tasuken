@@ -176,7 +176,6 @@ export function planWorkLogOrganization(
     note_type: "note",
     project_id: source.project_id,
     ai_authority: "ai_generated",
-    ...(Array.isArray(source.ai_visibility) ? { ai_visibility: [...source.ai_visibility] } : {}),
     body_markdown: workLogOrganizationMarkdown(proposal, command.sourceId, command.sourceVersion),
     properties_json: { work_log_organization: marker },
   };

@@ -399,7 +399,7 @@
           submitButton.hidden = !organization;
           savedSourceZone.disabled = organizing || Boolean(organization) || locked;
           themeSelect.disabled ||= !organization;
-          organizeButton.disabled = !savedSource?.canOrganize;
+          organizeButton.disabled = false;
           document.getElementById("organization-empty").textContent = "Task候補はありません。原文はそのまま残っています。";
         } else { input.readOnly = false; submitButton.hidden = false; organizeButton.disabled = false; }
         externalInput.hidden = mode !== "today-task" || Boolean(organization);
@@ -608,9 +608,8 @@
           hint.textContent = "選んだ候補だけ追加 / 原文はCaptureに保持";
           organizeButton.textContent = "AIへ送って整理";
           document.getElementById("saved-source-date").textContent = `元の入力日時: ${savedSource?.capturedAt || "不明"}`;
-          document.getElementById("saved-source-policy").textContent = savedSource?.canOrganize
-            ? "この原文・入力日時・タイムゾーンと、公開を許可した所属Theme名だけを設定済みAIへ送ります。"
-            : "CaptureのAI公開範囲で「外部AI」を許可すると整理できます。";
+          document.getElementById("saved-source-policy").textContent =
+            "この原文・入力日時・タイムゾーンと、所属Theme名だけを設定済みAIへ送ります。";
         }
         attachmentsSection.hidden = !isDoneTask;
         if (!isDoneTask) setAttachments([]);
@@ -922,7 +921,6 @@
           savedSourceZone.value = source.timeZone;
           themeSelect.value = source.themeId || "";
         }
-        if (source && savedSource?.id === source.id && !submission && !saving) savedSource.canOrganize = source.canOrganize;
         if (nextMode !== mode) { clearOrganization(true); }
         if (!taskSubmission && !savedFocusTaskId) applyMode(nextMode);
         updateOrganizationControls();

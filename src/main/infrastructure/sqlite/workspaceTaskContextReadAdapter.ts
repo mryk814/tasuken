@@ -1,10 +1,12 @@
-import { DEFAULT_AI_VISIBILITY, normalizeAiVisibility } from "../../../shared/aiMetadata.mjs";
-import type { TaskContextReadPort, TaskContextRecord, TaskContextWorkspace } from "../../core/public.ts";
+import type {
+  TaskContextReadPort,
+  TaskContextRecord,
+  TaskContextWorkspace,
+} from "../../core/public.ts";
 
 export interface TaskContextWorkspacePersistence {
   readWorkspaceSnapshot(includeDeleted?: boolean): TaskContextWorkspace;
   list(type: "theme", includeDeleted?: boolean): TaskContextRecord[];
-  readPreference(key: "aiVisibilityDefault"): unknown;
 }
 
 /** Uses the composition root's existing WorkspaceDatabase; it never opens a database. */
@@ -15,12 +17,7 @@ export class WorkspaceTaskContextReadAdapter implements TaskContextReadPort {
     return this.persistence.readWorkspaceSnapshot(includeArchived);
   }
 
-  loadTaskContextVisibilityThemes() {
+  loadTaskContextThemes() {
     return this.persistence.list("theme", true);
-  }
-
-  workspaceAiVisibilityDefault() {
-    return normalizeAiVisibility(this.persistence.readPreference("aiVisibilityDefault"))
-      || [...DEFAULT_AI_VISIBILITY];
   }
 }

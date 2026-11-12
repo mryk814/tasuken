@@ -34,11 +34,7 @@ export class ListAgentReadyTasksService {
       .sort((left, right) =>
         String(right.updated_at || "").localeCompare(String(left.updated_at || "")),
       );
-    const projected = this.projectionPolicy.project(
-      candidates,
-      this.readPort.listThemes(),
-      this.readPort.workspaceAiVisibilityDefault(),
-    );
+    const projected = this.projectionPolicy.project(candidates);
 
     return listAgentReadyTasksResponseSchema.parse({
       // include_archivedでは削除済みTaskも並ぶため、着手できるかを状態から添える。
@@ -46,10 +42,7 @@ export class ListAgentReadyTasksService {
         .slice(0, limit)
         .map((task) => ({ ...task, agent_state: taskAgentState(task) })),
       limit,
-      ai_audience: "coding_agent",
       read_only: true,
-      excluded_count: projected.excluded_count,
-      excluded_reasons: projected.excluded_reasons,
     });
   }
 }

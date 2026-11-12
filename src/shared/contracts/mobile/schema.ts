@@ -207,16 +207,6 @@ export const mobileActivityDataSchema = z
         }),
       )
       .max(500),
-    excluded_count: z.number().int().nonnegative(),
-    excluded_reasons: z.array(
-      z
-        .object({
-          type: z.string(),
-          reason: z.string(),
-          count: z.number().int().nonnegative(),
-        })
-        .strict(),
-    ),
     truncated: z.boolean(),
     page: activityPageSchema,
     matched_count: z.number().int().nonnegative().nullable().optional(),
@@ -624,8 +614,6 @@ const mobileContextRefSchema = z
 
 const mobileContextAiSchema = z
   .object({
-    visibility: z.array(z.enum(["m365", "coding_agent", "external_ai"])).max(3),
-    visibilitySource: z.enum(["entity", "theme", "workspace_default"]).nullable(),
     authority: z
       .enum(["user_confirmed", "imported", "ai_generated", "inferred", "external_source"])
       .nullable(),

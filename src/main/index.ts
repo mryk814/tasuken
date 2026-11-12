@@ -76,7 +76,6 @@ import {
   type SatelliteWindowStatePayload,
   type WorkspaceChangePayload,
 } from "../shared/ipc/contracts";
-import { resolveAiVisibility } from "../shared/aiMetadata.mjs";
 import { DIRECT_SHORTCUT_DEFINITIONS } from "../shared/taskenRoot";
 import { TASK_CONTRACT_SCHEMA_VERSION } from "../shared/contracts/task/public";
 
@@ -446,11 +445,9 @@ interface SmokeCreatedResult {
   sketchClipboardWritten: boolean;
   sketchClipboardPasted: boolean;
   sketchCreatedAndOpened: boolean;
-  /** AI共通metadata（#294）の保存・継承・検証。 */
+  /** AI共通metadata（#294）の保存・検証。 */
   aiMetadataPersisted: boolean;
-  aiThemeDefaultPersisted: boolean;
   aiMetadataRejectedInvalid: boolean;
-  aiVisibilityDefaultSaved: string;
   stickyAutosaveSaved?: boolean;
   stickyImeSaved?: boolean;
   stickyResizePreserved?: boolean;
@@ -487,7 +484,6 @@ interface SmokeReloadResult {
   markdownLiveEditPersisted: boolean;
   markdownPastePersisted: boolean;
   themeMode: string;
-  aiVisibilityDefault: string;
   aiTaskMetadataPersisted: boolean;
   settingsReloadRestored: boolean;
 }
@@ -1083,15 +1079,12 @@ flowchart LR
         String(now.getMonth() + 1).padStart(2, "0"),
         String(now.getDate()).padStart(2, "0"),
       ].join("-");
-      // AI共通metadata（#294）: 保存 → 再読込 → 公開範囲の継承まで正本データで確認する。
-      await window.api.preferences.set("aiVisibilityDefault", ["coding_agent"]);
-      const aiVisibilityDefaultSaved = await window.api.preferences.get("aiVisibilityDefault");
+      // AI共通metadata（#294）: 保存 → 再読込まで正本データで確認する。
       await window.api.entities.save("theme", {
         id: ${JSON.stringify(smokeThemeId)},
         name: "Smoke Theme",
         code: "SMOKE",
-        status: "active",
-        default_ai_visibility: ["m365"]
+        status: "active"
       });
       const smokeTaskReceipt = await window.api.task.create({
         schemaVersion: ${TASK_CONTRACT_SCHEMA_VERSION}, command_id: crypto.randomUUID(), name: "CreateTask",
@@ -1106,7 +1099,6 @@ flowchart LR
           ai_summary_authority: "user_confirmed",
           ai_freshness: "current",
           ai_authority: "user_confirmed",
-          ai_visibility: ["coding_agent"],
           ai_source_refs: [{ kind: "canonical_document", locator: "smoke.md", storage_root_id: "smoke-root" }]
         } },
         actor: { kind: "user", id: "electron-smoke" },
@@ -1137,13 +1129,9 @@ flowchart LR
       }
       const reloadedWorkspace = await window.api.workspace.load();
       const reloadedSmokeTask = (reloadedWorkspace.tasks || []).find((task) => task.id === ${JSON.stringify(smokeTaskId)});
-      const reloadedSmokeTheme = (reloadedWorkspace.themes || []).find((theme) => theme.id === ${JSON.stringify(smokeThemeId)});
       const aiMetadataPersisted = reloadedSmokeTask?.ai_summary === "Todayミニの動作確認"
         && reloadedSmokeTask?.ai_freshness === "current"
-        && Array.isArray(reloadedSmokeTask?.ai_visibility)
-        && reloadedSmokeTask.ai_visibility.join(",") === "coding_agent"
         && reloadedSmokeTask?.ai_source_refs?.[0]?.storage_root_id === "smoke-root";
-      const aiThemeDefaultPersisted = reloadedSmokeTheme?.default_ai_visibility?.join(",") === "m365";
       await window.api.entities.save("schedule", {
         id: crypto.randomUUID(),
         owner_type: "task",
@@ -1200,11 +1188,7 @@ flowchart LR
         sketchClipboardWritten: false,
         sketchCreatedAndOpened,
         aiMetadataPersisted,
-        aiThemeDefaultPersisted,
         aiMetadataRejectedInvalid,
-        aiVisibilityDefaultSaved: Array.isArray(aiVisibilityDefaultSaved)
-          ? aiVisibilityDefaultSaved.join(",")
-          : String(aiVisibilityDefaultSaved),
       };
     })()
   `)) as SmokeCreatedResult;
@@ -2113,9 +2097,8 @@ flowchart LR
         Promise.all([
           window.api.entities.list("note"),
           window.api.preferences.get("themeMode"),
-          window.api.preferences.get("aiVisibilityDefault"),
           window.api.entities.list("task"),
-        ]).then(async ([notes, themeMode, aiVisibilityDefault, tasks]) => {
+        ]).then(async ([notes, themeMode, tasks]) => {
           const markdown = notes.find((note) => note.title === ${JSON.stringify(markdownTitle)});
           const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
           const settingsReloadRestored = await (async () => {
@@ -2137,7 +2120,6 @@ flowchart LR
           markdownLiveEditPersisted: Boolean(markdown?.body_markdown?.includes("Live edit smoke")),
           markdownPastePersisted: Boolean(markdown?.body_markdown?.includes("## Pasted Markdown Heading") && markdown?.body_markdown?.includes("**Pasted Bold Text**")),
           themeMode,
-          aiVisibilityDefault: Array.isArray(aiVisibilityDefault) ? aiVisibilityDefault.join(",") : String(aiVisibilityDefault),
           aiTaskMetadataPersisted: Boolean(
             tasks.find((task) => task.id === ${JSON.stringify(smokeTaskId)})?.ai_summary === "Todayミニの動作確認"
           ),
@@ -2154,7 +2136,6 @@ flowchart LR
         markdownLiveEditPersistedAfterReload: afterReload.markdownLiveEditPersisted,
         markdownPastePersistedAfterReload: afterReload.markdownPastePersisted,
         themeModeAfterReload: afterReload.themeMode,
-        aiVisibilityDefaultAfterReload: afterReload.aiVisibilityDefault,
         aiMetadataPersistedAfterReload: afterReload.aiTaskMetadataPersisted,
         settingsDeepLink: settingsNavigation.storageDeepLink,
         settingsKeyboardFocus:
@@ -2213,11 +2194,8 @@ flowchart LR
         result.themeMode === "dark" &&
         result.themeModeAfterReload === "dark" &&
         result.aiMetadataPersisted &&
-        result.aiThemeDefaultPersisted &&
         result.aiMetadataRejectedInvalid &&
-        result.aiVisibilityDefaultSaved === "coding_agent" &&
         result.aiMetadataPersistedAfterReload &&
-        result.aiVisibilityDefaultAfterReload === "coding_agent" &&
         result.settingsDeepLink &&
         result.settingsKeyboardFocus &&
         result.settingsKeyboardInputTrusted &&

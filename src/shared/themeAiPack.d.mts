@@ -1,5 +1,3 @@
-import type { AiAudience } from "./aiMetadata.mjs";
-
 export interface ThemeAiPackPublication {
   published: boolean;
   title?: string;
@@ -19,8 +17,6 @@ export interface ThemeAiPackCandidate {
 
 export interface ThemeAiPackActivityProjection {
   events?: Array<Record<string, unknown>>;
-  excluded_count?: number;
-  excluded_reasons?: Array<{ type?: string; reason?: string; count?: number }>;
 }
 
 export interface ThemeAiPackFile {
@@ -36,7 +32,6 @@ export interface ThemeAiPackManifest {
   generatedAt: string;
   sourceRevision: string | null;
   projection: "generated_read_only";
-  audience: "m365";
   contentHash: string;
   files: Array<{ name: string; contentHash: string; includedEntityIds: string[] }>;
   includedEntityIds: string[];
@@ -47,7 +42,6 @@ export interface ThemeAiPackManifest {
 export interface ThemeAiPackPlan {
   schema: "tasken-ai-pack/v1";
   theme_id: string;
-  audience: Extract<AiAudience, "m365">;
   generated_at: string;
   source_revision: string | null;
   content_hash: string;
@@ -76,7 +70,6 @@ export interface BuildThemeAiPackPlanInput {
   theme: Record<string, unknown>;
   candidates?: ThemeAiPackCandidate[];
   activity?: ThemeAiPackActivityProjection;
-  workspaceDefault?: AiAudience[] | null;
   generatedAt?: string;
   sourceRevision?: string | number | null;
   maxBodyChars?: number;

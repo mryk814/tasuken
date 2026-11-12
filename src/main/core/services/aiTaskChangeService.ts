@@ -15,11 +15,6 @@ import {
   type TaskCommandResponse,
   type TaskReadModel,
 } from "../../../shared/contracts/task/public.ts";
-import {
-  DEFAULT_AI_VISIBILITY,
-  normalizeAiVisibility,
-  projectEntityForAi,
-} from "../../../shared/aiMetadata.mjs";
 import type { Entity } from "../../../shared/types/workspace.ts";
 import { CorePublicError, directWriteDisabled } from "./corePublicError.ts";
 
@@ -66,11 +61,7 @@ interface Persistence {
   changeEventCommandIdsWithPrefix(prefix: string): Set<string>;
   listChangeEventsForEntity(recordType: string, entityId: string): Entity[];
   hasSyncConflict(entityType: string, entityId: string): boolean;
-  readPreference(key: "aiVisibilityDefault"): unknown;
 }
-
-/** 読み取り（get_task_contextなど）と同じ公開先。AIが読めないものは変えさせない。 */
-const AUDIENCE = "coding_agent";
 
 export interface AiTaskChangePort {
   /** Task commandをai_agentとして実行し、`annotation`を全Change Eventの`metadata.ai_direct`に付ける。 */
@@ -164,7 +155,7 @@ function stableChecklistId(changeId: string, index: number): string {
 /**
  * AIが本人の言葉を根拠に既存のTaskを直接変える限定の入口（#703）。
  * actorとsourceはCoreが固定し、変えてよい欄は許可リストに限る。根拠は全Change Eventに残し、
- * 取り消せるようにする。AIの公開範囲の外のTask・Themeは、無いものとして扱う（読めないものは変えない）。
+ * 取り消せるようにする。
  * Desktop（Claude Codeなどのstdio接続）と、配備で明示したNAS replica（Museなどの HTTP。#688）に出す。
  */
 export class AiTaskChangeService {
@@ -193,16 +184,15 @@ export class AiTaskChangeService {
           "同じidempotency_keyの内容が異なります。",
           409,
         );
-      // 再送でも、今はAIの公開範囲の外になったTaskの中身は返さない。
       const current = this.persistence.get("task", request.task_id, true);
-      if (!current || !this.aiCanSee("task", current))
+      if (!current)
         throw new CorePublicError("NOT_FOUND", "Taskがありません。", 404, {
           task_id: request.task_id,
         });
       return this.changeResponse("duplicate", changeId, request.task_id);
     }
     const task = this.persistence.get("task", request.task_id, true);
-    if (!task || task.deleted_at || !this.aiCanSee("task", task))
+    if (!task || task.deleted_at)
       throw new CorePublicError("NOT_FOUND", "Taskがありません。", 404, {
         task_id: request.task_id,
       });
@@ -251,7 +241,7 @@ export class AiTaskChangeService {
       : this.sessionChanges(request.source_app, request.undo_session as string)
           .filter((change) => !aiDirect(change.events[0])?.undone_by)
           .map((change) => change.commandId);
-    const plans = targets.map((commandId) => this.hideFromAi(this.undoPlan(commandId)));
+    const plans = targets.map((commandId) => this.undoPlan(commandId));
     // 本人の言葉で決めた変更は、本人の言葉なしに戻さない。どれか一つでも要るなら、何も戻さず聞く。
     if (!request.said && plans.some((plan) => plan.needsUserWords))
       throw new CorePublicError(
@@ -457,7 +447,7 @@ export class AiTaskChangeService {
     }
     if (edit.theme_id !== undefined) {
       const theme = this.persistence.get("theme", edit.theme_id);
-      if (!theme || !this.aiCanSee("theme", theme))
+      if (!theme)
         throw new CorePublicError("INVALID_REFERENCE", "指定したThemeがありません。", 400, {
           field: "theme_id",
         });
@@ -524,39 +514,6 @@ export class AiTaskChangeService {
         ...(scheduleChange ? { schedule_change: scheduleChange } : {}),
       },
     } as TaskCommand;
-  }
-
-  /** 読み取りと同じ判定（Entity → Themeの既定 → 全体の既定）で、AIの公開範囲に入っているか。 */
-  private aiCanSee(type: "task" | "theme", entity: Entity): boolean {
-    const themeId = type === "theme" ? null : entity.theme_id || entity.project_id;
-    const theme =
-      type === "theme"
-        ? entity
-        : themeId
-          ? this.persistence.get("theme", String(themeId), true)
-          : null;
-    const workspaceDefault = normalizeAiVisibility(
-      this.persistence.readPreference("aiVisibilityDefault"),
-    ) || [...DEFAULT_AI_VISIBILITY];
-    return projectEntityForAi(type, entity, { audience: AUDIENCE, theme, workspaceDefault })
-      .included;
-  }
-
-  /**
-   * AIの取り消しで、今はAIの公開範囲の外にあるTaskを無いものとして扱う
-   * （変更の後に本人がThemeを隠した、など）。本人の画面からの取り消しには使わない。
-   */
-  private hideFromAi(plan: UndoPlan): UndoPlan {
-    if (plan.failure || !plan.taskId) return plan;
-    const task = this.persistence.get("task", plan.taskId, true);
-    if (task && this.aiCanSee("task", task)) return plan;
-    return {
-      commandId: plan.commandId,
-      taskId: plan.taskId,
-      commandName: "",
-      needsUserWords: false,
-      failure: { code: "NOT_FOUND", message: "取り消せる変更がありません。", current_task: null },
-    };
   }
 
   private undoPlan(commandId: string): UndoPlan {

@@ -1,5 +1,3 @@
-import type { AiAudience } from "../../../shared/aiMetadata.mjs";
-
 export interface KnowledgeReadRecord extends Record<string, any> {
   id: string;
 }
@@ -20,5 +18,4 @@ export type KnowledgeReadEntityType =
 /** Narrow, read-only source for notes, Knowledge, and plan/data health queries. */
 export interface KnowledgeReadPort {
   list(type: KnowledgeReadEntityType, includeArchived: boolean): KnowledgeReadRecord[];
-  workspaceAiVisibilityDefault(): AiAudience[];
 }

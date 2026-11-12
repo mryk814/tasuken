@@ -1,5 +1,5 @@
 import { markdownSignature } from "./canonicalMarkdown.mjs";
-import { projectEntityForAi } from "./aiMetadata.mjs";
+import { buildAiEntityHeader } from "./aiMetadata.mjs";
 
 export const CONVERSATION_CONTEXT_SCHEMA = "tasken-conversation-context/v1";
 export const CONVERSATION_CONTEXT_PUBLICATION_SCHEMA = "tasken-conversation-context-publication/v1";
@@ -15,8 +15,10 @@ const USER_ROLE = /^(?:you|user|human|ユーザー)(?:\s|$)/i;
 const ASSISTANT_ROLE = /^(?:assistant|ai|chatgpt|gpt|claude|gemini|copilot|codex)(?:\s|$)/i;
 const SYSTEM_ROLE = /^(?:system|システム)(?:\s|$)/i;
 const TOOL_ROLE = /^(?:tool|function|ツール)(?:\s|$)/i;
-const SECRET_LINE = /(?:api[_ -]?key|access[_ -]?token|client[_ -]?secret|password|authorization\s*:|bearer\s+[A-Za-z0-9._~+/-]{8,}|\b(?:sk|ghp|github_pat)_[A-Za-z0-9_-]{8,})/i;
-const LOCAL_PATH_LINE = /(?:\b[A-Za-z]:\\|\\\\[^\s\\]+\\|file:\/\/|\/(?:Users|home|private|var)\/[^\s]+)/i;
+const SECRET_LINE =
+  /(?:api[_ -]?key|access[_ -]?token|client[_ -]?secret|password|authorization\s*:|bearer\s+[A-Za-z0-9._~+/-]{8,}|\b(?:sk|ghp|github_pat)_[A-Za-z0-9_-]{8,})/i;
+const LOCAL_PATH_LINE =
+  /(?:\b[A-Za-z]:\\|\\\\[^\s\\]+\\|file:\/\/|\/(?:Users|home|private|var)\/[^\s]+)/i;
 const MAX_SOURCE_CHARS = 512 * 1024;
 const MAX_TURN_CHARS = 32 * 1024;
 const MAX_CONTEXT_CHARS = 192 * 1024;
@@ -35,7 +37,11 @@ function yaml(value) {
 
 function safeRelativePath(value) {
   const normalized = text(value).replace(/\\/g, "/").replace(/^\/+/, "");
-  if (!normalized || normalized.split("/").some((segment) => !segment || segment === "." || segment === "..")) return "";
+  if (
+    !normalized ||
+    normalized.split("/").some((segment) => !segment || segment === "." || segment === "..")
+  )
+    return "";
   if (!normalized.startsWith(`${CONVERSATION_CONTEXT_DIRECTORY}/`)) return "";
   return normalized;
 }
@@ -57,16 +63,22 @@ function shortId(value) {
 }
 
 function inferRole(heading) {
-  const cleaned = text(heading).replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, "").trim();
+  const cleaned = text(heading)
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, "")
+    .trim();
   if (USER_ROLE.test(cleaned)) return { role: "user", displayName: cleaned || "User" };
   if (SYSTEM_ROLE.test(cleaned)) return { role: "system", displayName: cleaned || "System" };
   if (TOOL_ROLE.test(cleaned)) return { role: "tool", displayName: cleaned || "Tool" };
-  if (ASSISTANT_ROLE.test(cleaned)) return { role: "assistant", displayName: cleaned || "Assistant" };
+  if (ASSISTANT_ROLE.test(cleaned))
+    return { role: "assistant", displayName: cleaned || "Assistant" };
   return null;
 }
 
 export function parseConversationContextMessages(body) {
-  const lines = String(body || "").slice(0, MAX_SOURCE_CHARS).replace(/\r\n?/g, "\n").split("\n");
+  const lines = String(body || "")
+    .slice(0, MAX_SOURCE_CHARS)
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
   let roleLevel = null;
   let fenced = false;
   for (const line of lines) {
@@ -76,7 +88,8 @@ export function parseConversationContextMessages(body) {
     }
     if (fenced) continue;
     const match = line.match(ROLE_HEADING);
-    if (match && inferRole(match[2])) roleLevel = roleLevel == null ? match[1].length : Math.min(roleLevel, match[1].length);
+    if (match && inferRole(match[2]))
+      roleLevel = roleLevel == null ? match[1].length : Math.min(roleLevel, match[1].length);
   }
   if (roleLevel == null) return [];
 
@@ -110,7 +123,11 @@ export function normalizeConversationContextPublication(value) {
   if (input.schema !== CONVERSATION_CONTEXT_PUBLICATION_SCHEMA) return null;
   const scope = CONVERSATION_CONTEXT_SCOPES.includes(input.scope) ? input.scope : "full";
   const selected = Array.isArray(input.selected_message_indexes)
-    ? [...new Set(input.selected_message_indexes.filter((entry) => Number.isInteger(entry) && entry >= 0))].sort((a, b) => a - b)
+    ? [
+        ...new Set(
+          input.selected_message_indexes.filter((entry) => Number.isInteger(entry) && entry >= 0),
+        ),
+      ].sort((a, b) => a - b)
     : [];
   const relativePath = safeRelativePath(input.relative_path);
   if (!relativePath) return null;
@@ -119,7 +136,14 @@ export function normalizeConversationContextPublication(value) {
   if ((themeId || storageRootId) && (!themeId || storageRootId !== `theme:${themeId}`)) return null;
   return {
     schema: CONVERSATION_CONTEXT_PUBLICATION_SCHEMA,
-    status: ["publishing", "published", "publish_failed", "removing", "removal_failed", "removed"].includes(input.status)
+    status: [
+      "publishing",
+      "published",
+      "publish_failed",
+      "removing",
+      "removal_failed",
+      "removed",
+    ].includes(input.status)
       ? input.status
       : "publish_failed",
     scope,
@@ -178,9 +202,19 @@ function safeSourceUrl(value) {
   }
 }
 
-function renderConversationContext({ resource, theme, header, scope, selected, exclusions, publishedAt }) {
+function renderConversationContext({
+  resource,
+  theme,
+  header,
+  scope,
+  selected,
+  exclusions,
+  publishedAt,
+}) {
   const sourceUrl = safeSourceUrl(resource.url || resource.source_url);
-  const provider = text(resource.link_type || resource.provider || resource.source_format || "unknown");
+  const provider = text(
+    resource.link_type || resource.provider || resource.source_format || "unknown",
+  );
   const frontmatter = [
     "---",
     `schema: ${CONVERSATION_CONTEXT_SCHEMA}`,
@@ -193,7 +227,9 @@ function renderConversationContext({ resource, theme, header, scope, selected, e
     `freshness: ${yaml(header.freshness || "unknown")}`,
     `authority: ${yaml(header.authority || "imported")}`,
     `scope: ${scope}`,
-    scope === "selected_turns" ? `selected_turns: [${selected.map((message) => message.index).join(", ")}]` : null,
+    scope === "selected_turns"
+      ? `selected_turns: [${selected.map((message) => message.index).join(", ")}]`
+      : null,
     "---",
   ].filter(Boolean);
   const messages = selected.flatMap((message) => [
@@ -225,13 +261,14 @@ function renderConversationContext({ resource, theme, header, scope, selected, e
     exclusions.length ? "## Exclusions" : null,
     exclusions.length ? "" : null,
     ...exclusions.map((entry) => `- turn ${entry.message_index + 1}: ${entry.kind}`),
-  ].filter((entry) => entry !== null).join("\n")}\n`;
+  ]
+    .filter((entry) => entry !== null)
+    .join("\n")}\n`;
 }
 
 export function buildConversationContextPlan({
   resource,
   theme,
-  workspaceDefault = null,
   scope,
   selectedMessageIndexes,
   publishedAt,
@@ -241,87 +278,136 @@ export function buildConversationContextPlan({
     throw new Error("AI Contextの対象は保存済みConversationだけです。");
   }
   const themeEntity = record(theme);
-  if (!text(themeEntity.id) || ![entity.theme_id, entity.project_id].map(text).includes(text(themeEntity.id))) {
+  if (
+    !text(themeEntity.id) ||
+    ![entity.theme_id, entity.project_id].map(text).includes(text(themeEntity.id))
+  ) {
     throw new Error("ConversationのThemeが見つかりません。Themeを設定してから再試行してください。");
   }
-  const publication = normalizeConversationContextPublication(entity.conversation_context_publication);
-  const publicationThemeChanged = Boolean(
-    publication
-    && publication.status !== "removed"
-    && publication.theme_id
-    && publication.theme_id !== text(themeEntity.id),
+  const publication = normalizeConversationContextPublication(
+    entity.conversation_context_publication,
   );
-  const normalizedScope = CONVERSATION_CONTEXT_SCOPES.includes(scope) ? scope : publication?.scope || "full";
+  const publicationThemeChanged = Boolean(
+    publication &&
+    publication.status !== "removed" &&
+    publication.theme_id &&
+    publication.theme_id !== text(themeEntity.id),
+  );
+  const normalizedScope = CONVERSATION_CONTEXT_SCOPES.includes(scope)
+    ? scope
+    : publication?.scope || "full";
   const requestedIndexes = Array.isArray(selectedMessageIndexes)
-    ? [...new Set(selectedMessageIndexes.filter((entry) => Number.isInteger(entry) && entry >= 0))].sort((a, b) => a - b)
+    ? [
+        ...new Set(selectedMessageIndexes.filter((entry) => Number.isInteger(entry) && entry >= 0)),
+      ].sort((a, b) => a - b)
     : publication?.selected_message_indexes || [];
-  const projection = projectEntityForAi("resource", entity, { audience: "m365", theme: themeEntity, workspaceDefault });
   const allMessages = parseConversationContextMessages(entity.body_markdown);
   const roleExclusions = allMessages
     .filter((message) => !["user", "assistant"].includes(message.role))
-    .map((message) => ({ kind: `${message.role}_turn`, message_index: message.index, role: message.role }));
+    .map((message) => ({
+      kind: `${message.role}_turn`,
+      message_index: message.index,
+      role: message.role,
+    }));
   const publishable = allMessages.filter((message) => ["user", "assistant"].includes(message.role));
-  const notSelected = normalizedScope === "selected_turns"
-    ? publishable.filter((message) => !requestedIndexes.includes(message.index)).map((message) => ({ kind: "not_selected", message_index: message.index, role: message.role }))
-    : [];
-  const scoped = normalizedScope === "selected_turns"
-    ? publishable.filter((message) => requestedIndexes.includes(message.index))
-    : publishable;
+  const notSelected =
+    normalizedScope === "selected_turns"
+      ? publishable
+          .filter((message) => !requestedIndexes.includes(message.index))
+          .map((message) => ({
+            kind: "not_selected",
+            message_index: message.index,
+            role: message.role,
+          }))
+      : [];
+  const scoped =
+    normalizedScope === "selected_turns"
+      ? publishable.filter((message) => requestedIndexes.includes(message.index))
+      : publishable;
   const redacted = scoped.map(redactMessage);
   const exclusions = [
     ...roleExclusions,
     ...notSelected,
-    ...(String(entity.body_markdown || "").length > MAX_SOURCE_CHARS ? [{ kind: "source_truncated", message_index: -1, role: "source" }] : []),
+    ...(String(entity.body_markdown || "").length > MAX_SOURCE_CHARS
+      ? [{ kind: "source_truncated", message_index: -1, role: "source" }]
+      : []),
     ...redacted.flatMap((entry) => entry.reasons),
   ];
   const selected = [];
   let remaining = MAX_CONTEXT_CHARS;
   for (const entry of redacted) {
     if (remaining <= 0) {
-      exclusions.push({ kind: "total_truncated", message_index: entry.message.index, role: entry.message.role });
+      exclusions.push({
+        kind: "total_truncated",
+        message_index: entry.message.index,
+        role: entry.message.role,
+      });
       continue;
     }
     if (entry.message.content.length > remaining) {
-      selected.push({ ...entry.message, content: `${entry.message.content.slice(0, remaining)}\n\n[以降を全体上限により除外]` });
-      exclusions.push({ kind: "total_truncated", message_index: entry.message.index, role: entry.message.role });
+      selected.push({
+        ...entry.message,
+        content: `${entry.message.content.slice(0, remaining)}\n\n[以降を全体上限により除外]`,
+      });
+      exclusions.push({
+        kind: "total_truncated",
+        message_index: entry.message.index,
+        role: entry.message.role,
+      });
       remaining = 0;
     } else {
       selected.push(entry.message);
       remaining -= entry.message.content.length;
     }
   }
-  const allowed = Boolean(projection.included && selected.length && !publicationThemeChanged);
+  const allowed = Boolean(selected.length && !publicationThemeChanged);
   const blockingReasons = [
-    ...(!projection.included ? [projection.exclusion?.reason || "M365への公開が許可されていません。"] : []),
-    ...(!selected.length ? [normalizedScope === "selected_turns" ? "公開する発言を選択してください。" : "公開できるUser/Assistant発言がありません。"] : []),
-    ...(publicationThemeChanged ? ["以前のThemeに公開済みです。先にAI Contextから外してから、新しいThemeへ公開してください。"] : []),
+    ...(!selected.length
+      ? [
+          normalizedScope === "selected_turns"
+            ? "公開する発言を選択してください。"
+            : "公開できるUser/Assistant発言がありません。",
+        ]
+      : []),
+    ...(publicationThemeChanged
+      ? ["以前のThemeに公開済みです。先にAI Contextから外してから、新しいThemeへ公開してください。"]
+      : []),
   ];
-  const effectivePublishedAt = text(publishedAt) || publication?.published_at || new Date(0).toISOString();
+  const effectivePublishedAt =
+    text(publishedAt) || publication?.published_at || new Date(0).toISOString();
   const relativePath = conversationContextRelativePath(entity, publication);
-  const header = projection.header || {
-    summary: text(entity.ai_summary), freshness: text(entity.ai_freshness) || "unknown", authority: text(entity.ai_authority) || "imported",
-  };
-  const content = renderConversationContext({ resource: entity, theme: themeEntity, header, scope: normalizedScope, selected, exclusions, publishedAt: effectivePublishedAt });
-  const contentHash = markdownSignature(content);
-  const sourceRevision = markdownSignature(JSON.stringify({
-    conversation_id: entity.id,
-    title: entity.title,
-    body_markdown: entity.body_markdown,
-    url: entity.url || entity.source_url,
-    captured_at: entity.captured_at,
-    provider: entity.link_type || entity.provider || entity.source_format,
-    ai_summary: entity.ai_summary,
-    ai_summary_authority: entity.ai_summary_authority,
-    ai_freshness: entity.ai_freshness,
-    ai_authority: entity.ai_authority,
-    ai_visibility: entity.ai_visibility,
-    theme_visibility: themeEntity.default_ai_visibility,
-    workspace_visibility: workspaceDefault,
+  const header = buildAiEntityHeader("resource", entity);
+  const content = renderConversationContext({
+    resource: entity,
+    theme: themeEntity,
+    header,
     scope: normalizedScope,
-    selected: selected.map((message) => message.index),
-  }));
+    selected,
+    exclusions,
+    publishedAt: effectivePublishedAt,
+  });
+  const contentHash = markdownSignature(content);
+  const sourceRevision = markdownSignature(
+    JSON.stringify({
+      conversation_id: entity.id,
+      title: entity.title,
+      body_markdown: entity.body_markdown,
+      url: entity.url || entity.source_url,
+      captured_at: entity.captured_at,
+      provider: entity.link_type || entity.provider || entity.source_format,
+      ai_summary: entity.ai_summary,
+      ai_summary_authority: entity.ai_summary_authority,
+      ai_freshness: entity.ai_freshness,
+      ai_authority: entity.ai_authority,
+      scope: normalizedScope,
+      selected: selected.map((message) => message.index),
+    }),
+  );
   const wasPublished = publication?.status === "published";
-  const dirty = Boolean(wasPublished && (publication.content_hash !== contentHash || publication.source_revision !== sourceRevision));
+  const dirty = Boolean(
+    wasPublished &&
+    (publication.content_hash !== contentHash || publication.source_revision !== sourceRevision),
+  );
   return {
     schema: CONVERSATION_CONTEXT_SCHEMA,
     conversation_id: text(entity.id),
@@ -336,15 +422,14 @@ export function buildConversationContextPlan({
     blocking_reasons: blockingReasons,
     warnings: [...new Set(exclusions.map((entry) => entry.kind))],
     allowed,
-    publication_state: !publication || publication.status === "removed"
-      ? "not_published"
-      : publicationThemeChanged
-        ? "dirty"
-      : !projection.included && wasPublished
-        ? "published_but_blocked"
-        : publication.status === "published" && dirty
+    publication_state:
+      !publication || publication.status === "removed"
+        ? "not_published"
+        : publicationThemeChanged
           ? "dirty"
-          : publication.status,
+          : publication.status === "published" && dirty
+            ? "dirty"
+            : publication.status,
     dirty,
     content,
     content_hash: contentHash,
@@ -355,12 +440,13 @@ export function buildConversationContextPlan({
     summary: text(header.summary),
     freshness: text(header.freshness) || "unknown",
     authority: text(header.authority) || "imported",
-    ai_visibility: Array.isArray(header.ai_visibility) ? header.ai_visibility : [],
   };
 }
 
 export function publicationForThemeAiPack(entity) {
-  const publication = normalizeConversationContextPublication(entity?.conversation_context_publication);
+  const publication = normalizeConversationContextPublication(
+    entity?.conversation_context_publication,
+  );
   if (!publication || publication.status !== "published") return null;
   const legacyThemeId = text(entity?.theme_id || entity?.project_id);
   const themeId = publication.theme_id || legacyThemeId;

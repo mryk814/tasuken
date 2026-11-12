@@ -1,18 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconRefresh } from "@tabler/icons-react";
 
-import type { AiContextPreviewAudience, AiContextPreviewResult, AiContextPreviewScope } from "../../../../../shared/ipc/contracts";
+import type {
+  AiContextPreviewChannel,
+  AiContextPreviewResult,
+  AiContextPreviewScope,
+} from "../../../../../shared/ipc/contracts";
 import type { PreviewEntityRef } from "../../../../../shared/aiContextPreview.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import type { DrawerConfig, OpenDrawer, WorkspaceData } from "../types";
 
-const AUDIENCE_LABELS: Record<AiContextPreviewAudience, string> = {
-  m365: "M365",
-  coding_agent: "Coding Agent",
+const CHANNEL_LABELS: Record<AiContextPreviewChannel, string> = {
+  ai_pack: "AI Pack",
+  mcp: "MCP",
 };
 
-export function drawerTargetForPreview(data: WorkspaceData, ref: PreviewEntityRef): DrawerConfig | null {
-  const lookup = (records: Array<Record<string, unknown>> | undefined, type: DrawerConfig["type"]) => {
+export function drawerTargetForPreview(
+  data: WorkspaceData,
+  ref: PreviewEntityRef,
+): DrawerConfig | null {
+  const lookup = (
+    records: Array<Record<string, unknown>> | undefined,
+    type: DrawerConfig["type"],
+  ) => {
     const entity = records?.find((entry) => String(entry.id) === ref.id);
     return entity ? { type, mode: "view" as const, entity } : null;
   };
@@ -42,13 +52,15 @@ export function AiContextPreviewPanel({
   data: WorkspaceData;
   openDrawer: OpenDrawer;
 }) {
-  const [audience, setAudience] = useState<AiContextPreviewAudience>("coding_agent");
-  const [results, setResults] = useState<Partial<Record<AiContextPreviewAudience, { scopeKey: string; result: AiContextPreviewResult }>>>({});
+  const [channel, setChannel] = useState<AiContextPreviewChannel>("mcp");
+  const [results, setResults] = useState<
+    Partial<Record<AiContextPreviewChannel, { scopeKey: string; result: AiContextPreviewResult }>>
+  >({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const requestSequence = useRef(0);
   const scopeKey = `${scope.type}:${scope.id}`;
-  const cached = results[audience]?.scopeKey === scopeKey ? results[audience]?.result : null;
+  const cached = results[channel]?.scopeKey === scopeKey ? results[channel]?.result : null;
 
   const refresh = useCallback(async () => {
     const sequence = requestSequence.current + 1;
@@ -56,24 +68,35 @@ export function AiContextPreviewPanel({
     setLoading(true);
     setError("");
     try {
-      const result = await workspaceApi.previewAiContext({ scope, audience });
+      const result = await workspaceApi.previewAiContext({ scope, channel });
       if (requestSequence.current !== sequence) return;
       if (result.state === "error") {
-        setError(result.error || "Context Previewを作成できませんでした。元Entityの公開範囲を確認してください。");
-        setResults((current) => current[audience]?.scopeKey === scopeKey ? current : ({ ...current, [audience]: { scopeKey, result } }));
+        setError(result.error || "Context Previewを作成できませんでした。もう一度お試しください。");
+        setResults((current) =>
+          current[channel]?.scopeKey === scopeKey
+            ? current
+            : { ...current, [channel]: { scopeKey, result } },
+        );
       } else {
-        setResults((current) => ({ ...current, [audience]: { scopeKey, result } }));
+        setResults((current) => ({ ...current, [channel]: { scopeKey, result } }));
       }
     } catch (reason) {
-      if (requestSequence.current === sequence) setError(reason instanceof Error ? reason.message : "Context Previewを作成できませんでした。もう一度お試しください。");
+      if (requestSequence.current === sequence)
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "Context Previewを作成できませんでした。もう一度お試しください。",
+        );
     } finally {
       if (requestSequence.current === sequence) setLoading(false);
     }
-  }, [audience, scope.id, scope.type, scopeKey]);
+  }, [channel, scope.id, scope.type, scopeKey]);
 
   useEffect(() => {
     void refresh();
-    return () => { requestSequence.current += 1; };
+    return () => {
+      requestSequence.current += 1;
+    };
   }, [refresh]);
 
   const result = cached && cached.state !== "error" ? cached : null;
@@ -90,86 +113,208 @@ export function AiContextPreviewPanel({
       <div className="section-heading">
         <div>
           <h3>Context Preview</h3>
-          <span className="muted-text">実際のAI公開選択</span>
+          <span className="muted-text">AIへ実際に渡る内容</span>
         </div>
         <div className="inline-actions">
-          {(Object.keys(AUDIENCE_LABELS) as AiContextPreviewAudience[]).map((value) => (
-            <button key={value} type="button" className={`text-button compact ${audience === value ? "is-active" : ""}`} aria-pressed={audience === value} onClick={() => setAudience(value)}>
-              {AUDIENCE_LABELS[value]}
+          {(Object.keys(CHANNEL_LABELS) as AiContextPreviewChannel[]).map((value) => (
+            <button
+              key={value}
+              type="button"
+              className={`text-button compact ${channel === value ? "is-active" : ""}`}
+              aria-pressed={channel === value}
+              onClick={() => setChannel(value)}
+            >
+              {CHANNEL_LABELS[value]}
             </button>
           ))}
-          <button type="button" className="text-button compact icon-only" aria-label="Context Previewを更新" disabled={loading} onClick={() => void refresh()}><IconRefresh size={15} /></button>
+          <button
+            type="button"
+            className="text-button compact icon-only"
+            aria-label="Context Previewを更新"
+            disabled={loading}
+            onClick={() => void refresh()}
+          >
+            <IconRefresh size={15} />
+          </button>
         </div>
       </div>
       {loading && !result && <div className="ai-context-preview-state">Contextを確認中…</div>}
-      {error && <div className="alert-note danger">{error} 入力と前回のPreviewは保持しています。</div>}
-      {!loading && !error && result?.state === "empty" && <div className="ai-context-preview-state">公開対象はありません。visibilityとrelationを確認してください。</div>}
+      {error && (
+        <div className="alert-note danger">{error} 入力と前回のPreviewは保持しています。</div>
+      )}
+      {!loading && !error && result?.state === "empty" && (
+        <div className="ai-context-preview-state">
+          AIへ渡す対象はありません。relationを確認してください。
+        </div>
+      )}
       {result && preview && (
         <div className="ai-context-preview-body">
           <div className="ai-context-preview-metrics">
-            <span><strong>{preview.counts.included}</strong> included</span>
-            <span><strong>{preview.counts.excluded}</strong> excluded</span>
-            <span><strong>{preview.counts.relations}</strong> relations</span>
-            <span><strong>{preview.estimates.tokens ?? Math.ceil((preview.estimates.characters || 0) / 4)}</strong> tokens est.</span>
+            <span>
+              <strong>{preview.counts.included}</strong> included
+            </span>
+            <span>
+              <strong>{preview.counts.excluded}</strong> excluded
+            </span>
+            <span>
+              <strong>{preview.counts.relations}</strong> relations
+            </span>
+            <span>
+              <strong>
+                {preview.estimates.tokens ?? Math.ceil((preview.estimates.characters || 0) / 4)}
+              </strong>{" "}
+              tokens est.
+            </span>
           </div>
-          {scope.type === "task" && audience === "m365" && (
-            <p className={`ai-context-preview-scope ${result.includedInEffectiveScope ? "is-included" : "is-excluded"}`}>
-              このTaskはTheme AI Packに{result.includedInEffectiveScope ? "含まれます" : "含まれません"}。実効scope: Theme {result.effectiveScope.id}
+          {scope.type === "task" && channel === "ai_pack" && (
+            <p
+              className={`ai-context-preview-scope ${result.includedInEffectiveScope ? "is-included" : "is-excluded"}`}
+            >
+              このTaskはTheme AI Packに
+              {result.includedInEffectiveScope ? "含まれます" : "含まれません"}。実効scope: Theme{" "}
+              {result.effectiveScope.id}
             </p>
           )}
-          {preview.truncation.truncated && <p className="alert-note warning">上限で省略: {preview.truncation.reasons.join(" / ") || "producer limit"}</p>}
+          {preview.truncation.truncated && (
+            <p className="alert-note warning">
+              上限で省略: {preview.truncation.reasons.join(" / ") || "producer limit"}
+            </p>
+          )}
           <details open className="ai-context-preview-group">
-            <summary>Included <span>{represented.length} / {preview.counts.representedIncluded}</span></summary>
+            <summary>
+              Included{" "}
+              <span>
+                {represented.length} / {preview.counts.representedIncluded}
+              </span>
+            </summary>
             {represented.length ? (
               <ul>
                 {represented.map((entry) => {
                   const target = drawerTargetForPreview(data, entry.ref);
-                  const contextState = entry.freshness === "stale" || entry.freshness === "superseded" ? ` is-${entry.freshness}` : "";
+                  const contextState =
+                    entry.freshness === "stale" || entry.freshness === "superseded"
+                      ? ` is-${entry.freshness}`
+                      : "";
                   return (
                     <li key={`${entry.ref.type}:${entry.ref.id}`} className={contextState}>
                       <button type="button" disabled={!target} onClick={() => openRef(entry.ref)}>
                         <strong>{entry.title || `${entry.ref.type}:${entry.ref.id}`}</strong>
                         <span>{entry.includedReason || "producer selection"}</span>
                       </button>
-                      <small>{metadataValue(entry.visibility.join(", "))} · {metadataValue(entry.freshness)} · {metadataValue(entry.authority)} · {entry.bodyMode}</small>
-                      {entry.relationPath.length > 0 && <small>path: {entry.relationPath.map((step) => `${step.predicate || "relation"} (${step.status || "unknown"})`).join(" → ")}</small>}
+                      <small>
+                        {metadataValue(entry.freshness)} · {metadataValue(entry.authority)} ·{" "}
+                        {entry.bodyMode}
+                      </small>
+                      {entry.relationPath.length > 0 && (
+                        <small>
+                          path:{" "}
+                          {entry.relationPath
+                            .map(
+                              (step) =>
+                                `${step.predicate || "relation"} (${step.status || "unknown"})`,
+                            )
+                            .join(" → ")}
+                        </small>
+                      )}
                     </li>
                   );
                 })}
               </ul>
-            ) : <p>個別Entityの詳細はproducerから公開されていません。{preview.untypedIncludedIds.length} IDs / {preview.files.length} files</p>}
-            {preview.included.length > represented.length && <p>さらに {preview.included.length - represented.length} 件。件数は上の集計に含まれます。</p>}
+            ) : (
+              <p>
+                個別Entityの詳細は取得元から渡されていません。{preview.untypedIncludedIds.length}{" "}
+                IDs / {preview.files.length} files
+              </p>
+            )}
+            {preview.included.length > represented.length && (
+              <p>
+                さらに {preview.included.length - represented.length}{" "}
+                件。件数は上の集計に含まれます。
+              </p>
+            )}
           </details>
           <details className="ai-context-preview-group">
-            <summary>Excluded <span>{Math.min(12, preview.excluded.length)} / {preview.counts.representedExcluded}</span></summary>
-            {preview.excluded.length ? <ul>{preview.excluded.slice(0, 12).map((entry, index) => (
-              <li key={`${entry.ref?.type || entry.entityType}:${entry.ref?.id || index}:${entry.reason}`}>
-                {entry.ref && drawerTargetForPreview(data, entry.ref)
-                  ? <button type="button" onClick={() => openRef(entry.ref as PreviewEntityRef)}><strong>{entry.ref.type}:{entry.ref.id}</strong></button>
-                  : <strong>{entry.entityType || entry.kind}</strong>}
-                <small>{entry.reason || "producer policy"} · {entry.count}件</small>
-              </li>
-            ))}</ul> : <p>除外理由の個別情報はありません。</p>}
-            {preview.excluded.length > 12 && <p>さらに {preview.excluded.length - 12} 件。件数は上の集計に含まれます。</p>}
+            <summary>
+              Excluded{" "}
+              <span>
+                {Math.min(12, preview.excluded.length)} / {preview.counts.representedExcluded}
+              </span>
+            </summary>
+            {preview.excluded.length ? (
+              <ul>
+                {preview.excluded.slice(0, 12).map((entry, index) => (
+                  <li
+                    key={`${entry.ref?.type || entry.entityType}:${entry.ref?.id || index}:${entry.reason}`}
+                  >
+                    {entry.ref && drawerTargetForPreview(data, entry.ref) ? (
+                      <button type="button" onClick={() => openRef(entry.ref as PreviewEntityRef)}>
+                        <strong>
+                          {entry.ref.type}:{entry.ref.id}
+                        </strong>
+                      </button>
+                    ) : (
+                      <strong>{entry.entityType || entry.kind}</strong>
+                    )}
+                    <small>
+                      {entry.reason || "producer policy"} · {entry.count}件
+                    </small>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>除外理由の個別情報はありません。</p>
+            )}
+            {preview.excluded.length > 12 && (
+              <p>さらに {preview.excluded.length - 12} 件。件数は上の集計に含まれます。</p>
+            )}
           </details>
           {preview.relations.length > 0 && (
             <details className="ai-context-preview-group">
-              <summary>Relation path <span>{Math.min(12, preview.relations.length)} / {preview.counts.representedRelations}</span></summary>
-              <ul>{preview.relations.slice(0, 12).map((relation, index) => (
-                <li key={relation.id || `${relation.source.id}:${relation.target.id}:${index}`}>
-                  <strong>{relation.source.type}:{relation.source.id} → {relation.target.type}:{relation.target.id}</strong>
-                  <small>{relation.predicate || "relation"} · {relation.status || "unknown"} · {relation.reason || relation.origin || "producer selection"}</small>
-                </li>
-              ))}</ul>
-              {preview.relations.length > 12 && <p>さらに {preview.relations.length - 12} 件。件数は上の集計に含まれます。</p>}
+              <summary>
+                Relation path{" "}
+                <span>
+                  {Math.min(12, preview.relations.length)} / {preview.counts.representedRelations}
+                </span>
+              </summary>
+              <ul>
+                {preview.relations.slice(0, 12).map((relation, index) => (
+                  <li key={relation.id || `${relation.source.id}:${relation.target.id}:${index}`}>
+                    <strong>
+                      {relation.source.type}:{relation.source.id} → {relation.target.type}:
+                      {relation.target.id}
+                    </strong>
+                    <small>
+                      {relation.predicate || "relation"} · {relation.status || "unknown"} ·{" "}
+                      {relation.reason || relation.origin || "producer selection"}
+                    </small>
+                  </li>
+                ))}
+              </ul>
+              {preview.relations.length > 12 && (
+                <p>さらに {preview.relations.length - 12} 件。件数は上の集計に含まれます。</p>
+              )}
             </details>
           )}
           {(preview.warnings.length > 0 || preview.files.length > 0) && (
             <details className="ai-context-preview-group">
-              <summary>Warnings / files <span>{preview.warnings.length + preview.files.length}</span></summary>
+              <summary>
+                Warnings / files <span>{preview.warnings.length + preview.files.length}</span>
+              </summary>
               <ul>
-                {preview.warnings.map((warning, index) => <li key={`${warning.code}:${index}`}><strong>{warning.code || warning.kind || "warning"}</strong><small>{warning.message || warning.reason || "要確認"}</small></li>)}
-                {preview.files.map((file) => <li key={file.name}><strong>{file.name}</strong><small>{file.includedCount ?? 0} entities · {file.characterCount ?? 0} chars</small></li>)}
+                {preview.warnings.map((warning, index) => (
+                  <li key={`${warning.code}:${index}`}>
+                    <strong>{warning.code || warning.kind || "warning"}</strong>
+                    <small>{warning.message || warning.reason || "要確認"}</small>
+                  </li>
+                ))}
+                {preview.files.map((file) => (
+                  <li key={file.name}>
+                    <strong>{file.name}</strong>
+                    <small>
+                      {file.includedCount ?? 0} entities · {file.characterCount ?? 0} chars
+                    </small>
+                  </li>
+                ))}
               </ul>
             </details>
           )}

@@ -1,5 +1,6 @@
-import { aiEntityBodyText, projectEntityForAi, summarizeAiExclusions } from "./aiMetadata.mjs";
+import { aiEntityBodyText, buildAiEntityHeader } from "./aiMetadata.mjs";
 import { markdownSignature } from "./canonicalMarkdown.mjs";
+import { summarizeExclusions } from "./contextSelection.mjs";
 
 export const THEME_AI_PACK_SCHEMA = "tasken-ai-pack/v1";
 
@@ -230,7 +231,7 @@ function renderFile(title, entries, emptyLabel = "対象なし") {
 function renderOverview(themeEntry, sectionCounts, excludedSummary, publicBodyIndexLink) {
   const lines = ["# Theme Overview", "", GENERATED_MARKER, ""];
   if (themeEntry) lines.push(renderEntry(themeEntry), "");
-  else lines.push("- Theme本文はM365公開対象外です。", "");
+  else lines.push("- Themeが削除されているため、Theme本文はありません。", "");
   if (
     themeEntry &&
     publicBodyIndexLink &&
@@ -249,7 +250,7 @@ function renderOverview(themeEntry, sectionCounts, excludedSummary, publicBodyIn
       (file) => `- ${file.name}: ${sectionCounts[file.key] || 0}件`,
     ),
     "",
-    "## Excluded by policy",
+    "## Excluded",
     ...(excludedSummary.excluded_reasons.length
       ? excludedSummary.excluded_reasons.map(
           (entry) => `- ${entry.type}: ${entry.reason}（${entry.count}件）`,
@@ -318,27 +319,6 @@ function renderActivity(events) {
   ].join("\n");
 }
 
-function mergeExclusionSummary(exclusions, activity) {
-  const own = summarizeAiExclusions(exclusions);
-  const merged = new Map();
-  const add = (entry) => {
-    const type = text(entry?.type).trim() || "activity";
-    const reason = text(entry?.reason).trim() || "Activity projectionで除外されました。";
-    const key = `${type}|${reason}`;
-    const current = merged.get(key) || { type, reason, count: 0 };
-    current.count += Math.max(0, Number(entry?.count) || 0);
-    merged.set(key, current);
-  };
-  own.excluded_reasons.forEach(add);
-  (Array.isArray(activity?.excluded_reasons) ? activity.excluded_reasons : []).forEach(add);
-  return {
-    excluded_count: own.excluded_count + Math.max(0, Number(activity?.excluded_count) || 0),
-    excluded_reasons: [...merged.values()].sort((left, right) =>
-      `${left.type}|${left.reason}`.localeCompare(`${right.type}|${right.reason}`),
-    ),
-  };
-}
-
 /**
  * Theme向けM365 AI Packの内容を決めるpure planner。
  * ファイルI/Oは行わず、Previewとwriterが同じ戻り値を使用する。
@@ -346,8 +326,7 @@ function mergeExclusionSummary(exclusions, activity) {
 export function buildThemeAiPackPlan({
   theme,
   candidates = [],
-  activity = { events: [], excluded_count: 0, excluded_reasons: [] },
-  workspaceDefault = undefined,
+  activity = { events: [] },
   generatedAt = new Date().toISOString(),
   sourceRevision = null,
   maxBodyChars = DEFAULT_MAX_BODY_CHARS,
@@ -365,15 +344,7 @@ export function buildThemeAiPackPlan({
   const project = (type, entity, publication = null) => {
     const conversation = isConversation(type, entity);
     const projectionEntity = conversation ? withoutConversationBody(entity) : entity;
-    const result = projectEntityForAi(type, projectionEntity, {
-      audience: "m365",
-      theme: themeEntity,
-      workspaceDefault,
-    });
-    if (!result.included) {
-      exclusions.push(result.exclusion);
-      return null;
-    }
+    const result = { header: buildAiEntityHeader(type, projectionEntity) };
     if (conversation && !publication?.published) {
       exclusions.push(
         exclusion(
@@ -425,7 +396,8 @@ export function buildThemeAiPackPlan({
     };
   };
 
-  const themeEntry = project("theme", themeEntity);
+  // 削除済みThemeは本文を載せず、空のPackで以前の公開物を置き換える。
+  const themeEntry = themeEntity.deleted_at ? null : project("theme", themeEntity);
   if (themeEntry) {
     includedKeys.add(entityKey("theme", themeId));
     activityAllowedKeys.add(entityKey("theme", themeId));
@@ -486,7 +458,7 @@ export function buildThemeAiPackPlan({
     projectedActivity.push(event);
   }
 
-  const excludedSummary = mergeExclusionSummary(exclusions, activity);
+  const excludedSummary = summarizeExclusions(exclusions);
   const sectionCounts = {
     current_work: sections.current_work.length,
     decisions: sections.decisions.length,
@@ -573,7 +545,6 @@ export function buildThemeAiPackPlan({
     generatedAt: text(generatedAt).trim(),
     sourceRevision: sourceRevision == null ? null : text(sourceRevision),
     projection: "generated_read_only",
-    audience: "m365",
     contentHash,
     files: files.map((file) => ({
       name: file.name,
@@ -587,7 +558,6 @@ export function buildThemeAiPackPlan({
   return {
     schema: THEME_AI_PACK_SCHEMA,
     theme_id: themeId,
-    audience: "m365",
     generated_at: manifest.generatedAt,
     source_revision: manifest.sourceRevision,
     content_hash: contentHash,
