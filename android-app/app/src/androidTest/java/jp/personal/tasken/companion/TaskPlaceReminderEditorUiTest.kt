@@ -16,7 +16,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -41,6 +44,8 @@ class TaskPlaceReminderEditorUiTest {
     private var place by mutableStateOf<MobilePlaceReminder?>(null)
     private val previous = listOf(sannomiya, MobilePlaceReminder("自宅", 34.7, 135.2, 200))
     private var readiness by mutableStateOf<PlaceReminderReadiness?>(PlaceReminderReadiness.Ready)
+    private var overLimit by mutableStateOf(false)
+    private var located: MobilePlaceReminder? = null
 
     /** inPane: 詳細の画面ごと。そうでなければ場所の欄だけ（権限の状態を固定できる）。 */
     private fun render(inPane: Boolean) {
@@ -66,6 +71,7 @@ class TaskPlaceReminderEditorUiTest {
                                     TaskPlaceReminderEditor(
                                         place = place, previousPlaces = previous, enabled = true, stateDescription = null,
                                         onChange = { place = it }, readinessOverride = readiness,
+                                        overLimit = overLimit, locate = { located },
                                     )
                                 }
                             }
@@ -140,6 +146,55 @@ class TaskPlaceReminderEditorUiTest {
     }
 
     @Test
+    fun currentLocationAsksForANameAndIsNotSavedWithoutOne() {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val packageName = ApplicationProvider.getApplicationContext<android.content.Context>().packageName
+        listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION, Manifest.permission.POST_NOTIFICATIONS)
+            .forEach { automation.grantRuntimePermission(packageName, it) }
+        located = MobilePlaceReminder("", 34.6937, 135.1956, 300)
+        place = null
+        render(inPane = false)
+        showEditor()
+        composeRule.onNodeWithTag("place-use-current").performClick()
+        // 座標は取れたが名前が空: 入力がその場で開き、決定できない。まだ保存されない。
+        composeRule.onNodeWithTag("place-name-input").assertIsDisplayed()
+        composeRule.onNodeWithTag("place-name-save").assertIsNotEnabled()
+        assertNull(place)
+        composeRule.onNodeWithTag("place-name-input").performTextReplacement("三ノ宮駅前")
+        composeRule.onNodeWithTag("place-name-save").assertIsEnabled().performClick()
+        composeRule.waitForIdle()
+        assertEquals(MobilePlaceReminder("三ノ宮駅前", 34.6937, 135.1956, 300), place?.copy(days = emptyList()))
+    }
+
+    @Test
+    fun cancellingTheNameDiscardsTheCurrentLocation() {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val packageName = ApplicationProvider.getApplicationContext<android.content.Context>().packageName
+        listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION, Manifest.permission.POST_NOTIFICATIONS)
+            .forEach { automation.grantRuntimePermission(packageName, it) }
+        located = MobilePlaceReminder("", 34.6937, 135.1956, 300)
+        place = null
+        readiness = PlaceReminderReadiness.Ready
+        render(inPane = false)
+        showEditor()
+        composeRule.onNodeWithTag("place-use-current").performClick()
+        composeRule.onNodeWithText("キャンセル").performClick()
+        composeRule.waitForIdle()
+        assertNull(place)
+    }
+
+    @Test
+    fun overLimitTasksShowTheBellOffMark() {
+        place = sannomiya
+        overLimit = true
+        render(inPane = false)
+        showEditor()
+        composeRule.onNodeWithTag("place-over-limit").assertIsDisplayed()
+    }
+
+    @Test
     fun theNameCanBeChanged() {
         place = sannomiya.copy(name = "現在地")
         render(inPane = false)
@@ -169,6 +224,11 @@ class TaskPlaceReminderEditorUiTest {
      */
     @Test
     fun screenshots() {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val packageName = ApplicationProvider.getApplicationContext<android.content.Context>().packageName
+        listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION, Manifest.permission.POST_NOTIFICATIONS)
+            .forEach { automation.grantRuntimePermission(packageName, it) }
         val shape = InstrumentationRegistry.getArguments().getString("shape") ?: "default"
         val states = listOf(
             Triple("empty", null as MobilePlaceReminder?, PlaceReminderReadiness.Ready),
@@ -187,6 +247,16 @@ class TaskPlaceReminderEditorUiTest {
             showEditor()
             capture("$shape-${if (night) "dark" else "light"}-$state")
         }
+        // 名前の入力（現在地の取得後は空で開く）。
+        located = MobilePlaceReminder("", 34.6937, 135.1956, 300)
+        place = null
+        readiness = PlaceReminderReadiness.Ready
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("place-use-current").performClick()
+        composeRule.onNodeWithTag("place-name-input").assertIsDisplayed()
+        capture("$shape-${if (night) "dark" else "light"}-name-input")
+        composeRule.onNodeWithTag("place-name-input").performTextReplacement("三ノ宮駅前")
+        capture("$shape-${if (night) "dark" else "light"}-name-input-filled")
     }
 
     private fun capture(name: String) {

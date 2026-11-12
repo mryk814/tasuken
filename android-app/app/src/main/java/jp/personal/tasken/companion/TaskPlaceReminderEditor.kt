@@ -47,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -86,6 +87,10 @@ internal fun TaskPlaceReminderEditor(
     enabled: Boolean,
     stateDescription: String?,
     onChange: (MobilePlaceReminder?) -> Unit,
+    /** 100 件の上限を超えていて、この Task の場所は通知されない。 */
+    overLimit: Boolean = false,
+    /** 現在地の取得。試験で差し替える。 */
+    locate: suspend (android.content.Context) -> MobilePlaceReminder? = ::fetchCurrentPlace,
     /** 画面の確認と試験で、権限の状態を固定するため。通常は null（端末の実際の状態を見る）。 */
     readinessOverride: PlaceReminderReadiness? = null,
 ) {
@@ -96,6 +101,8 @@ internal fun TaskPlaceReminderEditor(
     var locating by remember { mutableStateOf(false) }
     var locationFailed by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
+    // 「現在地」で取れた座標。名前を入れて決定するまで保存しない（名前が空のままでは保存しない）。
+    var draftNew by remember { mutableStateOf<MobilePlaceReminder?>(null) }
     // 0=閉じている、1=開始時刻、2=終了時刻
     var timeStep by remember { mutableStateOf(0) }
     var pendingFrom by remember { mutableStateOf("") }
@@ -113,7 +120,19 @@ internal fun TaskPlaceReminderEditor(
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) actualReadiness = PlaceReminderGeofences.readiness(context)
+            when (event) {
+                // 画面が出たときに、OS の登録が消えていないか確かめて付け直す。
+                Lifecycle.Event.ON_START -> PlaceReminderGeofences.syncAsync(context)
+                Lifecycle.Event.ON_RESUME -> {
+                    val now = PlaceReminderGeofences.readiness(context)
+                    if (now != actualReadiness) {
+                        actualReadiness = now
+                        // 設定で「常に許可」にして戻ったときなど、状態が変わったら登録し直す。
+                        PlaceReminderGeofences.syncAsync(context)
+                    }
+                }
+                else -> Unit
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -174,9 +193,9 @@ internal fun TaskPlaceReminderEditor(
         locating = true
         locationFailed = false
         scope.launch {
-            val found = fetchCurrentPlace(context)
+            val found = locate(context)
             locating = false
-            if (found == null) locationFailed = true else setPlace(found)
+            if (found == null) locationFailed = true else draftNew = found
         }
     }
 
@@ -264,6 +283,12 @@ internal fun TaskPlaceReminderEditor(
                 }
             }
 
+            if (overLimit) {
+                PlaceWarning(
+                    "通知は${PLACE_REMINDER_GEOFENCE_LIMIT}件までです", R.drawable.ic_tabler_bell_off,
+                    Modifier.testTag("place-over-limit"),
+                )
+            }
             readinessWarning(readiness)?.let { (text, fixable) ->
                 PlaceWarning(
                     text, R.drawable.ic_tabler_bell_off,
@@ -349,25 +374,33 @@ internal fun TaskPlaceReminderEditor(
         }
     }
 
-    if (renaming && place != null) {
-        var draft by remember { mutableStateOf(place.name) }
+    val nameTarget = draftNew ?: place?.takeIf { renaming }
+    if (nameTarget != null) {
+        var draft by remember(nameTarget.latitude, nameTarget.longitude) { mutableStateOf(nameTarget.name) }
+        val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+        androidx.compose.runtime.LaunchedEffect(Unit) { focus.requestFocus() }
+        fun close() { renaming = false; draftNew = null }
         AlertDialog(
-            onDismissRequest = { renaming = false },
+            onDismissRequest = ::close,
             title = { Text("場所の名前") },
             text = {
                 OutlinedTextField(
                     value = draft, onValueChange = { if (it.length <= 80) draft = it }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("place-name-input"),
+                    modifier = Modifier.fillMaxWidth().focusRequester(focus).testTag("place-name-input"),
                 )
             },
             confirmButton = {
                 TextButton(
-                    onClick = { onChange(place.copy(name = draft.trim())); renaming = false },
+                    onClick = {
+                        val named = nameTarget.copy(name = draft.trim())
+                        if (draftNew != null) setPlace(named) else onChange(named)
+                        close()
+                    },
                     enabled = draft.trim().isNotEmpty(),
                     modifier = Modifier.testTag("place-name-save"),
                 ) { Text("決定") }
             },
-            dismissButton = { TextButton(onClick = { renaming = false }) { Text("キャンセル") } },
+            dismissButton = { TextButton(onClick = ::close) { Text("キャンセル") } },
         )
     }
 
@@ -428,7 +461,10 @@ private fun PlaceWarning(text: String, icon: Int, modifier: Modifier = Modifier)
     }
 }
 
-/** 現在地を 1 回だけ取り、住所から名前を付ける。取れなければ null。 */
+/**
+ * 現在地を 1 回だけ取る。名前は付けない（座標を Tasken の外の逆ジオコーダへ送らない）。取れなければ null。
+ * 一度の取得は高精度。取れずに lastLocation へ落ちたときは、古い・粗いものを使わない。
+ */
 @SuppressLint("MissingPermission")
 private suspend fun fetchCurrentPlace(context: android.content.Context): MobilePlaceReminder? {
     if (!PlaceReminderGeofences.playServicesAvailable(context)) return null
@@ -436,7 +472,7 @@ private suspend fun fetchCurrentPlace(context: android.content.Context): MobileP
     val source = CancellationTokenSource()
     val location = withTimeoutOrNull(15_000) {
         suspendCancellableCoroutine<android.location.Location?> { continuation ->
-            client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, source.token)
+            client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, source.token)
                 .addOnSuccessListener { continuation.resume(it) }
                 .addOnFailureListener { continuation.resume(null) }
             continuation.invokeOnCancellation { source.cancel() }
@@ -445,35 +481,17 @@ private suspend fun fetchCurrentPlace(context: android.content.Context): MobileP
         suspendCancellableCoroutine<android.location.Location?> { continuation ->
             client.lastLocation.addOnSuccessListener { continuation.resume(it) }.addOnFailureListener { continuation.resume(null) }
         }
-    }.getOrNull() ?: return null
-    val name = withContext(Dispatchers.IO) { placeNameFor(context, location.latitude, location.longitude) }
+    }.getOrNull()?.takeIf {
+        isUsableLastLocation(
+            ageMillis = (android.os.SystemClock.elapsedRealtimeNanos() - it.elapsedRealtimeNanos) / 1_000_000,
+            accuracyMeters = it.takeIf { l -> l.hasAccuracy() }?.accuracy,
+        )
+    } ?: return null
     return MobilePlaceReminder(
-        name = name,
+        name = "",
         // 小数 5 桁（約 1m）に丸める。
         latitude = Math.round(location.latitude * 1e5) / 1e5,
         longitude = Math.round(location.longitude * 1e5) / 1e5,
         radiusMeters = PLACE_REMINDER_DEFAULT_RADIUS_M,
     )
-}
-
-/** 住所の名前。取れない・数字だけのときは「現在地」。あとから名前の欄で直せる。 */
-@Suppress("DEPRECATION")
-private suspend fun placeNameFor(context: android.content.Context, latitude: Double, longitude: Double): String {
-    if (!Geocoder.isPresent()) return "現在地"
-    val geocoder = Geocoder(context, Locale.JAPAN)
-    val address = withTimeoutOrNull(4_000) {
-        runCatching {
-            if (Build.VERSION.SDK_INT >= 33) {
-                suspendCancellableCoroutine<android.location.Address?> { continuation ->
-                    geocoder.getFromLocation(latitude, longitude, 1, object : Geocoder.GeocodeListener {
-                        override fun onGeocode(addresses: MutableList<android.location.Address>) { continuation.resume(addresses.firstOrNull()) }
-                        override fun onError(errorMessage: String?) { continuation.resume(null) }
-                    })
-                }
-            } else geocoder.getFromLocation(latitude, longitude, 1)?.firstOrNull()
-        }.getOrNull()
-    }
-    val candidates = listOfNotNull(address?.featureName, address?.thoroughfare, address?.subLocality, address?.locality)
-    return candidates.map(String::trim).firstOrNull { it.isNotEmpty() && it.any { c -> !c.isDigit() && c != '-' && c != '−' } }
-        ?.take(80) ?: "現在地"
 }
