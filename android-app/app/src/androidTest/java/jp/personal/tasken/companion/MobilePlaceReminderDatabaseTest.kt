@@ -191,7 +191,7 @@ class MobilePlaceReminderDatabaseTest {
     }
 
     @Test
-    fun aSkippedDwellSchedulesARefitAtTheNextEligibleTimeAndANotifiedOneAtTomorrow() = runBlocking {
+    fun aSkippedDwellInATimeWindowSchedulesARefitAndANotifiedOneDoesNot() = runBlocking {
         InstrumentationRegistry.getInstrumentation().uiAutomation
             .grantRuntimePermission(context.packageName, Manifest.permission.POST_NOTIFICATIONS)
         dao.upsertTask(cachedTask(placeJson = encodeMobilePlaceReminder(place)))
@@ -200,9 +200,13 @@ class MobilePlaceReminderDatabaseTest {
         assertFalse(PlaceReminderNotifications.deliver(context, dao, taskId, LocalDateTime.of(2026, 11, 13, 16, 55), true) { id, at -> refits += id to at })
         assertEquals(listOf(taskId to LocalDateTime.of(2026, 11, 13, 17, 0)), refits)
         refits.clear()
-        // 17:03 に通知。夜をまたいで中にいても、翌日の最初の合う時刻（月曜 17:00 ではなく、時間帯の外なので翌日の窓の始まり）に付け直す。
+        // 17:03 に通知。通知した後は付け直さない（入り直したときに鳴る）。
         assertTrue(PlaceReminderNotifications.deliver(context, dao, taskId, LocalDateTime.of(2026, 11, 13, 17, 3), true) { id, at -> refits += id to at })
-        assertEquals(listOf(taskId to LocalDateTime.of(2026, 11, 16, 17, 0)), refits)
+        assertTrue(refits.isEmpty())
+        // 時間帯の無い場所は、見送っても付け直さない（毎晩 0:00 に鳴らさない）。
+        dao.upsertTask(cachedTask(placeJson = encodeMobilePlaceReminder(place.copy(timeFrom = null, timeTo = null))))
+        assertFalse(PlaceReminderNotifications.deliver(context, dao, taskId, LocalDateTime.of(2026, 11, 13, 18, 0), true) { id, at -> refits += id to at })
+        assertTrue(refits.isEmpty())
     }
 
     @Test
