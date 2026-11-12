@@ -1026,6 +1026,10 @@ internal fun TodayApp(
                         onThemeUpdate = todayViewModel::updateTaskTheme,
                         onScheduleUpdate = todayViewModel::updateTaskSchedule,
                         previousPlaces = previousPlaces,
+                        placeOverLimit = task?.let { t ->
+                            t.placeReminder != null && PlaceReminderPolicy.isOpenTask(t.state) &&
+                                placeReminderGeofenceTargets(allTasks).none { it.first == t.id }
+                        } == true,
                         onPlaceReminderUpdate = todayViewModel::updateTaskPlaceReminder,
                         onChecklistUpdate = todayViewModel::updateTaskChecklist,
                         onRejectedThemeDiscard = todayViewModel::discardRejectedThemeUpdate,
@@ -3210,6 +3214,7 @@ internal fun TodayDetailPane(
     onThemeUpdate: (MobileTask, String?) -> Unit = { _, _ -> },
     onScheduleUpdate: (MobileTask, MobileTaskScheduleDraft) -> Unit = { _, _ -> },
     previousPlaces: List<MobilePlaceReminder> = emptyList(),
+    placeOverLimit: Boolean = false,
     onPlaceReminderUpdate: (MobileTask, MobilePlaceReminder?) -> Unit = { _, _ -> },
     onChecklistUpdate: (MobileTask, List<MobileChecklistItem>) -> Unit = { _, _ -> },
     onRejectedThemeDiscard: (MobileTask) -> Unit = {},
@@ -3628,6 +3633,7 @@ internal fun TodayDetailPane(
             TaskPlaceReminderEditor(
                 place = task.placeReminder,
                 previousPlaces = previousPlaces,
+                overLimit = placeOverLimit,
                 enabled = (!task.pending || task.canEditPendingCreate || task.canEditPendingTask) && task.conflict == null &&
                     actionState !is TaskActionUiState.Saving,
                 stateDescription = when {
