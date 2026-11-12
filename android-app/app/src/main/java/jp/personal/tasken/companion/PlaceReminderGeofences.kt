@@ -27,6 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -69,12 +70,14 @@ internal object PlaceReminderGeofences {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    /** 画面や権限の結果から、待たずに登録し直す。 */
-    fun syncAsync(context: Context) {
+    private val syncLock = kotlinx.coroutines.sync.Mutex()
+
+    /** 画面や権限の結果から、待たずに登録し直す。reinstall は再起動・更新の後（OS が登録を消すので全部付け直す）。 */
+    fun syncAsync(context: Context, reinstall: Boolean = false) {
         val app = context.applicationContext
         scope.launch {
             try {
-                sync(app, MobileLocalDatabase.open(app).mobileDao())
+                sync(app, MobileLocalDatabase.open(app).mobileDao(), reinstall)
             } catch (error: kotlinx.coroutines.CancellationException) {
                 throw error
             } catch (error: Exception) {
@@ -83,30 +86,53 @@ internal object PlaceReminderGeofences {
         }
     }
 
-    /** キャッシュの Task から登録を作り直す。権限か Play Services が無ければ、既存の登録を外すだけで何もしない。 */
+    // 登録済みの集合（id→位置と半径の要約）。差分だけ登録するため、端末に持つ。
+    private fun registeredStore(context: Context) = context.getSharedPreferences("place_reminder_geofences", Context.MODE_PRIVATE)
+
+    private fun readRegistered(context: Context): Map<String, String> =
+        registeredStore(context).all.mapNotNull { (k, v) -> (v as? String)?.let { k to it } }.toMap()
+
+    private fun writeRegistered(context: Context, value: Map<String, String>) {
+        registeredStore(context).edit().clear().apply { value.forEach { (k, v) -> putString(k, v) } }.apply()
+    }
+
+    /**
+     * キャッシュの Task と登録済みの差分だけを OS に反映する。権限か Play Services が無ければ何も付けない。
+     * 初期トリガーは DWELL: すでに中にいる Task も、滞在 3 分で通知する（1 日 1 回の抑制は発火側）。
+     */
     @SuppressLint("MissingPermission")
-    suspend fun sync(context: Context, dao: MobileLocalDao) {
+    suspend fun sync(context: Context, dao: MobileLocalDao, reinstall: Boolean = false) = syncLock.withLock {
         dao.prunePlaceReminderNotices()
-        if (!playServicesAvailable(context)) return
+        if (!playServicesAvailable(context)) return@withLock
         val client = LocationServices.getGeofencingClient(context)
         val pendingIntent = pendingIntent(context)
-        // 置き換えは「外して付け直す」。Task が完了・削除・場所なしになれば、付け直しの対象から消えて外れる。
-        client.removeGeofences(pendingIntent).await()
-        if (!hasForegroundLocation(context) || !hasBackgroundLocation(context)) return
-        val targets = placeReminderGeofenceTargets(dao.tasks().map { it.toMobileTask() })
-        if (targets.isEmpty()) return
-        val geofences = targets.map { (taskId, place) ->
-            Geofence.Builder()
-                .setRequestId(taskId)
-                .setCircularRegion(place.latitude, place.longitude, place.radiusMeters.toFloat())
-                .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_DWELL)
-                .setLoiteringDelay(DWELL_MS)
-                .setExpirationDuration(Geofence.NEVER_EXPIRE)
-                .build()
+        val permitted = hasForegroundLocation(context) && hasBackgroundLocation(context)
+        var registered = readRegistered(context)
+        if (reinstall || !permitted) {
+            if (reinstall || registered.isNotEmpty()) {
+                client.removeGeofences(pendingIntent).await()
+                writeRegistered(context, emptyMap())
+                registered = emptyMap()
+            }
+            if (!permitted) return@withLock
         }
-        // 初期トリガーは付けない。登録した時にすでに中にいても、再登録のたびには鳴らさない。
-        val request = GeofencingRequest.Builder().setInitialTrigger(0).addGeofences(geofences).build()
-        client.addGeofences(request, pendingIntent).await()
+        val targets = placeReminderGeofenceTargets(dao.tasks().map { it.toMobileTask() })
+        val plan = planGeofenceChanges(registered, targets)
+        if (plan.removeIds.isNotEmpty()) client.removeGeofences(plan.removeIds).await()
+        if (plan.add.isNotEmpty()) {
+            val geofences = plan.add.map { (taskId, place) ->
+                Geofence.Builder()
+                    .setRequestId(taskId)
+                    .setCircularRegion(place.latitude, place.longitude, place.radiusMeters.toFloat())
+                    .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_DWELL)
+                    .setLoiteringDelay(DWELL_MS)
+                    .setExpirationDuration(Geofence.NEVER_EXPIRE)
+                    .build()
+            }
+            val request = GeofencingRequest.Builder().setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_DWELL).addGeofences(geofences).build()
+            client.addGeofences(request, pendingIntent).await()
+        }
+        writeRegistered(context, targets.associate { it.first to geofenceSignature(it.second) })
     }
 
     private fun pendingIntent(context: Context): PendingIntent = PendingIntent.getBroadcast(
@@ -229,7 +255,8 @@ class PlaceReminderGeofenceReceiver : BroadcastReceiver() {
 class PlaceReminderBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
-            PlaceReminderGeofences.syncAsync(context)
+            // 再起動・更新で OS はジオフェンスを消す。全部を付け直す。
+            PlaceReminderGeofences.syncAsync(context, reinstall = true)
         }
     }
 }
