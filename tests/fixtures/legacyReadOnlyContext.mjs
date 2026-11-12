@@ -1156,12 +1156,13 @@ export class ReadOnlyTaskenContext {
       .slice(0, limit)
       .map((node) => ({ ...node, body: truncate(node.body, textLimit) }));
     const nodeIds = new Set(nodes.map((node) => node.id));
-    const relations = args.include_relations ?? true
-      ? this.list("knowledge_edge", Boolean(args.include_archived)).filter(
-          (relation) =>
-            nodeIds.has(relation.source_node_id) || nodeIds.has(relation.target_node_id),
-        )
-      : [];
+    const relations =
+      (args.include_relations ?? true)
+        ? this.list("knowledge_edge", Boolean(args.include_archived)).filter(
+            (relation) =>
+              nodeIds.has(relation.source_node_id) || nodeIds.has(relation.target_node_id),
+          )
+        : [];
     const sourceExclusions = [];
     const sources = args.include_sources
       ? (() => {
@@ -1325,7 +1326,9 @@ export class ReadOnlyTaskenContext {
   }
 
   repositoryContexts(includeArchived = false) {
-    const contexts = this.list("repository_context", includeArchived);
+    const contexts = this.list("repository_context", includeArchived).filter(
+      (context) => !context.deleted_at,
+    );
     return includeArchived ? contexts : contexts.filter((context) => context.active !== false);
   }
 

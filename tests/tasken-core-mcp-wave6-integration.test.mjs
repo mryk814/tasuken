@@ -304,15 +304,8 @@ test("Wave 6 repository/theme reads are exact across legacy, Core, HTTP, and pur
       repository_context_id: "repository-archived",
       include_archived: true,
     });
-    assert.equal(archived.repository_context.id, "repository-archived");
-    assert.deepEqual(
-      archived.themes.map((entry) => entry.id),
-      ["theme-archived"],
-    );
-    assert.deepEqual(
-      archived.tasks.map((entry) => entry.id),
-      ["task-archived"],
-    );
+    // 削除済みのRepositoryContextは、include_archivedでも返さない。
+    assert.equal(archived.repository_context, null);
 
     const theme = await client.getThemeContext({ theme_id: "theme-wave6", max_chars: 80 });
     assert.equal(theme.truncated, true);

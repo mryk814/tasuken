@@ -130,9 +130,10 @@ export class AgentWorkspaceQueryService {
   }
 
   private repositoryContexts(includeArchived: boolean) {
-    return includeArchived
-      ? this.readPort.listRepositoryContexts(true)
-      : this.readPort.listRepositoryContexts(false).filter((context) => context.active !== false);
+    // 削除済みは include_archived でも返さない（旧版と同じ）。無効（active=false）は include_archived で返す。
+    return this.readPort
+      .listRepositoryContexts(includeArchived)
+      .filter((context) => !context.deleted_at && (includeArchived || context.active !== false));
   }
 
   resolveRepositoryContext(input: RepositoryLookupRequest = {}): ResolveRepositoryContextResponse {
