@@ -95,6 +95,7 @@ import {
 import {
   TASK_CONTRACT_SCHEMA_VERSION,
   selectLatestWorkReceipt,
+  readStoredPlaceReminder,
   taskReadModelSchema,
   type AgentWorkDisplayState,
   type AttentionItem,
@@ -745,7 +746,7 @@ function taskProjection(request: MobileGatewayRequest): TaskProjectionOptions {
 }
 
 function projectPlaceReminder(task: TaskReadModel) {
-  const place = task.place_reminder;
+  const place = readStoredPlaceReminder(task.place_reminder);
   if (!place) return null;
   return {
     name: place.name,

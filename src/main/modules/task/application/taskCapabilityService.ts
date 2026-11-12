@@ -5,6 +5,7 @@ import {
   taskCommandOutcomeSchema,
   taskEventSchema,
   taskQueryResultSchema,
+  readStoredPlaceReminder,
   taskReadModelSchema,
   taskScheduleReadModelSchema,
   taskChecklistItemSchema,
@@ -111,6 +112,8 @@ export function projectTaskReadModel(entity: Entity, schedule: Entity | null): T
         key === "checklist_items" ? normalizeChecklistItemsForReadModel(entity[key]) : entity[key],
       ]),
   );
+  if (Object.prototype.hasOwnProperty.call(projection, "place_reminder"))
+    projection.place_reminder = readStoredPlaceReminder(projection.place_reminder);
   return taskReadModelSchema.parse({ ...projection, schedule: projectSchedule(schedule) });
 }
 

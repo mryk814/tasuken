@@ -354,6 +354,24 @@ export type TaskScheduleWrite = z.output<typeof taskScheduleWriteSchema>;
 export type TaskScheduleEdit = z.output<typeof taskScheduleEditSchema>;
 export type TaskScheduleReadModel = z.output<typeof taskScheduleReadModelSchema>;
 export type TaskRepeatRule = z.output<typeof taskRepeatRuleSchema>;
+/**
+ * 保存済みの場所のリマインダーを読み出す。既知のキーだけに絞って検査し、合わなければnull（無い）にする。
+ * 先の版が足した欄や広げた範囲の値を1件持つだけで、一覧の配列ごとが落ちないように。DBの生の値は変えない。
+ */
+export function readStoredPlaceReminder(
+  value: unknown,
+): z.output<typeof taskPlaceReminderSchema> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const known = Object.fromEntries(
+    Object.keys(taskPlaceReminderSchema.shape)
+      .filter((key) => Object.prototype.hasOwnProperty.call(record, key))
+      .map((key) => [key, record[key]]),
+  );
+  const parsed = taskPlaceReminderSchema.safeParse(known);
+  return parsed.success ? parsed.data : null;
+}
+
 export type TaskPlaceReminder = z.output<typeof taskPlaceReminderSchema>;
 export type TaskChecklistItem = z.output<typeof taskChecklistItemSchema>;
 export type TaskImageManifest = z.output<typeof taskImageManifestSchema>;

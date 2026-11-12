@@ -344,6 +344,11 @@ export async function createMobileOfflineGateway({
         expectedVersions: [{ type: "task", id, version: task.version }],
       });
     }
+    if (action.rawPlaceReminder) {
+      // 先の版が書いた、この版には読めない場所の値を、同期の取り込みと同じ生の保存で置く（#727）。
+      const { id, value } = action.rawPlaceReminder;
+      database.save("task", { ...database.get("task", id), place_reminder: value });
+    }
     if (action.deleteTask) {
       const task = database.get("task", action.deleteTask);
       assert.ok(task, "The fixture Task must exist before deleting it.");
