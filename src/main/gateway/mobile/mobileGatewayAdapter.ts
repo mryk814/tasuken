@@ -130,6 +130,8 @@ export interface MobileGatewayRequest {
   body?: unknown;
   principal: MobilePrincipal | null;
   includeAiOrigin?: boolean;
+  /** X-Tasken-Place-Reminder: 1。Task の要約に placeReminder を含める（#727）。 */
+  includePlaceReminder?: boolean;
 }
 
 export interface MobileGatewayResponse {
@@ -732,17 +734,42 @@ function canonicalTaskWorkState(task: TaskReadModel): string {
   );
 }
 
+/** 要求のヘッダで頼まれたときだけ付ける欄。古い APK は未知の欄で落ちるので、頼まれなければ出さない。 */
+interface TaskProjectionOptions {
+  aiOrigin?: boolean;
+  placeReminder?: boolean;
+}
+
+function taskProjection(request: MobileGatewayRequest): TaskProjectionOptions {
+  return { aiOrigin: request.includeAiOrigin, placeReminder: request.includePlaceReminder };
+}
+
+function projectPlaceReminder(task: TaskReadModel) {
+  const place = task.place_reminder;
+  if (!place) return null;
+  return {
+    name: place.name,
+    latitude: place.latitude,
+    longitude: place.longitude,
+    radiusMeters: place.radius_m,
+    days: [...place.days],
+    timeFrom: place.time_from,
+    timeTo: place.time_to,
+  };
+}
+
 function projectTask(
   task: TaskReadModel,
   includeTodayDate = false,
   receipts: readonly MobileGatewayWorkReceiptRecord[] = [],
-  includeAiOrigin = false,
+  include: TaskProjectionOptions = {},
 ) {
   return {
     id: task.id,
     version: task.version,
     title: task.title,
-    ...(includeAiOrigin ? { aiOrigin: projectMobileAiOrigin(task) } : {}),
+    ...(include.aiOrigin ? { aiOrigin: projectMobileAiOrigin(task) } : {}),
+    ...(include.placeReminder ? { placeReminder: projectPlaceReminder(task) } : {}),
     ...(typeof task.description === "string" ? { description: task.description } : {}),
     themeId: task.project_id || null,
     state: task.state,
@@ -824,12 +851,23 @@ function canonicalSchedule(schedule: MobileScheduleEdit) {
   };
 }
 
+type MobilePlaceReminder = {
+  name: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters: number;
+  days: readonly number[];
+  timeFrom: string | null;
+  timeTo: string | null;
+};
+
 type MobileTaskFieldPatch =
   | { title: string }
   | { todayDate: string | null }
   | { themeId: string | null }
   | { aiReady: boolean }
   | { plannedSchedule: { startTime: string | null; durationMinutes: number | null } }
+  | { placeReminder: MobilePlaceReminder | null }
   | {
       checklistItems: Array<{
         id: string;
@@ -841,6 +879,22 @@ type MobileTaskFieldPatch =
     };
 
 function taskUpdatePatch(patch: MobileTaskFieldPatch) {
+  if ("placeReminder" in patch) {
+    const place = patch.placeReminder;
+    return {
+      place_reminder: place
+        ? {
+            name: place.name,
+            latitude: place.latitude,
+            longitude: place.longitude,
+            radius_m: place.radiusMeters,
+            days: [...place.days],
+            time_from: place.timeFrom,
+            time_to: place.timeTo,
+          }
+        : null,
+    };
+  }
   if ("plannedSchedule" in patch) {
     return {
       planned_start_time: patch.plannedSchedule.startTime,
@@ -1513,7 +1567,7 @@ export class MobileGatewayAdapter {
             throw new Error("Delegation version conflict is missing its canonical Task");
           }
           return this.error(meta, "version_conflict", false, {
-            currentTask: projectTask(current.value.task, true, [], request.includeAiOrigin),
+            currentTask: projectTask(current.value.task, true, [], taskProjection(request)),
             intendedAction: "DelegateTaskToAgent",
             expectedVersion: delegation.expectedTaskVersion,
             conflictField: "task",
@@ -1531,7 +1585,7 @@ export class MobileGatewayAdapter {
                 result.task,
                 true,
                 result.latestWorkReceipt ? [result.latestWorkReceipt] : [],
-                request.includeAiOrigin,
+                taskProjection(request),
               ),
               safeShare: createTaskDelegationSafeShare({
                 taskId: result.task.id,
@@ -1577,7 +1631,7 @@ export class MobileGatewayAdapter {
             data: {
               date: result.value.date,
               items: result.value.items.map((task) =>
-                projectTask(task, false, [], request.includeAiOrigin),
+                projectTask(task, false, [], taskProjection(request)),
               ),
               nextCursor: result.value.next_cursor,
               ...(agentSessions ? { agentSessions: agentSessions.slice(0, 20) } : {}),
@@ -1841,7 +1895,7 @@ export class MobileGatewayAdapter {
               commandStatus: result.value.status,
               action: review.action,
               receiptId: review.receiptId,
-              task: projectTask(result.value.task, true, receipts, request.includeAiOrigin),
+              task: projectTask(result.value.task, true, receipts, taskProjection(request)),
             },
           }),
         );
@@ -1955,7 +2009,7 @@ export class MobileGatewayAdapter {
             data: {
               tasks: tasks
                 .slice(0, bootstrap!.limit)
-                .map((task) => projectTask(task, true, receipts, request.includeAiOrigin)),
+                .map((task) => projectTask(task, true, receipts, taskProjection(request))),
               nextCursor: cursor || "",
               hasMore: false,
             },
@@ -1989,7 +2043,7 @@ export class MobileGatewayAdapter {
                     }
                   : {
                       kind: "upsert",
-                      task: projectTask(task, true, receipts, request.includeAiOrigin),
+                      task: projectTask(task, true, receipts, taskProjection(request)),
                     },
               ),
               nextCursor: result.value.next_cursor || sync!.cursor,
@@ -2148,7 +2202,7 @@ export class MobileGatewayAdapter {
         issued_at: parsed.data.issuedAt,
         payload,
       });
-      if (!result.ok) return this.taskError(meta, result.error, command);
+      if (!result.ok) return this.taskError(meta, result.error, command, taskProjection(request));
       if (result.value.name !== command.name || !result.value.task)
         throw new Error("Unexpected Task command outcome");
       const receipts = [...(await this.options.core.listWorkReceipts())];
@@ -2159,7 +2213,7 @@ export class MobileGatewayAdapter {
           data: {
             commandId: result.value.command_id,
             status: result.value.status,
-            task: projectTask(result.value.task, true, receipts, request.includeAiOrigin),
+            task: projectTask(result.value.task, true, receipts, taskProjection(request)),
           },
         }),
       );
@@ -2491,6 +2545,7 @@ export class MobileGatewayAdapter {
       expectedScheduleVersion?: number | null;
       changes?: Record<string, unknown>;
     },
+    projection: TaskProjectionOptions = {},
   ) {
     if (
       error.code === "INVALID_COMMAND" &&
@@ -2525,7 +2580,7 @@ export class MobileGatewayAdapter {
           (currentTask.data.schedule?.version ?? null) !==
             (command.expectedScheduleVersion ?? null);
         return this.error(meta, "version_conflict", false, {
-          currentTask: projectTask(currentTask.data, true),
+          currentTask: projectTask(currentTask.data, true, [], projection),
           intendedAction: command.name,
           expectedVersion: command.expectedVersion,
           conflictField: scheduleConflict ? "schedule" : "task",

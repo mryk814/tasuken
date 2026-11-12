@@ -310,6 +310,36 @@ export const mobilePlannedStartTimeSchema = z
   .nullable();
 export const mobilePlannedDurationMinutesSchema = z.number().int().positive().max(10080).nullable();
 
+/**
+ * Task の場所のリマインダー（#727）。X-Tasken-Place-Reminder: 1 の要求にだけ要約へ載せる
+ * （古い APK は未知の欄で落ちるため。aiOrigin と同じやり方）。意味は task.place_reminder と同じ。
+ */
+export const mobilePlaceReminderSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+    radiusMeters: z.number().int().min(100).max(2000),
+    days: z.array(z.number().int().min(0).max(6)).max(7),
+    timeFrom: mobilePlannedStartTimeSchema,
+    timeTo: mobilePlannedStartTimeSchema,
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.days.some((day, index) => index > 0 && day <= value.days[index - 1]))
+      context.addIssue({
+        code: "custom",
+        path: ["days"],
+        message: "daysは重複なしの昇順で指定してください。",
+      });
+    if ((value.timeFrom === null) !== (value.timeTo === null))
+      context.addIssue({
+        code: "custom",
+        path: ["timeTo"],
+        message: "timeFromとtimeToは両方指定するか、両方nullにしてください。",
+      });
+  });
+
 export const mobileWorkReceiptSummarySchema = z
   .object({
     id: entityIdSchema,
@@ -589,6 +619,7 @@ export const mobileTaskSummarySchema = z
     title: z.string().trim().min(1).max(500),
     description: z.string().max(50000).optional(),
     aiOrigin: mobileAiOriginSchema.optional(),
+    placeReminder: mobilePlaceReminderSchema.nullable().optional(),
     themeId: entityIdSchema.nullable(),
     state: taskStateSchema,
     workState: taskWorkStateSchema.nullable(),
@@ -1220,6 +1251,7 @@ const mobileTaskUpdatePatchSchema = z.union([
   z.object({ aiReady: z.boolean() }).strict(),
   z.object({ schedule: mobileScheduleEditSchema }).strict(),
   z.object({ plannedSchedule: mobilePlannedScheduleSchema }).strict(),
+  z.object({ placeReminder: mobilePlaceReminderSchema.nullable() }).strict(),
   z
     .object({ schedule: mobileScheduleEditSchema, plannedSchedule: mobilePlannedScheduleSchema })
     .strict(),
@@ -1233,6 +1265,7 @@ const mobileTaskUpdateBaseSchema = z.union([
   z.object({ aiReady: z.boolean() }).strict(),
   z.object({ schedule: mobileScheduleBaseSchema.nullable() }).strict(),
   z.object({ plannedSchedule: mobilePlannedScheduleSchema }).strict(),
+  z.object({ placeReminder: mobilePlaceReminderSchema.nullable() }).strict(),
   z
     .object({
       schedule: mobileScheduleBaseSchema.nullable(),
