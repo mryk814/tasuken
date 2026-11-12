@@ -185,7 +185,7 @@ export class TaskenDesktopComposition<
     const isEnabled = () => this.repository.readPreference(AI_DIRECT_WRITE_PREFERENCE) === true;
     this.coreRuntime.enableAiItemCreation(
       createAiItemCreationPort(this.applicationCommands, options.workspace, options.onCreated),
-      { isEnabled, scope: "any" },
+      { isEnabled },
     );
     const aiTaskChanges = createAiTaskChangeService(
       this.repository,

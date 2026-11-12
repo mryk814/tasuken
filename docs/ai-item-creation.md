@@ -8,7 +8,7 @@ Desktop Coreは`create_ai_item`を常に公開し、使えるかは設定「AI &
 
 Headlessの`--write-mode=create-only`は従来のproposals受付に加え、`create_ai_item`だけを公開する（設定は見ない）。read-only/proposalsの挙動は維持する。汎用`task.command`・編集・削除・完了・委任を公開しない。入力からactor/workspace/既存Entity ID/保存パスを受け付けない。
 
-MCPは`tasken.create_task`と`tasken.create_note`。必須入力は`title`・`caller`・`idempotency_key`、任意は`body`・`reason`・`source_app`・`source_session`・`theme_id`（省略時は個人業務。無いThemeは`INVALID_REFERENCE`）。Taskはさらに`priority`・`schedule`（期限だけなら`end_date`、一日なら`start_date`、期間なら両方。`date_kind`はCoreが導く）・`today_date`・`checklist`（項目名の配列）を受ける。Noteは`note_type`（memo/report/prompt）と、reportなら`report_date`を受ける。他方の種類の欄は断る。NAS（create-only）もTaskの欄は同じに受ける（同じ欄を`change_task`で既に書けるため。作ってから直す二段にしない）。Noteの`note_type`・`report_date`だけはDesktopの保存先に関わるので、NASでは`WRITE_NOT_ALLOWED`（403）で断る。日報の日付は、提案の採用と同じく`properties_json.daily_report.date`に置く。Taskは本人実行・未委任・未着手で作る。正式ID/version/本文/Theme/削除状態とこのnodeのworkspace IDを読み戻す。NoteのMarkdown保存状態も返し、ファイル保存が未完了なら`internal_ahead`/`unavailable`を明示する。
+MCPは`tasken.create_task`と`tasken.create_note`。必須入力は`title`・`caller`・`idempotency_key`、任意は`body`・`reason`・`source_app`・`source_session`・`theme_id`（省略時は個人業務。無いThemeは`INVALID_REFERENCE`）。Taskはさらに`priority`・`schedule`（期限だけなら`end_date`、一日なら`start_date`、期間なら両方。`date_kind`はCoreが導く）・`today_date`・`checklist`（項目名の配列）を受ける。Noteは`note_type`（memo/report/prompt）と、reportなら`report_date`を受ける。他方の種類の欄は断る。NAS（create-only）も同じ欄を受ける。案内（inputSchema）に載る欄を一部の接続先だけが断ると、AIは送って403を受けるまで分からないため（#721）。日報の日付は、提案の採用と同じく`properties_json.daily_report.date`に置く。Taskは本人実行・未委任・未着手で作る。正式ID/version/本文/Theme/削除状態とこのnodeのworkspace IDを読み戻す。NoteのMarkdown保存状態も返し、ファイル保存が未完了なら`internal_ahead`/`unavailable`を明示する。
 
 指定されなかった欄はEntityに足さない。NAS replicaの同期差分の形（`contracts/sync/ai-item-packets.json`）を、欄を使わない作成では変えないため。
 
