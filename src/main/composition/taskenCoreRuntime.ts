@@ -18,6 +18,7 @@ import { createMobileRoutinePort, type RoutineWriterPort } from "./mobileRoutine
 import { createMobileWorkLogPort, type WorkLogWriterPort } from "./mobileWorkLogPort.ts";
 import type { NoteProposalImagePort } from "../core/public.ts";
 import type { CaptureImagePort } from "../core/public.ts";
+import { CaptureImageStorageError } from "../services/captureImageStore.ts";
 import {
   getSourceStatusResponseSchema,
   type AiNoteEditResponse,
@@ -40,6 +41,7 @@ import {
 } from "../infrastructure/sqlite/public.ts";
 import {
   MobileGatewayAdapter,
+  MobileGatewayCoreUnavailableError,
   MOBILE_TASK_CONTEXT_INPUT,
   type MobileGatewayAgentReplyResult,
   type MobileGatewayCaptureCommandResult,
@@ -175,7 +177,9 @@ function prepareCommandImages(
   let staged: { manifest: readonly unknown[]; staged: unknown };
   try {
     staged = port.stage({ ownerId, images: images as readonly NoteProposalImage[] });
-  } catch {
+  } catch (error) {
+    // 保存先の入出力の失敗は入力の誤りではない。再送の利く503（端末は却下せずoutboxに残す）。
+    if (error instanceof CaptureImageStorageError) throw new MobileGatewayCoreUnavailableError();
     return { ok: false, code: "validation_failed" };
   }
   const manifest = (Array.isArray(staged.manifest) ? staged.manifest : []).map((entry) => {

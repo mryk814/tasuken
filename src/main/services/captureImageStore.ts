@@ -34,6 +34,18 @@ export interface StagedCaptureImageFiles {
   createdPaths: string[];
 }
 
+/**
+ * 画像の保存先の入出力の失敗（ENOSPC・EACCES・EPERM・EBUSY・読み戻しの失敗など）。入力の誤りとは別の型にする。
+ * 入力の誤り（画像として読めない・枚数・大きさ・形式の不一致）は再送しても直らないが、これは直る見込みがあり、
+ * Gatewayは再送の利く503で返す（400だと端末は却下して、写真つきの記録を失う）。
+ */
+export class CaptureImageStorageError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "CaptureImageStorageError";
+  }
+}
+
 function captureImageError(reason: string): Error {
   return new Error(`${reason} 画像を確認して再送信してください。`);
 }
@@ -135,8 +147,11 @@ export class CaptureImageStore {
       return { manifest, createdPaths };
     } catch (error) {
       this.rollbackCreated(createdPaths);
+      if (error instanceof CaptureImageStorageError) throw error;
       if (error instanceof Error && error.message.endsWith("再送信してください。")) throw error;
-      throw captureImageError("画像の保存に失敗しました。保存先を確認してください。");
+      throw new CaptureImageStorageError("画像の保存に失敗しました。保存先を確認してください。", {
+        cause: error,
+      });
     }
   }
 
@@ -175,10 +190,10 @@ export class CaptureImageStore {
     try {
       bytes = fs.readFileSync(filePath);
     } catch {
-      throw captureImageError(`保存済み画像 ${entry.file_name} を読み込めません。`);
+      throw new CaptureImageStorageError(`保存済み画像 ${entry.file_name} を読み込めません。`);
     }
     if (bytes.length !== entry.size || sha256(bytes) !== entry.sha256) {
-      throw captureImageError(`保存済み画像 ${entry.file_name} の内容が一致しません。`);
+      throw new CaptureImageStorageError(`保存済み画像 ${entry.file_name} の内容が一致しません。`);
     }
   }
 

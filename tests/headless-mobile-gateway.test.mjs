@@ -550,3 +550,50 @@ test("画像の寸法検査: PNGとJPEGのヘッダーを読み、形式の不�
   assert.equal(decode(jpeg.subarray(0, jpeg.length - 2), "image/jpeg"), null);
   assert.equal(decode(Buffer.from("GIF89a"), "image/png"), null);
 });
+
+test("写真の保存先の入出力が失敗したら、400（却下）ではなく503（retryable）で返し、ファイルも記録も残さない", async (t) => {
+  const dir = temporary();
+  const { host, sync, shared } = await desktop(dir);
+  const { core, userDataPath, base } = await nas(dir, shared);
+  t.after(() => finish(dir, [() => sync.stop(), () => host.db.close(), () => core.stop()]));
+  const api = call(base, await pair(base, userDataPath));
+  const at = new Date().toISOString();
+  const request = () =>
+    command(
+      "CreateCapture",
+      {
+        capture: {
+          id: "capture-io-failure",
+          text: "保存先が壊れている間の写真",
+          projectId: null,
+          capturedAt: at,
+          images: [
+            {
+              reference_id: "photo-1",
+              file_name: "photo.png",
+              media_type: "image/png",
+              data_base64: PNG_BASE64,
+            },
+          ],
+        },
+      },
+      at,
+    );
+  // 保存先のフォルダの場所に、ふつうのファイルを置いて、mkdir が失敗するようにする（実際のI/Oの失敗）。
+  const photos = path.join(userDataPath, "attachments", "capture-images");
+  fs.rmSync(photos, { recursive: true, force: true });
+  fs.mkdirSync(path.dirname(photos), { recursive: true });
+  fs.writeFileSync(photos, "blocked");
+  const failed = await api.post(TASKEN_MOBILE_ENDPOINTS.commands, request());
+  assert.equal(failed.status, 503, JSON.stringify(failed.body));
+  assert.equal(failed.body.error.retryable, true);
+  assert.equal(fs.readFileSync(photos, "utf8"), "blocked");
+
+  // 直れば、同じ要求（再送）がそのまま通り、記録は一つだけ。
+  fs.rmSync(photos);
+  const retried = await api.post(TASKEN_MOBILE_ENDPOINTS.commands, request());
+  assert.equal(retried.status, 200, JSON.stringify(retried.body));
+  await core.syncNow();
+  await sync.syncNow();
+  assert.equal(host.get("capture_entry", "capture-io-failure").images.length, 1);
+});
