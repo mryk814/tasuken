@@ -171,7 +171,7 @@ sudo docker run --rm --network container:tasken-headless --user 1026:100 \
 4. そのクライアントで`tasken.get_capabilities`を呼び、`writes.task_edit`と`writes.undo`が`true`なら有効です。
 
 - NASの取り込みが遅れている間は、`REPLICA_BEHIND`（409）で断ります。同期が追いつけば通ります。
-- AIの公開範囲の外のTaskは、無いものとして`NOT_FOUND`を返します。Themeと項目ごとの公開範囲は同期でNASにも届きます。ただし設定の「全体の既定」は端末ごとの設定でNASには届かないので、NASでは既定（AIに見せる）のままです。
+- AIに見せる・見せないの区別はありません。存在しない（または削除済みの）Taskは`NOT_FOUND`を返します。
 - 変更と本人の言葉は同期でDesktopへ届き、Activityに出ます。DesktopのActivityから取り消すと、NASにも戻ります。
 - やめるときは`TASKEN_CORE_AI_TASK_CHANGE`を外すか`0`にして、`tasken-headless`を作り直します。
 

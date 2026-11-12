@@ -1,7 +1,7 @@
 # AI可読metadata契約（#294）
 
 Tasken内のEntityをMicrosoft 365 CopilotやCoding Agentへ渡すとき、Entityごとに独自の渡し方を作らないための共通契約。
-本文schemaは種別ごとに別のまま、**概要・鮮度・根拠・公開範囲・出典**だけを同じ意味で持つ。
+本文schemaは種別ごとに別のまま、**概要・鮮度・根拠・出典**だけを同じ意味で持つ。
 
 正本は [`src/shared/aiMetadata.mjs`](../src/shared/aiMetadata.mjs)。MCP・AI Pack・Context Previewはすべてこの関数群を通す。
 
@@ -15,47 +15,29 @@ Tasken内のEntityをMicrosoft 365 CopilotやCoding Agentへ渡すとき、Entit
 
 `ai_` を前置きする。Issue本文の名称（`summary` / `authority` 等）をそのまま使わないのは、既存の `status_update.summary` や永続化層の `source` と衝突するため。
 
-| フィールド | 値 | 意味 |
-|---|---|---|
-| `ai_summary` | 400文字以内 / null | 本文を読む前に判断できる短い概要 |
-| `ai_summary_authority` | `user_confirmed` / `rule_generated` / `ai_generated` / `excerpt` | 概要を誰が決めたか |
-| `ai_freshness` | `current` / `stale` / `superseded` / null | 現在も有効か |
-| `ai_authority` | `user_confirmed` / `imported` / `ai_generated` / `inferred` / `external_source` / null | 何を根拠にした情報か |
-| `ai_visibility` | audience配列 / null | 渡してよい相手（後述） |
-| `ai_last_verified_at` | ISO日時 / null | 最後に人が確認した時点 |
-| `ai_superseded_by` | `{ type, id }` / null | 置き換えたEntity |
-| `ai_source_refs` | 出典配列（20件まで） | 出典（後述） |
-| `default_ai_visibility` | audience配列 / null | **themeのみ**。配下Entityが継承する既定 |
+| フィールド             | 値                                                                                     | 意味                             |
+| ---------------------- | -------------------------------------------------------------------------------------- | -------------------------------- |
+| `ai_summary`           | 400文字以内 / null                                                                     | 本文を読む前に判断できる短い概要 |
+| `ai_summary_authority` | `user_confirmed` / `rule_generated` / `ai_generated` / `excerpt`                       | 概要を誰が決めたか               |
+| `ai_freshness`         | `current` / `stale` / `superseded` / null                                              | 現在も有効か                     |
+| `ai_authority`         | `user_confirmed` / `imported` / `ai_generated` / `inferred` / `external_source` / null | 何を根拠にした情報か             |
+| `ai_last_verified_at`  | ISO日時 / null                                                                         | 最後に人が確認した時点           |
+| `ai_superseded_by`     | `{ type, id }` / null                                                                  | 置き換えたEntity                 |
+| `ai_source_refs`       | 出典配列（20件まで）                                                                   | 出典（後述）                     |
 
-`null` は「未設定」を意味する。「明示的にローカルのみ」は `ai_visibility: []` で表し、未設定と区別する。
+`null` は「未設定」を意味する。
 
 DB migrationは不要（Entityは `entities.data_json` のJSON blob）。既存Entityは全フィールドが未設定として読め、本文は一切変わらない。
 
-## AI公開範囲
+## AIへ渡す範囲
 
-audienceは3つ。**単一のladderにしない**。M365 CopilotとCoding Agentへ渡してよい情報は一致しないため、独立したgrantの集合として持つ。
+**AIに見せる・見せないを決める概念は無い**（本人の判断、2026-11-08・11-12）。MCP・AI Pack・Context Preview・Mobileのtask-contextは、同じ共通metadata（header）を付けて全Entityを返す。
+かつて `ai_visibility` / `default_ai_visibility`（Entity・Theme単位の公開先）と、workspaceの既定（端末設定 `aiVisibilityDefault`）があったが、実データに明示設定が無いことを確かめて削除した。
 
-- `m365` — OneDrive経由のMicrosoft 365 Copilot
-- `coding_agent` — MCP経由のCoding Agent
-- `external_ai` — 外部AIサービス
+更新前の端末（NAS replica・別PCのDesktop・Android）は、同期やコマンドに `ai_visibility` / `default_ai_visibility` を載せることがある。**拒否せず、保存せずに捨てる**（`normalizeEntity` が全種別で落とす。Taskの作成・変更の入力 `taskDraftSchema` も受けて、値は使わない）。DB上の古い値は移行せず、そのまま残るが、どこからも読まれない。
+`workspace_meta.ai_visibility_default` も同じく残るだけで読まれない。
 
-Issue #294のvisibility語彙は `AI_VISIBILITY_PRESETS` としてUI表示用のpreset名に残す（`local_only` = `[]`、`m365_allowed` = `["m365"]` 等）。
-
-### 継承
-
-`resolveAiVisibility` が次の順で解決し、**どこから来た値かを必ず返す**。
-
-1. Entityの `ai_visibility`（`source: "entity"`）
-2. Themeの `default_ai_visibility`（`source: "theme"`）
-3. workspace既定（`source: "workspace_default"`）
-
-workspace既定は `workspace_meta.ai_visibility_default`。出荷時は `["coding_agent"]`。
-MCPは同一端末のread-only経路なので現行動作を保ち、OneDrive公開と外部AIは明示許可を要求する、という安全側の切り分け。Settingsの「AI公開範囲の既定」で変更できる。
-
-### 判定
-
-`projectEntityForAi(type, entity, { audience, theme, workspaceDefault })` が唯一の判定入口。
-許可されないEntityは **本文もheaderも返さない**。呼び出し側は `summarizeAiExclusions` で件数と理由だけを提示する。
+AIが読めないものが無いので、Core/MCPの出力に `ai_audience` や、公開範囲で外した件数（`excluded_count`）は付かない。`excluded_count` / `excluded_reasons` が残るのは、公開範囲と関係の無い理由（完了済み・範囲外・件数上限・AI Packの未公開Conversationなど）で外したときだけ。
 
 ## 鮮度と根拠の導出
 
@@ -80,24 +62,20 @@ storage_root_id? relative_path?
 
 ## MCP / AI Packとの接続
 
-- MCPの既定audienceは `coding_agent`。全一覧tool（items / notes / knowledge / theme context / health）が同じ判定を通る。
-- 件数制限（limit）は**公開範囲の判定後**に適用する。除外分でlimitを消費させない。
-- `export_ai_context`（Core/HTTP。MCP非公開）は `audience` 引数で公開先を切り替える。OneDrive AI Pack（#295）は `m365` を指定する。
-- 出力には `ai_audience` と `excluded_count` / `excluded_reasons` が必ず付く。「全部渡した」ように見せない。
+- 全一覧tool（items / notes / knowledge / theme context / health）は、各Entityへ `buildAiEntityHeader` のheaderを付ける。
+- `export_ai_context`（Core/HTTP。MCP非公開）に公開先の引数は無い。OneDrive AI Pack（#295）は別に組み立てる。
 - Markdown出力では `stale` / `superseded` / `ai_generated` 等を項目の横へ短く添える。
 
 ## UI
 
 - 詳細ドロワー: 「AI・情報状態」セクション（読み取り）。未設定は空欄にせず、理由の分かる語で示す。
 - 編集ドロワー: 折りたたみの入力欄。通常編集の主目的を圧迫しない。
-- Theme編集: 「配下のAI公開既定」。
-- Settings: 「AI公開範囲の既定」（workspace既定）。
 
 表示ラベルは [`domain-model/labels.ts`](../src/renderer/src/features/workspace/domain-model/labels.ts) に集約し、内部コードを画面へ出さない。
 
 ## 非ゴール
 
 - すべてのEntity本文を一つの共通schemaへ変換すること
-- AIがsummary / relation / visibilityを無確認で確定すること
+- AIがsummary / relationを無確認で確定すること
 - 完全な情報分類・DLP製品
 - 古い情報を自動削除すること

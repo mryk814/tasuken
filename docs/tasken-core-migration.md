@@ -40,7 +40,7 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 1. DB schema、data path、migration、backup形式を変えない。
 2. Electron Mainの`WorkspaceDatabase`を唯一のconnection、migration、write ownerとする。
 3. MCP tool名、public input/output、limit、並び順、`include_archived`、typed errorを維持する。
-4. AI visibilityをlimitより先に適用し、local path、資格情報、非公開本文を返さない。
+4. local path、資格情報を返さない。
 5. write toolは`ai_proposal`だけを作り、正式データは利用者のPreview/採用後に既存Application Commandへ到達させる。
 6. idempotencyはcaller/source identityとpayloadへ結び、process restart後も同じkeyの重複作成を防ぐ。
 
@@ -65,7 +65,7 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 
 写真の要約・manifestはCoreのTask Contextが返すが、MCPのPhoto tool（`get_capture_image` / `get_task_image`）は slimmingで廃止した。MCP経由の画像取得は行わない。
 
-`get_feed_context`はFeedの読み出しである。利用者が「AIに聞く」で残した未回答の質問（元の投稿の抜粋と参照IDつき）と、直近の投稿、明示的な反応（ブックマーク・おもしろい・既知だった）だけを返し、正式データを変更しない。Task・Themeの詳細は既存の読み出しtoolで取得し、そこのAI公開範囲の判定に従う。
+`get_feed_context`はFeedの読み出しである。利用者が「AIに聞く」で残した未回答の質問（元の投稿の抜粋と参照IDつき）と、直近の投稿、明示的な反応（ブックマーク・おもしろい・既知だった）だけを返し、正式データを変更しない。Task・Themeの詳細は既存の読み出しtoolで取得する。
 
 `get_proposal_status`は受領IDからProposalの現在地を返す読み出しである。`pending`（人が未判断）かどうかと、採用で生まれたEntityを返すため、AIは同じ内容を再送せずに結果を確認できる。未採用・却下のProposalにはEntityを返さず、既知でない状態は`null`のまま返して確定状態を偽らない。応答は接続中のnodeが持つ正本だけを表し、別端末への配送とそちらでの採否は確認しない。
 

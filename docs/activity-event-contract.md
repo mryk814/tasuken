@@ -102,7 +102,7 @@ Today の開く操作だけが Main の安全境界を通り、壊れた参照�
 それを開き、`local_status: "broken"` を併記します。traversal や symlink で root 外へ
 出る参照は拒否します。Renderer／MCPへ返す root 情報は `ok`／`broken` の状態だけです。
 
-#294 の visibility / authority / freshness は projection 時点で評価します。
+#294 の authority / freshness は projection 時点で評価します。AIに見せる・見せないの区別（旧 visibility）は廃止しました。
 local_only は M365 projection に含めず、除外件数と理由だけを返します。
 
 明示的なrecall profileの当時名称・所属と現在の公開判定は、
