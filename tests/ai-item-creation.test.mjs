@@ -412,7 +412,7 @@ test("Desktop: 直接の書き込みは設定をその場で読み、Theme・期
   }
 });
 
-test("NAS replica は Task の Theme・日程・優先度・チェックリスト・今日の割当を受け、Note の種類だけ断る", () => {
+test("NAS replica も Desktop と同じ欄を受ける（Task の Theme・日程など、Note の種類と日報の日付）", () => {
   const dir = temporary();
   const db = open(dir);
   db.save("theme", { id: "theme-work", name: "仕事" });
@@ -443,15 +443,15 @@ test("NAS replica は Task の Theme・日程・優先度・チェックリス�
     );
     const schedule = db.list("schedule").find((entry) => entry.owner_id === task.id);
     assert.equal(schedule.end_date, "2026-11-20");
-    // Noteの種類（日報など）はDesktopの保存先に関わるので、NASでは断る。
-    for (const extra of [
-      { note_type: "prompt" },
-      { note_type: "report", report_date: "2026-11-10" },
-    ])
-      assert.throws(
-        () => service.execute({ ...request("note", "nas-note-kind"), ...extra }),
-        (e) => e.code === "WRITE_NOT_ALLOWED" && e.status === 403,
-      );
+    // 案内に載る欄を一部の接続先だけが断らない（#721）。
+    const report = service.execute({
+      ...request("note", "nas-report"),
+      note_type: "report",
+      report_date: "2026-11-10",
+    });
+    const note = db.get("note", report.entity.id);
+    assert.equal(note.note_type, "report");
+    assert.deepEqual(note.properties_json.daily_report, { date: "2026-11-10" });
     const saved = service.execute(request("task", "nas-basic"));
     assert.equal(db.get("task", saved.entity.id).project_id, "theme-personal-default");
   } finally {
