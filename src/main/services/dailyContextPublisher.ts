@@ -360,6 +360,9 @@ export function publishDailyContext({
     selection: plan.selection,
     sources: plan.sources,
     includedCount: plan.includedCount,
+    // 除外の件数は廃止したが、更新前の版の readManifest は日ごとの excludedCount を必須にする。
+    // 新しい版が書いた公開履歴を旧版（別PCのDesktop）が読めなくならないよう、0 を書き続ける。
+    excludedCount: 0,
     partial: plan.partial,
     groups: publishedDayGroups(plan),
     bodySources: (plan.publicSources ?? []).map(

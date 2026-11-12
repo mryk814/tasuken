@@ -14,6 +14,8 @@ export interface PublishedContextDay extends Pick<
   | "includedCount"
   | "partial"
 > {
+  /** 廃止した除外件数。旧版が読むため常に 0 を書く（読む側は使わない）。 */
+  excludedCount?: number;
   groups?: Array<{
     themeId: string | null;
     themeTitle: string | null;
