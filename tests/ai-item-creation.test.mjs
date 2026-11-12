@@ -330,6 +330,7 @@ test("Desktop: 直接の書き込みは設定をその場で読み、Theme・期
       schedule: { end_date: "2026-11-20" },
       today_date: "2026-11-11",
       checklist: ["下書き", "見直し"],
+      place_reminder: { name: "三ノ宮", latitude: 34.6937, longitude: 135.1956, days: [1] },
     };
     const created = await client.callTool({ name: "tasken.create_task", arguments: taskArgs });
     assert(!created.isError, JSON.stringify(created));
@@ -338,6 +339,16 @@ test("Desktop: 直接の書き込みは設定をその場で読み、Theme・期
     assert.equal(task.project_id, "theme-work");
     assert.equal(task.priority, "high");
     assert.equal(task.today_date, "2026-11-11");
+    // 場所のリマインダー（#727）: 省いた半径は300m・時間帯は無しで、Taskに載る。
+    assert.deepEqual(task.place_reminder, {
+      name: "三ノ宮",
+      latitude: 34.6937,
+      longitude: 135.1956,
+      radius_m: 300,
+      days: [1],
+      time_from: null,
+      time_to: null,
+    });
     assert.deepEqual(
       task.checklist_items.map((item) => [item.title, item.done]),
       [
