@@ -368,6 +368,11 @@ export class TaskenCoreRuntime {
     });
   }
 
+  /** 入口ごとの計測（#733）。Mobile Gatewayなど、同じプロセスの別の入口が記録に使う。 */
+  get stats() {
+    return this.host.stats;
+  }
+
   createClient(userDataPath: string): TaskenCoreClient {
     return new TaskenCoreClient({ userDataPath });
   }

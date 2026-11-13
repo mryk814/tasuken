@@ -730,6 +730,46 @@ export class TaskenCoreClient {
     return payload;
   }
 
+  /**
+   * 入口ごとの計測（#733）の行をCoreへ送る。全権tokenが要り、capabilityには載らない。
+   * 失敗はrejectのまま返すので、呼び手（toolの呼び出し）が握りつぶす。
+   */
+  async recordStats(rows) {
+    return this.statsRequest("POST", "/v1/stats/record", { rows }, 2_000);
+  }
+
+  /** 直近days日の計測（入口ごとの回数・時間・失敗）を読む。 */
+  async getStats(days = 7) {
+    return this.statsRequest("GET", `/v1/stats?days=${encodeURIComponent(String(days))}`);
+  }
+
+  async statsRequest(method, route, body, timeoutMs = this.timeoutMs) {
+    const discovery = await readDiscovery(this.discoveryPath, this.taskenExecutable);
+    let response;
+    try {
+      response = await this.fetch(`${discovery.origin}${route}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${discovery.token}`,
+          ...(body === undefined ? {} : { "content-type": "application/json" }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      throw coreUnavailable(error, this.taskenExecutable);
+    }
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new TaskenCoreClientError(
+        payload?.error?.code || "CORE_REQUEST_FAILED",
+        payload?.error?.message || `計測の口が失敗しました（${response.status}）。`,
+        { status: response.status },
+      );
+    }
+    return payload;
+  }
+
   async query(path, capability, request, responseSchema) {
     return this.request(`/v1/queries/${path}`, capability, request, responseSchema, path);
   }

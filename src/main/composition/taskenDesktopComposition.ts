@@ -155,6 +155,7 @@ export class TaskenDesktopComposition<
       ),
       state: mobileState,
       persistence: this.repository,
+      stats: this.coreRuntime.stats,
     });
     this.prepareMcpPackageSmoke(options.mcpPackageSmoke);
   }

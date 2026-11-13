@@ -54,6 +54,18 @@ export interface MobileGatewayHostDiagnostics {
   latestRequest: MobileGatewayRequestDiagnostic | null;
 }
 
+/** 入口ごとの計測（#733）の受け口。実体はCoreのRequestStatsで、ここでは行の形だけを知る。 */
+export interface MobileGatewayStats {
+  record(row: {
+    entry: string;
+    caller: string;
+    status: number;
+    code: string;
+    us: number;
+    bytes: number;
+  }): void;
+}
+
 export interface MobileGatewayHostOptions {
   adapter: MobileGatewayAdapter;
   devices: MobileDeviceRegistry;
@@ -61,7 +73,11 @@ export interface MobileGatewayHostOptions {
   port?: number;
   now?: () => Date;
   logger?: { warn(event: { id: string; location: "MobileGatewayHost.handle" }): void };
+  stats?: MobileGatewayStats;
 }
+
+const STATS_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]);
+const STATS_PATHS: ReadonlySet<string> = new Set(Object.values(TASKEN_MOBILE_ENDPOINTS));
 
 class MobileGatewayHostRequestError extends Error {
   readonly code: MobileErrorCode;
@@ -78,7 +94,7 @@ function json(
   status: number,
   body: unknown,
   headers: Readonly<Record<string, string>> = {},
-) {
+): number {
   const encoded = JSON.stringify(body);
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
@@ -89,6 +105,7 @@ function json(
     ...headers,
   });
   response.end(encoded);
+  return Buffer.byteLength(encoded);
 }
 
 function bearerToken(request: IncomingMessage): string {
@@ -262,7 +279,35 @@ export class MobileGatewayHost {
     this.latestRequest = { at: this.now().toISOString(), method, path, status, deviceId };
   }
 
+  /**
+   * 入口の名前はTASKEN_MOBILE_ENDPOINTSのpathに完全一致したものだけ。端末のIDや名前は呼び手に使わず、
+   * 認証できた端末はまとめて`screen`にする。決して例外を外へ出さない。
+   */
+  private recordStats(
+    method: string,
+    path: string,
+    status: number,
+    code: string,
+    startedAt: bigint,
+    bytes: number,
+    authenticated: boolean,
+  ): void {
+    try {
+      this.options.stats?.record({
+        entry: `gateway ${STATS_METHODS.has(method) ? method : "OTHER"} ${STATS_PATHS.has(path) ? path : "{unknown}"}`,
+        caller: authenticated ? "screen" : "anonymous",
+        status,
+        code: /^[a-z][a-z0-9_]{0,47}$/.test(code) ? code.toUpperCase() : "",
+        us: Number((process.hrtime.bigint() - startedAt) / 1000n),
+        bytes,
+      });
+    } catch {
+      // 計測の失敗で応答を変えない。
+    }
+  }
+
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const startedAt = process.hrtime.bigint();
     const method = request.method || "";
     let path = "";
     let deviceId = "";
@@ -297,7 +342,7 @@ export class MobileGatewayHost {
           },
         });
         this.record(method, path, 200, result.device.id);
-        json(response, 200, body);
+        this.recordStats(method, path, 200, "", startedAt, json(response, 200, body), false);
         return;
       }
 
@@ -337,7 +382,16 @@ export class MobileGatewayHost {
         includePlaceReminder: request.headers["x-tasken-place-reminder"] === "1",
       });
       this.record(method, path, result.status, deviceId);
-      json(response, result.status, result.body, result.headers);
+      const resultError = (result.body as { error?: { code?: unknown } } | null)?.error?.code;
+      this.recordStats(
+        method,
+        path,
+        result.status,
+        result.status >= 400 && typeof resultError === "string" ? resultError : "",
+        startedAt,
+        json(response, result.status, result.body, result.headers),
+        deviceId !== "",
+      );
     } catch (error) {
       let code: MobileErrorCode = "internal_error";
       if (error instanceof MobileGatewayHostRequestError) code = error.code;
@@ -371,7 +425,15 @@ export class MobileGatewayHost {
           // Logging must not replace the sanitized API response.
         }
       }
-      json(response, status, this.error(code));
+      this.recordStats(
+        method,
+        path || "/",
+        status,
+        code,
+        startedAt,
+        json(response, status, this.error(code)),
+        deviceId !== "",
+      );
     }
   }
 }

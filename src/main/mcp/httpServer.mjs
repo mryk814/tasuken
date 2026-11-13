@@ -14,9 +14,46 @@ import {
 import { createTaskenMcpServer } from "./server.mjs";
 import { TaskenCoreClient } from "./taskenCoreClient.mjs";
 import { MCP_TOOL_REQUIREMENTS, parseMcpToolsets } from "./toolAvailability.mjs";
+import { apiErrorStatus, toolResultValue } from "./toolErrorStatus.mjs";
+
+export { apiErrorStatus };
 
 const digest = (value) => createHash("sha256").update(value).digest();
 const MAX_BODY_BYTES = 35 * 1024 * 1024;
+const STATS_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]);
+const STATS_FIXED_PATHS = new Set(["/mcp", "/api/v1", "/api/stats", "/health"]);
+const STATS_CODE = /^[A-Z][A-Z0-9_]{0,47}$/;
+
+/**
+ * 入口ごとの計測（#733）の入口の名前。決まったpathだけを名前にし、ほかは{unknown}にする。
+ * `/api/v1/<tool>`のtool名は名前に使わず、まとめて`/api/v1/{tool}`にする（toolごとの数はtool側の行にある）。
+ */
+function statsEntry(method, url) {
+  const pathname = (url || "").split("?", 1)[0];
+  const path = STATS_FIXED_PATHS.has(pathname)
+    ? pathname
+    : /^\/api\/v1\/[A-Za-z0-9_]+$/.test(pathname)
+      ? "/api/v1/{tool}"
+      : "{unknown}";
+  return `mcp-http ${STATS_METHODS.has(method) ? method : "OTHER"} ${path}`;
+}
+
+/** 応答の本文のerrorから計測のcodeを作る。形に合わなければOTHER、成功は空。 */
+function statsErrorCode(body) {
+  const error = body?.error;
+  const code = typeof error === "string" ? error : error?.code;
+  if (typeof code !== "string") return "";
+  const upper = code.toUpperCase();
+  return STATS_CODE.test(upper) ? upper : "OTHER";
+}
+
+/** `/api/stats?days=N`のdays。省略は7、1〜366の整数以外はnull。 */
+function statsDays(url) {
+  const values = new URLSearchParams(url.split("?")[1] ?? "").getAll("days");
+  if (values.length === 0) return 7;
+  const days = values.length === 1 && /^[0-9]{1,4}$/.test(values[0]) ? Number(values[0]) : 0;
+  return days >= 1 && days <= 366 ? days : null;
+}
 
 async function readJsonBody(request) {
   const chunks = [];
@@ -30,69 +67,6 @@ async function readJsonBody(request) {
     chunks.push(chunk);
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-}
-
-/**
- * isErrorの結果の`error.code`をHTTP statusへ写す。personal-infrastructureのawai
- * (`/api/v1/<tool>`)と同じ対応にして、Muse・Grok Botが両方を同じ扱いで呼べるようにする。
- * Taskのtransport(taskHttpAdapter)の対応(FORBIDDEN・INVALID_TRANSITION・UNAVAILABLE・INTERNAL_ERROR)とも揃える。
- * 結果が`{error}`の形でないisErrorは、SDKの入力検証の失敗（-32602）だけを呼び方の誤りとして400にし、
- * それ以外（tool内部の想定外の例外）は500にする。サーバー側の不具合を「要求の誤り」に見せないため。
- */
-export function apiErrorStatus(value) {
-  const code = value?.error?.code;
-  if (typeof code !== "string") {
-    const text = typeof value?.text === "string" ? value.text : "";
-    return /-32602|Input validation error/i.test(text) ? 400 : 500;
-  }
-  const upper = code.toUpperCase();
-  // INVALID_*を503にする規則より先に、入力の誤りの400を判定する。
-  if (["VALIDATION_FAILED", "INVALID_JSON"].includes(upper)) return 400;
-  if (["WRITE_NOT_ALLOWED", "FORBIDDEN"].includes(upper)) return 403;
-  if (upper.includes("NOT_FOUND")) return 404;
-  // DESKTOP_BEHIND・REPLICA_BEHINDはretryableだが、既定の503ではなく状態の食い違いの409にする。
-  if (
-    [
-      "IDEMPOTENCY_CONFLICT",
-      "CONFLICT",
-      "STALE_VERSION",
-      "INVALID_TRANSITION",
-      "DESKTOP_BEHIND",
-      "REPLICA_BEHIND",
-    ].includes(upper)
-  )
-    return 409;
-  if (["PROPOSAL_TOO_LARGE", "BODY_TOO_LARGE"].includes(upper)) return 413;
-  if (
-    [
-      "CORE_UNAVAILABLE",
-      "CAPABILITY_UNAVAILABLE",
-      "VERSION_MISMATCH",
-      "CORE_REQUEST_FAILED",
-      "UNAUTHORIZED",
-      "INVALID_RESPONSE",
-      "INVALID_DISCOVERY",
-      "DISCOVERY_OWNER_MISMATCH",
-      "DISCOVERY_PERMISSION_INVALID",
-      "UNAVAILABLE",
-    ].includes(upper)
-  )
-    return 503;
-  if (upper === "INTERNAL_ERROR") return 500;
-  // 表に無いcodeでも、サーバー側の一時的な失敗を「要求の誤り」と読ませない（botが再送を諦めて失われる）。
-  if (value.error.retryable === true) return 503;
-  if (typeof value.error.status === "number" && value.error.status >= 500) return 500;
-  return 422;
-}
-
-function apiResultValue(result) {
-  if (result.structuredContent !== undefined) return result.structuredContent;
-  const text = result.content?.find((part) => part.type === "text")?.text ?? "";
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { text };
-  }
 }
 
 /**
@@ -179,7 +153,7 @@ async function callListedTool(mcpClient, clientName, name, args) {
     if (error?.code === -32602) return { status: 400, body: { error: "invalid_arguments" } };
     throw error;
   }
-  const value = apiResultValue(result);
+  const value = toolResultValue(result);
   return { status: result.isError ? apiErrorStatus(value) : 200, body: value };
 }
 
@@ -260,14 +234,43 @@ export async function startTaskenMcpHttpServer(options = {}) {
   const coreClient = options.coreClient || new TaskenCoreClient({ env });
   const httpServer = createServer(async (request, response) => {
     response.setHeader("Cache-Control", "no-store");
+    // 入口ごとの計測。応答の終わりに1行をCoreへ送る（待たない。届かなくても応答は変えない）。
+    const startedAt = process.hrtime.bigint();
+    const stats = { caller: "anonymous", code: "" };
+    response.once("close", () => {
+      try {
+        if (typeof coreClient.recordStats !== "function") return;
+        const length = Number(response.getHeader("content-length"));
+        void Promise.resolve(
+          coreClient.recordStats([
+            {
+              entry: statsEntry(request.method, request.url),
+              caller: stats.caller,
+              status: response.statusCode,
+              code: stats.code,
+              us: Number((process.hrtime.bigint() - startedAt) / 1000n),
+              bytes: Number.isFinite(length) ? length : 0,
+            },
+          ]),
+        ).catch(() => {});
+      } catch {
+        // 計測の失敗で応答を変えない。
+      }
+    });
     const reply = (status, body) => {
-      response.writeHead(status, { "Content-Type": "application/json" });
-      response.end(JSON.stringify(body));
+      stats.code = statsErrorCode(body);
+      const encoded = JSON.stringify(body);
+      response.writeHead(status, {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(encoded),
+      });
+      response.end(encoded);
     };
     if (request.url === "/health" && request.method === "GET") return reply(200, { status: "ok" });
     const apiMatch = /^\/api\/v1\/([A-Za-z0-9_]+)$/.exec(request.url || "");
     const isDescribe = request.url === "/api/v1";
-    if (request.url !== "/mcp" && !apiMatch && !isDescribe)
+    const isStats = (request.url || "").split("?", 1)[0] === "/api/stats";
+    if (request.url !== "/mcp" && !apiMatch && !isDescribe && !isStats)
       return reply(404, { error: "not_found" });
     const authorization = request.headers.authorization || "";
     const match = /^Bearer ([A-Za-z0-9_-]{43})$/i.exec(authorization);
@@ -277,10 +280,12 @@ export async function startTaskenMcpHttpServer(options = {}) {
       response.setHeader("WWW-Authenticate", 'Bearer realm="tasken-mcp"');
       return reply(401, { error: "unauthorized" });
     }
+    // /mcpはMCPのclientとして、/api/v1*と/api/statsはtokenを持つ呼び出しとして数える。
+    stats.caller = `${request.url === "/mcp" ? "mcp" : "token"}:${client.name}`;
     // This endpoint is for native AI clients, not credentialed browser requests.
     if (request.headers.origin) return reply(403, { error: "origin_not_allowed" });
-    // describeはGETだけ、それ以外（/mcpと/api/v1/<tool>）はPOSTだけ。
-    const allowedMethod = isDescribe ? "GET" : "POST";
+    // describeと/api/statsはGETだけ、それ以外（/mcpと/api/v1/<tool>）はPOSTだけ。
+    const allowedMethod = isDescribe || isStats ? "GET" : "POST";
     if (request.method !== allowedMethod) {
       response.setHeader("Allow", allowedMethod);
       return reply(405, { error: "method_not_allowed" });
@@ -288,7 +293,7 @@ export async function startTaskenMcpHttpServer(options = {}) {
     let body;
     try {
       // GETの本文は読まない（読むと空の本文がJSONの誤りになる）。
-      body = isDescribe ? undefined : await readJsonBody(request);
+      body = isDescribe || isStats ? undefined : await readJsonBody(request);
     } catch (error) {
       // Drain without retaining the rejected body so clients can receive 413
       // while still sending a chunked request.
@@ -297,6 +302,16 @@ export async function startTaskenMcpHttpServer(options = {}) {
     }
     if (apiMatch && (!body || typeof body !== "object" || Array.isArray(body))) {
       return reply(400, { error: "invalid_body" });
+    }
+    if (isStats) {
+      // 読み取り専用のclientも読める。Coreから読んだものをそのまま返す（tokenの種類で中身は変わらない）。
+      const days = statsDays(request.url);
+      if (days === null) return reply(400, { error: "invalid_days" });
+      try {
+        return reply(200, await coreClient.getStats(days));
+      } catch {
+        return reply(503, { error: "core_unavailable" });
+      }
     }
     let server;
     try {
@@ -337,6 +352,7 @@ export async function startTaskenMcpHttpServer(options = {}) {
         toolsets: client.toolsets ?? defaultToolsets,
         withheldCapabilities,
         verifiedClient: client.name,
+        statsCaller: `${apiMatch ? "token" : "mcp"}:${client.name}`,
         env,
       });
       if (isDescribe) return reply(200, await describeApiTools(server));

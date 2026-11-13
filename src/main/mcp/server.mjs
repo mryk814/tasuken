@@ -33,6 +33,7 @@ import {
   parseMcpToolsets,
 } from "./toolAvailability.mjs";
 import { compactToolDiscovery } from "./compactSchema.mjs";
+import { instrumentToolCalls, stdioStatsCaller } from "./toolStats.mjs";
 import { MCP_GUIDES } from "./guides.mjs";
 
 const READ_ONLY_ANNOTATIONS = {
@@ -221,12 +222,16 @@ export function mcpReadOnlyMode(env = process.env) {
  *   capabilities?: readonly string[],
  *   toolsets?: string[] | string,
  *   verifiedClient?: string,
+ *   statsCaller?: string,
+ *   statsSink?: { record(row: object): void },
  *   withheldCapabilities?: readonly string[],
  * }} [options]
  *   `capabilities`は起動時に読めたCoreのcapability。渡した場合だけ、この接続で使えない
  *   書き込みtoolを一覧から外す。読めなかった場合もtoolsetsとreadOnlyの制限は適用する。
  *   `verifiedClient`は認証済みのHTTP client名。渡した場合だけ、書き込みtoolの作成者を
  *   この名前に上書きする（stdioは渡さないので何も変わらない）。
+ *   `statsCaller`は計測に残す呼び手（`mcp:<client名>`など）。渡さないstdioはclientInfoから作る。
+ *   `statsSink`は計測の送り先（`record(row)`）。渡さなければCoreの`recordStats`へ送る。
  *   `withheldCapabilities`はこの接続に見せないcapability。起動時の絞り込みと
  *   `tasken.get_capabilities`の読み直しの両方で、判定の前にこれを除く。
  */
@@ -265,6 +270,19 @@ export function createTaskenMcpServer(options = {}) {
 
   // 登録したtoolを覚えておき、起動時に分かった利用不可のtoolを最後に外す。
   const registeredTools = new Map();
+  // 入口ごとの計測（#733）。最初のregisterToolがtools/callのhandlerを登録する前に包む。
+  // 呼び手はHTTPならclient名（statsCaller）、stdioならinitializeのclientInfoから。
+  // 送り先は既定でCoreの計測の口。stdioはClaude Codeの終了で突然止まるので、ためずに1件ずつ送る。
+  instrumentToolCalls(server.server, {
+    isKnownTool: (name) => registeredTools.has(name),
+    caller: () => options.statsCaller ?? stdioStatsCaller(server.server),
+    send: (row) => {
+      if (options.statsSink) return options.statsSink.record(row);
+      if (typeof coreClient.recordStats === "function") {
+        void Promise.resolve(coreClient.recordStats([row])).catch(() => {});
+      }
+    },
+  });
   const registerTool = server.registerTool.bind(server);
   server.registerTool = (name, ...rest) => {
     if (options.verifiedClient && MCP_TOOL_REQUIREMENTS[name]?.access !== "read") {

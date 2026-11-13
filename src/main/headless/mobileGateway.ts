@@ -86,6 +86,7 @@ export function createHeadlessMobileGateway(
     state,
     persistence: options.persistence,
     port: options.port,
+    stats: options.runtime.stats,
     logger: {
       warn: (event) =>
         console.error(`[tasken-mobile-gateway] unexpected error ${event.location} ${event.id}`),

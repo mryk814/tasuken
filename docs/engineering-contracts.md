@@ -86,6 +86,7 @@ NASのStreamable HTTP MCPは`127.0.0.1`の`/mcp`だけで受け、Tailscale Serv
 3. UIに出すエラーは原因＋直し方（design-guide §7）。ログに残すエラーは発生箇所・原因・スタックを含める。両者は役割が違うので同じ文字列を使い回さない。
 4. デスクトップアプリは Main 側で userData 配下にファイルログを書く。レベルは info / warn / error の3段にする。
 5. ログに秘密情報とデータ本文を書かない。エンティティはIDと件数で書く。
+6. 入口ごとの計測は userData の `request-stats.sqlite`（本体の DB とは別ファイル）に持つ。残すのは入口の名前（Core・Mobile Gateway・MCP HTTP の決まった経路と MCP の道具名、それ以外は `{unknown}`）・呼び手の種類（`local`・`token:<client名>`・`mcp:<client名>`・`screen`・`anonymous`）・状態（status と error code）・日ごとの回数・時間の合計と最大・応答の大きさだけ。題名・本文・検索語・ID・端末名は残さない。同期・Export・Snapshot の対象外で、1年より古い日は消える。
 
 ## AI作業ログの時間表示
 

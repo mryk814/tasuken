@@ -8,6 +8,7 @@ import {
 import {
   MobileGatewayHost,
   type MobileGatewayHostDiagnostics,
+  type MobileGatewayStats,
 } from "./mobileGatewayHost.ts";
 
 export interface MobileGatewayRuntimeDiagnostics extends MobileGatewayHostDiagnostics {
@@ -22,6 +23,8 @@ export interface MobileGatewayRuntimeOptions {
   port?: number;
   now?: () => Date;
   logger?: { warn(event: { id: string; location: "MobileGatewayHost.handle" }): void };
+  /** 入口ごとの計測（#733）。Coreのプロセスのものを渡す。 */
+  stats?: MobileGatewayStats;
 }
 
 export class MobileGatewayRuntime {
@@ -41,6 +44,7 @@ export class MobileGatewayRuntime {
       port: options.port,
       now: options.now,
       logger: options.logger,
+      stats: options.stats,
     });
   }
 

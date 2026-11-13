@@ -25,6 +25,7 @@ import fs from "node:fs/promises";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
+import * as z from "zod/v4";
 import type { ZodType } from "zod/v4";
 
 import type {
@@ -171,6 +172,7 @@ import {
   taskenCorePublicError,
 } from "../../../shared/contracts/core/public.mjs";
 import { findCoreClient } from "./coreClientTokens.mjs";
+import { RequestStats } from "./requestStats.ts";
 
 const LOOPBACK_HOST = "127.0.0.1";
 // Token-free origin for read-only clients; the full token stays in discovery only.
@@ -183,6 +185,12 @@ const TASKEN_CORE_ENDPOINT_FILE = "tasken-core-endpoint.json";
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_NOTE_PROPOSAL_WITH_IMAGES_BODY_BYTES = 34 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 5_000;
+// 計測の置き場。本体のDBとは別のファイルにする理由はrequestStats.ts。
+const REQUEST_STATS_FILE = "request-stats.sqlite";
+const STATS_PATH = "/v1/stats";
+const STATS_RECORD_PATH = "/v1/stats/record";
+const STATS_DEFAULT_DAYS = 7;
+const STATS_MAX_DAYS = 366;
 
 export interface ListAgentReadyTasksProvider {
   execute(request: ListAgentReadyTasksRequest): ListAgentReadyTasksResponse;
@@ -263,8 +271,13 @@ interface EndpointDocument {
   started_at: string;
 }
 
+// 計測のために、jsonが書いたerror codeを応答に結びつけて覚えておく（応答の本文は読み直さない）。
+const responseErrorCodes = new WeakMap<ServerResponse, string>();
+
 function json(response: ServerResponse, status: number, body: unknown) {
   const encoded = JSON.stringify(body);
+  const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
+  if (typeof code === "string") responseErrorCodes.set(response, code);
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(encoded),
@@ -607,6 +620,47 @@ const ROUTES: readonly RouteDefinition[] = [
 
 const META_PATHS = new Set(["/health", "/version", "/capabilities"]);
 
+const STATS_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]);
+
+/**
+ * MCP側（stdio・HTTP）が送る計測の行。入口の名前と呼び手は決まった集合の形だけを受け、題名・本文・
+ * IDなどが紛れ込む余地を閉じる。1件でも外れたらまとめて断り、何も記録しない。
+ */
+const statsRowSchema = z.strictObject({
+  entry: z
+    .string()
+    .regex(
+      /^(tool (tasken\.[a-z][a-z0-9_]{0,63}|\{unknown\})|mcp-http (GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|OTHER) (\/mcp|\/api\/v1|\/api\/v1\/\{tool\}|\/api\/stats|\/health|\{unknown\}))$/,
+    ),
+  caller: z
+    .string()
+    .regex(
+      /^(anonymous|local|mcp:local\/[a-z0-9._-]{1,32}|mcp:[A-Za-z0-9_-]{1,64}|token:[A-Za-z0-9_-]{1,64})$/,
+    ),
+  status: z.number().int().min(100).max(599),
+  code: z.string().regex(/^([A-Z][A-Z0-9_]{0,47})?$/),
+  us: z.number().int().min(0).max(3_600_000_000),
+  bytes: z.number().int().min(0).max(1_000_000_000),
+});
+const statsRecordRequestSchema = z.strictObject({
+  rows: z.array(statsRowSchema).min(1).max(100),
+});
+
+function statsMethod(method: string | undefined) {
+  return method && STATS_METHODS.has(method) ? method : "OTHER";
+}
+
+/** `/v1/stats?days=N`のdays。省略は7、1〜366の整数以外は不正。 */
+function statsDays(searchParams: URLSearchParams): number {
+  const values = searchParams.getAll("days");
+  if (values.length === 0) return STATS_DEFAULT_DAYS;
+  const days = values.length === 1 && /^[0-9]{1,4}$/.test(values[0]) ? Number(values[0]) : 0;
+  if (days < 1 || days > STATS_MAX_DAYS) {
+    throw new RequestValidationError([{ path: ["days"], code: "invalid_value" }]);
+  }
+  return days;
+}
+
 function parseRouteRequest(route: RouteDefinition, body: unknown): unknown {
   const result = route.schema.safeParse(body);
   if (!result.success) throw new RequestValidationError(result.error.issues);
@@ -815,9 +869,14 @@ export class TaskenCoreHost {
   private routes = new Map<string, RouteDefinition>();
   private directWriteEnabled: (() => boolean) | null = null;
   private adminRoutes = new Map<string, AdminHandler>();
+  /** 入口ごとの計測。DBは最初に書く（または読む）ときまで開かない。MCPやMobile Gatewayもここへ送る。 */
+  readonly stats: RequestStats;
 
   constructor(options: TaskenCoreHostOptions) {
     this.options = options;
+    this.stats = new RequestStats({
+      filePath: path.join(options.userDataPath, REQUEST_STATS_FILE),
+    });
     this.discoveryPath = path.join(options.userDataPath, TASKEN_CORE_DISCOVERY_FILE);
     this.endpointPath = path.join(
       options.userDataPath,
@@ -942,6 +1001,7 @@ export class TaskenCoreHost {
 
   async stop() {
     await this.closeServer();
+    this.stats.close();
     await fs.rm(this.discoveryPath, { force: true });
     await fs.rm(this.endpointPath, { force: true });
   }
@@ -960,7 +1020,92 @@ export class TaskenCoreHost {
     });
   }
 
-  private async handle(request: IncomingMessage, response: ServerResponse) {
+  /**
+   * 入口の名前は、既知の経路（ROUTES・META_PATHS・管理用の口・/v1/stats）に完全一致したpathだけから作る。
+   * それ以外はqueryも含めて{unknown}にし、題名・検索語・IDが入口の名前に混ざらないようにする。
+   */
+  private statsEntry(request: IncomingMessage) {
+    const pathname = (request.url || "").split("?", 1)[0];
+    const known =
+      ROUTES.some((route) => route.path === pathname) ||
+      META_PATHS.has(pathname) ||
+      this.adminRoutes.has(pathname) ||
+      pathname === STATS_PATH;
+    return `core ${statsMethod(request.method)} ${known ? pathname : "{unknown}"}`;
+  }
+
+  private handle(request: IncomingMessage, response: ServerResponse) {
+    const startedAt = process.hrtime.bigint();
+    const context = { caller: "anonymous" };
+    response.once("finish", () => {
+      try {
+        // 計測の書き込み自体は記録しない（記録が記録を呼ぶのを避ける）。
+        if ((request.url || "").split("?", 1)[0] === STATS_RECORD_PATH) return;
+        const length = Number(response.getHeader("content-length"));
+        this.stats.record({
+          entry: this.statsEntry(request),
+          caller: context.caller,
+          status: response.statusCode,
+          code: responseErrorCodes.get(response)?.toUpperCase() ?? "",
+          us: Number((process.hrtime.bigint() - startedAt) / 1000n),
+          bytes: Number.isFinite(length) ? length : 0,
+        });
+      } catch {
+        // 計測の失敗で応答を変えない。
+      }
+    });
+    return this.dispatch(request, response, context);
+  }
+
+  /** `/v1/stats`（読む）と`/v1/stats/record`（MCPからの書き込み）。どちらもcapabilityには載せない。 */
+  private async handleStats(
+    request: IncomingMessage,
+    response: ServerResponse,
+    url: string,
+    pathname: string,
+    fullAccess: boolean,
+  ) {
+    const recording = pathname === STATS_RECORD_PATH;
+    const method = recording ? "POST" : "GET";
+    if (request.method !== method) {
+      response.setHeader("allow", method);
+      json(response, 405, errorResponse("METHOD_NOT_ALLOWED", "methodが許可されていません。"));
+      return;
+    }
+    if (!recording) {
+      const days = statsDays(new URL(url, `http://${LOOPBACK_HOST}`).searchParams);
+      json(response, 200, this.stats.read(days));
+      return;
+    }
+    if (!fullAccess) {
+      json(
+        response,
+        403,
+        errorResponse("READ_ONLY_CLIENT", "このclient tokenは読み取り専用です。"),
+      );
+      return;
+    }
+    if (
+      request.headers["content-type"]?.split(";", 1)[0].trim().toLowerCase() !== "application/json"
+    ) {
+      json(
+        response,
+        415,
+        errorResponse("UNSUPPORTED_MEDIA_TYPE", "application/jsonを指定してください。"),
+      );
+      return;
+    }
+    const parsed = statsRecordRequestSchema.safeParse(await requestBody(request));
+    if (!parsed.success) throw new RequestValidationError(parsed.error.issues);
+    for (const row of parsed.data.rows) this.stats.record(row);
+    json(response, 200, { recorded: parsed.data.rows.length });
+  }
+
+  private async dispatch(
+    request: IncomingMessage,
+    response: ServerResponse,
+    context: { caller: string },
+  ) {
     try {
       const authorization = request.headers.authorization;
       const fullAccess = bearerMatches(authorization, this.token);
@@ -974,7 +1119,13 @@ export class TaskenCoreHost {
         json(response, 401, errorResponse("UNAUTHORIZED", "認証できません。"));
         return;
       }
+      context.caller = fullAccess ? "local" : `token:${readClient?.name}`;
       const url = request.url || "";
+      const [pathname] = url.split("?", 1);
+      if (pathname === STATS_PATH || pathname === STATS_RECORD_PATH) {
+        await this.handleStats(request, response, url, pathname, fullAccess);
+        return;
+      }
       const adminHandler = this.adminRoutes.get(url);
       if (adminHandler) {
         if (!fullAccess) {
