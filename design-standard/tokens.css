@@ -25,7 +25,7 @@
 
   /* ---- Text ---- */
   --color-text:              #26201E; /* 本文・見出し */
-  --color-text-secondary:    #7C746E; /* 補足・ラベル */
+  --color-text-secondary:    #6B645C; /* 補足・ラベル。背景（--color-bg）の上で 4.6、白の上で 5.8 */
   --color-text-tertiary:     #A89F99; /* ヒント・プレースホルダ */
 
   /* ---- Borders ---- */
