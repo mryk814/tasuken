@@ -230,6 +230,7 @@ export function TodoPage({
     };
   }, [visibleTaskCount]);
   // 完了の線（#738）。完了にした行は、線を引き終わるまで元の位置に残してから一覧を外す。
+  // 残している間は空の表示を出さず、行の丸は押せない。
   const taskRowById = useMemo(() => new Map(taskRows.map((row) => [row.task.id, row])), [taskRows]);
   const strikes = useFreshCompletions((id) => taskRowById.get(id)?.task.state === "done");
   const renderedRows = useLingeringRows(
@@ -520,8 +521,10 @@ export function TodoPage({
         />
         <span className="todo-theme-bar" />
         <button
-          className={`todo-check-circle ${done ? "is-done" : ""}`}
-          disabled={requiresHumanAcceptance}
+          className={`todo-check-circle ${done ? "is-done" : ""}${striking ? " is-striking" : ""}`}
+          // 線を引いて行を残している間は押せない（繰り返しのTaskを二重に作らない。#738）。
+          disabled={requiresHumanAcceptance || striking}
+          aria-disabled={requiresHumanAcceptance || striking}
           onClick={(event) => {
             event.stopPropagation();
             toggleTask(task);
@@ -928,7 +931,7 @@ export function TodoPage({
             ))}
           </div>
         )}
-        {layout === "list" && !visible.length && (
+        {layout === "list" && !renderedRows.length && (
           <EmptyState
             title="該当するタスクはありません"
             action="タスクを追加"

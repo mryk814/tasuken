@@ -242,7 +242,8 @@ function TaskSectionBoard({
 
 /**
  * 未完了のTaskの一覧。完了にしたTaskは一覧から外れるので、題名に線（#738）を
- * 引き終わるまで行を元の位置に残す。残っている間に押せば、完了を取り消せる。
+ * 引き終わるまで行を元の位置に残す。残している間、行の丸は押せない
+ *（繰り返しのTaskを二重に作らない）。
  */
 function ThemeOpenTaskList({
   tasks,
@@ -286,6 +287,8 @@ function ThemeOpenTaskList({
             <button
               className="theme-task-check"
               aria-pressed={done}
+              disabled={striking}
+              aria-disabled={striking}
               aria-label={done ? `${task.title}を未完了に戻す` : `${task.title}を完了にする`}
               title={done ? "未完了に戻す" : "完了にする"}
               onClick={() => void completeTask(task)}

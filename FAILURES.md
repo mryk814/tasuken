@@ -12,6 +12,15 @@
 - 直した後の3回目で、`agent-session-hook-collector.test.mjs` の「an abandoned lock owner is recovered before the next hook event」が `OBSERVATION_LOCK_TIMEOUT`（10.2 秒）で落ちた。原因: 排他はフォルダー（中に owner.json）で、解放はフォルダーの名前を変えて行う。Windows では書いたばかりの owner.json を誰か（ウイルス対策など）が開いている間、名前の変更が EPERM で断られる（同じ形を一時の場所で再現すると、PC が重い時に 40 回中 11〜18 回）。解放はそこで諦めて例外を握りつぶすので、排他は生きている持ち主（同じプロセス）のまま残り、次の記録は PID でも期限（35 秒）でも回収できず、待ちの上限（10 秒）で落ちる。本番でも、同じプロセスで記録を続ける時に起きる形。直し方: 解放の名前の変更を、EPERM・EACCES・EBUSY の間は最大 3 秒まで短く待ってやり直す（`renameWhenUnlocked`）。再発防止: `fs.rename` を2回だけ EPERM にする試験を足した（直す前は同じ 10 秒の timeout で落ち、直した後は通る）。
 - 別に一度だけ: 修正前の3回目で `finish-ia.test.mjs` のファイルのプロセスが、試験を一つも報告せずに 0.5 秒で exit 1 になった。出力は無く、単独では5回とも通った。原因は不明（Electron の子が始まる前に終わった形）。記録だけ。
 
+## 2026-11-14 題名を span で包んだら、Today の題名が 11px・補足の色になった（#738）
+
+- しようとしたこと: 完了の線のために、Task の題名を `StruckTitle`（`span.pen-strike-host` > `span.pen-strike-text`）で包んだ。
+- 起きたこと: Today の題名が、完了かどうかに関係なく 14px → 11px、文字色が補足の色になった。host に `overflow: hidden` も付き、線の抜きが切れた。試験・typecheck は通り、撮った絵でも見落とした（レビューで見つかった）。
+- 原因: 既存の `.today-task-title span`（補足の行のための子孫セレクタ）が、題名の中に足した span にも当たり、詳細度で勝った。
+- 直し方: `.today-task-title span:where(:not(.pen-strike-host, .pen-strike-text))` に絞った（`:where` で詳細度は元のまま）。
+- 再発防止: セレクタの上のコメントに書いた。既存の要素の中に span や div を足したら、絵を見るだけでなく `getComputedStyle` で font-size と color を足す前の要素（親）と比べる。
+- 同じレビューで: 一覧に残している行の丸を押すと完了を取り消せ、繰り返しの Task では次の回が残ったまま元が未完了に戻って二件になった。残している間は丸を押せなくし、`tests/pen-strike.test.mjs` で確かめる。
+
 ## 2026-11-14 `npm run ci` の最後の Electron smoke が `markdownImageRendered:false` で落ちた
 
 - しようとしたこと: #733（入口ごとの計測）の merge 前に `npm run ci` を流す。同じ時に別のエージェントがコードを読んでいて、PC は重かった。

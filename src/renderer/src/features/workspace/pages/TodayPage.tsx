@@ -224,13 +224,15 @@ function TodayRows({
           >
             <span className="todo-theme-bar" />
             <button
-              className={`todo-check-circle ${done ? "is-done" : ""}${pending ? " is-pending" : ""}`}
+              className={`todo-check-circle ${done ? "is-done" : ""}${pending ? " is-pending" : ""}${striking ? " is-striking" : ""}`}
               aria-label={`${row.title}を完了`}
               onClick={(event) => {
                 event.stopPropagation();
                 onToggleComplete(row);
               }}
-              disabled={!canComplete(row)}
+              // 線を引いて行を残している間は押せない（繰り返しのTaskを二重に作らない。#738）。
+              disabled={!canComplete(row) || striking}
+              aria-disabled={!canComplete(row) || striking}
             >
               {done && <IconCheck size={13} stroke={2.4} />}
             </button>
@@ -554,7 +556,9 @@ function ExecutionWindowTaskRows({
           >
             <span className="todo-theme-bar" />
             <button
-              className={`todo-check-circle${done ? " is-done" : ""}${pending ? " is-pending" : ""}`}
+              className={`todo-check-circle${done ? " is-done" : ""}${pending ? " is-pending" : ""}${striking ? " is-striking" : ""}`}
+              disabled={striking}
+              aria-disabled={striking}
               aria-label={done ? `${row.task.title}を未完了に戻す` : `${row.task.title}を完了`}
               onClick={(event) => {
                 event.stopPropagation();
@@ -642,7 +646,9 @@ function OngoingPeriodTaskRows({
           >
             <span className="todo-theme-bar" />
             <button
-              className={`todo-check-circle${done ? " is-done" : ""}${pending ? " is-pending" : ""}`}
+              className={`todo-check-circle${done ? " is-done" : ""}${pending ? " is-pending" : ""}${striking ? " is-striking" : ""}`}
+              disabled={striking}
+              aria-disabled={striking}
               aria-label={done ? `${row.task.title}を未完了に戻す` : `${row.task.title}を完了`}
               onClick={(event) => {
                 event.stopPropagation();
@@ -976,7 +982,9 @@ export function TodayPage({
 
   /*
    * 完了の線（#738）。完了にしたTaskは一覧から外れるので、線を引き終わるまで行を元の位置に残す。
-   * 残す行は今のデータのTaskに写し直す（残っている間に押せば、完了を取り消せる）。
+   * 残す行は今のデータのTaskに写し直し、完了の表示にする。残している間、行の丸は押せない
+   * （繰り返しのTaskは完了で次の回ができるので、ここで戻すと未完了が二件になる）。
+   * 取り消しはToDoの完了の一覧から行う。
    */
   const taskById = useMemo(() => new Map(v2.tasks.map((task) => [task.id, task])), [v2.tasks]);
   const strikes = useFreshCompletions((id) => taskById.get(id)?.state === "done");

@@ -118,3 +118,21 @@ test("残す行は今のデータに写し直し、無くなった Task と線�
   assert.equal(mergeLingeringRows(rows, previous, idOf, new Set(), same), rows);
   assert.equal(mergeLingeringRows(rows, previous, idOf, new Set(["a"]), same), rows);
 });
+
+/*
+ * 残している行（線を引き終わるまで一覧に残す行）の丸は押せない。
+ * 繰り返しの Task は完了で次の回ができるので、ここで未完了へ戻せると同じ繰り返しの未完了が二件になる。
+ * 画面を起こさずに確かめるため、丸の disabled に striking が入っていることをソースで見る。
+ */
+test("残している行の丸は押せない（繰り返しの Task を二重に作らない）", async () => {
+  const { readFileSync } = await import("node:fs");
+  const pages = "src/renderer/src/features/workspace/pages";
+  const disabledByStriking = (file) =>
+    readFileSync(`${pages}/${file}`, "utf8").match(
+      /\n\s+disabled=\{[^}\n]*\bstriking\}\n\s+aria-disabled=\{[^}\n]*\bstriking\}/g,
+    ) || [];
+  // ToDo の行、Today の「今日やること」「期間内に対応」「継続中」、Theme の未完了。
+  assert.equal(disabledByStriking("TodoPage.tsx").length, 1);
+  assert.equal(disabledByStriking("TodayPage.tsx").length, 3);
+  assert.equal(disabledByStriking("ThemePage.tsx").length, 1);
+});

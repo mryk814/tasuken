@@ -2833,7 +2833,9 @@ textarea:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.today-task-title span {
+/* 題名の下の補足の行。題名（strong）の中の完了の線（#738）の span には当てない。
+   :where で詳細度を元のまま保つ（補足の行の中のバッジなどの見え方を変えない）。 */
+.today-task-title span:where(:not(.pen-strike-host, .pen-strike-text)) {
   overflow: hidden;
   color: var(--color-text-secondary);
   font-size: var(--text-xs);
@@ -9868,6 +9870,20 @@ kbd {
   border-color: var(--color-border-strong);
   color: transparent;
 }
+/* 完了の線（#738）を引いて行を残している間は押せない。使えない丸には見せず、
+   押した結果（保存中・完了）の表示をそのまま保つ。 */
+.todo-check-circle.is-striking:disabled,
+.todo-check-circle.is-striking:disabled:hover {
+  cursor: default;
+  opacity: 1;
+}
+.todo-check-circle.is-striking:disabled:hover {
+  border-color: var(--color-success);
+}
+.todo-check-circle.is-striking.is-done:disabled:hover {
+  background: var(--color-success);
+  color: #fff;
+}
 .row-title.is-done {
   color: var(--color-text-tertiary);
 }
@@ -9888,11 +9904,11 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  /* 題名は、線が通り過ぎてから薄くなる。 */
-  transition: color calc(var(--duration-base) * 1.5) var(--ease) calc(var(--duration-base) * 1.5);
 }
 .pen-strike-host.is-struck .pen-strike-text {
   color: var(--color-text-tertiary);
+  /* 題名は、線が通り過ぎてから薄くなる。線の無い題名の色（ホバーなど）は遅らせない。 */
+  transition: color calc(var(--duration-base) * 1.5) var(--ease) calc(var(--duration-base) * 1.5);
 }
 .row-title:hover .pen-strike-host.is-struck .pen-strike-text {
   color: inherit;
@@ -16389,6 +16405,9 @@ kbd {
   background: var(--color-accent-subtle-bg);
 }
 /* 完了にした直後、線（#738）を引き終わるまで残っている行。 */
+.theme-task-check:disabled {
+  cursor: default;
+}
 .theme-task-check[aria-pressed="true"] {
   border-color: var(--color-success);
   background: var(--color-success);
