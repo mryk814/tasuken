@@ -320,7 +320,7 @@ test("配布版のbridgeは、Coreに繋がらないときTasken.exeの場所を
     assert.ok(error.next_action.includes(executable), error.next_action);
   } finally {
     await client?.close();
-    fs.rmSync(install, { recursive: true, force: true });
-    fs.rmSync(userData, { recursive: true, force: true });
+    fs.rmSync(install, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(userData, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

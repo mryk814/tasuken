@@ -11,6 +11,7 @@
 - 再発防止: `tests/helpers/childProcessNode.mjs` の `nodeExecPath` を使う。`tests/test-child-process-node.test.mjs` が、`// electron-abi: <理由>` の印の無い `process.execPath` を `ファイル:行` で名指しして落とす。
 - 直した後の3回目で、`agent-session-hook-collector.test.mjs` の「an abandoned lock owner is recovered before the next hook event」が `OBSERVATION_LOCK_TIMEOUT`（10.2 秒）で落ちた。原因: 排他はフォルダー（中に owner.json）で、解放はフォルダーの名前を変えて行う。Windows では書いたばかりの owner.json を誰か（ウイルス対策など）が開いている間、名前の変更が EPERM で断られる（同じ形を一時の場所で再現すると、PC が重い時に 40 回中 11〜18 回）。解放はそこで諦めて例外を握りつぶすので、排他は生きている持ち主（同じプロセス）のまま残り、次の記録は PID でも期限（35 秒）でも回収できず、待ちの上限（10 秒）で落ちる。本番でも、同じプロセスで記録を続ける時に起きる形。直し方: 解放の名前の変更を、EPERM・EACCES・EBUSY の間は最大 3 秒まで短く待ってやり直す（`renameWhenUnlocked`）。再発防止: `fs.rename` を2回だけ EPERM にする試験を足した（直す前は同じ 10 秒の timeout で落ち、直した後は通る）。
 - 別に一度だけ: 修正前の3回目で `finish-ia.test.mjs` のファイルのプロセスが、試験を一つも報告せずに 0.5 秒で exit 1 になった。出力は無く、単独では5回とも通った。原因は不明（Electron の子が始まる前に終わった形）。記録だけ。
+- 追記（同じ日、#738 の `npm run ci`）: `mcp-runtime.test.mjs` の「配布版のbridgeは…」が、後片付けの `rmSync` で `ENOTEMPTY` になった（このとき同じ PC で Android の build とエミュレータを動かしていた）。MCP の子プロセスを閉じた直後に、子がまだ使っているフォルダーを消していた。子を閉じた直後に消している 5 か所の `rmSync` に `maxRetries: 10, retryDelay: 100` を付け、放されるまでやり直す形にした。
 
 ## 2026-11-14 題名を span で包んだら、Today の題名が 11px・補足の色になった（#738）
 

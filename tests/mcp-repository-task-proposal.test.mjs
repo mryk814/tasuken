@@ -299,6 +299,6 @@ test("actual MCP stdio hides removed tools and queues kept proposals without fil
     await client.close();
     await host.stop();
     database.db.close();
-    fs.rmSync(userDataPath, { recursive: true, force: true });
+    fs.rmSync(userDataPath, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

@@ -914,6 +914,6 @@ test("propose_feed_post carries an article image and one media entry through std
     await client.close();
     await host.stop();
     database.db.close();
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

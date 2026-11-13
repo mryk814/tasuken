@@ -182,6 +182,6 @@ test("canonical MCP launcher fails closed for migrated reads without Core and ex
     assert.equal(fs.existsSync(inboxPath), false);
   } finally {
     await client.close();
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

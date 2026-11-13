@@ -89,7 +89,7 @@ test("actual MCP proposal emits one post-commit Desktop delta and duplicate retr
     await client.close();
     await host.stop();
     database.db.close();
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
