@@ -9,7 +9,8 @@
 - 原因: 試験は Electron を node として動かすので、試験の中で `process.execPath` で起こす子も electron.exe になる。Electron 45 の node 形は仮想アドレスを約 3.5 TB 予約する（素の node は約 5 GB）。PC が忙しいと、子はスクリプトを終えた後、プロセスが消えるまでに 5〜24 秒かかった（出力までは 0.1〜0.3 秒。`process.kill(SIGKILL)` でも同じなので OS 側の破棄を待っている）。同じ時に素の node は中央値 0.12 秒。落ちた時刻に CPU を使っていたのはほかのセッションで、試験の子はほとんど CPU を使わず待っていた。試験どうしが同じファイルや一時の場所を取り合った跡は無かった。
 - 直し方: Electron の ABI（better-sqlite3）も Electron の API も要らない子は、素の node（`TASKEN_NODE_EXEC_PATH`）で起こす。調べた 23 ファイルは全部要らなかった。時間の上限は延ばしていない。
 - 再発防止: `tests/helpers/childProcessNode.mjs` の `nodeExecPath` を使う。`tests/test-child-process-node.test.mjs` が、`// electron-abi: <理由>` の印の無い `process.execPath` を `ファイル:行` で名指しして落とす。
-- 別に一度だけ: 3回目で `finish-ia.test.mjs` のファイルのプロセスが、試験を一つも報告せずに 0.5 秒で exit 1 になった。出力は無く、単独では5回とも通った。原因は不明（Electron の子が始まる前に終わった形）。記録だけ。
+- 直した後の3回目で、`agent-session-hook-collector.test.mjs` の「an abandoned lock owner is recovered before the next hook event」が `OBSERVATION_LOCK_TIMEOUT`（10.2 秒）で落ちた。原因: 排他はフォルダー（中に owner.json）で、解放はフォルダーの名前を変えて行う。Windows では書いたばかりの owner.json を誰か（ウイルス対策など）が開いている間、名前の変更が EPERM で断られる（同じ形を一時の場所で再現すると、PC が重い時に 40 回中 11〜18 回）。解放はそこで諦めて例外を握りつぶすので、排他は生きている持ち主（同じプロセス）のまま残り、次の記録は PID でも期限（35 秒）でも回収できず、待ちの上限（10 秒）で落ちる。本番でも、同じプロセスで記録を続ける時に起きる形。直し方: 解放の名前の変更を、EPERM・EACCES・EBUSY の間は最大 3 秒まで短く待ってやり直す（`renameWhenUnlocked`）。再発防止: `fs.rename` を2回だけ EPERM にする試験を足した（直す前は同じ 10 秒の timeout で落ち、直した後は通る）。
+- 別に一度だけ: 修正前の3回目で `finish-ia.test.mjs` のファイルのプロセスが、試験を一つも報告せずに 0.5 秒で exit 1 になった。出力は無く、単独では5回とも通った。原因は不明（Electron の子が始まる前に終わった形）。記録だけ。
 
 ## 2026-11-14 `npm run ci` の最後の Electron smoke が `markdownImageRendered:false` で落ちた
 
@@ -59,6 +60,7 @@
 - 直し方: 単独で流し直して通ることを確かめた。
 - 再発防止: 記録だけ。もう一度起きたら、試験の排他待ちの上限を見直す。
 - 追記（2026-11-12）: #724 の GitHub の Windows の CI で、同じファイルの「Stop racing SessionEnd keeps the latest outcome in the terminal observation」が同じ `OBSERVATION_LOCK_TIMEOUT` で落ちた（3.2 秒）。待ちの上限は 10ms×200 回（約 2 秒）で、重いと待ちきれない。本番でも Hook が重なると出来事の記録を落とす形なので、試験ではなく本体の上限を時間で決めて 10 秒にした（`agentSessionHookCollector.mjs` の `LOCK_WAIT_MS`）。
+- 追記（2026-11-14）: 10 秒でも落ちた。待ちの長さではなく、解放の名前の変更が一時的な EPERM で失敗して排他が残るのが原因だった（2026-11-14 の #735 の記録）。解放をやり直す形にした。
 
 ## 2026-11-08 手順書のツール名を確かめる試験が、何も確かめずに通っていた
 
