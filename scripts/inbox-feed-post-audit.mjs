@@ -95,7 +95,7 @@ function inboxCard(page, row) {
 
 async function assertFeedPost(page, row, screenshot) {
   await page.locator(".toast", { hasText: "に投稿しました" }).first().waitFor();
-  await waitForActiveRoute(page, "Feed");
+  await waitForActiveRoute(page, "近況");
   const posted = page.locator(".feed-post", { hasText: row.text }).first();
   if ((await posted.count()) !== 1) {
     failures.push(`投稿した記録「${row.title}」がFeedの投稿列にありません。`);

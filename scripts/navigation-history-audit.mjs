@@ -107,31 +107,31 @@ async function travel(page, direction, label, expectedBackLabel, expectedForward
 try {
   const { app, page } = await launchApp();
   try {
-    if ((await activeRouteLabel(page)) !== "Today") {
+    if ((await activeRouteLabel(page)) !== "今日") {
       failures.push(`初期表示がTodayではありません（${await activeRouteLabel(page)}）。`);
     }
     if (await backButton(page).isEnabled()) failures.push("初期表示で戻るが押せてしまいます。");
     if (await forwardButton(page).isEnabled()) failures.push("初期表示で進むが押せてしまいます。");
     await page.screenshot({ path: `${OUT_DIR}/initial.png` });
 
-    await goToRoute(page, "Feed", "前の画面に戻る（Today）");
-    await goToRoute(page, "Notes", "前の画面に戻る（Feed）");
+    await goToRoute(page, "近況", "前の画面に戻る（今日）");
+    await goToRoute(page, "ノート", "前の画面に戻る（近況）");
     if (!(await backButton(page).isEnabled())) failures.push("移動後に戻るが押せません。");
     if (await forwardButton(page).isEnabled()) failures.push("移動直後なのに進むが押せます。");
 
-    await travel(page, "back", "Feed", "前の画面に戻る（Today）", true);
+    await travel(page, "back", "近況", "前の画面に戻る（今日）", true);
     if (!(await forwardButton(page).isEnabled())) failures.push("戻った後に進むが押せません。");
     await page.screenshot({ path: `${OUT_DIR}/after-back.png` });
 
-    await travel(page, "forward", "Notes", "前の画面に戻る（Feed）");
+    await travel(page, "forward", "ノート", "前の画面に戻る（近況）");
     await page.screenshot({ path: `${OUT_DIR}/after-forward.png` });
 
     // 戻ってから別の画面へ進むと、進む側の履歴は消える。
-    await travel(page, "back", "Feed", "前の画面に戻る（Today）", true);
-    await goToRoute(page, "ToDo", "前の画面に戻る（Feed）");
+    await travel(page, "back", "近況", "前の画面に戻る（今日）", true);
+    await goToRoute(page, "やること", "前の画面に戻る（近況）");
     if (await forwardButton(page).isEnabled()) failures.push("分岐後も進むが残っています。");
     const actualBackLabel = await backButton(page).getAttribute("aria-label");
-    if (actualBackLabel !== "前の画面に戻る（Feed）") {
+    if (actualBackLabel !== "前の画面に戻る（近況）") {
       failures.push(`戻る先の画面名が表示されていません（${actualBackLabel}）。`);
     }
     await page.screenshot({ path: `${OUT_DIR}/after-branch.png` });

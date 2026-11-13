@@ -9,35 +9,35 @@ import path from "node:path";
 const outputDirectory = process.argv[2] || "output/playwright/materials-demo";
 const routes = [
   {
-    label: "Today",
+    label: "今日",
     expected: ["実験室安全点検チェックシートを提出", "予測区間のcoverage低下を調べる", "継続中"],
   },
-  { label: "ToDo", expected: ["候補バッチ #2を合成・焼成", "強度・導電率のPareto frontを再計算"] },
+  { label: "やること", expected: ["候補バッチ #2を合成・焼成", "強度・導電率のPareto frontを再計算"] },
   { label: "Inbox", expected: ["炉位置の交絡？", "Alレビュー資料の単位", "XRD装置メモ"] },
   {
-    label: "Timeline",
+    label: "工程表",
     expected: ["2026年度 LLZO探索サイクル", "Active learning cycle 2", "研究会 中間報告"],
   },
   {
-    label: "Themes",
-    navLabel: "All Themes",
+    label: "すべてのテーマ",
+    navLabel: "すべてのテーマ",
     expected: ["Ta置換LLZO 固体電解質探索", "再生Al-Mg-Si 熱処理最適化", "個人業務"],
   },
-  { label: "Notes", expected: ["GP-EI v4 モデル診断", "候補バッチ #2 実験計画"] },
+  { label: "ノート", expected: ["GP-EI v4 モデル診断", "候補バッチ #2 実験計画"] },
   {
-    label: "Knowledge",
+    label: "棚卸し",
     expected: [
       "L2407-Bの予測ずれは原料差か炉位置差か？",
       "ロットを跨ぐとGPの不確かさが過小評価される",
     ],
   },
-  { label: "Sketch", expected: ["ベイズ最適化の実験ループ", "LLZO焼結プロセスと記録ポイント"] },
-  { label: "Chat Refs", expected: ["XRD相ラベルの判定基準レビュー", "LLZO / data curation"] },
+  { label: "手書き", expected: ["ベイズ最適化の実験ループ", "LLZO焼結プロセスと記録ポイント"] },
+  { label: "会話録", expected: ["XRD相ラベルの判定基準レビュー", "LLZO / data curation"] },
   {
-    label: "Artifacts",
+    label: "添付",
     expected: ["screening-results.csv", "candidate-batch.json", "al-lot-ledger.xlsx"],
   },
-  { label: "Agent Desk", expected: [] },
+  { label: "任せた仕事", expected: [] },
 ];
 
 fs.mkdirSync(outputDirectory, { recursive: true });
@@ -72,13 +72,13 @@ const hasUpdatedExperiment = await page.evaluate(async () =>
 );
 if (hasUpdatedExperiment) {
   routes
-    .find((route) => route.label === "Today")
+    .find((route) => route.label === "今日")
     ?.expected.push("候補バッチ 2026-08-08 の焼成後密度を測定");
   routes
-    .find((route) => route.label === "ToDo")
+    .find((route) => route.label === "やること")
     ?.expected.push("候補バッチ 2026-08-08 の焼成後密度を測定");
   routes.find((route) => route.label === "Inbox")?.expected.push("候補2 ペレット表面");
-  routes.find((route) => route.label === "Notes")?.expected.push("候補バッチ 2026-08-08 実験ログ");
+  routes.find((route) => route.label === "ノート")?.expected.push("候補バッチ 2026-08-08 実験ログ");
 }
 const expectedCounts = {
   theme: 3,
@@ -111,8 +111,8 @@ for (const route of routes) {
     continue;
   }
   await button.click();
-  await page.waitForTimeout(["Inbox", "Notes", "Knowledge"].includes(route.label) ? 1800 : 950);
-  if (route.label === "Notes") {
+  await page.waitForTimeout(["Inbox", "ノート", "棚卸し"].includes(route.label) ? 1800 : 950);
+  if (route.label === "ノート") {
     const allFilter = page.getByRole("button", { name: "すべて", exact: true }).first();
     await allFilter.click();
     await page.waitForTimeout(700);
@@ -130,7 +130,7 @@ for (const route of routes) {
     path: path.join(outputDirectory, `${route.label.toLowerCase().replaceAll(" ", "-")}.png`),
     fullPage: false,
   });
-  if (route.label === "Notes") {
+  if (route.label === "ノート") {
     const reportFilter = page.getByRole("button", { name: "Report", exact: true });
     await reportFilter.click();
     await page.waitForTimeout(700);

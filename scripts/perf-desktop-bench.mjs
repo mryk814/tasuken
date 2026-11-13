@@ -216,7 +216,7 @@ try {
 
   // 保存と待機は普段の画面で測る。開いている画面によって保存後の再計算が変わる
   // （KnowledgeはData Healthを取り直す）ため、--save-page で選べるようにする。
-  const savePage = argument("--save-page", "Today");
+  const savePage = argument("--save-page", "今日");
   await page.locator(`.sidebar .primary-nav button[aria-label="${savePage}"]`).click();
   await page.waitForTimeout(1000);
   await takeMainLags();

@@ -35,7 +35,7 @@ async function launch() {
     window.setContentSize(1760, 1024);
   });
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.getByText("Debrief", { exact: true }).first().click();
+  await page.getByText("日誌", { exact: true }).first().click();
   await page.getByText("AI の週次振り返り・ログ取り込み", { exact: true }).click();
   await page.getByRole("region", { name: "AI作業ログ", exact: true }).waitFor();
 }
@@ -129,7 +129,7 @@ try {
   });
   await panel().getByLabel("表示日").fill("2026-10-03");
   await page.reload();
-  await page.getByText("Debrief", { exact: true }).first().click();
+  await page.getByText("日誌", { exact: true }).first().click();
   await page.getByText("AI の週次振り返り・ログ取り込み", { exact: true }).click();
   await panel().getByLabel("表示日").fill("2026-10-03");
   await panel().getByRole("button", { name: "週", exact: true }).click();

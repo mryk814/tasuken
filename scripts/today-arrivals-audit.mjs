@@ -117,7 +117,7 @@ async function runMainPhase() {
     await page.screenshot({ path: `${OUT_DIR}/today-arrivals-before-feed.png`, fullPage: true });
 
     // --- ToDoのAI委任状態 ---
-    await nav(page, "ToDo").click();
+    await nav(page, "やること").click();
     await page.waitForTimeout(1200);
     if (!(await page.locator(".todo-table").count())) {
       throw new Error("ToDoの一覧が表示されていません。");
@@ -187,7 +187,7 @@ async function runMainPhase() {
     }
 
     // --- AIからの質問はFeedのホームに投稿として出る（対応待ちタブは2026-10-06に廃止） ---
-    await nav(page, "Feed").click();
+    await nav(page, "近況").click();
     await page.waitForTimeout(2500);
     if (!(await page.locator(".page.feed-page").count())) {
       throw new Error("Feedが表示されていません。");
@@ -223,7 +223,7 @@ async function runMainPhase() {
       return found;
     });
     if (overflowing.length) failures.push(`狭幅で横あふれ: ${overflowing.join(", ")}`);
-    await nav(page, "ToDo").click();
+    await nav(page, "やること").click();
     await page.waitForTimeout(900);
     const todoOverflowing = await page.evaluate(() => {
       const found = [];

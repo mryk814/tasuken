@@ -30,7 +30,7 @@ const SIZES = [
 const ZOOM_STORAGE_KEY = "tasken:shell:zoom-factor:v1";
 /** 隔離workspaceに入れるThemeと、その中身（`scripts/seed-theme-audit-workspace.mjs`）。 */
 const THEME_NAME = "高分子材料評価";
-const TAB_LABELS = ["概要", "タスク", "投稿", "Notes"];
+const TAB_LABELS = ["概要", "タスク", "投稿", "ノート"];
 const SEEDED_STATUS_SUMMARY = "25℃の比較が終わり、次は40℃の条件を決める段階です。";
 const SEEDED_TASK_TITLE = "40℃の比較条件を決める";
 const SEEDED_REPORT_TITLE = "週報（高分子材料評価）";
@@ -311,7 +311,7 @@ async function auditPosts(page) {
 
 /** 5. Notesの面。報告書と最近のNote、Artifactへ一度で届く。 */
 async function auditNotes(page) {
-  if ((await selectedTab(page)) !== "Notes") {
+  if ((await selectedTab(page)) !== "ノート") {
     failures.push(`Notesの面が選ばれていません（${await selectedTab(page)}）。`);
   }
   if (!(await visibleText(page, ".report-section h2", "報告書・重要文書"))) {
@@ -350,7 +350,7 @@ async function auditTabRestore(page) {
   for (const [label, heading] of [
     ["概要", "現在地"],
     ["投稿", "投稿"],
-    ["Notes", "報告書・重要文書"],
+    ["ノート", "報告書・重要文書"],
   ]) {
     await selectTab(page, label);
     if (!(await visibleText(page, ".theme-tab-panel h2", heading))) {
@@ -393,7 +393,7 @@ try {
     await auditTasks(session.page);
     await selectTab(session.page, "投稿");
     await auditPosts(session.page);
-    await selectTab(session.page, "Notes");
+    await selectTab(session.page, "ノート");
     await auditNotes(session.page);
     await auditTabRestore(session.page);
     await auditWidths(session.app, session.page);

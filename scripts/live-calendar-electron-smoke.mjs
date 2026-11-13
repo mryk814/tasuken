@@ -69,7 +69,7 @@ async function openNavigation(page, label) {
 
 /** Settingsは節ごとに表示を切り替える。カレンダー連携はIntegrationsにある。 */
 async function openIntegrationsSection(page) {
-  await openNavigation(page, "Settings");
+  await openNavigation(page, "設定");
   await page.locator("button", { hasText: "Integrations" }).first().click();
   await page.locator(".calendar-settings-panel").waitFor({ state: "visible", timeout: 20_000 });
 }
@@ -130,7 +130,7 @@ try {
       if (line.includes("TASKEN_CALENDAR_OAUTH_FAILED")) console.log(`[診断] ${line.trim()}`);
     }
   });
-  await page.getByText("Today", { exact: true }).first().waitFor();
+  await page.getByText("今日", { exact: true }).first().waitFor();
 
   // 1. 未接続ではTodayに予定欄を出さず、Settingsだけを入口にする。
   const todayHasSection = await page.locator(".today-calendar-section").count();
@@ -153,7 +153,7 @@ try {
   await page.screenshot({ path: `${OUT_DIR}/02-connected.png` });
 
   // 3. Todayで当日の予定を取得する。0件でも失敗と混同しない。
-  await openNavigation(page, "Today");
+  await openNavigation(page, "今日");
   await page.locator(".today-calendar-section").waitFor({ timeout: 30_000 });
   await page.waitForFunction(
     () =>
@@ -210,7 +210,7 @@ try {
 
   // 5. Debriefの時間軸に同じ予定が出る（終日は専用行、Taskのcheckboxは付けない）。
   // ActivityLogPanelはDebrief面が持つ（旧「Activity」表記は現行のlabelへ追従・#273）。
-  await openNavigation(page, "Debrief");
+  await openNavigation(page, "日誌");
   await page.locator(".activity-calendar").first().waitFor({ timeout: 20_000 });
   await page.waitForTimeout(1_200);
   const activityEvents = await page.locator(".activity-calendar-event.is-calendar").count();
@@ -228,7 +228,7 @@ try {
   const afterDisconnect = await page.locator(".calendar-settings-panel").innerText();
   if (!afterDisconnect.includes("未接続")) failures.push("接続解除後に未接続へ戻っていません。");
   else record("接続解除", "未接続へ戻る");
-  await openNavigation(page, "Today");
+  await openNavigation(page, "今日");
   if ((await page.locator(".today-calendar-section").count()) !== 0) {
     failures.push("接続解除後もTodayに予定欄が残っています。");
   } else {

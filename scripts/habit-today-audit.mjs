@@ -1,7 +1,7 @@
 /**
  * Habitの最小実験（#454後半 / O単位）の実画面監査。
  *
- * 隔離した一時userDataでビルド済みアプリを起動し、Habitの追加（Settings）→ Todayでの記録 →
+ * 隔離した一時userDataでビルド済みアプリを起動し、Habitの追加（設定）→ Todayでの記録 →
  * 取消 → もう1回記録 → 履歴からの実施日修正 → 一時停止と再開 → 削除と元に戻す →
  * 再起動後の保持までを実測する。Habitが無いときにTodayへ空の案内を常設しないことも確認する。
  *
@@ -162,7 +162,7 @@ await withApp(async (page) => {
     failures.push(`同じ日の2回目が別記録になっていません（${twice}）。`);
   }
 
-  // 7. 履歴（Settings）から実施日を直すと、今週の数が変わる（記録は増えない）。
+  // 7. 履歴（設定）から実施日を直すと、今週の数が変わる（記録は増えない）。
   await openHabitSettings(page);
   const panel = habitPanel(page);
   await panel.locator("button", { hasText: "履歴" }).first().click();

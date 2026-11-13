@@ -17,7 +17,7 @@ try {
     env,
   });
   const page = await app.firstWindow();
-  await page.getByText("Today", { exact: true }).first().waitFor();
+  await page.getByText("今日", { exact: true }).first().waitFor();
   // 本人が設定画面で許すのと同じ値を、一時DBに入れる（AI & Context の切り替え）。
   await page.evaluate(() => window.api.preferences.set("aiDirectWriteEnabled", true));
   const core = new TaskenCoreClient({ env });
@@ -33,7 +33,7 @@ try {
   });
   const task = await core.createAiItem(request("task"));
   const note = await core.createAiItem(request("note"));
-  await page.getByText("ToDo", { exact: true }).first().click();
+  await page.getByText("やること", { exact: true }).first().click();
   const taskRow = page.locator(".table-row", { hasText: task.entity.title }).first();
   await taskRow.waitFor();
   assert.equal(
@@ -59,7 +59,7 @@ try {
   await page.keyboard.press("Escape");
   assert.equal(await page.locator(".drawer").count(), 1);
   await page.keyboard.press("Escape");
-  await page.getByText("Notes", { exact: true }).first().click();
+  await page.getByText("ノート", { exact: true }).first().click();
   await page.getByText(note.entity.title, { exact: true }).first().click();
   await page
     .locator(".note-preview-panel")

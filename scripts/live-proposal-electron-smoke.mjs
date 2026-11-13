@@ -79,7 +79,7 @@ async function openNavigation(page, label) {
 
 async function openProposalConfirmation(page) {
   // 提案の確認はFeedのホームに投稿として並ぶ（対応待ちタブは2026-10-06に廃止）。
-  await openNavigation(page, "Feed");
+  await openNavigation(page, "近況");
   await page.locator("#feed-tab-home").click();
   await page.locator("#feed-panel-home").waitFor();
 }
@@ -216,7 +216,7 @@ try {
   });
   const page = await electronApp.firstWindow();
   await page.waitForLoadState("domcontentloaded");
-  await page.getByText("Today", { exact: true }).first().waitFor();
+  await page.getByText("今日", { exact: true }).first().waitFor();
 
   const core = await waitForCore();
   assert.equal(String(core.api_version), "1");
@@ -256,7 +256,7 @@ try {
   assert.match(conflict.structuredContent?.error?.next_action || "", /idempotency_key/);
   await waitForPendingCount(page, 1);
 
-  await openNavigation(page, "Settings");
+  await openNavigation(page, "設定");
   await page.getByText("AI & Context", { exact: true }).click();
   await page.getByRole("button", { name: "状態を再確認" }).click();
   await page.waitForFunction(
@@ -276,11 +276,11 @@ try {
   await waitForPendingCount(page, 0);
   assert.doesNotMatch(await bodyText(page), /Proposalを採用できませんでした/);
 
-  await openNavigation(page, "Notes");
+  await openNavigation(page, "ノート");
   await page.getByText(title, { exact: true }).first().waitFor();
   assert.ok((await page.getByText(title, { exact: true }).count()) >= 1);
 
-  await openNavigation(page, "ToDo");
+  await openNavigation(page, "やること");
   await page.getByRole("button", { name: "タスクを追加", exact: true }).first().click();
   await page.getByPlaceholder("タスク名").fill(title);
   await page.getByRole("button", { name: "追加", exact: true }).click();
@@ -418,7 +418,7 @@ try {
   const adoptedTaskContext = await getTaskContext(taskId);
   assert.equal(adoptedTaskContext.task.state, "todo");
   assert.equal(adoptedTaskContext.assignment.work_state, "accepted");
-  await openNavigation(page, "ToDo");
+  await openNavigation(page, "やること");
   await page
     .locator(".table-row", { hasText: title })
     .first()
@@ -481,7 +481,7 @@ try {
     .click();
   await waitForPendingCount(page, 0);
 
-  await openNavigation(page, "Notes");
+  await openNavigation(page, "ノート");
   assert.equal(await page.getByText(rejectedTitle, { exact: true }).count(), 0);
 
   await mcpClient.close();

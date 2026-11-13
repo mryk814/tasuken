@@ -38,7 +38,7 @@ async function launch() {
     w.setMinimumSize(0, 0);
     w.setContentSize(1760, 1024);
   });
-  await page.getByText("Debrief", { exact: true }).first().click();
+  await page.getByText("日誌", { exact: true }).first().click();
 }
 const collector = () => page.locator(".agent-log-sync");
 const timeline = () => page.getByRole("region", { name: "AI作業ログ", exact: true });

@@ -16,7 +16,7 @@ import { mkdirSync } from "node:fs";
 const OUT_DIR = process.argv[2] || "audit-shots";
 const WIDTHS = [980, 1120, 1440];
 const ZOOMS = [1, 1.3];
-const ROUTES = ["Today", "Inbox", "Timeline", "Notes", "Knowledge", "Sketch", "Chat Refs", "Artifacts", "Settings"];
+const ROUTES = ["今日", "Inbox", "工程表", "ノート", "棚卸し", "手書き", "会話録", "添付", "設定"];
 const ZOOM_STORAGE_KEY = "tasken:shell:zoom-factor:v1";
 
 /** ページ内で実行する検出器。行ボックスを実測して縦積みだけを拾う。 */
