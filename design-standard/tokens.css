@@ -54,11 +54,20 @@
   --color-info-bg:           #E8F1F8;
   --color-info-bd:           #C3DCEE;
 
-  /* ---- AI action（AIへ依頼・生成・提案の確認だけに使う。通常操作には流用しない） ---- */
-  --color-ai:                var(--color-info-strong);
-  --color-ai-hover:          var(--color-info);
-  --color-ai-bg:             var(--color-info-bg);
-  --color-ai-bd:             var(--color-info-bd);
+  /* ---- AI（藍）: AIが書いたもの・AIの提案・AIへの依頼だけに使う。情報・注意・進行中には流用しない。
+         値は共通の色と用語表の藍と同じ（tests/design-tokens-ai.test.mjs が比べる）。
+         藍は塗る色ではなく書く色。ベタの面はアバターと小さな印までにし、広い面は -bg にとどめる。 ---- */
+  --color-ai:                #2F4B8A; /* 線・文字・アバターの面。白の上で 8.4、背景の上で 6.6 */
+  --color-ai-strong:         #243C72; /* -bg の上の文字（8.7） */
+  --color-ai-hover:          var(--color-ai-strong);
+  --color-ai-bg:             #E3E8F3;
+  --color-ai-bd:             #B9C6E0;
+
+  /* ---- 候補・未決（機械が拾い、本人がまだ答えていないもの）: 薄い墨と点線。決めたら実線と本文の色へ。
+         点線は意味を運ぶので、背景の上で 3 以上の濃さにする（text-tertiary は 2.0 で足りない）。 ---- */
+  --color-candidate:         var(--color-text-secondary);
+  --color-candidate-bd:      var(--color-text-secondary);
+  --border-candidate:        1px dashed var(--color-candidate-bd);
 
   /* ---- Action semantics（操作色とworkflow statusを別の契約として参照する） ---- */
   --action-primary-bg:       var(--color-accent);
@@ -72,7 +81,7 @@
   --action-danger-fg:        var(--color-danger-strong);
   --action-danger-bg:        var(--color-danger-bg);
   --action-danger-bd:        var(--color-danger);
-  --action-ai-fg:            var(--color-ai);
+  --action-ai-fg:            var(--color-ai-strong);
   --action-ai-bg:            var(--color-ai-bg);
   --action-ai-hover:         var(--color-ai-bd);
   --action-ai-bd:            var(--color-ai-bd);
@@ -190,7 +199,7 @@
   --color-success:           #5BB98B; --color-success-strong:#5BB98B; --color-success-bg:#16271F; --color-success-bd:#2E4A3A;
   --color-warning:           #D89B4E; --color-warning-strong:#D89B4E; --color-warning-bg:#2A2114; --color-warning-bd:#4D3D22;
   --color-info:              #5FA3D6; --color-info-strong:   #5FA3D6; --color-info-bg:   #16242F; --color-info-bd:   #294454;
-  --color-ai:                var(--color-info-strong); --color-ai-hover: var(--color-info); --color-ai-bg: var(--color-info-bg); --color-ai-bd: var(--color-info-bd);
+  --color-ai:                #8FA6DC; --color-ai-strong:     #B3C3E8; --color-ai-bg:     #1D2638; --color-ai-bd:     #34446A;
 
   /* Workflow status: review のみ独自値（他は意味固定色の別名参照で自動追従） */
   --color-status-review-fg:  #A99BEC; --color-status-review-bg: #211D33; --color-status-review-bd: #3E3760;
@@ -221,7 +230,7 @@
     --color-success: #5BB98B; --color-success-strong: #5BB98B; --color-success-bg: #16271F; --color-success-bd: #2E4A3A;
     --color-warning: #D89B4E; --color-warning-strong: #D89B4E; --color-warning-bg: #2A2114; --color-warning-bd: #4D3D22;
     --color-info: #5FA3D6; --color-info-strong: #5FA3D6; --color-info-bg: #16242F; --color-info-bd: #294454;
-    --color-ai: var(--color-info-strong); --color-ai-hover: var(--color-info); --color-ai-bg: var(--color-info-bg); --color-ai-bd: var(--color-info-bd);
+    --color-ai: #8FA6DC; --color-ai-strong: #B3C3E8; --color-ai-bg: #1D2638; --color-ai-bd: #34446A;
     --color-status-review-fg: #A99BEC; --color-status-review-bg: #211D33; --color-status-review-bd: #3E3760;
     --color-chart-1: #D06A78; --color-chart-2: #67A9D8; --color-chart-3: #63BD91;
     --color-chart-4: #DCA45D; --color-chart-5: #9A8BE0; --color-chart-6: #B7ABA6;
