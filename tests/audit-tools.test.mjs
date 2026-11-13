@@ -9,12 +9,22 @@ import { declaredTokensFromSource, scanSource, scanTokenUsage } from "../scripts
 test("consistency scanner promotes raw IPC and direct writes to blocking errors in strict mode", () => {
   const findings = scanSource({
     file: "src/main/todayMiniController.ts",
-    source: 'window.webContents.send("today-mini:update"); repository.save(task); const rows = collections[type];',
+    source:
+      'window.webContents.send("today-mini:update"); repository.save(task); const rows = collections[type];',
     strict: true,
   });
-  assert.equal(findings.find((finding) => finding.ruleId === "raw-auxiliary-ipc")?.severity, "error");
-  assert.equal(findings.find((finding) => finding.ruleId === "application-command-write")?.severity, "error");
-  assert.equal(findings.find((finding) => finding.ruleId === "entity-registry-external-mapping")?.severity, "error");
+  assert.equal(
+    findings.find((finding) => finding.ruleId === "raw-auxiliary-ipc")?.severity,
+    "error",
+  );
+  assert.equal(
+    findings.find((finding) => finding.ruleId === "application-command-write")?.severity,
+    "error",
+  );
+  assert.equal(
+    findings.find((finding) => finding.ruleId === "entity-registry-external-mapping")?.severity,
+    "error",
+  );
 });
 
 test("consistency scanner only inspects saveEntities task literals inside the call", () => {
@@ -22,14 +32,24 @@ test("consistency scanner only inspects saveEntities task literals inside the ca
     "saveEntities(buildSaveTaskOperations(task));",
     'const row = { type: "task", task };',
   ].join("\n");
-  assert.equal(scanSource({ file: "src/renderer/src/features/workspace/pages/TodayPage.tsx", source: builderSource, strict: true }).length, 0);
+  assert.equal(
+    scanSource({
+      file: "src/renderer/src/features/workspace/pages/TodayPage.tsx",
+      source: builderSource,
+      strict: true,
+    }).length,
+    0,
+  );
 
   const directWrite = scanSource({
     file: "src/renderer/src/features/workspace/pages/TodayPage.tsx",
     source: 'saveEntities([{ type: "task", entity: task }]);',
     strict: true,
   });
-  assert.equal(directWrite.find((finding) => finding.ruleId === "application-command-write")?.severity, "error");
+  assert.equal(
+    directWrite.find((finding) => finding.ruleId === "application-command-write")?.severity,
+    "error",
+  );
 });
 
 test("consistency scanner keeps a justified legacy satellite boundary report-only", () => {
@@ -83,19 +103,46 @@ test("strict consistency treats an undeclared CSS token as a blocking error", ()
 test("token contract resolves CSS template declarations and runtime style assignments", () => {
   const template = `const css = \`.markdown-preview { --template-scoped: #fff; color: var(--template-scoped); }\`;`;
   const runtime = `const style = { "--gantt-grid-image": grid, '--lane-index': lane }; el.style.setProperty("--ink-color", color);`;
-  const declared = new Set([...declaredTokensFromSource(template), ...declaredTokensFromSource(runtime)]);
-  assert.deepEqual([...scanTokenUsage({
-    file: "fixture.css",
-    source: ".markdown-preview { color: var(--template-scoped); } .gantt { background: var(--gantt-grid-image); color: var(--ink-color); }",
-    declaredTokens: declared,
-    strict: true,
-  })], []);
-  assert.equal(scanTokenUsage({ file: "fixture.css", source: ".card { color: var(--truly-undefined); }", declaredTokens: declared, strict: true }).length, 1);
+  const declared = new Set([
+    ...declaredTokensFromSource(template),
+    ...declaredTokensFromSource(runtime),
+  ]);
+  assert.deepEqual(
+    [
+      ...scanTokenUsage({
+        file: "fixture.css",
+        source:
+          ".markdown-preview { color: var(--template-scoped); } .gantt { background: var(--gantt-grid-image); color: var(--ink-color); }",
+        declaredTokens: declared,
+        strict: true,
+      }),
+    ],
+    [],
+  );
+  assert.equal(
+    scanTokenUsage({
+      file: "fixture.css",
+      source: ".card { color: var(--truly-undefined); }",
+      declaredTokens: declared,
+      strict: true,
+    }).length,
+    1,
+  );
 });
 
 test("dead mini-timeline CSS selectors are removed only when no renderer markup references them", () => {
   const css = readFileSync("src/renderer/src/styles/app.css", "utf8");
-  const selectors = [".mini-track", ".grid-lines", ".bar", ".phase-bar", ".baseline-bar", ".milestones", ".waiting-track", ".today-line", ".mini-gantt-grid"];
+  const selectors = [
+    ".mini-track",
+    ".grid-lines",
+    ".bar",
+    ".phase-bar",
+    ".baseline-bar",
+    ".milestones",
+    ".waiting-track",
+    ".today-line",
+    ".mini-gantt-grid",
+  ];
   const sourceFiles = [];
   const visit = (directory) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -112,12 +159,19 @@ test("dead mini-timeline CSS selectors are removed only when no renderer markup 
     // Timeline data may legitimately use names such as `milestones`; only
     // renderer class assignments prove that the removed CSS surface remains.
     const className = selector.slice(1);
-    assert.doesNotMatch(source, new RegExp(`(?:className|class)\\s*=\\s*[^\\n]*(?<![\\w-])${className}(?![\\w-])`));
+    assert.doesNotMatch(
+      source,
+      new RegExp(`(?:className|class)\\s*=\\s*[^\\n]*(?<![\\w-])${className}(?![\\w-])`),
+    );
   }
 });
 
 test("production strict consistency audit has no errors or report-only findings", () => {
-  const result = spawnSync(process.execPath, ["scripts/audit-consistency.mjs", "--strict", "--format=json"], { encoding: "utf8" });
+  const result = spawnSync(
+    process.execPath,
+    ["scripts/audit-consistency.mjs", "--strict", "--format=json"],
+    { encoding: "utf8" },
+  );
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout);
   assert.deepEqual(report.summary, { total: 0, errors: 0, reportOnly: 0 });

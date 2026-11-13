@@ -74,8 +74,13 @@ test("Core persists normalized RepositoryContext and exact Task proposals with r
   };
   try {
     let client = await start();
-    const discovery = JSON.parse(fs.readFileSync(path.join(userDataPath, "tasken-core.json"), "utf8"));
-    assert.equal(discovery.capabilities.includes(TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY), true);
+    const discovery = JSON.parse(
+      fs.readFileSync(path.join(userDataPath, "tasken-core.json"), "utf8"),
+    );
+    assert.equal(
+      discovery.capabilities.includes(TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY),
+      true,
+    );
     const wrongMethod = await fetch(`${discovery.origin}/v1/commands/propose-repository-task`, {
       headers: { authorization: `Bearer ${discovery.token}` },
     });
@@ -127,39 +132,43 @@ test("Core persists normalized RepositoryContext and exact Task proposals with r
     assert.equal(proposals.length, 2);
     const repository = proposals.find((proposal) => proposal.id === first.proposal_id);
     assert.deepEqual(repository.payload, {
-      repository_contexts: [{
-        action: "create",
-        label: "Tasuken",
-        provider: "github",
-        canonical_url: "https://github.com/mryk814/tasuken",
-        canonical_identity: "github.com/mryk814/tasuken",
-        repository_slug: "mryk814/tasuken",
-        owner: "mryk814",
-        name: "tasuken",
-        web_url: "https://github.com/mryk814/tasuken",
-        remote_aliases: ["https://github.com/mryk814/tasuken"],
-        subdirectory: "packages/core",
-        default_branch: "main",
-        active: true,
-        metadata: {},
-        reason: "Agent workspace",
-      }],
+      repository_contexts: [
+        {
+          action: "create",
+          label: "Tasuken",
+          provider: "github",
+          canonical_url: "https://github.com/mryk814/tasuken",
+          canonical_identity: "github.com/mryk814/tasuken",
+          repository_slug: "mryk814/tasuken",
+          owner: "mryk814",
+          name: "tasuken",
+          web_url: "https://github.com/mryk814/tasuken",
+          remote_aliases: ["https://github.com/mryk814/tasuken"],
+          subdirectory: "packages/core",
+          default_branch: "main",
+          active: true,
+          metadata: {},
+          reason: "Agent workspace",
+        },
+      ],
     });
     assert.equal(JSON.stringify(repository).includes("C:/private"), false);
     const taskProposal = proposals.find((proposal) => proposal.id === task.proposal_id);
     assert.deepEqual(taskProposal.payload, {
-      items: [{
-        action: "create",
-        kind: "task",
-        status: "todo",
-        title: "Proposed task",
-        description: "Description",
-        theme: "Theme",
-        priority: "high",
-        planned_start: null,
-        planned_end: null,
-        reason: "Needed",
-      }],
+      items: [
+        {
+          action: "create",
+          kind: "task",
+          status: "todo",
+          title: "Proposed task",
+          description: "Description",
+          theme: "Theme",
+          priority: "high",
+          planned_start: null,
+          planned_end: null,
+          reason: "Needed",
+        },
+      ],
     });
     assert.deepEqual(taskProposal.request.actor, { kind: "ai_agent", id: "agent-1" });
     assert.equal(taskProposal.request.source_session, "session-1");
@@ -180,20 +189,27 @@ test("Repository/Task proposal client requires its named capability and rejects 
     title: "Strict response",
   };
   const writeDiscovery = (capabilities) => {
-    fs.writeFileSync(discoveryPath, JSON.stringify({
-      schema_version: 1,
-      api_version: TASKEN_CORE_API_VERSION,
-      origin: "http://127.0.0.1:43123",
-      token: Buffer.alloc(32, 1).toString("base64url"),
-      capabilities,
-      pid: process.pid,
-      started_at: "2026-08-21T00:00:00.000Z",
-    }), { mode: 0o600 });
+    fs.writeFileSync(
+      discoveryPath,
+      JSON.stringify({
+        schema_version: 1,
+        api_version: TASKEN_CORE_API_VERSION,
+        origin: "http://127.0.0.1:43123",
+        token: Buffer.alloc(32, 1).toString("base64url"),
+        capabilities,
+        pid: process.pid,
+        started_at: "2026-08-21T00:00:00.000Z",
+      }),
+      { mode: 0o600 },
+    );
     fs.chmodSync(discoveryPath, 0o600);
   };
   try {
     writeDiscovery([]);
-    const unavailable = new TaskenCoreClient({ discoveryPath, fetch: async () => assert.fail("fetch must not run") });
+    const unavailable = new TaskenCoreClient({
+      discoveryPath,
+      fetch: async () => assert.fail("fetch must not run"),
+    });
     await assert.rejects(
       unavailable.proposeRepositoryTask(request),
       (error) => error instanceof TaskenCoreClientError && error.code === "CAPABILITY_UNAVAILABLE",
@@ -201,22 +217,30 @@ test("Repository/Task proposal client requires its named capability and rejects 
     writeDiscovery([TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY]);
     const strict = new TaskenCoreClient({
       discoveryPath,
-      fetch: async () => new Response(JSON.stringify({
-        proposal_id: "85efbb6c-54cf-5a66-8c21-b3072862b9d4",
-        status: "queued",
-        payload_type: "items",
-        message: "queued",
-        additive: true,
-      }), {
-        status: 200,
-        headers: { "content-type": "application/json", "x-tasken-core-version": TASKEN_CORE_API_VERSION },
-      }),
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            proposal_id: "85efbb6c-54cf-5a66-8c21-b3072862b9d4",
+            status: "queued",
+            payload_type: "items",
+            message: "queued",
+            additive: true,
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+              "x-tasken-core-version": TASKEN_CORE_API_VERSION,
+            },
+          },
+        ),
     });
     await assert.rejects(
       strict.proposeRepositoryTask(request),
-      (error) => error instanceof TaskenCoreClientError
-        && error.code === "INVALID_RESPONSE"
-        && error.details?.operation === "propose-repository-task",
+      (error) =>
+        error instanceof TaskenCoreClientError &&
+        error.code === "INVALID_RESPONSE" &&
+        error.details?.operation === "propose-repository-task",
     );
   } finally {
     fs.rmSync(userDataPath, { recursive: true, force: true });
