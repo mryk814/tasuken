@@ -9,6 +9,7 @@
 - 原因: 推測。smoke はプレビューの画像の読み込みを最大2秒しか待たない（`src/main/index.ts` の `smokePreviewImage`）。重い時にはその間に読み終わらない。変更は添付の protocol と画面に触れていない。
 - 直し方: 同じ build で `npm run smoke:desktop:focused` を流し直したら、2回とも通った（exit 0）。
 - 再発防止: 記録だけ。一度の失敗なので、待ち時間は延ばしていない。また起きたら、2秒の待ちを読み込みの完了まで待つ形に変える。
+- 同じ日の次の `npm run ci`: 試験の段で `architecture-audit-profiles.test.mjs` と `ci-runner.test.mjs` の11件が `spawnSync ... electron.exe ETIMEDOUT` で落ち、後の段は走らなかった。ほかのセッションの作業で PC が重かった。2つのファイルだけ流し直すと 15/15 で通り、後の段（監査3つ・build・smoke 2つ）を `run-ci.mjs` と同じ順に手で流すと全部通った。記録だけ（試験の中の子プロセスの待ち時間は延ばしていない）。
 
 ## 2026-11-12 ドロワーに制御した入力欄を足したら、フォームの最初の1文字が消えた
 
