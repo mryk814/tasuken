@@ -32,7 +32,13 @@ import { ReminderDueBanner, useReminderNow } from "../components/common";
 import { isReminderDue } from "../lib/reminders";
 import { InlineAddPanel } from "../components/InlineAddPanel";
 import { TaskBoard } from "../components/TaskBoard";
-import { ChecklistProgressBadge, InlineTaskChecklist } from "../../task/public";
+import {
+  ChecklistProgressBadge,
+  InlineTaskChecklist,
+  StruckTitle,
+  useFreshCompletions,
+  useLingeringRows,
+} from "../../task/public";
 import {
   TASK_AI_DELEGATION_LABELS,
   TASK_STATE_LABELS,
@@ -223,9 +229,18 @@ export function TodoPage({
       window.cancelIdleCallback(idleHandle);
     };
   }, [visibleTaskCount]);
+  // 完了の線（#738）。完了にした行は、線を引き終わるまで元の位置に残してから一覧を外す。
+  const taskRowById = useMemo(() => new Map(taskRows.map((row) => [row.task.id, row])), [taskRows]);
+  const strikes = useFreshCompletions((id) => taskRowById.get(id)?.task.state === "done");
+  const renderedRows = useLingeringRows(
+    useMemo(() => visible.slice(0, renderedTaskCount), [renderedTaskCount, visible]),
+    (row) => row.task.id,
+    strikes.ids,
+    (row) => taskRowById.get(row.task.id) ?? null,
+  );
   const groupedVisible = useMemo(
-    () => groupTodoRows(visible.slice(0, renderedTaskCount), groupMode, today, themes),
-    [groupMode, renderedTaskCount, themes, today, visible],
+    () => groupTodoRows(renderedRows, groupMode, today, themes),
+    [groupMode, renderedRows, themes, today],
   );
   const selectedVisibleRows = useMemo(
     () => visible.filter((row) => selectedTaskIds.has(row.task.id)),
@@ -337,7 +352,11 @@ export function TodoPage({
 
   async function toggleTask(task: Task) {
     const nextState = task.state === "done" ? "todo" : "done";
-    if (nextState === "done") playCompleteSound();
+    // 線は音と同じ時に引き始める。保存は待たない。
+    if (nextState === "done") {
+      playCompleteSound();
+      strikes.mark(task.id);
+    } else strikes.clear(task.id);
     const row = taskRows.find((entry) => entry.task.id === task.id);
     const nextMessage =
       nextState === "done" && task.repeat_rule
@@ -345,7 +364,13 @@ export function TodoPage({
         : nextState === "done"
           ? "完了しました。"
           : "未完了に戻しました。";
-    await saveEntities(buildCompleteTaskOperations(task, row?.schedule), nextMessage);
+    try {
+      await saveEntities(buildCompleteTaskOperations(task, row?.schedule), nextMessage);
+    } catch (error) {
+      // 保存できなかった完了に、線を残さない。失敗はsaveEntitiesがトーストで知らせる。
+      strikes.clear(task.id);
+      throw error;
+    }
   }
 
   async function toggleAiReady(task: Task) {
@@ -450,6 +475,7 @@ export function TodoPage({
     );
     const chipColor = `var(--color-${themeColor(theme, themeIndex)})`;
     const done = task.state === "done" || task.state === "cancelled";
+    const striking = strikes.ids.has(task.id);
     const selectedToday = task.today_date === today;
     const workState =
       task.work_state ||
@@ -554,13 +580,18 @@ export function TodoPage({
           <div className="row-title-main">
             <span className="row-title-head">
               <button
-                className={`row-title ${done ? "is-done" : ""}`}
+                className={`row-title ${done || striking ? "is-done" : ""}`}
                 onClick={(event) => {
                   event.stopPropagation();
                   openTaskDetail(task, schedule);
                 }}
               >
-                <span>{task.title}</span>
+                <StruckTitle
+                  text={task.title}
+                  seed={task.id}
+                  struck={done || striking}
+                  drawing={striking}
+                />
                 <ChecklistProgressBadge items={task.checklist_items} />
               </button>
               <AiCreationMark key={task.id} entity={task} />

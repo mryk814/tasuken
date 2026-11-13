@@ -10,3 +10,9 @@ export {
   type TaskChecklistItemView,
 } from "./model/checklistProgress";
 export { ChecklistProgressBadge, InlineTaskChecklist } from "./ui/TaskChecklist";
+export {
+  StruckTitle,
+  useFreshCompletions,
+  useLingeringRows,
+  type FreshCompletions,
+} from "./ui/PenStrike";

@@ -9869,8 +9869,72 @@ kbd {
   color: transparent;
 }
 .row-title.is-done {
-  text-decoration: line-through;
   color: var(--color-text-tertiary);
+}
+/*
+ * 完了の線（#738）。Taskを完了にした時、題名に万年筆で取り消し線を引く。
+ * 線の形（入りの溜まり・太さの変化・抜きの尖り・傾きと揺れ）は penStrike.ts が輪郭として作り、
+ * ここでは左から右へ見せていく速さだけを決める：ペン先を置く → 走る → 抜く。
+ */
+.pen-strike-host {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  vertical-align: bottom;
+}
+.pen-strike-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* 題名は、線が通り過ぎてから薄くなる。 */
+  transition: color calc(var(--duration-base) * 1.5) var(--ease) calc(var(--duration-base) * 1.5);
+}
+.pen-strike-host.is-struck .pen-strike-text {
+  color: var(--color-text-tertiary);
+}
+.row-title:hover .pen-strike-host.is-struck .pen-strike-text {
+  color: inherit;
+}
+.pen-strike {
+  position: absolute;
+  inset: 0 auto auto 0;
+  overflow: visible;
+  pointer-events: none;
+}
+/* 引いた直後は墨の色。乾くと少し薄くなり、すでに完了していた題名の線と同じ色に落ち着く。 */
+.pen-strike path {
+  fill: var(--color-text-secondary);
+  transition: fill calc(var(--duration-base) * 3) var(--ease);
+}
+.pen-strike.is-drawing path {
+  fill: var(--color-text);
+  transition: none;
+}
+.pen-strike.is-drawing {
+  animation: pen-strike-draw calc(var(--duration-base) * var(--pen-strike-pace, 2)) both;
+}
+@keyframes pen-strike-draw {
+  /* 置く：ペン先が紙に触れ、インクが溜まる。まだ走らない。 */
+  0% {
+    clip-path: inset(-1em 100% -1em -1em);
+    animation-timing-function: var(--ease);
+  }
+  /* 走る：ゆっくり動き出して速くなり、抜きは勢いを残したまま紙を離れる。 */
+  16% {
+    clip-path: inset(-1em calc(100% - var(--pen-strike-pool, 4px)) -1em -1em);
+    animation-timing-function: cubic-bezier(0.55, 0.06, 0.72, 0.86);
+  }
+  100% {
+    clip-path: inset(-1em -1em -1em -1em);
+  }
+}
+/* 動きを減らす設定では、線を最初から引いた状態で出す。 */
+@media (prefers-reduced-motion: reduce) {
+  .pen-strike.is-drawing {
+    animation: none;
+  }
 }
 .status-summary {
   display: grid;
@@ -16323,6 +16387,11 @@ kbd {
 .theme-task-check:hover {
   border-color: var(--color-accent);
   background: var(--color-accent-subtle-bg);
+}
+/* 完了にした直後、線（#738）を引き終わるまで残っている行。 */
+.theme-task-check[aria-pressed="true"] {
+  border-color: var(--color-success);
+  background: var(--color-success);
 }
 .theme-task-check:focus-visible {
   outline: 2px solid var(--color-focus);

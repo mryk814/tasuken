@@ -31,6 +31,7 @@ import {
 import { isPromptNote, promptPurpose } from "../lib/prompts";
 import { compactNotesBodyPreview } from "../lib/notes";
 import { buildCompleteTaskOperations } from "../domain-model/taskRecurrence";
+import { StruckTitle, useFreshCompletions, useLingeringRows } from "../../task/public";
 import {
   buildTaskSection,
   groupTasksBySection,
@@ -239,6 +240,74 @@ function TaskSectionBoard({
   );
 }
 
+/**
+ * 未完了のTaskの一覧。完了にしたTaskは一覧から外れるので、題名に線（#738）を
+ * 引き終わるまで行を元の位置に残す。残っている間に押せば、完了を取り消せる。
+ */
+function ThemeOpenTaskList({
+  tasks,
+  allTasks,
+  schedules,
+  onToggleComplete,
+  onOpen,
+}: {
+  tasks: Task[];
+  allTasks: Task[];
+  schedules: Map<string, Schedule>;
+  onToggleComplete: (task: Task) => Promise<void>;
+  onOpen: (task: Task) => void;
+}) {
+  const taskById = useMemo(() => new Map(allTasks.map((task) => [task.id, task])), [allTasks]);
+  const strikes = useFreshCompletions((id) => taskById.get(id)?.state === "done");
+  const rows = useLingeringRows(
+    tasks,
+    (task) => task.id,
+    strikes.ids,
+    (task) => taskById.get(task.id) ?? null,
+  );
+  async function completeTask(task: Task) {
+    if (task.state === "done") strikes.clear(task.id);
+    else strikes.mark(task.id);
+    try {
+      await onToggleComplete(task);
+    } catch {
+      // 保存できなかった完了に、線を残さない。失敗はsaveEntitiesがトーストで知らせる。
+      strikes.clear(task.id);
+    }
+  }
+  if (!rows.length) return <EmptyState title="未完了のタスクはありません" />;
+  return (
+    <ul className="theme-task-list">
+      {rows.map((task) => {
+        const done = task.state === "done";
+        const striking = strikes.ids.has(task.id);
+        return (
+          <li key={task.id}>
+            <button
+              className="theme-task-check"
+              aria-pressed={done}
+              aria-label={done ? `${task.title}を未完了に戻す` : `${task.title}を完了にする`}
+              title={done ? "未完了に戻す" : "完了にする"}
+              onClick={() => void completeTask(task)}
+            />
+            <button className="theme-task-main" onClick={() => onOpen(task)}>
+              <strong>
+                <StruckTitle
+                  text={task.title}
+                  seed={task.id}
+                  struck={done || striking}
+                  drawing={striking}
+                />
+              </strong>
+              <span>{formatDate(schedules.get(`task:${task.id}`)?.end_date) || "予定なし"}</span>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 export function ThemePage({
   data,
   domain: v2,
@@ -441,8 +510,17 @@ export function ThemePage({
   async function completeTask(task: Task) {
     await saveEntities(
       buildCompleteTaskOperations(task, schedulesMap.get(`task:${task.id}`)),
-      "完了しました。",
+      task.state === "done" ? "未完了に戻しました。" : "完了しました。",
     );
+  }
+  function openTask(task: Task) {
+    openDrawer({
+      type: "task",
+      entity: {
+        ...task,
+        _schedule: schedulesMap.get(`task:${task.id}`),
+      } as Record<string, unknown>,
+    });
   }
 
   const latestReport = reportNotes[0];
@@ -718,39 +796,13 @@ export function ThemePage({
                 ToDoへ
               </button>
             </div>
-            {overviewTasks.length ? (
-              <ul className="theme-task-list">
-                {overviewTasks.map((task) => (
-                  <li key={task.id}>
-                    <button
-                      className="theme-task-check"
-                      aria-label={`${task.title}を完了にする`}
-                      title="完了にする"
-                      onClick={() => void completeTask(task)}
-                    />
-                    <button
-                      className="theme-task-main"
-                      onClick={() =>
-                        openDrawer({
-                          type: "task",
-                          entity: {
-                            ...task,
-                            _schedule: schedulesMap.get(`task:${task.id}`),
-                          } as Record<string, unknown>,
-                        })
-                      }
-                    >
-                      <strong>{task.title}</strong>
-                      <span>
-                        {formatDate(schedulesMap.get(`task:${task.id}`)?.end_date) || "予定なし"}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <EmptyState title="未完了のタスクはありません" />
-            )}
+            <ThemeOpenTaskList
+              tasks={overviewTasks}
+              allTasks={v2.tasks}
+              schedules={schedulesMap}
+              onToggleComplete={completeTask}
+              onOpen={openTask}
+            />
           </section>
 
           <AgentWorkSummaryPanel
@@ -969,39 +1021,13 @@ export function ThemePage({
                   ToDoへ
                 </button>
               </div>
-              {nextTasks.length ? (
-                <ul className="theme-task-list">
-                  {nextTasks.map((task) => (
-                    <li key={task.id}>
-                      <button
-                        className="theme-task-check"
-                        aria-label={`${task.title}を完了にする`}
-                        title="完了にする"
-                        onClick={() => void completeTask(task)}
-                      />
-                      <button
-                        className="theme-task-main"
-                        onClick={() =>
-                          openDrawer({
-                            type: "task",
-                            entity: {
-                              ...task,
-                              _schedule: schedulesMap.get(`task:${task.id}`),
-                            } as Record<string, unknown>,
-                          })
-                        }
-                      >
-                        <strong>{task.title}</strong>
-                        <span>
-                          {formatDate(schedulesMap.get(`task:${task.id}`)?.end_date) || "予定なし"}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <EmptyState title="未完了のタスクはありません" />
-              )}
+              <ThemeOpenTaskList
+                tasks={nextTasks}
+                allTasks={v2.tasks}
+                schedules={schedulesMap}
+                onToggleComplete={completeTask}
+                onOpen={openTask}
+              />
             </section>
             <section className="panel">
               <div className="section-heading">
