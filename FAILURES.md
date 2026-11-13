@@ -2,6 +2,15 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-14 全体の試験でだけ、子プロセスを起こす試験が ETIMEDOUT で落ちた（#735）
+
+- しようとしたこと: 全体の試験（2,326 件）を続けて3回通す。PC はほかのセッション（python・エミュレータ・試験）で CPU 70〜100%。
+- 起きたこと: 1回目は `architecture-audit-profiles` が `spawnSync ... electron.exe ETIMEDOUT`、2回目は全部通ったが `ci-runner` の1件が 54 秒（単独では 0.9 秒）、3回目は `ci-runner` の3件が ETIMEDOUT。同じ日の上の記録の11件も同じ形。
+- 原因: 試験は Electron を node として動かすので、試験の中で `process.execPath` で起こす子も electron.exe になる。Electron 45 の node 形は仮想アドレスを約 3.5 TB 予約する（素の node は約 5 GB）。PC が忙しいと、子はスクリプトを終えた後、プロセスが消えるまでに 5〜24 秒かかった（出力までは 0.1〜0.3 秒。`process.kill(SIGKILL)` でも同じなので OS 側の破棄を待っている）。同じ時に素の node は中央値 0.12 秒。落ちた時刻に CPU を使っていたのはほかのセッションで、試験の子はほとんど CPU を使わず待っていた。試験どうしが同じファイルや一時の場所を取り合った跡は無かった。
+- 直し方: Electron の ABI（better-sqlite3）も Electron の API も要らない子は、素の node（`TASKEN_NODE_EXEC_PATH`）で起こす。調べた 23 ファイルは全部要らなかった。時間の上限は延ばしていない。
+- 再発防止: `tests/helpers/childProcessNode.mjs` の `nodeExecPath` を使う。`tests/test-child-process-node.test.mjs` が、`// electron-abi: <理由>` の印の無い `process.execPath` を `ファイル:行` で名指しして落とす。
+- 別に一度だけ: 3回目で `finish-ia.test.mjs` のファイルのプロセスが、試験を一つも報告せずに 0.5 秒で exit 1 になった。出力は無く、単独では5回とも通った。原因は不明（Electron の子が始まる前に終わった形）。記録だけ。
+
 ## 2026-11-14 `npm run ci` の最後の Electron smoke が `markdownImageRendered:false` で落ちた
 
 - しようとしたこと: #733（入口ごとの計測）の merge 前に `npm run ci` を流す。同じ時に別のエージェントがコードを読んでいて、PC は重かった。
@@ -9,7 +18,7 @@
 - 原因: 推測。smoke はプレビューの画像の読み込みを最大2秒しか待たない（`src/main/index.ts` の `smokePreviewImage`）。重い時にはその間に読み終わらない。変更は添付の protocol と画面に触れていない。
 - 直し方: 同じ build で `npm run smoke:desktop:focused` を流し直したら、2回とも通った（exit 0）。
 - 再発防止: 記録だけ。一度の失敗なので、待ち時間は延ばしていない。また起きたら、2秒の待ちを読み込みの完了まで待つ形に変える。
-- 同じ日の次の `npm run ci`: 試験の段で `architecture-audit-profiles.test.mjs` と `ci-runner.test.mjs` の11件が `spawnSync ... electron.exe ETIMEDOUT` で落ち、後の段は走らなかった。ほかのセッションの作業で PC が重かった。2つのファイルだけ流し直すと 15/15 で通り、後の段（監査3つ・build・smoke 2つ）を `run-ci.mjs` と同じ順に手で流すと全部通った。記録だけ（試験の中の子プロセスの待ち時間は延ばしていない）。
+- 同じ日の次の `npm run ci`: 試験の段で `architecture-audit-profiles.test.mjs` と `ci-runner.test.mjs` の11件が `spawnSync ... electron.exe ETIMEDOUT` で落ち、後の段は走らなかった。ほかのセッションの作業で PC が重かった。2つのファイルだけ流し直すと 15/15 で通り、後の段（監査3つ・build・smoke 2つ）を `run-ci.mjs` と同じ順に手で流すと全部通った。記録だけ（試験の中の子プロセスの待ち時間は延ばしていない）。→ 原因が分かり、#735 で直した（上の記録）。
 
 ## 2026-11-12 ドロワーに制御した入力欄を足したら、フォームの最初の1文字が消えた
 
