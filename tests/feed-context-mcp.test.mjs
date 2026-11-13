@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import fs from "node:fs";
@@ -216,7 +217,7 @@ test("実SQLite + 実Core + 実stdio MCPで、AIが質問と題材を読める",
   const host = new TaskenCoreHost({ userDataPath: root, ...createTaskenCore(database) });
   await host.start();
   const transport = new StdioClientTransport({
-    command: process.execPath,
+    command: nodeExecPath,
     args: ["scripts/mcp-server.mjs"],
     env: {
       ...process.env,

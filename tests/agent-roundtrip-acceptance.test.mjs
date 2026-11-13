@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
@@ -112,7 +113,7 @@ async function withWorkspace(run) {
   // DesktopのCoreを実際に起動する。MCPは起動中のCoreを見つけて同じworkspaceへ繋ぐ。
   await workspace.runtime.start();
   const transport = new StdioClientTransport({
-    command: process.execPath,
+    command: nodeExecPath,
     args: ["scripts/mcp-server.mjs"],
     env: {
       ...process.env,

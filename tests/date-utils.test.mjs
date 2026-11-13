@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
@@ -11,7 +12,7 @@ test("todayIso uses the local calendar date instead of UTC", () => {
       utc: instant.toISOString().slice(0, 10),
     }));
   `;
-  const output = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+  const output = execFileSync(nodeExecPath, ["--input-type=module", "-e", script], {
     cwd: process.cwd(),
     env: { ...process.env, TZ: "Asia/Tokyo" },
     encoding: "utf8",
@@ -29,7 +30,7 @@ test("addDays keeps local calendar arithmetic across UTC boundaries", () => {
       previous: addDays("2026-01-01", -1),
     }));
   `;
-  const output = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+  const output = execFileSync(nodeExecPath, ["--input-type=module", "-e", script], {
     cwd: process.cwd(),
     env: { ...process.env, TZ: "Asia/Tokyo" },
     encoding: "utf8",

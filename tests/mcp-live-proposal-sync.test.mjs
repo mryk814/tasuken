@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import fs from "node:fs";
@@ -34,7 +35,7 @@ const { createTaskenCore, WorkspaceAiProposalWriteAdapter } = await importBundle
 
 async function connectMcp(root) {
   const transport = new StdioClientTransport({
-    command: process.execPath,
+    command: nodeExecPath,
     args: ["scripts/mcp-server.mjs"],
     env: { ...process.env, TASKEN_USER_DATA_DIR: root },
     stderr: "pipe",

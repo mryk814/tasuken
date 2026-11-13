@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import fs from "node:fs";
@@ -545,7 +546,7 @@ test("actual stdio MCP reads all Wave 6 tools from the Core SQLite owner without
       .prepare("SELECT COUNT(*) AS count FROM workspace_meta")
       .get().count;
     const transport = new StdioClientTransport({
-      command: process.execPath,
+      command: nodeExecPath,
       args: ["scripts/mcp-server.mjs"],
       env: {
         ...process.env,

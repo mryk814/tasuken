@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -17,7 +18,7 @@ test("Electron Node runner invokes Electron's installer when npm ci has no binar
 
   try {
     const result = spawnSync(
-      process.execPath,
+      nodeExecPath,
       [path.resolve("scripts/run-electron-node.mjs"), "-e", "void 0"],
       {
         cwd: root,

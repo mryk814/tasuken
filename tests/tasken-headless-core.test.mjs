@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
@@ -118,7 +119,7 @@ function seedWorkspace(userDataPath) {
 
 async function connectMcp(userDataPath, extraEnv = {}) {
   const transport = new StdioClientTransport({
-    command: process.execPath,
+    command: nodeExecPath,
     args: ["scripts/mcp-server.mjs"],
     env: { ...process.env, TASKEN_USER_DATA_DIR: userDataPath, ...extraEnv },
     stderr: "pipe",

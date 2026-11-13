@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import fs from "node:fs";
@@ -498,7 +499,7 @@ test("actual stdio MCP reads Wave 7/8 from Core-owned SQLite without writes or n
     host = new TaskenCoreHost({ userDataPath: root, ...createTaskenCore(database) });
     await host.start();
     const transport = new StdioClientTransport({
-      command: process.execPath,
+      command: nodeExecPath,
       args: ["scripts/mcp-server.mjs"],
       env: {
         ...process.env,

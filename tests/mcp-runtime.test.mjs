@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -305,7 +306,7 @@ test("配布版のbridgeは、Coreに繋がらないときTasken.exeの場所を
     client = new Client({ name: "core-unavailable-hint", version: "1" });
     await client.connect(
       new StdioClientTransport({
-        command: process.env.TASKEN_NODE_EXEC_PATH || process.execPath,
+        command: nodeExecPath,
         args: [path.join(install, "resources", "mcp", "server.mjs")],
         env: { ...process.env, TASKEN_USER_DATA_DIR: userData },
         stderr: "pipe",

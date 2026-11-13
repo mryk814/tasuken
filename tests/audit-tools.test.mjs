@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
@@ -168,7 +169,7 @@ test("dead mini-timeline CSS selectors are removed only when no renderer markup 
 
 test("production strict consistency audit has no errors or report-only findings", () => {
   const result = spawnSync(
-    process.execPath,
+    nodeExecPath,
     ["scripts/audit-consistency.mjs", "--strict", "--format=json"],
     { encoding: "utf8" },
   );

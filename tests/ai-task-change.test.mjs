@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 // ローカルのAI（Claude Codeなど）が、本人の言葉を根拠に既存のTaskを直接変える入口（#703）。
 // Desktopと同じ配線で、Core HTTPと実stdioのMCPから確かめる。データは一時フォルダの架空のもの。
 import assert from "node:assert/strict";
@@ -550,7 +551,7 @@ test("実stdioのMCP: 一覧に出て、設定の状態を返し、本人の言�
   const { dir, db } = await desktop(t);
   const task = humanTask(db, "task-mcp");
   const transport = new StdioClientTransport({
-    command: process.env.TASKEN_NODE_EXEC_PATH || process.execPath,
+    command: nodeExecPath,
     args: [path.join(mcpDirectory, "server.mjs")],
     env: { ...process.env, TASKEN_USER_DATA_DIR: dir, TASKEN_MCP_READ_ONLY: "0" },
     stderr: "pipe",

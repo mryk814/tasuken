@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
@@ -174,15 +175,15 @@ test("the CLI prints a new token only on stdout and never lists secrets", async 
   const env = { ...process.env, TASKEN_USER_DATA_DIR: userDataPath };
   const cli = path.join("scripts", "tasken-core-client.mjs");
 
-  const issued = await run(process.execPath, [cli, "issue", "awai"], { env });
+  const issued = await run(nodeExecPath, [cli, "issue", "awai"], { env });
   assert.match(issued.stdout, /^tkr_[A-Za-z0-9_-]{43}$/);
   assert.equal(issued.stderr.includes(issued.stdout), false);
 
-  const listed = await run(process.execPath, [cli, "list"], { env });
+  const listed = await run(nodeExecPath, [cli, "list"], { env });
   assert.match(listed.stdout, /awai/);
   assert.equal(listed.stdout.includes(issued.stdout), false);
 
-  await run(process.execPath, [cli, "revoke", "awai"], { env });
+  await run(nodeExecPath, [cli, "revoke", "awai"], { env });
   const [client] = await listCoreClients(userDataPath);
   assert.notEqual(client.revoked_at, null);
 });

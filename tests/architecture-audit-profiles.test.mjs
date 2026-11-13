@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -48,7 +49,7 @@ function createFixture() {
 }
 
 function runAudit(root, args = ["--enforce", "task", "--enforce", "core-mcp"]) {
-  const result = spawnSync(process.execPath, [script, ...args, "--format=json"], {
+  const result = spawnSync(nodeExecPath, [script, ...args, "--format=json"], {
     cwd: root,
     encoding: "utf8",
     timeout: 15_000,
