@@ -122,7 +122,7 @@ Themeには、人間が書く比較的安定した`Theme Charter`と、現在の
 
 人がAI ReadyにしたTaskを外部AIが選び、`get_task_context`で確認してから`start_task_work`で開始します。開始後の最新versionを使って`report_work(status=progress)`、`report_work(status=done)`、`report_work(status=blocked)`を送ります。報告はFeedで採用し、完了報告の採用後もTaskの完了は利用者が明示します。AIは完了したチェック項目のIDを報告に添えられ、採用時に該当項目へ反映されます。Taskの完了後も追加報告を履歴へ残せます。各Task writeには`expected_version`、`idempotency_key`、`caller`が必要です。同じ要求の再送ではkeyと内容を維持してください。RepositoryContext snapshotにはローカルパスやremote URLを保存しません。読み取り専用の運用では`TASKEN_MCP_READ_ONLY=1`を設定してください。
 
-入口ごとの計測（回数・時間・大きさ・失敗の種類。内容は残しません）は、PCでは`npm run stats -- --days=7`、NASでは MCP HTTP の`GET /api/stats?days=7`をclient tokenで呼んで読めます。
+入口ごとの計測（回数・時間・大きさ・失敗の種類。内容は残しません。1つの要求は1行で、名前は`POST /mcp:<道具名>`や`GET /health`の形。Tasken 自身の部品が使う全権 token の要求は数えません）は、PCでは`npm run stats -- --days=7`、NASでは MCP HTTP の`GET /api/stats?days=7`をclient tokenで呼んで読めます。
 
 MCPを経由しないローカルの道具には、Coreの全権tokenではなくクライアント別の読み取り専用tokenを発行できます（[外部AI連携ガイド](./docs/external-ai-integration.md#読み取り専用のローカルクライアント)）。
 

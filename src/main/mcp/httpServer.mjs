@@ -35,7 +35,7 @@ function statsEntry(method, url) {
     : /^\/api\/v1\/[A-Za-z0-9_]+$/.test(pathname)
       ? "/api/v1/{tool}"
       : "{unknown}";
-  return `mcp-http ${STATS_METHODS.has(method) ? method : "OTHER"} ${path}`;
+  return `${STATS_METHODS.has(method) ? method : "OTHER"} ${path}`;
 }
 
 /** 応答の本文のerrorから計測のcodeを作る。形に合わなければOTHER、成功は空。 */
@@ -236,26 +236,38 @@ export async function startTaskenMcpHttpServer(options = {}) {
     response.setHeader("Cache-Control", "no-store");
     // 入口ごとの計測。応答の終わりに1行をCoreへ送る（待たない。届かなくても応答は変えない）。
     const startedAt = process.hrtime.bigint();
-    const stats = { caller: "anonymous", code: "" };
-    response.once("close", () => {
+    const stats = { caller: "anonymous", code: "", mcpRows: 0 };
+    const sendStats = (row) => {
       try {
         if (typeof coreClient.recordStats !== "function") return;
-        const length = Number(response.getHeader("content-length"));
-        void Promise.resolve(
-          coreClient.recordStats([
-            {
-              entry: statsEntry(request.method, request.url),
-              caller: stats.caller,
-              status: response.statusCode,
-              code: stats.code,
-              us: Number((process.hrtime.bigint() - startedAt) / 1000n),
-              bytes: Number.isFinite(length) ? length : 0,
-            },
-          ]),
-        ).catch(() => {});
+        void Promise.resolve(coreClient.recordStats([row])).catch(() => {});
       } catch {
         // 計測の失敗で応答を変えない。
       }
+    };
+    // 1つの要求は1行。MCP serverへ渡した要求でMCPの行が出たら、そちらが要求の行になるので、
+    // この入口の層の行は送らない（同じ要求を2つの層で数えると、requestsの合計が外からの要求の数と合わなくなる）。
+    // 渡さなかった要求（401・405・本文の誤りなど）や、MCPの行が出なかった要求（initialize・通知など）だけここで数える。
+    const mcpStatsSink = {
+      record(row) {
+        stats.mcpRows += 1;
+        sendStats(row);
+      },
+    };
+    response.once("close", () => {
+      // MCPの行はtoolの結果を返した後のsetImmediateで送られるので、数え終わるのを1周待つ。
+      setImmediate(() => {
+        if (stats.mcpRows > 0) return;
+        const length = Number(response.getHeader("content-length"));
+        sendStats({
+          entry: statsEntry(request.method, request.url),
+          caller: stats.caller,
+          status: response.statusCode,
+          code: stats.code,
+          us: Number((process.hrtime.bigint() - startedAt) / 1000n),
+          bytes: Number.isFinite(length) ? length : 0,
+        });
+      });
     });
     const reply = (status, body) => {
       stats.code = statsErrorCode(body);
@@ -353,6 +365,8 @@ export async function startTaskenMcpHttpServer(options = {}) {
         withheldCapabilities,
         verifiedClient: client.name,
         statsCaller: `${apiMatch ? "token" : "mcp"}:${client.name}`,
+        // describeは中でtools/listを呼ぶが、外からの要求は`GET /api/v1`の1つなので、その行は数えない。
+        statsSink: isDescribe ? { record() {} } : mcpStatsSink,
         env,
       });
       if (isDescribe) return reply(200, await describeApiTools(server));

@@ -294,7 +294,7 @@ export class MobileGatewayHost {
   ): void {
     try {
       this.options.stats?.record({
-        entry: `gateway ${STATS_METHODS.has(method) ? method : "OTHER"} ${STATS_PATHS.has(path) ? path : "{unknown}"}`,
+        entry: `${STATS_METHODS.has(method) ? method : "OTHER"} ${STATS_PATHS.has(path) ? path : "{unknown}"}`,
         caller: authenticated ? "screen" : "anonymous",
         status,
         code: /^[a-z][a-z0-9_]{0,47}$/.test(code) ? code.toUpperCase() : "",

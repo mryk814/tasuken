@@ -3,6 +3,18 @@ import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { apiErrorStatus, toolResultValue } from "./toolErrorStatus.mjs";
 
 const TOOL_NAME = /^tasken\.[a-z][a-z0-9_]{0,63}$/;
+// 道具以外のMCPの要求のうち、入口の名前に使ってよいmethod（閉じた集合）。ほかは{unknown}。
+// initializeとpingはSDKがconstructorで登録するので包めない。HTTPでは httpServer.mjs の行で数える。
+const OTHER_METHODS = new Set([
+  "tools/list",
+  "resources/list",
+  "resources/read",
+  "resources/templates/list",
+  "prompts/list",
+  "prompts/get",
+  "completion/complete",
+  "logging/setLevel",
+]);
 const CODE = /^[A-Z][A-Z0-9_]{0,47}$/;
 
 function statsCode(code) {
@@ -32,6 +44,7 @@ export function classifyToolResult(result, known = true) {
 }
 
 function classifyToolError(error, known) {
+  if (error?.code === -32601) return { status: 404, code: "UNKNOWN_METHOD" };
   if (error?.code === -32602) {
     return known
       ? { status: 400, code: "INVALID_ARGUMENTS" }
@@ -68,55 +81,59 @@ export function stdioStatsCaller(server) {
 }
 
 /**
- * `tools/call`のhandlerを時間計測つきにする。compactToolDiscoveryと同じく`setRequestHandler`を包むので、
- * SDKの入力検証の失敗や存在しないtoolも数えられ、toolごとのhandlerを一つずつ包まずに済む。
+ * MCPの要求のhandlerを時間計測つきにする。compactToolDiscoveryと同じく`setRequestHandler`を包むので、
+ * 包んだ後に登録されるすべてのhandler（tools/call・tools/list・resources/*など）が数えられ、
+ * SDKの入力検証の失敗や存在しないtoolも数えられる。toolごとのhandlerを一つずつ包まずに済む。
  *
- * toolの名前は`isKnownTool`で登録済みと分かったものだけを使い、ほかは`{unknown}`にする
- * （呼び手が書いた文字列を入口の名前にしない）。引数は読まない。
+ * 入口の名前は`POST /mcp:<tool名>`（tools/call）か`POST /mcp:<method>`（それ以外）。
+ * tool名は`isKnownTool`で登録済みと分かったものだけ、methodは閉じた集合のものだけを使い、
+ * ほかは`{unknown}`にする（呼び手が書いた文字列を入口の名前にしない）。引数は読まない。
  * 送る処理(`send`)は結果を返した後に待たずに呼ぶ。送れなくても呼び出しは失敗させない。
  */
 export function instrumentToolCalls(server, { isKnownTool, caller, send }) {
   const setRequestHandler = server.setRequestHandler.bind(server);
   server.setRequestHandler = (schema, handler) =>
-    setRequestHandler(
-      schema,
-      schema === CallToolRequestSchema
-        ? async (...args) => {
-            const startedAt = process.hrtime.bigint();
-            const name = args[0]?.params?.name;
-            const known = typeof name === "string" && TOOL_NAME.test(name) && isKnownTool(name);
-            const report = (outcome, bytes) => {
-              try {
-                const row = {
-                  entry: `tool ${known ? name : "{unknown}"}`,
-                  caller: caller(),
-                  status: outcome.status,
-                  code: outcome.code,
-                  us: Number((process.hrtime.bigint() - startedAt) / 1000n),
-                  bytes,
-                };
-                // 結果を返す処理の後で送る。
-                setImmediate(() => {
-                  try {
-                    send(row);
-                  } catch {
-                    // 計測の失敗でtoolの呼び出しを失敗させない。
-                  }
-                });
-              } catch {
-                // 同上。
-              }
-            };
-            let result;
+    setRequestHandler(schema, async (...args) => {
+      const startedAt = process.hrtime.bigint();
+      const isCall = schema === CallToolRequestSchema;
+      const method = schema?.shape?.method?.value;
+      const name = args[0]?.params?.name;
+      const known = isCall
+        ? typeof name === "string" && TOOL_NAME.test(name) && isKnownTool(name)
+        : OTHER_METHODS.has(method);
+      const report = (outcome, bytes) => {
+        try {
+          const row = {
+            entry: `POST /mcp:${known ? (isCall ? name : method) : "{unknown}"}`,
+            caller: caller(),
+            status: outcome.status,
+            code: outcome.code,
+            us: Number((process.hrtime.bigint() - startedAt) / 1000n),
+            bytes,
+          };
+          // 結果を返す処理の後で送る。
+          setImmediate(() => {
             try {
-              result = await handler(...args);
-            } catch (error) {
-              report(classifyToolError(error, known), 0);
-              throw error;
+              send(row);
+            } catch {
+              // 計測の失敗で呼び出しを失敗させない。
             }
-            report(classifyToolResult(result, known), resultBytes(result));
-            return result;
-          }
-        : handler,
-    );
+          });
+        } catch {
+          // 同上。
+        }
+      };
+      let result;
+      try {
+        result = await handler(...args);
+      } catch (error) {
+        // tool以外の-32602は未知のtoolではなく引数の誤り。
+        report(classifyToolError(error, isCall ? known : true), 0);
+        throw error;
+      }
+      // tools/call以外は、返せれば200。中身（resources/readの本文など）は数えない。
+      if (isCall) report(classifyToolResult(result, known), resultBytes(result));
+      else report({ status: 200, code: "" }, 0);
+      return result;
+    });
 }

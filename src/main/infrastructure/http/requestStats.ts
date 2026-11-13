@@ -383,7 +383,7 @@ export class RequestStats implements RequestStatsSink {
       slowest,
       failing: failures((_entry, status) => FAILING_STATUSES.has(status), FAILING_LIMIT),
       tool_errors: failures(
-        (entry, status) => entry.startsWith("tool ") && status !== 200,
+        (entry, status) => entry.startsWith("POST /mcp:") && status !== 200,
         TOOL_ERRORS_LIMIT,
       ),
     };

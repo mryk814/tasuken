@@ -630,7 +630,7 @@ const statsRowSchema = z.strictObject({
   entry: z
     .string()
     .regex(
-      /^(tool (tasken\.[a-z][a-z0-9_]{0,63}|\{unknown\})|mcp-http (GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|OTHER) (\/mcp|\/api\/v1|\/api\/v1\/\{tool\}|\/api\/stats|\/health|\{unknown\}))$/,
+      /^(POST \/mcp:(tasken\.[a-z][a-z0-9_]{0,63}|tools\/list|resources\/list|resources\/read|resources\/templates\/list|prompts\/list|prompts\/get|completion\/complete|logging\/setLevel|\{unknown\})|(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|OTHER) (\/mcp|\/api\/v1|\/api\/v1\/\{tool\}|\/api\/stats|\/health|\{unknown\}))$/,
     ),
   caller: z
     .string()
@@ -1038,7 +1038,7 @@ export class TaskenCoreHost {
       META_PATHS.has(pathname) ||
       this.adminRoutes.has(pathname) ||
       pathname === STATS_PATH;
-    return `core ${statsMethod(request.method)} ${known ? pathname : "{unknown}"}`;
+    return `${statsMethod(request.method)} ${known ? pathname : "{unknown}"}`;
   }
 
   private handle(request: IncomingMessage, response: ServerResponse) {
@@ -1048,6 +1048,10 @@ export class TaskenCoreHost {
       try {
         // 計測の書き込み自体は記録しない（記録が記録を呼ぶのを避ける）。
         if ((request.url || "").split("?", 1)[0] === STATS_RECORD_PATH) return;
+        // 全権tokenを使うのはTasken自身の部品（MCPの橋渡し・管理の道具・statsの読み出し）で、
+        // その要求はMCP側の行と二重になる。「1つの要求は1行」にするため数えず、
+        // 読み取りclient token（token:<名前>）と認証できない要求（anonymous）だけを数える。
+        if (context.caller === "local") return;
         const length = Number(response.getHeader("content-length"));
         this.stats.record({
           entry: this.statsEntry(request),

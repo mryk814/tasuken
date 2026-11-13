@@ -64,7 +64,7 @@ const settle = async () => {
 
 function row(overrides = {}) {
   return {
-    entry: "core GET /health",
+    entry: "GET /health",
     caller: "local",
     status: 200,
     code: "",
@@ -102,7 +102,7 @@ test("RequestStats merges rows with the same key, across flushes", (t) => {
     { ...ok },
     {
       day: "2026-11-14",
-      entry: "core GET /health",
+      entry: "GET /health",
       caller: "local",
       status: 200,
       code: "",
@@ -121,10 +121,10 @@ test("RequestStats.read returns the documented shape and only counts 400/409/422
     now: () => new Date(2026, 10, 14, 12),
   });
   t.after(() => stats.close());
-  stats.record(row({ entry: "core POST /v1/commands/change-task", us: 3000, bytes: 100 }));
+  stats.record(row({ entry: "POST /v1/commands/change-task", us: 3000, bytes: 100 }));
   stats.record(
     row({
-      entry: "core POST /v1/commands/change-task",
+      entry: "POST /v1/commands/change-task",
       status: 400,
       code: "VALIDATION_FAILED",
       us: 5000,
@@ -133,23 +133,19 @@ test("RequestStats.read returns the documented shape and only counts 400/409/422
   );
   stats.record(
     row({
-      entry: "core POST /v1/commands/change-task",
+      entry: "POST /v1/commands/change-task",
       caller: "mcp:muse",
       status: 409,
       code: "CONFLICT",
       us: 9000,
     }),
   );
+  stats.record(row({ entry: "POST /v1/commands/change-task", status: 422, caller: "mcp:muse" }));
+  stats.record(row({ entry: "POST /v1/commands/change-task", status: 401, code: "UNAUTHORIZED" }));
   stats.record(
-    row({ entry: "core POST /v1/commands/change-task", status: 422, caller: "mcp:muse" }),
+    row({ entry: "POST /v1/commands/change-task", status: 500, code: "INTERNAL_ERROR" }),
   );
-  stats.record(
-    row({ entry: "core POST /v1/commands/change-task", status: 401, code: "UNAUTHORIZED" }),
-  );
-  stats.record(
-    row({ entry: "core POST /v1/commands/change-task", status: 500, code: "INTERNAL_ERROR" }),
-  );
-  stats.record(row({ entry: "core GET /health", us: 100, bytes: 20 }));
+  stats.record(row({ entry: "GET /health", us: 100, bytes: 20 }));
 
   const report = stats.read(7);
   assert.deepEqual(Object.keys(report).sort(), [
@@ -170,15 +166,15 @@ test("RequestStats.read returns the documented shape and only counts 400/409/422
     "entry",
     "max_ms",
   ]);
-  assert.equal(report.slowest[0].entry, "core POST /v1/commands/change-task");
+  assert.equal(report.slowest[0].entry, "POST /v1/commands/change-task");
   assert.equal(report.slowest[0].count, 6);
   assert.equal(report.slowest[0].max_ms, 9);
   assert.equal(report.slowest[0].avg_ms, 3.3);
-  assert.equal(report.slowest[1].entry, "core GET /health");
+  assert.equal(report.slowest[1].entry, "GET /health");
 
   assert.equal(report.failing.length, 1);
   assert.deepEqual(report.failing[0], {
-    entry: "core POST /v1/commands/change-task",
+    entry: "POST /v1/commands/change-task",
     count: 6,
     failed: 3,
     by_status: { 400: 1, 409: 1, 422: 1 },
@@ -194,13 +190,13 @@ test("RequestStats.read lists non-200 tool calls under tool_errors", (t) => {
     now: () => new Date(2026, 10, 14, 12),
   });
   t.after(() => stats.close());
-  const entry = "tool tasken.report_work";
+  const entry = "POST /mcp:tasken.report_work";
   for (let index = 0; index < 6; index += 1) stats.record(row({ entry, caller: "mcp:muse" }));
   stats.record(row({ entry, caller: "mcp:muse", status: 400, code: "INVALID_ARGUMENTS" }));
   stats.record(row({ entry, caller: "mcp:muse", status: 400, code: "INVALID_ARGUMENTS" }));
   stats.record(row({ entry, caller: "mcp:muse", status: 404, code: "NOT_FOUND" }));
   stats.record(row({ entry, caller: "mcp:muse", status: 500, code: "INTERNAL_ERROR" }));
-  stats.record(row({ entry: "core GET /health", status: 503 }));
+  stats.record(row({ entry: "GET /health", status: 503 }));
 
   const { tool_errors: toolErrors } = stats.read(1);
   assert.equal(toolErrors.length, 1);
@@ -217,7 +213,7 @@ test("RequestStats.read lists non-200 tool calls under tool_errors", (t) => {
 test("RequestStats drops rows older than a year and keeps the days window", (t) => {
   const file = path.join(temporaryDirectory(t), "stats.sqlite");
   const old = new RequestStats({ filePath: file, now: () => new Date(2025, 10, 1, 12) });
-  old.record(row({ entry: "core GET /version" }));
+  old.record(row({ entry: "GET /version" }));
   old.close();
   const recent = new RequestStats({ filePath: file, now: () => new Date(2026, 10, 14, 12) });
   t.after(() => recent.close());
@@ -226,7 +222,7 @@ test("RequestStats drops rows older than a year and keeps the days window", (t) 
   recent.flush();
   assert.deepEqual(
     readRows(file).map((entry) => entry.entry),
-    ["core GET /health"],
+    ["GET /health"],
   );
   assert.equal(recent.read(1).requests, 1);
 });
@@ -351,15 +347,20 @@ test("tool calls are classified by status and code and carry the caller", async 
 
   const summary = rows.map(({ entry, caller, status, code }) => ({ entry, caller, status, code }));
   assert.deepEqual(summary, [
-    { entry: "tool tasken.search_items", caller: "mcp:muse", status: 200, code: "" },
-    { entry: "tool tasken.get_task_context", caller: "mcp:muse", status: 404, code: "NOT_FOUND" },
+    { entry: "POST /mcp:tasken.search_items", caller: "mcp:muse", status: 200, code: "" },
     {
-      entry: "tool tasken.search_items",
+      entry: "POST /mcp:tasken.get_task_context",
+      caller: "mcp:muse",
+      status: 404,
+      code: "NOT_FOUND",
+    },
+    {
+      entry: "POST /mcp:tasken.search_items",
       caller: "mcp:muse",
       status: 400,
       code: "INVALID_ARGUMENTS",
     },
-    { entry: "tool {unknown}", caller: "mcp:muse", status: 404, code: "UNKNOWN_TOOL" },
+    { entry: "POST /mcp:{unknown}", caller: "mcp:muse", status: 404, code: "UNKNOWN_TOOL" },
   ]);
   for (const entry of rows) {
     assert.ok(Number.isInteger(entry.us) && entry.us >= 0);
@@ -438,7 +439,7 @@ test("Core: /v1/stats/record needs the full token and validates every row", asyn
   const { userDataPath, call, host } = await startCore(t);
   const reader = (await issueCoreClientToken(userDataPath, "awai")).token;
   const valid = {
-    entry: "tool tasken.search_items",
+    entry: "POST /mcp:tasken.search_items",
     caller: "mcp:muse",
     status: 200,
     code: "",
@@ -472,9 +473,9 @@ test("Core: /v1/stats/record needs the full token and validates every row", asyn
     { rows: Array.from({ length: 101 }, () => valid) },
     { rows: [{ ...valid, extra: 1 }] },
     { rows: [valid], extra: 1 },
-    { rows: [{ ...valid, entry: "tool tasken.Bad-Name" }] },
-    { rows: [{ ...valid, entry: "mcp-http GET /api/v1/anything" }] },
-    { rows: [{ ...valid, entry: "core GET /health" }] },
+    { rows: [{ ...valid, entry: "POST /mcp:tasken.Bad-Name" }] },
+    { rows: [{ ...valid, entry: "GET /api/v1/anything" }] },
+    { rows: [{ ...valid, entry: "GET /v1/stats" }] },
     { rows: [{ ...valid, caller: "mcp:has space" }] },
     { rows: [{ ...valid, status: 99 }] },
     { rows: [{ ...valid, status: 600 }] },
@@ -485,7 +486,7 @@ test("Core: /v1/stats/record needs the full token and validates every row", asyn
     // 1件でも不正なら、正しい行も含めて何も記録しない。
     {
       rows: [
-        { ...valid, entry: "tool tasken.only_in_a_bad_batch" },
+        { ...valid, entry: "POST /mcp:tasken.only_in_a_bad_batch" },
         { ...valid, status: 99 },
       ],
     },
@@ -497,10 +498,13 @@ test("Core: /v1/stats/record needs the full token and validates every row", asyn
   }
   const report = host.stats.read(1);
   assert.equal(
-    report.slowest.some((entry) => entry.entry === "tool tasken.only_in_a_bad_batch"),
+    report.slowest.some((entry) => entry.entry === "POST /mcp:tasken.only_in_a_bad_batch"),
     false,
   );
-  assert.equal(report.slowest.find((entry) => entry.entry === "tool tasken.search_items").count, 2);
+  assert.equal(
+    report.slowest.find((entry) => entry.entry === "POST /mcp:tasken.search_items").count,
+    2,
+  );
 });
 
 test("Core: GET /v1/stats validates days and is readable by read-only clients", async (t) => {
@@ -519,11 +523,12 @@ test("Core: GET /v1/stats validates days and is readable by read-only clients", 
     assert.equal((await response.json()).error.code, "VALIDATION_FAILED");
   }
 
-  // 呼び手は全権tokenなら local、読み取りclientなら token:<名前>。
+  // 数えるのは読み取りclient token（token:<名前>）と認証できない要求（anonymous）だけ。全権tokenは数えない。
+  await call("/v1/stats?days=0", { credential: reader });
   const failing = (await (await call("/v1/stats?days=7")).json()).failing;
-  const entry = failing.find((item) => item.entry === "core GET /v1/stats");
-  assert.equal(entry.by_caller.local >= 1, true);
-  assert.equal(entry.by_code.VALIDATION_FAILED >= 1, true);
+  const entry = failing.find((item) => item.entry === "GET /v1/stats");
+  assert.deepEqual(entry.by_caller, { "token:awai": 1 });
+  assert.deepEqual(entry.by_code, { VALIDATION_FAILED: 1 });
 });
 
 // --- 中身を記録しない -------------------------------------------------------------
@@ -580,16 +585,26 @@ test("no title, body, query, ID or path text from a request reaches the stats fi
   await settle();
 
   // Coreへの未知のpath・query・本文・未知の認証。
-  const unknownCore = await call("/v1/queries/SENTINEL_CORE_PATH_c4a1?q=SENTINEL_QUERY_55de");
+  // 全権tokenの要求は数えないので、数える側（読み取りclient token と認証できない要求）で送る。
+  const reader = (await issueCoreClientToken(userDataPath, "awai")).token;
+  const unknownCore = await call("/v1/queries/SENTINEL_CORE_PATH_c4a1?q=SENTINEL_QUERY_55de", {
+    credential: reader,
+  });
   assert.equal(unknownCore.status, 404);
   await call("/v1/queries/SENTINEL_CORE_PATH_c4a1?q=SENTINEL_QUERY_55de", {
     credential: "SENTINEL_TOKEN_b5c4",
   });
+  await call("/v1/queries/SENTINEL_CORE_PATH_c4a1", {
+    method: "POST",
+    credential: "SENTINEL_TOKEN_b5c4",
+    body: { title: "SENTINEL_TITLE_7f3a" },
+  });
   await call("/v1/queries/search-items", {
     method: "POST",
+    credential: reader,
     body: { query: 1, title: "SENTINEL_TITLE_7f3a", body: "SENTINEL_BODY_91c2" },
   });
-  await call("/health?x=SENTINEL_QUERY_55de");
+  await call("/health?x=SENTINEL_QUERY_55de", { credential: reader });
 
   // 計測の口へ、目印入りの入口名・呼び手を送る。
   const rejected = await call("/v1/stats/record", {
@@ -597,7 +612,7 @@ test("no title, body, query, ID or path text from a request reaches the stats fi
     body: {
       rows: [
         {
-          entry: "tool tasken.SENTINEL_RECORD_ENTRY_2d90",
+          entry: "POST /mcp:tasken.SENTINEL_RECORD_ENTRY_2d90",
           caller: "mcp:SENTINEL_RECORD_ENTRY_2d90 x",
           status: 200,
           code: "",
@@ -649,14 +664,13 @@ test("no title, body, query, ID or path text from a request reaches the stats fi
   const report = JSON.parse(apiResponse);
   const names = report.slowest.map((entry) => entry.entry);
   // 空のテストにならないよう、閉じた集合の名前では数えられていることも確かめる。
-  assert.ok(names.includes("core GET {unknown}"), names.join(","));
-  assert.ok(names.includes("gateway GET {unknown}"), names.join(","));
-  assert.ok(names.includes("gateway POST {unknown}"), names.join(","));
-  assert.ok(names.includes("tool {unknown}"), names.join(","));
-  assert.ok(names.includes("tool tasken.search_items"), names.join(","));
-  assert.ok(names.includes("core POST /v1/queries/search-items"), names.join(","));
-  assert.ok(names.includes("core GET /health"), names.join(","));
-  assert.equal(names.includes("core POST /v1/stats/record"), false);
+  assert.ok(names.includes("GET {unknown}"), names.join(","));
+  assert.ok(names.includes("POST {unknown}"), names.join(","));
+  assert.ok(names.includes("POST /mcp:{unknown}"), names.join(","));
+  assert.ok(names.includes("POST /mcp:tasken.search_items"), names.join(","));
+  assert.ok(names.includes("POST /v1/queries/search-items"), names.join(","));
+  assert.ok(names.includes("GET /health"), names.join(","));
+  assert.equal(names.includes("POST /v1/stats/record"), false);
 
   await gateway.stop();
   await host.stop();
@@ -671,7 +685,7 @@ test("no title, body, query, ID or path text from a request reaches the stats fi
 
 // --- MCP の HTTP server --------------------------------------------------------------
 
-test("MCP HTTP server serves /api/stats from Core and sends mcp-http rows", async (t) => {
+test("MCP HTTP server serves /api/stats from Core and sends HTTP-layer rows", async (t) => {
   const clientToken = randomBytes(32).toString("base64url");
   const sent = [];
   const requested = [];
@@ -741,18 +755,112 @@ test("MCP HTTP server serves /api/stats from Core and sends mcp-http rows", asyn
       summary.some((item) => JSON.stringify(item) === JSON.stringify(expected)),
       `${JSON.stringify(expected)} not in ${JSON.stringify(summary)}`,
     );
-  has({ entry: "mcp-http GET /api/stats", caller: "token:reader", status: 200, code: "" });
-  has({ entry: "mcp-http GET /api/stats", caller: "anonymous", status: 401, code: "UNAUTHORIZED" });
+  has({ entry: "GET /api/stats", caller: "token:reader", status: 200, code: "" });
+  has({ entry: "GET /api/stats", caller: "anonymous", status: 401, code: "UNAUTHORIZED" });
   has({
-    entry: "mcp-http GET /api/stats",
+    entry: "GET /api/stats",
     caller: "token:reader",
     status: 503,
     code: "CORE_UNAVAILABLE",
   });
-  has({ entry: "mcp-http GET {unknown}", caller: "anonymous", status: 404, code: "NOT_FOUND" });
-  has({ entry: "mcp-http GET /api/v1", caller: "token:reader", status: 200, code: "" });
+  has({ entry: "GET {unknown}", caller: "anonymous", status: 404, code: "NOT_FOUND" });
+  has({ entry: "GET /api/v1", caller: "token:reader", status: 200, code: "" });
   assert.equal(JSON.stringify(sent).includes("SENTINEL"), false);
   for (const entry of sent) {
     assert.ok(Number.isInteger(entry.us) && entry.bytes >= 0);
   }
+});
+
+test("tools/list over stdio is counted as POST /mcp:tools/list", async (t) => {
+  const { client, rows } = await connectMcp(t, { statsCaller: "mcp:muse" });
+  await client.listTools();
+  await settle();
+  assert.deepEqual(
+    rows.map(({ entry, caller, status, code }) => ({ entry, caller, status, code })),
+    [{ entry: "POST /mcp:tools/list", caller: "mcp:muse", status: 200, code: "" }],
+  );
+});
+
+test("Core does not count full-token requests, but counts read-only clients and failed authentication", async (t) => {
+  const { userDataPath, call, host } = await startCore(t);
+  const reader = (await issueCoreClientToken(userDataPath, "awai")).token;
+
+  await call("/health");
+  await call("/v1/stats");
+  assert.equal(host.stats.read(1).requests, 0);
+
+  await call("/health", { credential: reader });
+  await call("/health", { credential: "wrong-token" });
+  const report = host.stats.read(1);
+  assert.equal(report.requests, 2);
+  assert.equal(report.slowest.length, 1);
+  assert.equal(report.slowest[0].entry, "GET /health");
+  assert.equal(report.slowest[0].count, 2);
+});
+
+test("MCP HTTP server counts one request as one row", async (t) => {
+  const clientToken = randomBytes(32).toString("base64url");
+  const sent = [];
+  const server = await startTaskenMcpHttpServer({
+    env: {},
+    port: 0,
+    clients: { reader: { token: clientToken } },
+    coreClient: {
+      status: async () => ({ capabilities: [] }),
+      recordStats: async (rows) => {
+        sent.push(...rows);
+      },
+      getStats: async () => ({}),
+    },
+  });
+  t.after(() => server.close());
+  const origin = `http://127.0.0.1:${server.address().port}`;
+  const post = (route, body, credential = clientToken) =>
+    fetch(`${origin}${route}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        ...(credential ? { authorization: `Bearer ${credential}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+  const flush = async () => {
+    await settle();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  };
+  const entries = () => sent.splice(0).map(({ entry, status }) => `${entry} ${status}`);
+
+  // 道具を1つ呼ぶ /mcp は、MCPの行1つだけ（入口の層の行は出ない）。
+  const called = await post("/mcp", {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: { name: "tasken.get_capabilities", arguments: {} },
+  });
+  assert.equal(called.status, 200);
+  await flush();
+  assert.deepEqual(entries(), ["POST /mcp:tasken.get_capabilities 200"]);
+
+  // 認証できない /mcp は入口の層の行が1つ。
+  assert.equal(
+    (await post("/mcp", { jsonrpc: "2.0", id: 1, method: "tools/list" }, "")).status,
+    401,
+  );
+  await flush();
+  assert.deepEqual(entries(), ["POST /mcp 401"]);
+
+  // MCPの行が出ない要求（通知）は、入口の層の行で数える。
+  await post("/mcp", { jsonrpc: "2.0", method: "notifications/initialized" });
+  await flush();
+  assert.deepEqual(entries(), ["POST /mcp 202"]);
+
+  // describeは中でtools/listを呼ぶが、行は GET /api/v1 の1つだけ。
+  assert.equal(
+    (await fetch(`${origin}/api/v1`, { headers: { authorization: `Bearer ${clientToken}` } }))
+      .status,
+    200,
+  );
+  await flush();
+  assert.deepEqual(entries(), ["GET /api/v1 200"]);
 });
