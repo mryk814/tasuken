@@ -61,9 +61,11 @@ test(
       // Windows expands a TEMP path such as RUNNER~1 to its long directory name.
       assert.deepEqual(actual, [await realpath(cwd), ...args]);
     } finally {
-      // The benign fixture is the only child created here; let it finish before cleanup.
+      // The benign fixture is the only child created here. It sleeps 1s with this folder as its
+      // working directory, and a busy PC can keep it (or a scanner on the fresh exe) alive past a
+      // fixed wait, so rmdir fails with EBUSY. Retry until it lets go (#735) instead of guessing.
       await new Promise((resolve) => setTimeout(resolve, 1100));
-      await rm(cwd, { recursive: true, force: true });
+      await rm(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   },
 );
