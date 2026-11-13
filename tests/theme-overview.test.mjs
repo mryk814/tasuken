@@ -17,8 +17,8 @@ function sectionHeadings(source) {
 test("Theme詳細は四面に分かれ、面ごとに読む順で状況を出す（#321、計画フェーズ4）", () => {
   const headings = sectionHeadings(themePage);
 
-  // 面は 概要 → タスク → 投稿 → Notes の順に並べる。
-  const tabOrder = ["概要", "タスク", "投稿", "Notes"];
+  // 面は 概要 → タスク → 投稿 → ノート の順に並べる。
+  const tabOrder = ["概要", "タスク", "投稿", "ノート"];
   const tabIndexes = tabOrder.map((label) => themePage.indexOf(`label: "${label}"`));
   assert.ok(
     tabIndexes.every((index) => index >= 0),
@@ -27,7 +27,7 @@ test("Theme詳細は四面に分かれ、面ごとに読む順で状況を出す
   assert.deepEqual(
     [...tabIndexes].sort((a, b) => a - b),
     tabIndexes,
-    "概要 → タスク → 投稿 → Notes の順にする",
+    "概要 → タスク → 投稿 → ノート の順にする",
   );
 
   // 概要面の見出しが最初に来る。

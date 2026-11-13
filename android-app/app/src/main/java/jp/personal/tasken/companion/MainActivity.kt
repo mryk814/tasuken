@@ -803,7 +803,7 @@ internal fun TodayApp(
                     // どのタブでも同じ3つ。探す・同期を確かめる・設定する。
                     if (todayViewModel.localSearchRepository != null) {
                         IconButton(onClick = { localSearchOpen = true }, modifier = Modifier.testTag("open-local-search")) {
-                            Icon(painterResource(R.drawable.ic_tabler_search), contentDescription = "検索")
+                            Icon(painterResource(R.drawable.ic_tabler_search), contentDescription = "さがす")
                         }
                     }
                     SyncStatusButton(syncState, onClick = { syncSheetOpen = true })
@@ -1002,7 +1002,7 @@ internal fun TodayApp(
                         )
                     } else {
                     if (localSearchTaskReturn != null) TextButton(onClick = { localSearchOpen = true; localSearchTaskReturn = null },
-                        modifier = Modifier.testTag("local-search-return")) { Text("検索へ戻る") }
+                        modifier = Modifier.testTag("local-search-return")) { Text("さがすへ戻る") }
                     Box(Modifier.weight(1f)) {
                     TodayDetailPane(
                         task = task,
@@ -1158,7 +1158,7 @@ internal fun TodayApp(
         todayViewModel.relatedDocumentsRepository?.let { repository ->
             MobileRelatedDocumentsSheet(repository, taskId, onDismiss = { relatedTaskId = null; searchDocumentType = null; searchDocumentId = null },
                 initialDocument = searchDocumentId?.let { id -> searchDocumentType?.let { it to id } },
-                dismissLabel = if (localSearchOpen) "検索へ戻る" else "Taskへ戻る")
+                dismissLabel = if (localSearchOpen) "さがすへ戻る" else "Taskへ戻る")
         }
     }
     recallCapture?.let { capture ->
@@ -1384,7 +1384,7 @@ internal fun CaptureTaskSheet(
                 androidx.compose.material3.SingleChoiceSegmentedButtonRow(modifier = Modifier.weight(1f)) {
                     val modes = buildList {
                         add(Triple("Task", "capture-mode-task", !memoMode))
-                        add(Triple("メモ", "capture-mode-memo", memoMode))
+                        add(Triple("付箋", "capture-mode-memo", memoMode))
                         if (onSwitchToWorkLog != null) add(Triple("やったこと", "capture-mode-work-log", false))
                     }
                     modes.forEachIndexed { index, (label, tag, selected) ->
@@ -1412,7 +1412,7 @@ internal fun CaptureTaskSheet(
                 androidx.compose.material3.TextField(
                     value = draft.text,
                     onValueChange = onDraftChanged,
-                    label = { Text(if (memoMode) "メモ" else "Task名") },
+                    label = { Text(if (memoMode) "付箋" else "Task名") },
                     placeholder = { Text(if (memoMode) "思いついたこと、あとで整理したいこと" else "例: 帰りに牛乳を買う") },
                     supportingText = if (overLimit) {
                         { Text("${draft.text.length} / ${MOBILE_CAPTURE_TEXT_MAX_LENGTH}文字。全文を保持しています。編集するか、全文をコピーして回収できます。") }
@@ -2011,7 +2011,7 @@ internal fun TasksListPane(
                     value = paneState.taskSearch,
                     onValueChange = { paneState.taskSearch = it.take(100) },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                    label = { Text("Taskを検索") },
+                    label = { Text("やることをさがす") },
                     singleLine = true,
                 )
                 Row(
@@ -2150,7 +2150,7 @@ internal fun FeedListPane(
         uiState is TodayUiState.Error && tasks.isEmpty() -> GatewayErrorState(uiState, onRetry, onRetryPairing)
         uiState is TodayUiState.Loading && tasks.isEmpty() -> CenteredState {
             CircularProgressIndicator()
-            Text("Agent Deskを読み込んでいます")
+            Text("任せた仕事を読み込んでいます")
         }
         else -> {
             // 要対応が0件でも見出しは出す。「取得できていない」と「0件」を利用者が区別できるようにする。

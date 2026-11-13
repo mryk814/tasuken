@@ -229,7 +229,7 @@ export function HabitPanel({
       );
       setTitle("");
       setShowCreate(false);
-      setToast("追加しました。Todayで1回記録できます。", "success");
+      setToast("追加しました。今日で1回記録できます。", "success");
     } catch (error) {
       setToast(
         `追加できませんでした。${error instanceof Error ? error.message : String(error)}`,

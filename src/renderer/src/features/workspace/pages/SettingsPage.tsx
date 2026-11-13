@@ -812,8 +812,8 @@ export function SettingsPage({
         </div>
       </section>
       <div className="settings-layout">
-        <nav className="panel settings-category-nav" aria-label="Settings category">
-          <h2>Settings</h2>
+        <nav className="panel settings-category-nav" aria-label="設定の分類">
+          <h2>設定</h2>
           {SETTINGS_SECTIONS.map((section) => (
             <button
               key={section.id}
@@ -1395,7 +1395,7 @@ export function SettingsPage({
               </label>
               <p className="field-help">
                 Claude
-                CodeなどこのPCのAIが、あなたの言葉を根拠にTask・Noteの作成と編集、Taskの完了・削除、提案の採否を直接行えます。AIの操作として記録され、DebriefのActivityから取り消せます。
+                CodeなどこのPCのAIが、あなたの言葉を根拠にTask・Noteの作成と編集、Taskの完了・削除、提案の採否を直接行えます。AIの操作として記録され、日誌のActivityから取り消せます。
               </p>
               <dl className="settings-meta-list">
                 <div>
@@ -1429,7 +1429,7 @@ export function SettingsPage({
                         ? "提案・作業開始・直接の書き込みを受け付ける"
                         : "提案と作業開始を受け付ける"
                       : mcpInfo?.coreWriteProfile === "proposals"
-                        ? "Text Proposal（Feed投稿・Note案・Task案・作業報告）のみ受け付ける"
+                        ? "Text Proposal（近況の投稿・Note案・Task案・作業報告）のみ受け付ける"
                         : mcpInfo?.coreWriteProfile === "read-only"
                           ? "読み取りのみ（書き込みは公開していない）"
                           : mcpInfo?.coreWriteProfile === "partial"

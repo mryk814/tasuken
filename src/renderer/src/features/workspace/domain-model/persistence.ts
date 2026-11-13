@@ -300,7 +300,7 @@ export async function saveWaiting(
   waiting: Waiting,
   context?: SaveContext,
 ): Promise<Entity[]> {
-  return saveEntities(buildSaveWaitingOperations(waiting, context), "Waitingを保存しました。");
+  return saveEntities(buildSaveWaitingOperations(waiting, context), "待ちを保存しました。");
 }
 
 export async function savePlanNode(

@@ -38,9 +38,9 @@ test("micro memos are folded into Inbox navigation instead of a separate nav ite
 
 test("Memo page owns only sticky memos and sends untriaged records to Feed", () => {
   assert.match(inboxPageSource, /buildMicroMemoView/);
-  assert.match(inboxPageSource, /付箋メモ/);
+  assert.match(inboxPageSource, /付箋/);
   assert.doesNotMatch(inboxPageSource, /lane|organizeSelected|postInboxRowToFeed|InboxDraft/);
-  assert.match(inboxPageSource, /Feedのホームに自分のメモとして並んでいます/);
+  assert.match(inboxPageSource, /近況のホームに自分のメモとして並んでいます/);
   assert.match(inboxPageSource, /micro-memo-grid/);
 });
 
@@ -94,7 +94,7 @@ test("Inboxを未整理Task候補へ絞る（#317）", () => {
   // primaryはMemoひとつ。
   const primaries = header.match(/<Button variant="primary"/g) || [];
   assert.equal(primaries.length, 1);
-  assert.match(header, /<IconPlus\s+size=\{16\}\s*\/>\s*Memo\s*<\/Button>/);
+  assert.match(header, /<IconPlus\s+size=\{16\}\s*\/>\s*付箋\s*<\/Button>/);
 
   // Quick Captureと同じcapture_entryへ保存し、保存先を分裂させない。
   assert.match(inboxPageSource, /function addMemo\(\) \{[\s\S]*?type: "capture_entry"/);

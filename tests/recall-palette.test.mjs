@@ -256,5 +256,5 @@ test("Ctrl+K契約はPaletteへ一本化し、入力中の既存ショートカ�
     styles,
     /\.command-palette-result-status\s*\{[\s\S]*?color: var\(--color-text-secondary\)/,
   );
-  assert.match(shell, /Ctrl[\s\S]*Shift[\s\S]*K[\s\S]*入力中に全体検索を開く/);
+  assert.match(shell, /Ctrl[\s\S]*Shift[\s\S]*K[\s\S]*入力中に全体をさがす/);
 });

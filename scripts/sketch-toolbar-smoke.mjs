@@ -22,8 +22,8 @@ try {
   const page = await app.firstWindow();
   page.setDefaultTimeout(15_000);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1440, 960));
-  await page.getByRole("button", { name: "Sketch", exact: true }).click();
-  await page.getByRole("button", { name: "新しいSketch", exact: true }).first().click();
+  await page.getByRole("button", { name: "手書き", exact: true }).click();
+  await page.getByRole("button", { name: "新しい手書き", exact: true }).first().click();
   const canvas = page.getByLabel("Sketchキャンバス", { exact: true });
   await canvas.waitFor();
   const toolbar = page.getByRole("toolbar", { name: "Sketchツール", exact: true });

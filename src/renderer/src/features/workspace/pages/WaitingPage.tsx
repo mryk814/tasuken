@@ -87,7 +87,7 @@ export function WaitingPage({ data, domain: v2, themes, items, openDrawer, saveE
     const header = "タスク\t相手\t状態\tTheme\t期限";
     const rows = visible.map(({ waiting, schedule }) =>
       `${waiting.title}\t${waiting.waiting_for}\t${WAITING_STATE_LABELS[waiting.state]}\t${themes.find((t) => t.id === waiting.project_id)?.name || "—"}\t${scheduledDate(schedule) || "—"}`);
-    workspaceApi.copyText([header, ...rows].join("\n")).then(() => setToast("Waiting一覧をコピーしました。"));
+    workspaceApi.copyText([header, ...rows].join("\n")).then(() => setToast("待ち一覧をコピーしました。"));
   }
 
   return (

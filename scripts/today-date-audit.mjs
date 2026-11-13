@@ -85,7 +85,7 @@ try {
   await page.waitForLoadState("domcontentloaded");
   await page.waitForTimeout(3500);
 
-  const todayTab = page.locator(".sidebar button", { hasText: "Today" }).first();
+  const todayTab = page.locator(".sidebar button", { hasText: "今日" }).first();
   if (!(await todayTab.count())) throw new Error("SidebarにTodayの入口がありません。");
   await todayTab.click();
   await page.waitForTimeout(1200);

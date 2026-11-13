@@ -433,7 +433,7 @@ export function TodoPage({
     );
     workspaceApi
       .copyText([header, ...rows].join("\n"))
-      .then(() => setToast("ToDo一覧をコピーしました。"));
+      .then(() => setToast("やること一覧をコピーしました。"));
   }
 
   function openTaskDetail(task: Task, schedule?: Schedule) {
@@ -616,7 +616,7 @@ export function TodoPage({
                 >
                   {TASK_AI_DELEGATION_LABELS[aiDelegation]}
                 </button>
-                {/* 確認待ちは成果の採用をFeedのホームの投稿で行う。ToDo内で完結させない。 */}
+                {/* 確認待ちは成果の採用を近況のホームの投稿で行う。ToDo内で完結させない。 */}
                 {aiDelegation === "review_waiting" ? (
                   <button
                     type="button"
@@ -626,7 +626,7 @@ export function TodoPage({
                       navigate("feed");
                     }}
                   >
-                    Feedで確認
+                    近況で確認
                   </button>
                 ) : null}
               </span>

@@ -75,7 +75,7 @@ export function ThemeStorageRootField({
     <Field label="Artifact保存ルート">
       <input type="hidden" name="storage_root" value={pathValue} />
       <p className="field-help">
-        未設定なら Settings の共通保存先配下 <code>Themes/識別子/</code> に Artifacts・Notes・Exports を作ります。設定するとそのルート直下に同じ3フォルダを使います。
+        未設定なら 設定の共通保存先配下 <code>Themes/識別子/</code> に Artifacts・Notes・Exports を作ります。設定するとそのルート直下に同じ3フォルダを使います。
       </p>
       <div className="theme-storage-root">
         <code className="theme-storage-root-path" title={pathValue || undefined}>

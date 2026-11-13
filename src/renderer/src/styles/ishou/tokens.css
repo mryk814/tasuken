@@ -1,0 +1,85 @@
+/*
+  紙と墨と印 — 色の定義と用語表（kotoba に置き、kotoba-copy の意匠の組（-set ishou）で各アプリへ写す）
+
+  ここに置くのは色と汎用の語だけ。アプリの名前・本人の語・記録の中身は置かない（公開のリポジトリにも写すため）。
+  名前付けは公開のデザイン基準（design-standard/tokens.css）に合わせる（--color-<役割>、-bg は淡い面、-bd は枠、-strong は文字に使える濃さ）。
+  文字に使う色は、紙（--color-paper）の上で明るさの比 4.5 以上。-bg の上に置くときは -strong を使う。
+
+  ---- 用語表 ----
+  画面の言葉はこの語にそろえる。「避ける」は同じ意味で使わない語（ほかの意味では使ってよい）。
+  ナビゲーション（帯・タブ・メニューの項目）は日本語にする。
+
+  語     | 意味                                   | 避ける
+  -------|----------------------------------------|------------------------------------------
+  候補   | 機械が拾ったもの。本人はまだ見ていない | 下書き、suggestion、draft
+  提案   | AI が勧めるもの。本人が決めるまで仮    | おすすめ、proposal、AI の案
+  決める | 候補・提案に本人が答えること           | 承認、確定、accept、reject
+  採る   | 決める のうち、受け入れる方            | 採用、承認、受け入れる、残す
+  見送る | 決める のうち、受け入れない方          | 却下、断る、除外、reject
+  取り消す | 直前の操作を元に戻す（操作の直後の帯から） | 元に戻す、undo
+  外す   | 戻せる片付け（一覧から見えなくするだけ） | アーカイブ、Archive、ゴミ箱へ
+  消す   | 戻せない削除。「戻せません」を添える   | 削除（見出し以外）、完全に削除
+  さがす | 探す入口（ナビ・ボタン・入力欄の名前） | 検索、Search、全体検索
+
+  意味の色と語の結び付き:
+  - 提案と、AI が書いたものは 藍（--color-ai）。
+  - 本人が確かめた・決めたものには 朱の印（--color-seal）。印は色だけに頼らず、判子の形（角を丸めた四角の輪郭）でも示す。
+    赤に別の意味があるアプリ（写真の「消す候補」が赤）では、朱を使わず形だけで示す。
+  - 候補・未決は 薄い墨と点線（--color-candidate、--border-candidate）。決めた時に実線と墨に変わる。
+*/
+
+:root {
+  /* ---- 紙と墨（地と文字） ---- */
+  --color-paper:           #f6f1e7; /* 地 */
+  --color-paper-raised:    #fffdf8; /* 地の上の面（カード） */
+  --color-paper-sunken:    #ece6da; /* 一段沈んだ面（入れ子・ホバー） */
+  --color-ink:             #26221f; /* 本文・見出し（紙の上で 14.0） */
+  --color-ink-secondary:   #6b645c; /* 補足（紙の上で 5.2） */
+  --color-ink-faint:       #9a948a; /* 文字に使わない。枠・点線・無効の印（紙の上で 2.7） */
+  --color-rule:            #e2dccf; /* 区切りの線 */
+
+  /* ---- 藍: 提案と、AI が書いたもの（ほかの用途に流用しない） ---- */
+  --color-ai:              #2f4b8a; /* 紙の上で 7.5 */
+  --color-ai-strong:       #243c72;
+  --color-ai-bg:           #e3e8f3; /* この上の文字は --color-ai で 6.9 */
+  --color-ai-bd:           #b9c6e0;
+
+  /* ---- 朱の印: 本人が確かめた・決めたもの ---- */
+  --color-seal:            #b4472f; /* 印の面と輪郭。文字には -strong（紙の上で 4.8、-bg の上は 4.5 未満） */
+  --color-seal-strong:     #a03d27; /* 紙の上で 5.9、-bg の上で 5.5 */
+  --color-seal-bg:         #f8e6e0;
+  --color-seal-bd:         #e6b7a9;
+
+  /* ---- 薄い墨と点線: 候補・未決 ---- */
+  --color-candidate:       var(--color-ink-secondary); /* 候補の文字 */
+  --color-candidate-bd:    var(--color-ink-faint);
+  --border-candidate:      1px dashed var(--color-candidate-bd); /* 決めたら実線（--color-rule）に戻す */
+
+  /* ---- 道具の一色（色の名前で持つ。どの道具がどの色かは各アプリが --color-tool で選ぶ） ----
+     -strong は文字や白い字を載せる面に使える濃さ。柿色そのものは紙の上で 3.4 しかなく、文字に使えない。 */
+  --iro-fukamidori:        #2f5d50; /* 深緑。紙の上で 6.7 */
+  --iro-kaki:              #c56a3d; /* 柿色。印・大きな面だけ */
+  --iro-kaki-strong:       #9c4f26; /* 紙の上で 5.2、白い字が 5.9 */
+  --iro-enji:              #8A2F3B; /* えんじ。紙の上で 7.3 */
+  --iro-yamabuki-cha:      #7d6312; /* 山吹茶（道具の一色。決まり、2026-11-14）。紙の上で 5.1、白い字が 5.7 */
+
+  /* 例: :root { --color-tool: var(--iro-enji); --color-tool-strong: var(--iro-enji); } */
+}
+
+/* ---- 暗い表示 ----
+   OS の設定に従う。手で切り替えるアプリは <html data-theme="dark">。暗い表示を持たないアプリは、ここを読まなくてよい。
+   道具の一色の暗い版は、各アプリが自分の --color-tool に持つ。 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-paper: #171513; --color-paper-raised: #201e1b; --color-paper-sunken: #2a2723;
+    --color-ink: #ece6dc; --color-ink-secondary: #a8a196; --color-ink-faint: #6d675f; --color-rule: #34302b;
+    --color-ai: #8fa6dc; --color-ai-strong: #b3c3e8; --color-ai-bg: #1d2638; --color-ai-bd: #34446a;
+    --color-seal: #e08a72; --color-seal-strong: #eba48f; --color-seal-bg: #33201a; --color-seal-bd: #5a3529;
+  }
+}
+:root[data-theme="dark"] {
+  --color-paper: #171513; --color-paper-raised: #201e1b; --color-paper-sunken: #2a2723;
+  --color-ink: #ece6dc; --color-ink-secondary: #a8a196; --color-ink-faint: #6d675f; --color-rule: #34302b;
+  --color-ai: #8fa6dc; --color-ai-strong: #b3c3e8; --color-ai-bg: #1d2638; --color-ai-bd: #34446a;
+  --color-seal: #e08a72; --color-seal-strong: #eba48f; --color-seal-bg: #33201a; --color-seal-bd: #5a3529;
+}

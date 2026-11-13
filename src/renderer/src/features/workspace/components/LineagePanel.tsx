@@ -16,7 +16,7 @@ const ENTITY_LABELS: Record<string, string> = {
   plan_node: "計画",
   project: "Theme",
   resource: "Resource",
-  sketch: "Sketch",
+  sketch: "手書き",
   task: "Task",
   waiting: "待ち",
 };

@@ -572,10 +572,10 @@ test("navigation, page headings and command palette share one canonical label", 
 
   // RouteDefinitionがlabel・description・iconの唯一の正本。Sidebarもページ見出しもここを引く。
   assert.match(routes, /export const ROUTE_DEFINITIONS/);
-  assert.match(routes, /label: "Chat Refs"/);
+  assert.match(routes, /label: "会話録"/);
   // InboxはMemo（付箋メモ）の画面として残す（2026-10-06）。route idは互換のためinboxのまま。
-  assert.match(routes, /label: "Memo"/);
-  assert.match(routes, /label: "Agent Desk"/);
+  assert.match(routes, /label: "付箋"/);
+  assert.match(routes, /label: "任せた仕事"/);
   assert.match(shell, /const label = routeLabel\(id\);/);
   assert.match(common, /routeLabel\(route\)/);
   assert.match(routes, /export function routeIcon\(id: string\)/);
@@ -600,7 +600,7 @@ test("navigation, page headings and command palette share one canonical label", 
 
   // 表示名を変えてもrouteとdeep linkは触らない。
   assert.match(routes, /aliases: \[\{ id: "todo-done" \}\]/);
-  assert.match(routes, /id: "chat-refs",\s*label: "Chat Refs"/);
+  assert.match(routes, /id: "chat-refs",\s*label: "会話録"/);
 });
 
 test("Notesは本文集中表示で一覧と補助行を畳み、縦領域を本文へ回す（#292）", () => {

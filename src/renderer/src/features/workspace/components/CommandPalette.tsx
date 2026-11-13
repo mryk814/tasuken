@@ -10,12 +10,12 @@ export type CommandPaletteCategory =
   | "Commands"
   | "Tasks"
   | "Plans / Milestones"
-  | "Notes / Documents"
-  | "Waiting / Inbox"
-  | "Knowledge / Chat"
-  | "Feed"
-  | "Themes"
-  | "Resources / Artifacts";
+  | "ノート / 文書"
+  | "待ち / 付箋"
+  | "棚卸し / 会話録"
+  | "近況"
+  | "テーマ"
+  | "資料 / 添付";
 
 export interface CommandPaletteExecutionContext {
   trigger: HTMLElement | null;
@@ -202,8 +202,8 @@ function OpenCommandPalette({ entries, close }: Omit<CommandPaletteProps, "open"
               setSelectedIndex(0);
               setError("");
             }}
-            placeholder="Task、Plan、Note、Waiting、記録、Knowledgeを検索"
-            aria-label="Tasken全体を検索"
+            placeholder="Task、Plan、Note、待ち、記録、棚卸しをさがす"
+            aria-label="Tasken全体をさがす"
             role="combobox"
             aria-expanded="true"
             aria-autocomplete="list"
@@ -219,7 +219,7 @@ function OpenCommandPalette({ entries, close }: Omit<CommandPaletteProps, "open"
         )}
         <p className="command-palette-result-status" role="status" aria-live="polite">
           {resultsPending
-            ? "検索中…"
+            ? "さがし中…"
             : query.trim()
               ? `${flatEntries.length}件`
               : "最近使った項目とコマンド"}
@@ -246,7 +246,7 @@ function OpenCommandPalette({ entries, close }: Omit<CommandPaletteProps, "open"
                     aria-selected={selected}
                     className={selected ? "is-selected" : ""}
                     disabled={resultsPending || Boolean(entry.disabledReason)}
-                    title={resultsPending ? "検索結果を更新しています。" : entry.disabledReason}
+                    title={resultsPending ? "結果を更新しています。" : entry.disabledReason}
                     onPointerMove={() => setSelectedIndex(index)}
                     onClick={() => void run(entry)}
                   >
@@ -268,7 +268,7 @@ function OpenCommandPalette({ entries, close }: Omit<CommandPaletteProps, "open"
           {!flatEntries.length && (
             <div className="command-palette-empty">
               <strong>一致する項目はありません</strong>
-              <span>別の言葉で検索してください。</span>
+              <span>別の言葉でさがしてください。</span>
             </div>
           )}
         </div>

@@ -93,7 +93,7 @@ class TaskenTodayWidgetTest {
             lastSuccessfulSyncAt = null,
         )
 
-        assertEquals("Today", TaskenTodayWidget.progressTitle(snapshot))
+        assertEquals("今日", TaskenTodayWidget.progressTitle(snapshot))
         assertEquals("あと3件", TaskenTodayWidget.progressTitle(snapshot.copy(todayDoneCount = 2, todayTotalCount = 5)))
         assertEquals("ぜんぶ完了！", TaskenTodayWidget.progressTitle(snapshot.copy(todayDoneCount = 5, todayTotalCount = 5)))
     }

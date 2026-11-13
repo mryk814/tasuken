@@ -529,14 +529,14 @@ export function Sidebar({
         <button
           className={`theme-nav-all ${route === "themes" ? "is-active" : ""}`}
           aria-current={route === "themes" ? "page" : undefined}
-          aria-label="All Themes"
-          title={collapsed ? "All Themes" : undefined}
+          aria-label="すべてのテーマ"
+          title={collapsed ? "すべてのテーマ" : undefined}
           onMouseEnter={() => preloadWorkspacePage("themes")}
           onFocus={() => preloadWorkspacePage("themes")}
           onClick={() => navigate("themes")}
         >
           <span className="theme-dot theme-dot-all" aria-hidden="true" />
-          <span className="theme-nav-label">All Themes</span>
+          <span className="theme-nav-label">すべてのテーマ</span>
         </button>
         {themes.map((theme, index) => {
           const current = route === "theme" && theme.id === activeThemeId;
@@ -601,7 +601,7 @@ export function ShortcutDialog({ close }: { close: () => void }) {
           <dt>
             <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd>
           </dt>
-          <dd>Inbox記録</dd>
+          <dd>付箋記録</dd>
           <dt>
             <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>.</kbd>
           </dt>
@@ -625,15 +625,15 @@ export function ShortcutDialog({ close }: { close: () => void }) {
           <dt>
             <kbd>Ctrl</kbd>+<kbd>K</kbd>
           </dt>
-          <dd>全体検索を開く</dd>
+          <dd>全体をさがす</dd>
           <dt>
             <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>K</kbd>
           </dt>
-          <dd>入力中に全体検索を開く</dd>
+          <dd>入力中に全体をさがす</dd>
           <dt>
             <kbd>Alt</kbd>+<kbd>P</kbd>
           </dt>
-          <dd>選択したInbox記録をFeedへ投稿</dd>
+          <dd>選択した付箋記録を近況へ投稿</dd>
           <dt>
             <kbd>Alt</kbd>+<kbd>F</kbd>
           </dt>

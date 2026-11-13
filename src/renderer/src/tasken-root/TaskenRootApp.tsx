@@ -35,7 +35,7 @@ interface RootEntry extends RootActionTarget {
   usageKey: string;
   label: string;
   keywords: string[];
-  category: "Commands" | "Tasks" | "Notes / Documents" | "Themes" | "Resources / Artifacts";
+  category: "Commands" | "Tasks" | "ノート / 文書" | "テーマ" | "資料 / 添付";
   context: string;
 }
 
@@ -58,12 +58,12 @@ const ICONS: Record<string, Icon> = {
 };
 
 const COMMANDS: RootEntry[] = [
-  { id: "navigate:today", usageKey: "command:navigate:today", kind: "command", label: "Todayへ移動", keywords: ["今日", "home"], category: "Commands", context: "Tasken Command" },
-  { id: "navigate:todo", usageKey: "command:navigate:todo", kind: "command", label: "Todoへ移動", keywords: ["task", "タスク"], category: "Commands", context: "Tasken Command" },
-  { id: "navigate:inbox", usageKey: "command:navigate:inbox", kind: "command", label: "Inboxへ移動", keywords: ["capture", "記録"], category: "Commands", context: "Tasken Command" },
-  { id: "navigate:notes", usageKey: "command:navigate:notes", kind: "command", label: "Notesへ移動", keywords: ["note", "文書"], category: "Commands", context: "Tasken Command" },
-  { id: "navigate:themes", usageKey: "command:navigate:themes", kind: "command", label: "Themesへ移動", keywords: ["theme", "テーマ"], category: "Commands", context: "Tasken Command" },
-  { id: "navigate:artifacts", usageKey: "command:navigate:artifacts", kind: "command", label: "Artifactsへ移動", keywords: ["artifact", "成果物"], category: "Commands", context: "Tasken Command" },
+  { id: "navigate:today", usageKey: "command:navigate:today", kind: "command", label: "今日へ移動", keywords: ["今日", "home"], category: "Commands", context: "Tasken Command" },
+  { id: "navigate:todo", usageKey: "command:navigate:todo", kind: "command", label: "やることへ移動", keywords: ["task", "タスク"], category: "Commands", context: "Tasken Command" },
+  { id: "navigate:inbox", usageKey: "command:navigate:inbox", kind: "command", label: "付箋へ移動", keywords: ["capture", "記録"], category: "Commands", context: "Tasken Command" },
+  { id: "navigate:notes", usageKey: "command:navigate:notes", kind: "command", label: "ノートへ移動", keywords: ["note", "文書"], category: "Commands", context: "Tasken Command" },
+  { id: "navigate:themes", usageKey: "command:navigate:themes", kind: "command", label: "すべてのテーマへ移動", keywords: ["theme", "テーマ"], category: "Commands", context: "Tasken Command" },
+  { id: "navigate:artifacts", usageKey: "command:navigate:artifacts", kind: "command", label: "添付へ移動", keywords: ["artifact", "成果物"], category: "Commands", context: "Tasken Command" },
   { id: "create:capture", usageKey: "command:create:capture", kind: "command", label: "Quick Captureを開く", keywords: ["quick", "記録", "capture"], category: "Commands", context: "Tasken Command · Ctrl+Shift+N" },
 ];
 
@@ -92,7 +92,7 @@ function entityEntries(workspace: Workspace): RootEntry[] {
       entity: note,
       label: text(note.title) || "無題のNote",
       keywords: ["note", "文書", themes.get(text(note.project_id)) || "", text(note.note_type)],
-      category: "Notes / Documents",
+      category: "ノート / 文書",
       context: `${text(note.note_type) || "Note"} · ${themes.get(text(note.project_id)) || "Theme未設定"}`,
     })),
     ...live(workspace.themes).map((theme): RootEntry => ({
@@ -102,7 +102,7 @@ function entityEntries(workspace: Workspace): RootEntry[] {
       entity: theme,
       label: text(theme.name || theme.title) || "無題のTheme",
       keywords: ["theme", "テーマ", text(theme.code), text(theme.description)],
-      category: "Themes",
+      category: "テーマ",
       context: `Theme · ${text(theme.status) || "状態未設定"}`,
     })),
     ...live(workspace.resources).map((resource): RootEntry => ({
@@ -112,7 +112,7 @@ function entityEntries(workspace: Workspace): RootEntry[] {
       entity: resource,
       label: text(resource.title) || "無題のResource",
       keywords: ["resource", "資料", text(resource.url), text(resource.description)],
-      category: "Resources / Artifacts",
+      category: "資料 / 添付",
       context: "Resource",
     })),
     ...live(workspace.artifacts).map((artifact): RootEntry => ({
@@ -122,7 +122,7 @@ function entityEntries(workspace: Workspace): RootEntry[] {
       entity: artifact,
       label: text(artifact.title || artifact.file_name) || "Artifact",
       keywords: ["artifact", "成果物", "ファイル", text(artifact.media_kind), text(artifact.file_path)],
-      category: "Resources / Artifacts",
+      category: "資料 / 添付",
       context: `Artifact · ${text(artifact.media_kind || artifact.kind) || "file"}`,
     })),
   ];
@@ -292,8 +292,8 @@ export function TaskenRootApp() {
           ref={inputRef}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Taskenを検索"
-          aria-label="Taskenを検索"
+          placeholder="Taskenをさがす"
+          aria-label="Taskenをさがす"
           role="combobox"
           aria-expanded="true"
           aria-autocomplete="list"

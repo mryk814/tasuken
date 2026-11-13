@@ -54,9 +54,9 @@ import androidx.compose.ui.unit.dp
 /** 下部タブとレールの並び。Desktopの呼び方（Task・Feed）に揃える。 */
 internal fun sectionLabel(section: AppSection): String = when (section) {
     AppSection.Today -> "今日"
-    AppSection.Tasks -> "Task"
-    AppSection.Feed -> "Feed"
-    AppSection.Records -> "記録"
+    AppSection.Tasks -> "やること"
+    AppSection.Feed -> "近況"
+    AppSection.Records -> "日誌"
 }
 
 internal fun sectionIcon(section: AppSection): Int = when (section) {
@@ -258,7 +258,7 @@ internal fun AppSettingsSheet(
             ) {
                 StatusIcon(R.drawable.ic_tabler_message_circle, StatusTone.Info)
                 Column(Modifier.weight(1f)) {
-                    Text("Feedの質問を通知", style = MaterialTheme.typography.bodyLarge)
+                    Text("近況の質問を通知", style = MaterialTheme.typography.bodyLarge)
                     Text(
                         "あなたの返事を待つ投稿が届いたら知らせます",
                         style = MaterialTheme.typography.bodySmall,

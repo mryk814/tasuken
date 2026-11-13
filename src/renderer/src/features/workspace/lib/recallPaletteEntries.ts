@@ -14,12 +14,12 @@ export type RecallPaletteCategory =
   | "Commands"
   | "Tasks"
   | "Plans / Milestones"
-  | "Notes / Documents"
-  | "Waiting / Inbox"
-  | "Knowledge / Chat"
-  | "Feed"
-  | "Themes"
-  | "Resources / Artifacts";
+  | "ノート / 文書"
+  | "待ち / 付箋"
+  | "棚卸し / 会話録"
+  | "近況"
+  | "テーマ"
+  | "資料 / 添付";
 
 export type RecallPaletteTarget =
   | {
@@ -102,7 +102,7 @@ export function buildRecallPaletteEntries({
       label: text(note.title) || "無題のNote",
       keywords: ["note", "markdown", "文書", noteLabel, themeName(note.project_id)],
       searchText: text(note.body_markdown),
-      category: "Notes / Documents",
+      category: "ノート / 文書",
       context: context([noteLabel, themeName(note.project_id), compactText(note.body_markdown)]),
       target: { kind: "drawer", route: "notes", entityType: "note", entityId: note.id },
     };
@@ -138,7 +138,7 @@ export function buildRecallPaletteEntries({
 
   const waitings: RecallPaletteDescriptor[] = domain.waitings.map((waiting) => ({
     id: `waiting:${waiting.id}`,
-    label: text(waiting.title) || "無題のWaiting",
+    label: text(waiting.title) || "無題の待ち",
     keywords: [
       "waiting",
       "待ち",
@@ -146,9 +146,9 @@ export function buildRecallPaletteEntries({
       WAITING_STATE_LABELS[waiting.state],
     ],
     searchText: [waiting.description, waiting.waiting_for, waiting.next_action].map(text).join(" "),
-    category: "Waiting / Inbox",
+    category: "待ち / 付箋",
     context: context([
-      "Waiting",
+      "待ち",
       themeName(waiting.project_id),
       `相手: ${waiting.waiting_for}`,
       WAITING_STATE_LABELS[waiting.state],
@@ -164,7 +164,7 @@ export function buildRecallPaletteEntries({
   }));
 
   const captures: RecallPaletteDescriptor[] = domain.capture_entries.map((capture) => {
-    const captureLabel = capture.kind === "micro_memo" ? "付箋メモ" : "Inbox記録";
+    const captureLabel = capture.kind === "micro_memo" ? "付箋" : "付箋記録";
     return {
       id: `capture:${capture.id}`,
       label: compactText(capture.title || capture.text, 72) || "無題の記録",
@@ -177,7 +177,7 @@ export function buildRecallPaletteEntries({
         CAPTURE_ENTRY_STATE_LABELS[capture.state],
       ],
       searchText: [capture.text, capture.url].map(text).join(" "),
-      category: "Waiting / Inbox",
+      category: "待ち / 付箋",
       context: context([
         captureLabel,
         themeName(capture.project_id),
@@ -201,7 +201,7 @@ export function buildRecallPaletteEntries({
       label: text(node.title) || "無題のKnowledge",
       keywords: ["knowledge", "知識", nodeLabel, themeName(node.project_id)],
       searchText: text(node.body),
-      category: "Knowledge / Chat",
+      category: "棚卸し / 会話録",
       context: context([nodeLabel, themeName(node.project_id), compactText(node.body)]),
       target: {
         kind: "drawer",
@@ -230,7 +230,7 @@ export function buildRecallPaletteEntries({
       searchText: [resource.description, resource.body_markdown, resource.url, resource.chat_group]
         .map(text)
         .join(" "),
-      category: chat ? "Knowledge / Chat" : "Resources / Artifacts",
+      category: chat ? "棚卸し / 会話録" : "資料 / 添付",
       context: context([
         chat ? `Chat Ref · ${service}` : "Resource",
         themeName(resource.project_id),
@@ -268,7 +268,7 @@ export function buildRecallPaletteEntries({
     ]
       .map(text)
       .join(" "),
-    category: "Resources / Artifacts",
+    category: "資料 / 添付",
     context: context([
       "Artifact",
       themeName(artifact.theme_id),
@@ -283,7 +283,7 @@ export function buildRecallPaletteEntries({
     label: text(post.title) || "無題の投稿",
     keywords: ["feed", "投稿", "つぶやき", themeName(post.project_id)],
     searchText: text(post.body_markdown),
-    category: "Feed",
+    category: "近況",
     context: context(["自分の投稿", themeName(post.project_id), compactText(post.body_markdown)]),
     target: { kind: "feed", route: "feed", entityId: post.id },
   }));
@@ -293,7 +293,7 @@ export function buildRecallPaletteEntries({
     label: text(theme.name) || "無題のTheme",
     keywords: ["theme", "テーマ", text(theme.code)],
     searchText: [theme.description, theme.group].map(text).join(" "),
-    category: "Themes",
+    category: "テーマ",
     context: context(["Theme", theme.group, compactText(theme.description)]),
     target: { kind: "theme", route: "theme", entityId: theme.id },
   }));

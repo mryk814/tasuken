@@ -208,7 +208,7 @@ export function InboxPage({
     }
     workspaceApi
       .copyText(body)
-      .then(() => setToast(`${allMicroMemoRows.length}件の付箋メモをコピーしました。`, "success"))
+      .then(() => setToast(`${allMicroMemoRows.length}件の付箋をコピーしました。`, "success"))
       .catch((error) =>
         setToast(
           `コピーできませんでした。${error instanceof Error ? error.message : String(error)}`,
@@ -285,7 +285,7 @@ export function InboxPage({
   }
 
   async function captureFiles() {
-    const picked = await workspaceApi.chooseFiles("Inboxへ記録するファイル・画像を選択");
+    const picked = await workspaceApi.chooseFiles("付箋へ記録するファイル・画像を選択");
     if (picked.canceled || !picked.files?.length) return;
     const captureId = crypto.randomUUID();
     const names = picked.files.map((file) => file.name);
@@ -310,7 +310,7 @@ export function InboxPage({
           ...buildLinkedArtifactOperationsFromPaths(picked.files, "capture_entry", captureId),
           buildChangeEventOperation("capture_entry", captureId, "created"),
         ],
-        `${picked.files.length}件をInboxへ記録しました。`,
+        `${picked.files.length}件を付箋へ記録しました。`,
       );
     } catch (error) {
       setToast(
@@ -396,15 +396,15 @@ export function InboxPage({
         />
         <Button variant="primary" onClick={addMemo}>
           <IconPlus size={16} />
-          Memo
+          付箋
         </Button>
       </PageHeader>
       {allInboxRows.length > 0 ? (
         <p className="inbox-feed-notice" role="note">
           未整理のメモ{allInboxRows.length}
-          件は、Feedのホームに自分のメモとして並んでいます。そこから整理できます。{" "}
+          件は、近況のホームに自分のメモとして並んでいます。そこから整理できます。{" "}
           <Button variant="ghost" compact onClick={() => navigate("feed")}>
-            Feedを開く
+            近況を開く
           </Button>
         </p>
       ) : null}

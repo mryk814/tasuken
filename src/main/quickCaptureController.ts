@@ -666,7 +666,7 @@ export function createQuickCaptureController(
   function menuItems(): Electron.MenuItemConstructorOptions[] {
     return [
       {
-        label: "Feedへクイック投稿",
+        label: "近況へクイック投稿",
         accelerator: "CmdOrCtrl+Shift+N",
         click: () => show("feed"),
       },
@@ -677,7 +677,7 @@ export function createQuickCaptureController(
         click: () => show("done-task"),
       },
       {
-        label: "付箋メモを追加",
+        label: "付箋を追加",
         accelerator: "CmdOrCtrl+Shift+.",
         click: () => show("micro-memo"),
       },

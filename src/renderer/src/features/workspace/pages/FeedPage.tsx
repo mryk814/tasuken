@@ -1204,11 +1204,11 @@ export function FeedPage(props: PageProps) {
             entity: feedPostEntity({ id: uuid(), body, publishedAt: new Date().toISOString() }),
           },
         ],
-        "Feedへ投稿しました。",
+        "近況へ投稿しました。",
         "main_ui",
       );
       setCompose("");
-      setNotice("投稿しました。自分の投稿はFeedだけに残ります。");
+      setNotice("投稿しました。自分の投稿は近況だけに残ります。");
     } catch (error) {
       // 失敗しても入力は消さない。
       setToast(
@@ -1874,7 +1874,7 @@ export function FeedPage(props: PageProps) {
 
       <div ref={pageRef} className={`feed-shell feed-layout${openThreadPost ? " has-thread" : ""}`}>
         <section className="feed-main">
-          <header className="feed-tabs" role="tablist" aria-label="Feedの切り替え">
+          <header className="feed-tabs" role="tablist" aria-label="近況の切り替え">
             {TABS.map((entry) => {
               const tabId = `feed-tab-${entry.id}`;
               const panelId = `feed-panel-${entry.id}`;
@@ -1951,7 +1951,7 @@ export function FeedPage(props: PageProps) {
             </p>
           ) : null}
 
-          {/* 自分の投稿欄。Feed専用の投稿へ保存し、Notesには残さない。実データ0件のfixture表示中も出す。初投稿で実データ表示へ切り替わる。 */}
+          {/* 自分の投稿欄。近況専用の投稿へ保存し、Notesには残さない。実データ0件のfixture表示中も出す。初投稿で実データ表示へ切り替わる。 */}
           <form
             className="feed-compose"
             onSubmit={(event) => {
@@ -1961,7 +1961,7 @@ export function FeedPage(props: PageProps) {
           >
             <textarea
               id="feed-compose-body"
-              aria-label="自分の投稿をFeedへ載せる"
+              aria-label="自分の投稿を近況へ載せる"
               value={compose}
               onChange={(event) => setCompose(event.target.value)}
               rows={1}
@@ -1969,7 +1969,7 @@ export function FeedPage(props: PageProps) {
             />
             <div className="feed-detail-actions">
               <Button variant="primary" type="submit" disabled={busy}>
-                Feedへ投稿
+                近況へ投稿
               </Button>
               <span className="feed-compose-note">Notesには残りません</span>
             </div>

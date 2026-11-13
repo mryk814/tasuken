@@ -558,9 +558,9 @@ export function ActivityLogPanel({
   const groups = [
     { label: "完了", rows: entries.completedTasks.map((entry) => entry.title) },
     { label: "受領", rows: entries.receivedWaitings.map((entry) => entry.title) },
-    { label: "Notes", rows: entries.notes.map((entry) => entry.title) },
+    { label: "ノート", rows: entries.notes.map((entry) => entry.title) },
     { label: "資料", rows: entries.resources.map((entry) => entry.title) },
-    { label: "Knowledge", rows: entries.knowledge.map((entry) => entry.title) },
+    { label: "棚卸し", rows: entries.knowledge.map((entry) => entry.title) },
     {
       label: "現在地",
       rows: entries.updates.map(

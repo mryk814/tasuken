@@ -84,7 +84,7 @@ try {
       content_format: "markdown",
     });
   }, { title: noteTitle, body: auditMarkdown });
-  await page.getByRole("button", { name: "Notes", exact: true }).click();
+  await page.getByRole("button", { name: "ノート", exact: true }).click();
   await page.waitForTimeout(1_500);
   const allNotes = page.getByRole("button", { name: "すべて", exact: true }).first();
   if (await allNotes.count()) await allNotes.click();

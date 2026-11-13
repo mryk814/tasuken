@@ -262,12 +262,12 @@ export function resolveArtifactSourceLabel(artifact: Artifact, data: WorkspaceDa
   if (sourceType === "capture_entry") {
     const capture = (data.capture_entrys || []).find((entry) => entry.id === sourceId);
     return capture
-      ? String(capture.title || capture.text || "Inbox")
+      ? String(capture.title || capture.text || "付箋")
       : ARTIFACT_SOURCE_TYPE_LABELS.capture_entry;
   }
   if (sourceType === "feed_post") {
     const post = (data.feed_posts || []).find((entry) => entry.id === sourceId);
-    return post ? String(post.title || "Feed投稿") : ARTIFACT_SOURCE_TYPE_LABELS.feed_post;
+    return post ? String(post.title || "近況の投稿") : ARTIFACT_SOURCE_TYPE_LABELS.feed_post;
   }
   return ARTIFACT_SOURCE_TYPE_LABELS[sourceType] || sourceType;
 }
@@ -1302,7 +1302,7 @@ export function ArtifactSection({
     >
       <div className="section-heading artifact-section-heading">
         <h3>
-          Artifacts
+          添付
           {attached.length > 0 && <span className="artifact-section-count">{attached.length}</span>}
         </h3>
         <div className="inline-actions artifact-section-actions">

@@ -61,7 +61,7 @@ const EXPECTED_NEEDS_ROWS = 4;
 
 /** サイドバーのFeedの数字（AIが答えを待っている質問の数）。無ければ"0"。 */
 async function feedBadge(page) {
-  const count = page.getByRole("button", { name: "Feed", exact: true }).first().locator(".count");
+  const count = page.getByRole("button", { name: "近況", exact: true }).first().locator(".count");
   return (await count.count()) ? (await count.innerText()).trim() : "0";
 }
 
@@ -189,7 +189,7 @@ async function launchApp() {
 }
 
 async function openFeed(page) {
-  const navButton = page.locator(".sidebar button", { hasText: "Feed" }).first();
+  const navButton = page.locator(".sidebar button", { hasText: "近況" }).first();
   if (!(await navButton.count())) {
     throw new Error("SidebarにFeedの入口がありません。");
   }
@@ -511,7 +511,7 @@ async function auditFixtures(app, page) {
   }
 
   // 10. Feedを離れて戻っても、選択スレッド・返信下書き・表示位置の状態を戻せる。
-  const notesNav = page.locator(".sidebar button", { hasText: "Notes" }).first();
+  const notesNav = page.locator(".sidebar button", { hasText: "ノート" }).first();
   if (!(await notesNav.count())) {
     failures.push("FeedからNotesへ移動する導線がありません。");
   } else {
@@ -834,7 +834,7 @@ async function auditLivePost(page) {
   }
 
   // 7b. 保存したAI記事は、Notesから作成元と元投稿を確認でき、元のFeed投稿へ戻れる。
-  const notesNav = page.locator(".sidebar button", { hasText: "Notes" }).first();
+  const notesNav = page.locator(".sidebar button", { hasText: "ノート" }).first();
   if (!(await notesNav.count())) {
     failures.push("SidebarにNotesの入口がありません。");
   } else {
@@ -864,7 +864,9 @@ async function auditLivePost(page) {
         if (!originText.includes("自分のNotes")) {
           failures.push(`所有の表示がありません（${originText}）。`);
         }
-        const openOrigin = originLine.locator("button", { hasText: "元のFeed投稿を開く" }).first();
+        const openOrigin = originLine
+          .locator("button", { hasText: "元の近況の投稿を開く" })
+          .first();
         if (!(await openOrigin.count())) {
           failures.push("元のFeed投稿へ戻る導線がありません。");
         } else {
@@ -951,7 +953,7 @@ async function auditLivePost(page) {
     return;
   }
   await composer.fill(LIVE_OWN_POST_BODY);
-  await page.locator(".feed-compose button", { hasText: "Feedへ投稿" }).click();
+  await page.locator(".feed-compose button", { hasText: "近況へ投稿" }).click();
   await page.waitForTimeout(1500);
   if (!(await page.locator(".feed-timeline").innerText()).includes(LIVE_OWN_POST_BODY)) {
     failures.push("自分の投稿がFeedへ出ていません。");
@@ -981,7 +983,7 @@ async function auditLivePost(page) {
     failures.push("削除した本文が残っています。");
   }
   await composer.fill(LIVE_OWN_POST_BODY);
-  await page.locator(".feed-compose button", { hasText: "Feedへ投稿" }).click();
+  await page.locator(".feed-compose button", { hasText: "近況へ投稿" }).click();
   await page.waitForTimeout(1500);
   const rootsReposted = await page.locator(".feed-posts .feed-post").count();
   if (rootsReposted !== 2) failures.push(`自分の投稿を載せ直せません（${rootsReposted}件）。`);

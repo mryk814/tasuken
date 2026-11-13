@@ -48,7 +48,7 @@ test("Tasken Root検索は既存NFKC契約とusage boostを共用する", () => 
         id: "note:same",
         usageKey: "note:same",
         label: "同じ名前",
-        category: "Notes / Documents",
+        category: "ノート / 文書",
         keywords: [],
       },
     ],

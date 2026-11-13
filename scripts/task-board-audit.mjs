@@ -98,7 +98,7 @@ export async function runTaskBoardAudit(WorkspaceDatabase) {
   const checks = [];
   let page;
   async function openBoard() {
-    await page.locator(".sidebar button", { hasText: "ToDo" }).first().click();
+    await page.locator(".sidebar button", { hasText: "やること" }).first().click();
     await page.getByRole("button", { name: /^未完了/ }).click();
     await page.getByRole("button", { name: "ボード", exact: true }).click();
     await page.locator(".task-board").waitFor();
@@ -240,7 +240,7 @@ export async function runTaskBoardAudit(WorkspaceDatabase) {
     await page.waitForTimeout(700);
     assert.match(await page.locator(".task-conversation").innerText(), /Taskは継続/);
     await closeTask();
-    await page.locator(".sidebar button", { hasText: "Feed" }).first().click();
+    await page.locator(".sidebar button", { hasText: "近況" }).first().click();
     await page.locator('.app-titlebar button[aria-label^="前の画面に戻る"]').click();
     await page.locator(".task-board").waitFor();
     checks.push("別画面へ移動して戻ってもボード表示を保持");

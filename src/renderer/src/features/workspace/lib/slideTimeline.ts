@@ -281,6 +281,6 @@ export async function slideTimelineSvgToPng(svg: string, scale = 2): Promise<str
 }
 
 export function slideTimelineThemeName(themes: Theme[], themeId: string): string {
-  if (themeId === "all") return "All Themes";
+  if (themeId === "all") return "すべてのテーマ";
   return themes.find((theme) => theme.id === themeId)?.name || "Theme未設定";
 }

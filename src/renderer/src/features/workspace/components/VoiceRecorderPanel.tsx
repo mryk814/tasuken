@@ -141,7 +141,7 @@ export const VoiceRecorderPanel = forwardRef<VoiceRecorderPanelHandle, VoiceReco
         recordingSequenceRef.current = progress.nextSequence;
         setRecorderBytes(progress.fileSize);
         if (progress.fileSize >= session.maxRecordingBytes) {
-          setRecorderError("録音サイズの上限に達しました。停止してInboxへ保存してください。");
+          setRecorderError("録音サイズの上限に達しました。停止して付箋へ保存してください。");
           setRecorderState("error");
           window.setTimeout(() => { void stopMicrophoneRecording(false, true); }, 0);
         }
@@ -431,7 +431,7 @@ export const VoiceRecorderPanel = forwardRef<VoiceRecorderPanelHandle, VoiceReco
       const durationMs = prepared.durationMs ?? await audioDurationMs(prepared.mediaUrl);
       await workspaceApi.commitAudioCapture({ sessionId: prepared.sessionId, durationMs });
       onPreparedChanged?.();
-      setToast(`音声「${prepared.filename}」をInboxへ保存しました。`, "success");
+      setToast(`音声「${prepared.filename}」を付箋へ保存しました。`, "success");
     } catch (error) {
       setToast(`音声を保存できませんでした。${error instanceof Error ? error.message : String(error)} 保存待ち音声から再試行できます。`, "danger");
     } finally {

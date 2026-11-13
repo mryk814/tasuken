@@ -49,7 +49,7 @@ class MobileLocalSearchTodayUiTest {
         compose.onNodeWithTag("local-search-return").performClick(); returned(scroll)
         scroll = open(MobileLocalSearchKind.Note)
         compose.onNodeWithText("比較の根拠を残したNote原文").assertExists()
-        compose.onNodeWithText("検索へ戻る").performClick(); returned(scroll)
+        compose.onNodeWithText("さがすへ戻る").performClick(); returned(scroll)
         scroll = open(MobileLocalSearchKind.Capture)
         compose.onNodeWithTag("pending-capture-body").assertTextContains("比較のCapture原文")
         compose.onNodeWithText("閉じる").performClick(); returned(scroll)

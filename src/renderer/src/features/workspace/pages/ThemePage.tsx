@@ -72,7 +72,7 @@ const THEME_TABS: ReadonlyArray<{ id: ThemeTab; label: string }> = [
   { id: "overview", label: "概要" },
   { id: "tasks", label: "タスク" },
   { id: "posts", label: "投稿" },
-  { id: "notes", label: "Notes" },
+  { id: "notes", label: "ノート" },
 ];
 
 /** Overviewは全件一覧ではない。上位だけ出して続きは各画面へ回す（#321）。 */
@@ -744,7 +744,7 @@ export function ThemePage({
                       openDrawer({ type: "knowledge_node", mode: "view", entity: node })
                     }
                   >
-                    <span className="theme-known-source">Knowledge</span>
+                    <span className="theme-known-source">棚卸し</span>
                     <strong>{node.title || "無題"}</strong>
                     <p>{KNOWLEDGE_NODE_LABELS[String(node.node_type || "")] || node.node_type}</p>
                   </button>
@@ -796,7 +796,7 @@ export function ThemePage({
               <span>{openTasks.length}件</span>
               {/* 追加の入口はヘッダーに常時ある。ここでは二重に置かない。 */}
               <button className="text-button compact" onClick={() => navigate("todo")}>
-                ToDoへ
+                やることへ
               </button>
             </div>
             <ThemeOpenTaskList
@@ -823,7 +823,7 @@ export function ThemePage({
               className="text-button compact"
               onClick={() => navigate("debrief")}
             >
-              Debriefで見る
+              日誌で見る
             </button>
           </div>
 
@@ -831,7 +831,7 @@ export function ThemePage({
             <div className="section-heading">
               <h2>近いマイルストーン</h2>
               <button className="text-button compact" onClick={() => navigate("timeline")}>
-                Timelineへ
+                工程表へ
               </button>
             </div>
             <SimpleRows
@@ -1021,7 +1021,7 @@ export function ThemePage({
                 <h2>未完了</h2>
                 <span>{openTasks.length}件</span>
                 <button className="text-button compact" onClick={() => navigate("todo")}>
-                  ToDoへ
+                  やることへ
                 </button>
               </div>
               <ThemeOpenTaskList
@@ -1174,7 +1174,7 @@ export function ThemePage({
             ) : (
               <EmptyState
                 title="このThemeの投稿はまだありません。"
-                action="Feedで書く"
+                action="近況で書く"
                 onAction={() => navigate("feed")}
               />
             )}

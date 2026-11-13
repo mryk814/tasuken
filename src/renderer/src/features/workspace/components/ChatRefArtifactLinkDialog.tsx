@@ -155,7 +155,7 @@ export function ChatRefArtifactLinkDialog({
                 ))}
               </div>
             ) : (
-              <p className="empty-state-inline">紐づけられるChat Refがありません。先にChat RefsへURLを追加してください。</p>
+              <p className="empty-state-inline">紐づけられるChat Refがありません。先に会話録へURLを追加してください。</p>
             )}
           </section>
         </div>

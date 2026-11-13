@@ -132,7 +132,7 @@ export function FeedContextRail({
   }).filter((agent) => agent.waiting.length > 0 || agent.work.length > 0 || agent.posts.length > 0);
 
   return (
-    <aside className="feed-rail" aria-label="Feedの補助情報">
+    <aside className="feed-rail" aria-label="近況の補助情報">
       {attention.length > 0 && (
         <section className="context-section context-focus">
           <div className="context-section-heading">

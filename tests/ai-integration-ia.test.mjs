@@ -22,7 +22,7 @@ const feedStylesSource = readFileSync("src/renderer/src/styles/feed.css", "utf8"
 
 test("AI proposals use the existing AI route beside Inbox with an action count", () => {
   assert.doesNotMatch(routesSource, /\["proposal-inbox", "AI提案の確認"\]/);
-  assert.match(routesSource, /id: "ai-io",\s*label: "Agent Desk"/);
+  assert.match(routesSource, /id: "ai-io",\s*label: "任せた仕事"/);
   assert.match(routesSource, /id: "inbox"[\s\S]*group: "cross", order: 1/);
   assert.match(routesSource, /id: "ai-io"[\s\S]*group: "cross", order: 2/);
   assert.match(routesSource, /id: "debrief"[\s\S]*group: "cross", order: 3/);

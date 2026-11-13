@@ -59,7 +59,7 @@ try {
   await page.waitForLoadState("domcontentloaded");
   await page.waitForTimeout(3500);
 
-  const todo = page.locator(".sidebar button", { hasText: "ToDo" }).first();
+  const todo = page.locator(".sidebar button", { hasText: "やること" }).first();
   if (!(await todo.count())) throw new Error("SidebarにToDoの入口がありません。");
   await todo.click();
   await page.waitForTimeout(1200);

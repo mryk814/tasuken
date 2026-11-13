@@ -204,7 +204,7 @@ function SketchPickerPreview({ page }: { page: SketchPage }) {
       ref={ref}
       width={page.width}
       height={page.height}
-      aria-label={`${page.title}のSketch Preview`}
+      aria-label={`${page.title}の手書きプレビュー`}
     />
   );
 }
@@ -1732,7 +1732,7 @@ export function NotesPage({
       insertDraftMarkdown(markdown, start, end);
     }
     setRichEditorDirty(true);
-    setDraftState(`Sketch「${sketch.title || "無題"}」を挿入しました。`);
+    setDraftState(`手書き「${sketch.title || "無題"}」を挿入しました。`);
     setSketchPickerOpen(false);
   }
 
@@ -2787,7 +2787,7 @@ export function NotesPage({
                       </span>
                       {selectedFeedOrigin.kind === "feed_post" ? (
                         <Button variant="ghost" compact onClick={openOriginFeedPost}>
-                          元のFeed投稿を開く
+                          元の近況の投稿を開く
                         </Button>
                       ) : null}
                     </div>
@@ -3244,7 +3244,7 @@ export function NotesPage({
               </button>
             </div>
             <label>
-              Sketch
+              手書き
               <select
                 value={pickerSketchId}
                 onChange={(event) => {

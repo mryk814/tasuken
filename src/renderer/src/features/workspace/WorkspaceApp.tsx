@@ -504,7 +504,7 @@ export function WorkspaceApp() {
         .then((result) => {
           if (!canceled && result.status === "available") {
             setToast(
-              `Tasken ${result.latestVersion} が公開されています。Settingsで更新できます。`,
+              `Tasken ${result.latestVersion} が公開されています。設定で更新できます。`,
               "info",
             );
           }
@@ -2278,7 +2278,7 @@ export function WorkspaceApp() {
     },
     {
       id: "navigate:themes",
-      label: `All ${routeLabel("themes")}へ移動`,
+      label: `${routeLabel("themes")}へ移動`,
       keywords: ["theme", "テーマ"],
       category: "Commands",
       execute: () => navigate("themes"),

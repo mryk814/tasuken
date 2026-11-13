@@ -18,7 +18,7 @@ const workspaceData = readFileSync("src/renderer/src/features/workspace/types.ts
 test("Knowledge route is a weak experimental tool, not the knowledge hub", () => {
   assert.match(
     routes,
-    /knowledge:\s*\{\s*id: "knowledge",\s*label: "Knowledge",\s*description: "既存データを読み取り、Research \/ Diagnosticとして確認します。"/,
+    /knowledge:\s*\{\s*id: "knowledge",\s*label: "棚卸し",\s*description: "既存データを読み取り、Research \/ Diagnosticとして確認します。"/,
   );
   assert.match(
     routes,

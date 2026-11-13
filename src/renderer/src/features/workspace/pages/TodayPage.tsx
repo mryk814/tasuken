@@ -1455,7 +1455,7 @@ export function TodayPage({
     <div className="page today-page">
       {/*
         Todayは今日のTaskを確認・追加・完了する面（#316）。
-        primary actionは一つにし、コピーやDebriefへの移動はmenuへ畳む。
+        primary actionは一つにし、コピーや日誌への移動はmenuへ畳む。
       */}
       <PageHeader route="today">
         <Button variant="secondary" onClick={() => setShowWorkLog(true)}>
@@ -1469,19 +1469,19 @@ export function TodayPage({
         </Button>
         <ToolbarMenu
           label="その他"
-          title="Todayのその他の操作"
+          title="今日のその他の操作"
           items={[
             {
               id: "copy-today",
-              label: "Todayの内容をコピー",
+              label: "今日の内容をコピー",
               onSelect: () =>
                 void workspaceApi
                   .copyText(buildTodayMarkdown())
-                  .then(() => setToast("Todayの内容をコピーしました。")),
+                  .then(() => setToast("今日の内容をコピーしました。")),
             },
             {
               id: "goto-activity",
-              label: "Debriefへ移動",
+              label: "日誌へ移動",
               hint: "Activityを確認し、自分の判断を回収",
               onSelect: () => navigate("debrief"),
             },
@@ -1527,7 +1527,7 @@ export function TodayPage({
         tasks={v2.tasks}
         close={() => setShowWorkLog(false)}
         saved={() =>
-          setToast("やったことを保存しました。DebriefのActivityで確認できます。", "success")
+          setToast("やったことを保存しました。日誌のActivityで確認できます。", "success")
         }
       />
 
@@ -1596,7 +1596,7 @@ export function TodayPage({
           <h2>今日やること</h2>
           <TodayProgress {...progress} />
           <button className="text-button compact" onClick={() => navigate("todo")}>
-            ToDoへ
+            やることへ
           </button>
         </div>
         <TodayRows
@@ -1636,7 +1636,7 @@ export function TodayPage({
         <div className="section-heading">
           <h2>今日の候補棚</h2>
           <button className="text-button compact" onClick={() => navigate("todo")}>
-            ToDoへ
+            やることへ
           </button>
         </div>
         <div className="task-shelf-board">
@@ -1694,7 +1694,7 @@ export function TodayPage({
           <div className="section-heading">
             <h2>期間内に対応</h2>
             <button className="text-button compact" onClick={() => navigate("todo")}>
-              ToDoへ
+              やることへ
             </button>
           </div>
           <ExecutionWindowTaskRows
@@ -1712,7 +1712,7 @@ export function TodayPage({
           <div className="section-heading">
             <h2>継続中</h2>
             <button className="text-button compact" onClick={() => navigate("todo")}>
-              ToDoへ
+              やることへ
             </button>
           </div>
           <OngoingPeriodTaskRows
@@ -1732,7 +1732,7 @@ export function TodayPage({
           <div className="section-heading">
             <h2>近いマイルストーン</h2>
             <button className="text-button compact" onClick={() => navigate("timeline")}>
-              Timelineへ
+              工程表へ
             </button>
           </div>
           <TodayRows

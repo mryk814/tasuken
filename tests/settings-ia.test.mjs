@@ -143,7 +143,7 @@ test("Settings copies the exact typed MCP client config generated for the runtim
   for (const [profile, label] of [
     // fullは、設定で直接の書き込みを許しているかで二通りに出す（#703）。
     ["full", "提案と作業開始を受け付ける"],
-    ["proposals", "Text Proposal（Feed投稿・Note案・Task案・作業報告）のみ受け付ける"],
+    ["proposals", "Text Proposal（近況の投稿・Note案・Task案・作業報告）のみ受け付ける"],
     ["read-only", "読み取りのみ（書き込みは公開していない）"],
     ["partial", "一部だけ公開（上書き可能な構成ではない）"],
   ]) {

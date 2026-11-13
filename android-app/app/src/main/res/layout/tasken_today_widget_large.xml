@@ -38,7 +38,7 @@
                 android:fontFamily="sans-serif-medium"
                 android:includeFontPadding="false"
                 android:maxLines="1"
-                android:text="Today"
+                android:text="今日"
                 android:textColor="@color/tasken_widget_on_surface"
                 android:textSize="18sp" />
 

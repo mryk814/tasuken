@@ -172,7 +172,7 @@ export function SketchLibraryPage({
           variant="primary"
           onClick={() => void startSketch("page", SKETCH_PAGE_PRESETS.landscape)}
         >
-          <IconPlus size={16} />新しいSketch
+          <IconPlus size={16} />新しい手書き
         </Button>
       </PageHeader>
 
@@ -211,7 +211,7 @@ export function SketchLibraryPage({
       {sketches.length ? (
         <section className="sketch-library-list" aria-label="Sketch一覧">
           <div className="sketch-library-list-header" aria-hidden="true">
-            <span>Sketch</span>
+            <span>手書き</span>
             <span>Theme</span>
             <span>ページ</span>
             <span>更新</span>
@@ -251,7 +251,7 @@ export function SketchLibraryPage({
           }}
         />
       ) : (
-        <EmptyState title="Sketchはまだありません" action="新しいSketch" onAction={openCreateDialog} />
+        <EmptyState title="手書きはまだありません" action="新しい手書き" onAction={openCreateDialog} />
       )}
 
       {createOpen && (

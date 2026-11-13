@@ -15,7 +15,7 @@ import {
 test("Command Paletteは日本語・英語keywordを正規化して横断検索する", () => {
   const entries = [
     { id: "task:1", label: "実験条件を確認", category: "Tasks", keywords: ["task", "材料"] },
-    { id: "note:1", label: "解析メモ", category: "Notes / Documents", keywords: ["markdown", "ベイズ"] },
+    { id: "note:1", label: "解析メモ", category: "ノート / 文書", keywords: ["markdown", "ベイズ"] },
   ];
   assert.equal(normalizeCommandQuery("  ＴＡＳＫ  "), "task");
   assert.ok(commandMatchScore(entries[0], "材料 task") > 0);

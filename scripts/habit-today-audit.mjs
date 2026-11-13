@@ -53,14 +53,14 @@ async function launchApp() {
 }
 
 async function openToday(page) {
-  const nav = page.locator(".sidebar button", { hasText: "Today" }).first();
+  const nav = page.locator(".sidebar button", { hasText: "今日" }).first();
   if (!(await nav.count())) throw new Error("SidebarにTodayの入口がありません。");
   await nav.click();
   await page.waitForTimeout(900);
 }
 
 async function openHabitSettings(page) {
-  await page.locator(".sidebar button", { hasText: "Settings" }).first().click();
+  await page.locator(".sidebar button", { hasText: "設定" }).first().click();
   await page.waitForTimeout(700);
   await page.locator(".settings-category-nav button", { hasText: "Habits" }).first().click();
   await page.waitForTimeout(400);

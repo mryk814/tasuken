@@ -190,11 +190,11 @@ test("Todayのprimary actionはTask追加ひとつにする（#316）", () => {
   assert.match(header, /<Button variant="primary" onClick=\{\(\) => setShowAdd\(\(v\) => !v\)\}/);
   assert.match(header, /今日のTaskを追加/);
 
-  // コピーとDebriefは常設buttonから外し、menuへ移す。
+  // コピーと日誌は常設buttonから外し、menuへ移す。
   assert.equal(/<IconClipboard size=\{16\} \/> コピー/.test(header), false);
   assert.equal(/<IconClipboard size=\{16\} \/> Activity/.test(header), false);
-  assert.match(header, /id: "copy-today",\s+label: "Todayの内容をコピー"/);
-  assert.match(header, /id: "goto-activity",\s+label: "Debriefへ移動"/);
+  assert.match(header, /id: "copy-today",\s+label: "今日の内容をコピー"/);
+  assert.match(header, /id: "goto-activity",\s+label: "日誌へ移動"/);
 
   // Task作成時にThemeを選べる（#316のTask creation contract）。
   assert.match(

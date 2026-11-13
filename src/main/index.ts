@@ -829,7 +829,7 @@ flowchart LR
       });
 
       // Note 作成: ドロワーはタイトル等のメタのみ。本文は中央エリアが正本。
-      (await waitForButton("Notes")).click();
+      (await waitForButton("ノート")).click();
       await waitFor(() => document.querySelector(".notes-page"), "Notes page");
       await clickCreateNote();
       await delay(100);
@@ -1152,8 +1152,8 @@ flowchart LR
       location.hash = "sketch";
       const sketchLibrary = await waitFor(() => document.querySelector(".sketch-library-page"), "Sketch一覧");
       const createSketchButton = [...sketchLibrary.querySelectorAll("button")]
-        .find((button) => button.textContent.trim().includes("新しいSketch"));
-      if (!createSketchButton) throw new Error("新しいSketchボタンがありません");
+        .find((button) => button.textContent.trim().includes("新しい手書き"));
+      if (!createSketchButton) throw new Error("新しい手書きボタンがありません");
       createSketchButton.click();
       const sketchEditor = await waitFor(() => document.querySelector(".sketch-page"), "作成したSketchの編集面");
       const sketchCreatedAndOpened = location.hash === "#sketch-editor"

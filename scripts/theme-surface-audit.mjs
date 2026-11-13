@@ -332,7 +332,7 @@ async function auditNotes(page) {
  */
 async function auditTabRestore(page) {
   await selectTab(page, "タスク");
-  const notesNav = page.locator(".sidebar button", { hasText: "Notes" }).first();
+  const notesNav = page.locator(".sidebar button", { hasText: "ノート" }).first();
   if (!(await notesNav.count())) {
     failures.push("SidebarにNotesの入口がありません。");
     return;

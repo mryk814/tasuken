@@ -51,7 +51,7 @@ const mainIndex = readFileSync("src/main/index.ts", "utf8");
 test("InboxはMemoだけを主操作にし、音声の入口はStudioへ移す（#383）", () => {
   assert.match(
     inbox,
-    /<Button\s+variant="primary"\s+onClick=\{addMemo\}\s*>\s*<IconPlus\s+size=\{16\}\s*\/>\s*Memo\s*<\/Button>/,
+    /<Button\s+variant="primary"\s+onClick=\{addMemo\}\s*>\s*<IconPlus\s+size=\{16\}\s*\/>\s*付箋\s*<\/Button>/,
   );
   // 録音・画面録画はInboxに要らない機能なので、入口ごと持たない。
   assert.doesNotMatch(inbox, /音声を取り込む|マイクで録音|ScreenRecorderPanel/);

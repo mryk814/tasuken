@@ -8,7 +8,7 @@
  * 1. ToDoの5つの状態が正しい行にだけ出る（当てはまらない行には出ない）
  * 2. Todayに「AIから届いたこと」のセクションが出ない（AIの対応はFeedに集約）
  * 3. 状態chipがTask詳細を開く
- * 4. ToDoの確認待ちの「Feedで確認」がFeedへ移動する
+ * 4. ToDoの確認待ちの「近況で確認」がFeedへ移動する
  * 5. AIからの質問がFeedのホームに投稿として出る（対応待ちタブは廃止）
  * 6. 届いた情報が無いときもTodayにAIの見出しが出ない
  *
@@ -172,16 +172,16 @@ async function runMainPhase() {
       });
     }
 
-    // --- ToDoの確認待ちは「Feedで確認」でFeedへ行く ---
+    // --- ToDoの確認待ちは「近況で確認」でFeedへ行く ---
     const reviewChipRow = chipRows("確認待ち").first();
-    const feedButton = reviewChipRow.locator(".text-button", { hasText: "Feedで確認" });
+    const feedButton = reviewChipRow.locator(".text-button", { hasText: "近況で確認" });
     if (!(await feedButton.count())) {
-      failures.push("確認待ちの行に「Feedで確認」がありません。");
+      failures.push("確認待ちの行に「近況で確認」がありません。");
     } else {
       await feedButton.click();
       await page.waitForTimeout(1500);
       if (!(await page.locator(".page.feed-page").count())) {
-        failures.push("「Feedで確認」がFeedへ移動していません。");
+        failures.push("「近況で確認」がFeedへ移動していません。");
       }
       await page.screenshot({ path: `${OUT_DIR}/today-arrival-handling.png`, fullPage: true });
     }

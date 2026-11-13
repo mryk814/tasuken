@@ -18,7 +18,7 @@ const NODE_TYPE_ORDER = ["question", "claim", "evidence", "decision", "source", 
 const HEALTH_ENTITY_TYPES = ["project", "task", "waiting", "plan_node", "note", "resource", "knowledge_node", "knowledge_edge", "reference", "artifact", "sketch"];
 const FIX_ACTION_LABELS: Record<string, string> = {
   source_entity: "元Entityを確認",
-  settings: "Settingsを確認",
+  settings: "設定を確認",
   theme_ai_pack: "ThemeのAI Packを確認",
 };
 

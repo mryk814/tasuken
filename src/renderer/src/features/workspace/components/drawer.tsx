@@ -1800,7 +1800,7 @@ function EditDrawer({
     waiting: "待ち",
     plan_node: "計画ノード",
     capture_entry: "キャプチャ",
-    sketch: "Sketch",
+    sketch: "手書き",
   };
   const kindLabel = typeLabels[type] || type;
   const title = `${entity.id ? "編集" : "追加"}: ${kindLabel}`;

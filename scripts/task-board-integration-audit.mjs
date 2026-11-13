@@ -30,7 +30,7 @@ export async function runIntegratedBoardChecks({
   });
   let replicaApp;
   async function board(target) {
-    await target.locator(".sidebar button", { hasText: "ToDo" }).first().click();
+    await target.locator(".sidebar button", { hasText: "やること" }).first().click();
     await target.getByRole("button", { name: /^未完了/ }).click();
     await target.getByRole("button", { name: "ボード", exact: true }).click();
     await target.locator(".task-board").waitFor();
@@ -325,7 +325,7 @@ export async function runIntegratedBoardChecks({
     checks.push("AI作成Taskを同じIDで依頼→質問→競合時入力保持→返答→成果報告→採用、Task継続");
     if (process.argv.includes("--all-features")) {
       await closeTask(page);
-      await page.locator(".sidebar button", { hasText: "Debrief" }).first().click();
+      await page.locator(".sidebar button", { hasText: "日誌" }).first().click();
       const logs = page.getByRole("region", { name: "AI作業ログ", exact: true });
       await logs.getByRole("button", { name: "AI作業ログを取り込む", exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "AI作業ログを取り込む", exact: true });
@@ -374,7 +374,7 @@ export async function runIntegratedBoardChecks({
       );
     }
     await closeTask(page);
-    await page.locator(".sidebar button", { hasText: "Notes" }).first().click();
+    await page.locator(".sidebar button", { hasText: "ノート" }).first().click();
     const noteRow = page.locator(".note-row", { hasText: note.title });
     await noteRow.locator(".ai-creation-mark").first().waitFor();
     assert.equal(await noteRow.locator(".ai-creation-mark").count(), 1);

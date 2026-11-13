@@ -468,7 +468,7 @@ export function SketchPage({
       <header className="sketch-header">
         <div className="sketch-title-group">
           <button className="text-button compact" onClick={() => navigate("sketch")}>
-            Sketch
+            手書き
           </button>
           <span aria-hidden="true">/</span>
           <strong className="sketch-editor-title">{selected.title || "無題のSketch"}</strong>
@@ -521,7 +521,7 @@ export function SketchPage({
           </div>
           {/* metadataはcanvasを閉じずに触れる二次操作へ置く（#320）。 */}
           <ToolbarMenu
-            label="この Sketch"
+            label="この手書き"
             title="タイトル・Themeなどの設定"
             items={[
               {

@@ -80,7 +80,7 @@ export interface RouteDefinition {
 export const ROUTE_DEFINITIONS = {
   today: {
     id: "today",
-    label: "Today",
+    label: "今日",
     description: "今日見るものを一か所に集めます。",
     icon: IconSun,
     semanticRole: "hub",
@@ -89,7 +89,7 @@ export const ROUTE_DEFINITIONS = {
   },
   todo: {
     id: "todo",
-    label: "ToDo",
+    label: "やること",
     description: "今日の作業と予定なしの仕事を整理します。",
     icon: IconChecklist,
     semanticRole: "view",
@@ -99,7 +99,7 @@ export const ROUTE_DEFINITIONS = {
   },
   waiting: {
     id: "waiting",
-    label: "Waiting",
+    label: "待ち",
     description: "誰を、何を、いつまで待っているかを確認します。",
     icon: IconTimeline,
     semanticRole: "view",
@@ -108,10 +108,10 @@ export const ROUTE_DEFINITIONS = {
   },
   inbox: {
     id: "inbox",
-    // Inboxは廃止し（2026-10-06）、付箋メモの画面として残す。思いつきはFeedへ投稿する。
-    label: "Memo",
+    // Inboxは廃止し（2026-10-06）、付箋の画面として残す。思いつきは近況へ投稿する。
+    label: "付箋",
     description:
-      "付箋メモを書き、色分け・表示・収納を管理します。未整理のメモはFeedのホームに並びます。",
+      "付箋を書き、色分け・表示・収納を管理します。未整理の付箋は近況のホームに並びます。",
     icon: IconNote,
     semanticRole: "hub",
     availability: "always",
@@ -120,9 +120,9 @@ export const ROUTE_DEFINITIONS = {
   },
   "ai-io": {
     id: "ai-io",
-    label: "Agent Desk",
+    label: "任せた仕事",
     description:
-      "任せた仕事の進み具合（要確認・作業中・開始待ち・最近の結果）を確認します。AIからの判断や変更案はFeedのホームに投稿として並び、そこで答えます。",
+      "任せた仕事の進み具合（要確認・作業中・開始待ち・最近の結果）を確認します。AIからの判断や変更案は近況のホームに投稿として並び、そこで答えます。",
     icon: IconSparkles,
     semanticRole: "tool",
     availability: "always",
@@ -132,7 +132,7 @@ export const ROUTE_DEFINITIONS = {
   },
   feed: {
     id: "feed",
-    label: "Feed",
+    label: "近況",
     description:
       "前回から何が変わり、今どこに反応するかを読みます。設計検証中の試作で、架空のデータを表示します。",
     icon: IconTimeline,
@@ -142,7 +142,7 @@ export const ROUTE_DEFINITIONS = {
   },
   debrief: {
     id: "debrief",
-    label: "Debrief",
+    label: "日誌",
     description: "AIへ委任した仕事を、自分の判断と次の再開点として回収します。",
     icon: IconBrain,
     semanticRole: "tool",
@@ -151,7 +151,7 @@ export const ROUTE_DEFINITIONS = {
   },
   timeline: {
     id: "timeline",
-    label: "Timeline",
+    label: "工程表",
     description: "実施事項ごとに、分析依頼・試験依頼・整理などの計画を並べます。",
     icon: IconTimeline,
     semanticRole: "view",
@@ -160,7 +160,7 @@ export const ROUTE_DEFINITIONS = {
   },
   knowledge: {
     id: "knowledge",
-    label: "Knowledge",
+    label: "棚卸し",
     description: "既存データを読み取り、Research / Diagnosticとして確認します。",
     icon: IconBulb,
     semanticRole: "tool",
@@ -169,7 +169,7 @@ export const ROUTE_DEFINITIONS = {
   },
   notes: {
     id: "notes",
-    label: "Notes",
+    label: "ノート",
     description:
       "Note・Resource・Report・Promptをまとめて扱います。Markdownを書き、関連資料を参照しながら整理できます。",
     icon: IconNotes,
@@ -180,7 +180,7 @@ export const ROUTE_DEFINITIONS = {
   },
   sketch: {
     id: "sketch",
-    label: "Sketch",
+    label: "手書き",
     icon: IconWriting,
     semanticRole: "view",
     availability: "always",
@@ -189,9 +189,9 @@ export const ROUTE_DEFINITIONS = {
   },
   studio: {
     id: "studio",
-    label: "Studio",
+    label: "収録",
     description:
-      "マイク録音と画面録画をここから始めます。録ったものはArtifactとして残り、Note等から参照できます。",
+      "マイク録音と画面録画をここから始めます。録ったものは添付として残り、ノート等から参照できます。",
     icon: IconMicrophone,
     semanticRole: "view",
     availability: "always",
@@ -199,8 +199,8 @@ export const ROUTE_DEFINITIONS = {
   },
   "chat-refs": {
     id: "chat-refs",
-    label: "Chat Refs",
-    description: "外部AIチャットをTheme単位で保管し、あとからNoteやKnowledgeに展開します。",
+    label: "会話録",
+    description: "外部AIチャットをテーマ単位で保管し、あとからノートや棚卸しに展開します。",
     icon: IconMessageCircle,
     semanticRole: "view",
     availability: "always",
@@ -208,9 +208,9 @@ export const ROUTE_DEFINITIONS = {
   },
   artifacts: {
     id: "artifacts",
-    label: "Artifacts",
+    label: "添付",
     description:
-      "AI作業や調査から生まれた Excel・画像・PDF・Markdown などの実ファイル。メモ本文・URL・Chat Refs とは役割が違います。",
+      "AI作業や調査から生まれた Excel・画像・PDF・Markdown などの実ファイル。メモ本文・URL・会話録とは役割が違います。",
     icon: IconPaperclip,
     semanticRole: "view",
     availability: "always",
@@ -218,7 +218,7 @@ export const ROUTE_DEFINITIONS = {
   },
   theme: {
     id: "theme",
-    label: "Theme",
+    label: "テーマ",
     description: "選択中の研究テーマの現在地と作業を確認します。",
     icon: IconBulb,
     semanticRole: "context",
@@ -228,7 +228,7 @@ export const ROUTE_DEFINITIONS = {
   },
   themes: {
     id: "themes",
-    label: "Themes",
+    label: "すべてのテーマ",
     description: "研究テーマごとの現在地と負荷を確認します。",
     icon: IconBulb,
     semanticRole: "view",
@@ -237,7 +237,7 @@ export const ROUTE_DEFINITIONS = {
   },
   settings: {
     id: "settings",
-    label: "Settings",
+    label: "設定",
     icon: IconSettings,
     semanticRole: "tool",
     availability: "always",

@@ -265,8 +265,8 @@
   <body>
     <div class="capture-form">
       <div class="capture-header">
-        <strong id="title">Feedへ投稿</strong>
-        <span id="mode-pill" class="mode-pill">Feed</span>
+        <strong id="title">近況へ投稿</strong>
+        <span id="mode-pill" class="mode-pill">近況</span>
         <button id="close" class="secondary" type="button" aria-label="閉じる">閉じる</button>
       </div>
       <span id="hint" class="capture-hint">Ctrl+Enter で記録 / Shift追加で続ける / Escで閉じる</span>
@@ -325,7 +325,7 @@
         <button id="submit" type="button">記録する</button>
       </div>
     </div>
-    <div id="feedback" class="feedback" style="display:none">Feedへ投稿しました</div>
+    <div id="feedback" class="feedback" style="display:none">近況へ投稿しました</div>
     <script>
       const input = document.getElementById("input");
       const submitButton = document.getElementById("submit");
@@ -580,17 +580,17 @@
         const isMicroMemo = mode === "micro-memo";
         const isDoneTask = mode === "done-task";
         const usesTheme = !isMicroMemo;
-        title.textContent = isDoneTask ? "やったことを記録" : isTodayTask ? "タスクに追加" : isMicroMemo ? "付箋メモに記録" : "Feedへ投稿";
-        modePill.textContent = isDoneTask ? "Done Task" : isTodayTask ? "Task" : isMicroMemo ? "Micro Memo" : "Feed";
+        title.textContent = isDoneTask ? "やったことを記録" : isTodayTask ? "タスクに追加" : isMicroMemo ? "付箋に記録" : "近況へ投稿";
+        modePill.textContent = isDoneTask ? "Done Task" : isTodayTask ? "Task" : isMicroMemo ? "付箋" : "近況";
         input.placeholder = isDoneTask
           ? "やったこと｜ひとこと"
-          : isTodayTask ? "タスク名｜金曜まで（期限は省略可）" : isMicroMemo ? "タイトルなしの走り書き" : "メモ・気づきをFeedへ投稿";
+          : isTodayTask ? "タスク名｜金曜まで（期限は省略可）" : isMicroMemo ? "タイトルなしの走り書き" : "メモ・気づきを近況へ投稿";
         hint.textContent = isDoneTask || isTodayTask
           ? "｜ の後ろが" + (isTodayTask ? "期限" : "ひとこと") + " / Ctrl+Enter で記録 / Escで閉じる"
           : "Ctrl+Enter で記録 / Shift追加で続ける / Escで閉じる";
         if (isTodayTask) hint.textContent = "Ctrl+Enter で保存 / Ctrl+Alt+Enter で保存してFocus / Shift追加で続ける / Escで閉じる";
-        submitButton.textContent = isTodayTask ? "追加" : isDoneTask ? "完了で記録" : isMicroMemo ? "記録する" : "Feedへ投稿";
-        feedback.textContent = isDoneTask ? "やったことを記録しました" : isTodayTask ? "タスクを追加しました" : isMicroMemo ? "付箋メモに記録しました" : "Feedへ投稿しました";
+        submitButton.textContent = isTodayTask ? "追加" : isDoneTask ? "完了で記録" : isMicroMemo ? "記録する" : "近況へ投稿";
+        feedback.textContent = isDoneTask ? "やったことを記録しました" : isTodayTask ? "タスクを追加しました" : isMicroMemo ? "付箋に記録しました" : "近況へ投稿しました";
         themeRow.classList.toggle("is-visible", usesTheme);
         duePreview.className = "due-preview";
         duePreview.textContent = isTodayTask ? "期限指定なし · 今日" : "";

@@ -516,9 +516,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
     return {
       kind: "operations",
       operations: buildSaveCaptureEntryOperations(entry),
-      successMessage: base.id
-        ? "変更を保存しました。"
-        : "Inboxに追加しました。Inboxで整理できます。",
+      successMessage: base.id ? "変更を保存しました。" : "付箋に追加しました。付箋で整理できます。",
       navigateTo: base.id ? undefined : "inbox",
     };
   }

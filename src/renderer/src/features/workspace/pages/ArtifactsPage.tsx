@@ -157,7 +157,7 @@ export function ArtifactsPage({
       <section className="panel artifact-role-panel" aria-label="役割の整理">
         <div className="artifact-role-grid">
           <div>
-            <strong>Notes</strong>
+            <strong>ノート</strong>
             <span>自分で書く本文</span>
           </div>
           <div>
@@ -165,11 +165,11 @@ export function ArtifactsPage({
             <span>URL / 外部参照</span>
           </div>
           <div>
-            <strong>Chat Refs</strong>
+            <strong>会話録</strong>
             <span>会話の入口</span>
           </div>
           <div>
-            <strong>Artifacts</strong>
+            <strong>添付</strong>
             <span>実ファイル</span>
           </div>
         </div>
@@ -270,8 +270,8 @@ export function ArtifactsPage({
 
       {hasAny && (
         <p className="field-help artifact-page-help">
-          追加は Chat Refs・Task・Note・Theme の詳細から「Artifact
-          を追加」またはドラッグで行います。保存先は Settings の Artifact 保存先です。
+          追加は 会話録・Task・Note・Theme の詳細から「Artifact
+          を追加」またはドラッグで行います。保存先は 設定の Artifact 保存先です。
         </p>
       )}
     </div>

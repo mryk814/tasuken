@@ -647,7 +647,7 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
             {passiveSessionProposals.length > 0 && (
               <p className="proposal-preview-context">
                 Session observations {passiveSessionProposals.length}
-                件（hookが集めた作業記録。Tasken Debriefの保存時にまとめて確認・正式化します）
+                件（hookが集めた作業記録。Tasken 日誌の保存時にまとめて確認・正式化します）
               </p>
             )}
             {passiveSessionProposals.map((proposal) => (
@@ -658,7 +658,7 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
                     {proposalSourceLabel(proposal)} / {formatProposalDate(proposal)}
                   </small>
                 </div>
-                <span className="proposal-status proposal-status-pending">Debrief待ち</span>
+                <span className="proposal-status proposal-status-pending">日誌待ち</span>
               </div>
             ))}
           </div>
@@ -1410,7 +1410,7 @@ function proposalTypeLabel(proposal: BaseRecord): string {
     notes: "Note",
     links: "Link",
     knowledge_nodes: "Knowledge",
-    sketches: "Sketch",
+    sketches: "手書き",
     artifacts: "Artifact",
     status_update: "Status Update",
     task_work: "Task Work Receipt",

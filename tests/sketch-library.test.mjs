@@ -32,7 +32,7 @@ const inbox = read("src/renderer/src/features/workspace/pages/InboxPage.tsx");
 const routing = await importBundled("src/renderer/src/pages/routes.ts");
 
 test("Sketch is an independent Knowledge shelf with a dedicated editor route", () => {
-  assert.match(routes, /id: "sketch",\s*label: "Sketch"/);
+  assert.match(routes, /id: "sketch",\s*label: "手書き"/);
   assert.match(routes, /id: "sketch"[\s\S]*group: "knowledge"/);
   assert.match(routes, /id: "sketch-editor", parent: "sketch"/);
   assert.match(router, /case "sketch":[\s\S]*?<SketchLibraryPage/);
@@ -96,7 +96,7 @@ test("Sketch canvasからmetadataを触れて、AI専用UIを常設しない（#
 
   // `情報`をprimaryにせず、canvasを閉じずに設定できるmenuへ置く。
   assert.doesNotMatch(sketchPage, />情報<\/button>/);
-  assert.match(sketchPage, /label="この Sketch"/);
+  assert.match(sketchPage, /label="この手書き"/);
   assert.match(sketchPage, /label: "タイトル・Themeを編集"/);
 
   // AI向け指示UIはSketch主画面から撤去する。

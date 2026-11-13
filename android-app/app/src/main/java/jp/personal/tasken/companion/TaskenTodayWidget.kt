@@ -498,7 +498,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
 
         /** 見出し。今日の予定があれば残り件数、全部終えたらそれを伝える。 */
         internal fun progressTitle(snapshot: TaskenWidgetSnapshot): String = when {
-            snapshot.todayTotalCount == 0 -> "Today"
+            snapshot.todayTotalCount == 0 -> "今日"
             snapshot.todayDoneCount >= snapshot.todayTotalCount -> "ぜんぶ完了！"
             else -> "あと${snapshot.todayTotalCount - snapshot.todayDoneCount}件"
         }

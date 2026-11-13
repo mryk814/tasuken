@@ -53,12 +53,12 @@ async function launchApp() {
 }
 
 async function openToday(page) {
-  await page.locator(".sidebar button", { hasText: "Today" }).first().click();
+  await page.locator(".sidebar button", { hasText: "今日" }).first().click();
   await page.waitForTimeout(900);
 }
 
 async function openMaintenanceSettings(page) {
-  await page.locator(".sidebar button", { hasText: "Settings" }).first().click();
+  await page.locator(".sidebar button", { hasText: "設定" }).first().click();
   await page.waitForTimeout(700);
   await page.locator(".settings-category-nav button", { hasText: "Maintenance" }).first().click();
   await page.waitForTimeout(400);

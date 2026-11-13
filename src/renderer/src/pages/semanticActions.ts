@@ -48,7 +48,7 @@ export const ACTION_DEFINITIONS = {
   },
   inboxAddMemo: {
     id: "inboxAddMemo",
-    label: "Memo",
+    label: "付箋",
     icon: IconPlus,
     role: "primary",
     availability: "always",

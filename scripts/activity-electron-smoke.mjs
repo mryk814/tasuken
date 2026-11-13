@@ -438,7 +438,7 @@ try {
   await page.waitForLoadState("domcontentloaded");
   await page
     .locator(".sidebar")
-    .getByRole("button", { name: /^Today(?:（時刻を過ぎたリマインダー\d+件）)?$/ })
+    .getByRole("button", { name: /^今日(?:（時刻を過ぎたリマインダー\d+件）)?$/ })
     .waitFor();
   await electronApp.evaluate(({ BrowserWindow }) => {
     const [window] = BrowserWindow.getAllWindows();
@@ -446,7 +446,7 @@ try {
     window?.center();
   });
   await assertWorkLogDateRollover();
-  await page.getByRole("button", { name: "Debrief", exact: true }).click();
+  await page.getByRole("button", { name: "日誌", exact: true }).click();
   const taskenActivity = page.locator("#daily-activity");
   await taskenActivity.waitFor({ state: "visible" });
   const activityDate = taskenActivity.getByLabel("Activity対象日");

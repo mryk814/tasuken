@@ -68,7 +68,7 @@ async function launchApp() {
 }
 
 async function openInboxUntriagedLane(page) {
-  await page.locator(".sidebar button", { hasText: "Inbox" }).first().click();
+  await page.locator(".sidebar button", { hasText: "付箋" }).first().click();
   await page.waitForFunction(
     (label) =>
       document.querySelector('.sidebar button[aria-current="page"]')?.getAttribute("aria-label") ===
