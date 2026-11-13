@@ -265,6 +265,34 @@ test("RequestStats flushes outside the request after the interval, not on every 
   assert.equal(readRows(file)[0].count, 2);
 });
 
+test("RequestStats writes what it holds after the interval even when no request follows", async (t) => {
+  const file = path.join(temporaryDirectory(t), "stats.sqlite");
+  const stats = new RequestStats({ filePath: file, flushEveryMs: 20 });
+  t.after(() => stats.close());
+  stats.record(row());
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(readRows(file)[0].count, 1);
+});
+
+test("RequestStats sets a broken file aside and counts again in a new one", (t) => {
+  const file = path.join(temporaryDirectory(t), "stats.sqlite");
+  fs.writeFileSync(file, Buffer.alloc(4096, 7));
+  const stats = new RequestStats({ filePath: file, now: () => new Date(2026, 10, 14, 12) });
+  t.after(() => stats.close());
+  stats.record(row());
+  stats.flush(); // 壊れたファイルなので失敗し、脇へ退ける
+  assert.ok(fs.existsSync(`${file}.broken`));
+  assert.equal(stats.read(1).requests, 1);
+});
+
+test("RequestStats does not reopen the database after close", (t) => {
+  const file = path.join(temporaryDirectory(t), "stats.sqlite");
+  const stats = new RequestStats({ filePath: file });
+  stats.close();
+  assert.throws(() => stats.read(1));
+  assert.equal(fs.existsSync(file), false);
+});
+
 test("RequestStats.record never throws", () => {
   const stats = new RequestStats({ filePath: path.join(os.tmpdir(), "x", "y", "z.sqlite") });
   assert.doesNotThrow(() => stats.record({ entry: 1, us: Number.NaN, bytes: "x" }));

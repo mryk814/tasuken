@@ -646,6 +646,13 @@ const statsRecordRequestSchema = z.strictObject({
   rows: z.array(statsRowSchema).min(1).max(100),
 });
 
+/** MCPやGatewayの側と同じく、決まった形の大文字の名前だけを残す（成功は空）。 */
+function statsCode(code: string | undefined) {
+  if (!code) return "";
+  const upper = code.toUpperCase();
+  return /^[A-Z][A-Z0-9_]{0,47}$/.test(upper) ? upper : "OTHER";
+}
+
 function statsMethod(method: string | undefined) {
   return method && STATS_METHODS.has(method) ? method : "OTHER";
 }
@@ -1046,7 +1053,7 @@ export class TaskenCoreHost {
           entry: this.statsEntry(request),
           caller: context.caller,
           status: response.statusCode,
-          code: responseErrorCodes.get(response)?.toUpperCase() ?? "",
+          code: statsCode(responseErrorCodes.get(response)),
           us: Number((process.hrtime.bigint() - startedAt) / 1000n),
           bytes: Number.isFinite(length) ? length : 0,
         });

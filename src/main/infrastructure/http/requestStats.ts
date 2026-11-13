@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -89,6 +90,9 @@ const FAILING_STATUSES = new Set([400, 409, 422]);
 const SLOWEST_LIMIT = 10;
 const FAILING_LIMIT = 10;
 const TOOL_ERRORS_LIMIT = 50;
+// 書けない日が続いてもメモリが際限なく増えないよう、ためるkeyの数に上限を置く（超えた新しいkeyは捨てる）。
+const MAX_PENDING_KEYS = 10_000;
+const BROKEN_DATABASE_CODES = new Set(["SQLITE_CORRUPT", "SQLITE_NOTADB"]);
 
 function pad(value: number) {
   return String(value).padStart(2, "0");
@@ -157,6 +161,7 @@ export class RequestStats implements RequestStatsSink {
   private db: StatsDatabase | null = null;
   private lastFlushAt: number;
   private flushScheduled = false;
+  private timer: NodeJS.Timeout | null = null;
   private closed = false;
 
   constructor(options: RequestStatsOptions) {
@@ -182,6 +187,14 @@ export class RequestStats implements RequestStatsSink {
         usMax: nonNegativeInteger(row.us),
         bytesTotal: nonNegativeInteger(row.bytes),
       });
+      // 要求が途切れても、ためた分が次の要求まで残らないようにする。unrefでプロセスの終了は止めない。
+      if (!this.timer) {
+        this.timer = setTimeout(() => {
+          this.timer = null;
+          this.flush();
+        }, this.flushEveryMs);
+        this.timer.unref?.();
+      }
       if (!this.flushScheduled && at.getTime() - this.lastFlushAt >= this.flushEveryMs) {
         this.flushScheduled = true;
         // 書き込みは要求の処理の外で行う。
@@ -199,6 +212,7 @@ export class RequestStats implements RequestStatsSink {
     const id = key([row.day, row.entry, row.caller, row.status, row.code]);
     const current = this.pending.get(id);
     if (!current) {
+      if (this.pending.size >= MAX_PENDING_KEYS) return;
       this.pending.set(id, row);
       return;
     }
@@ -209,12 +223,38 @@ export class RequestStats implements RequestStatsSink {
   }
 
   private database() {
+    if (this.closed) throw new Error("REQUEST_STATS_CLOSED");
     this.db ??= openDatabase(this.filePath);
     return this.db;
   }
 
+  /**
+   * 壊れたファイルは脇へ退けて、次に開くときに作り直す。計測は捨ててよい記録なので、
+   * 直らないまま読み出しが失敗し続けるより、新しく数え直す方を選ぶ。
+   */
+  private setAsideIfBroken(error: unknown) {
+    const code = (error as { code?: unknown } | null)?.code;
+    if (typeof code !== "string" || !BROKEN_DATABASE_CODES.has(code)) return;
+    try {
+      this.db?.close();
+    } catch {
+      // 閉じられなくても退けるのは試みる。
+    }
+    this.db = null;
+    try {
+      fs.rmSync(`${this.filePath}.broken`, { force: true });
+      fs.renameSync(this.filePath, `${this.filePath}.broken`);
+    } catch {
+      // 退けられなければ次の機会にもう一度試みる。
+    }
+  }
+
   /** ためた分をまとめて書く。失敗したら取り出した分をメモリへ戻し、失われないようにする。 */
   flush(): void {
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = null;
+    }
     this.lastFlushAt = this.now().getTime();
     if (this.closed && !this.db) return;
     const taken = this.pending;
@@ -248,13 +288,23 @@ export class RequestStats implements RequestStatsSink {
         }
         prune.run(cutoff);
       })();
-    } catch {
+    } catch (error) {
       for (const row of taken.values()) this.add(row);
+      this.setAsideIfBroken(error);
     }
   }
 
   /** 直近days日（今日を含む）を、入口ごとにまとめて返す。 */
   read(days: number): RequestStatsReport {
+    try {
+      return this.readUnchecked(days);
+    } catch (error) {
+      this.setAsideIfBroken(error);
+      throw error;
+    }
+  }
+
+  private readUnchecked(days: number): RequestStatsReport {
     this.flush();
     const since = dayOffset(this.now(), days - 1);
     const rows = this.database()

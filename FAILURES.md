@@ -2,6 +2,14 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-14 `npm run ci` の最後の Electron smoke が `markdownImageRendered:false` で落ちた
+
+- しようとしたこと: #733（入口ごとの計測）の merge 前に `npm run ci` を流す。同じ時に別のエージェントがコードを読んでいて、PC は重かった。
+- 起きたこと: 試験は全部通った（2319 pass・0 fail）。最後の `smoke:desktop:focused` だけが `"markdownImageRendered":false` → `Electron smoke failed before restart check` で exit 1 になった。
+- 原因: 推測。smoke はプレビューの画像の読み込みを最大2秒しか待たない（`src/main/index.ts` の `smokePreviewImage`）。重い時にはその間に読み終わらない。変更は添付の protocol と画面に触れていない。
+- 直し方: 同じ build で `npm run smoke:desktop:focused` を流し直したら、2回とも通った（exit 0）。
+- 再発防止: 記録だけ。一度の失敗なので、待ち時間は延ばしていない。また起きたら、2秒の待ちを読み込みの完了まで待つ形に変える。
+
 ## 2026-11-12 ドロワーに制御した入力欄を足したら、フォームの最初の1文字が消えた
 
 - しようとしたこと: #727 で Task のドロワーに「場所」の欄を足す。名前などを useState で制御した。
