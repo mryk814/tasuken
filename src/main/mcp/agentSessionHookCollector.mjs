@@ -226,12 +226,32 @@ async function claimStaleLock(lockPath, staleAfterMs) {
   return true;
 }
 
+// Windows では、書いたばかりの owner.json をウイルス対策や索引づけが開いている間、フォルダーの
+// 名前の変更が EPERM・EACCES・EBUSY で断られる（PC が重いと珍しくない）。解放をそこで諦めると、
+// 排他は生きている持ち主のまま残り、同じプロセスの次の記録は PID でも期限（35 秒）でも回収できず、
+// 待ちの上限で落ちる（#735）。断られている間は短く待ってやり直す。
+const RELEASE_RETRY_MS = 3_000;
+const TRANSIENT_RENAME_CODES = new Set(["EPERM", "EACCES", "EBUSY"]);
+
+async function renameWhenUnlocked(from, to) {
+  const giveUpAt = Date.now() + RELEASE_RETRY_MS;
+  for (let delay = 10; ; delay = Math.min(delay * 2, 200)) {
+    try {
+      await fs.rename(from, to);
+      return;
+    } catch (error) {
+      if (!TRANSIENT_RENAME_CODES.has(error?.code) || Date.now() >= giveUpAt) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 async function releaseStateLock(lockPath, ownerToken) {
   const owner = await readLockOwner(lockPath);
   if (owner?.token !== ownerToken) return;
   const tombstonePath = `${lockPath}.released-${ownerToken}`;
   try {
-    await fs.rename(lockPath, tombstonePath);
+    await renameWhenUnlocked(lockPath, tombstonePath);
   } catch (error) {
     if (error?.code === "ENOENT") return;
     throw error;

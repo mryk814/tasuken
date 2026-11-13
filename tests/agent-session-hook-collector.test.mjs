@@ -499,6 +499,46 @@ test("an abandoned lock owner is recovered before the next hook event", async (t
   );
 });
 
+// Windows では、書いたばかりの owner.json をウイルス対策などが開いている間、排他のフォルダーの
+// 名前の変更が EPERM で断られる（PC が重いと 40 回に 10 回以上）。解放がそこで諦めると、排他は
+// 生きている持ち主（同じプロセス）のまま残り、次の記録が待ちきれずに落ちる（#735）。
+test("a transient EPERM while releasing the lock does not strand it for the next hook event", async (t) => {
+  const stateDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-hook-release-"));
+  t.after(() => fs.rm(stateDirectory, { recursive: true, force: true }));
+  const rename = fs.rename;
+  let refusedReleases = 0;
+  t.mock.method(fs, "rename", async (from, to) => {
+    if (String(to).includes(".lock.released-") && refusedReleases < 2) {
+      refusedReleases += 1;
+      throw Object.assign(new Error("operation not permitted, rename"), { code: "EPERM" });
+    }
+    return rename(from, to);
+  });
+  const started = Date.now();
+  for (const [index, prompt] of ["first release", "second release"].entries()) {
+    const result = await collectAgentHookEvent(
+      "claude_code",
+      {
+        hook_event_name: index === 0 ? "SessionStart" : "UserPromptSubmit",
+        session_id: "release-retry-source",
+        timestamp: `2026-08-25T09:0${index}:00.000Z`,
+        prompt,
+      },
+      { stateDirectory },
+    );
+    assert.equal(result.status, "observed");
+  }
+  assert.equal(refusedReleases, 2, "the release must have been refused before it succeeded");
+  // 回収の期限（35 秒）や待ちの上限（10 秒）に頼らず、解放のやり直しで済んだこと。
+  assert.ok(Date.now() - started < 5_000, `took ${Date.now() - started}ms`);
+  const names = await fs.readdir(stateDirectory);
+  assert.deepEqual(
+    names.filter((name) => name.includes(".lock")),
+    [],
+    "neither the lock nor a release tombstone may remain",
+  );
+});
+
 test("concurrent hook processes merge by observation time without corrupting state", async (t) => {
   const stateDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-agent-hook-"));
   t.after(() => fs.rm(stateDirectory, { recursive: true, force: true }));
