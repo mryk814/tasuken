@@ -129,7 +129,8 @@ test("残している行の丸は押せない（繰り返しの Task を二重�
   const pages = "src/renderer/src/features/workspace/pages";
   const disabledByStriking = (file) =>
     readFileSync(`${pages}/${file}`, "utf8").match(
-      /\n\s+disabled=\{[^}\n]*\bstriking\}\n\s+aria-disabled=\{[^}\n]*\bstriking\}/g,
+      // 作業ツリーは CRLF のこともある（core.autocrlf）ので、改行は \r?\n で見る。
+      /\r?\n\s+disabled=\{[^}\r\n]*\bstriking\}\r?\n\s+aria-disabled=\{[^}\r\n]*\bstriking\}/g,
     ) || [];
   // ToDo の行、Today の「今日やること」「期間内に対応」「継続中」、Theme の未完了。
   assert.equal(disabledByStriking("TodoPage.tsx").length, 1);
