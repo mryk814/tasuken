@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { Buffer } from "node:buffer";
@@ -388,7 +389,7 @@ test("actual stdio MCP reads kept Wave 5 tools from a running Core host and inje
     host = new TaskenCoreHost({ userDataPath: root, ...createTaskenCore(database) });
     await host.start();
     const transport = new StdioClientTransport({
-      command: process.execPath,
+      command: nodeExecPath,
       args: ["scripts/mcp-server.mjs"],
       env: {
         ...process.env,

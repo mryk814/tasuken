@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
@@ -109,7 +110,7 @@ async function coreFixture(t, seed = (db) => saveTask(db), options = {}) {
 }
 async function connectMcp(dir, readOnly = false) {
   const transport = new StdioClientTransport({
-    command: process.env.TASKEN_NODE_EXEC_PATH || process.execPath,
+    command: nodeExecPath,
     args: [path.join(mcpDirectory, "server.mjs")],
     env: {
       ...process.env,

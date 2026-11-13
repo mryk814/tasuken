@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
@@ -114,7 +115,7 @@ function validPng(seed) {
 
 async function connectMcp(root) {
   const transport = new StdioClientTransport({
-    command: process.execPath,
+    command: nodeExecPath,
     args: ["scripts/mcp-server.mjs"],
     env: {
       ...process.env,

@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -45,7 +46,7 @@ function runCi({ platform = process.platform, npmCli = "", failAt = -1, failure 
     `,
     );
     const result = spawnSync(
-      process.execPath,
+      nodeExecPath,
       ["--import", pathToFileURL(preloadPath).href, "scripts/run-ci.mjs"],
       {
         encoding: "utf8",
@@ -71,7 +72,7 @@ function runCi({ platform = process.platform, npmCli = "", failAt = -1, failure 
 
 function expectedCalls(platform, npmCli, steps = expectedSteps) {
   return steps.map(([script, scriptArgs]) => ({
-    command: npmCli ? process.execPath : platform === "win32" ? "fixture-cmd.exe" : "npm",
+    command: npmCli ? nodeExecPath : platform === "win32" ? "fixture-cmd.exe" : "npm",
     args: npmCli
       ? [npmCli, "run", script, "--", ...scriptArgs]
       : platform === "win32"

@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
@@ -290,11 +291,11 @@ test("production audit is deterministic and keeps temporary composition growth v
   const output = mkdtempSync(path.join(os.tmpdir(), "tasken-architecture-audit-"));
   try {
     const args = ["scripts/audit-architecture.mjs", "--format=json", "--output-dir", output];
-    const first = spawnSync(process.execPath, args, {
+    const first = spawnSync(nodeExecPath, args, {
       encoding: "utf8",
       maxBuffer: AUDIT_SPAWN_MAX_BUFFER,
     });
-    const second = spawnSync(process.execPath, args, {
+    const second = spawnSync(nodeExecPath, args, {
       encoding: "utf8",
       maxBuffer: AUDIT_SPAWN_MAX_BUFFER,
     });
@@ -424,7 +425,7 @@ test("Task enforcement profile is blocking and clean without changing global rep
   const output = mkdtempSync(path.join(os.tmpdir(), "tasken-architecture-enforced-"));
   try {
     const result = spawnSync(
-      process.execPath,
+      nodeExecPath,
       [
         "scripts/audit-architecture.mjs",
         "--enforce",
@@ -481,7 +482,7 @@ test("Core and MCP enforcement profile is blocking and clean", () => {
       "src/main/mcp/taskenCoreClient.mjs",
     ]);
     const result = spawnSync(
-      process.execPath,
+      nodeExecPath,
       [
         "scripts/audit-architecture.mjs",
         "--enforce",

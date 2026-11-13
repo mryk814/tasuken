@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import fs from "node:fs";
@@ -515,7 +516,7 @@ test("task work proposal retries are idempotent and reject key reuse with differ
 
 test("read-only MCP mode exposes context tools and no proposal or task-work write tools", async () => {
   const transport = new StdioClientTransport({
-    command: process.execPath,
+    command: nodeExecPath,
     args: ["scripts/mcp-server.mjs"],
     env: { ...process.env, TASKEN_MCP_READ_ONLY: "1" },
     stderr: "pipe",
@@ -556,7 +557,7 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
   assert.equal(oversized.status, 413);
   assert.equal((await oversized.json()).error.code, "BODY_TOO_LARGE");
   const transport = new StdioClientTransport({
-    command: process.execPath,
+    command: nodeExecPath,
     args: ["scripts/mcp-server.mjs"],
     env: { ...process.env, TASKEN_USER_DATA_DIR: root, TASKEN_MCP_INBOX_PATH: inboxPath },
     stderr: "pipe",
@@ -859,7 +860,7 @@ test("Agent Session proposals queue reviewable records at Core level without MCP
   const host = new TaskenCoreHost({ userDataPath: root, ...core });
   await host.start();
   const transport = new StdioClientTransport({
-    command: process.execPath,
+    command: nodeExecPath,
     args: ["scripts/mcp-server.mjs"],
     env: { ...process.env, TASKEN_USER_DATA_DIR: root },
     stderr: "pipe",

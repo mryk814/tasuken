@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -87,7 +88,7 @@ test("explicit creation-only headless and actual stdio MCP: scope, persistence, 
   const connect = async (mode) => {
     core = await startTaskenHeadlessCore({ userDataPath: dir, writeMode: mode });
     transport = new StdioClientTransport({
-      command: process.env.TASKEN_NODE_EXEC_PATH || process.execPath,
+      command: nodeExecPath,
       args: [path.join(mcpDirectory, "server.mjs")],
       env: { ...process.env, TASKEN_USER_DATA_DIR: dir, TASKEN_MCP_READ_ONLY: "0" },
       stderr: "pipe",
@@ -300,7 +301,7 @@ test("Desktop: 直接の書き込みは設定をその場で読み、Theme・期
     );
     assert.equal(db.list("task").length, 0);
     transport = new StdioClientTransport({
-      command: process.env.TASKEN_NODE_EXEC_PATH || process.execPath,
+      command: nodeExecPath,
       args: [path.join(mcpDirectory, "server.mjs")],
       env: { ...process.env, TASKEN_USER_DATA_DIR: dir, TASKEN_MCP_READ_ONLY: "0" },
       stderr: "pipe",

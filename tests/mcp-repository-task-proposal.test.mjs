@@ -1,3 +1,4 @@
+import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import fs from "node:fs";
@@ -254,7 +255,7 @@ test("actual MCP stdio hides removed tools and queues kept proposals without fil
   const host = new TaskenCoreHost({ userDataPath, ...createTaskenCore(database) });
   await host.start();
   const transport = new StdioClientTransport({
-    command: process.execPath,
+    command: nodeExecPath,
     args: ["scripts/mcp-server.mjs"],
     env: { ...process.env, TASKEN_USER_DATA_DIR: userDataPath, TASKEN_MCP_INBOX_PATH: inboxPath },
     stderr: "pipe",
