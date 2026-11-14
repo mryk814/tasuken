@@ -102,10 +102,13 @@ function domainFixture() {
 }
 
 test("Theme and period produce distinct Task and Activity candidates", () => {
+  const domain = domainFixture();
+  // 来歴は Workspace に載らず、画面が範囲で読んで渡す（#755 束0b）。
   const result = timeline.buildSlideTimelineCandidates(
-    domainFixture(),
+    domain,
     [{ id: "u1", theme_id: "p1", date: "2026-07-12", summary: "レビュー完了" }],
     { themeId: "p1", start: "2026-07-01", end: "2026-07-31" },
+    domain.change_events,
   );
   assert.deepEqual(
     result.map((item) => item.kind),
@@ -128,17 +131,27 @@ test("unknown change_event types keep the Timeline projection alive with a fallb
   });
 
   assert.doesNotThrow(() =>
-    timeline.buildSlideTimelineCandidates(domain, [], {
+    timeline.buildSlideTimelineCandidates(
+      domain,
+      [],
+      {
+        themeId: "all",
+        start: "2026-07-01",
+        end: "2026-07-31",
+      },
+      domain.change_events,
+    ),
+  );
+  const result = timeline.buildSlideTimelineCandidates(
+    domain,
+    [],
+    {
       themeId: "all",
       start: "2026-07-01",
       end: "2026-07-31",
-    }),
+    },
+    domain.change_events,
   );
-  const result = timeline.buildSlideTimelineCandidates(domain, [], {
-    themeId: "all",
-    start: "2026-07-01",
-    end: "2026-07-31",
-  });
   const legacy = result.find((item) => item.id === "activity:legacy-event");
   assert.ok(legacy);
   assert.equal(legacy.title, "legacy_event");
@@ -146,11 +159,17 @@ test("unknown change_event types keep the Timeline projection alive with a fallb
 });
 
 test("16:9 SVG distinguishes task bars and activity diamonds and supports transparent background", () => {
-  const candidates = timeline.buildSlideTimelineCandidates(domainFixture(), [], {
-    themeId: "p1",
-    start: "2026-07-01",
-    end: "2026-07-31",
-  });
+  const domain = domainFixture();
+  const candidates = timeline.buildSlideTimelineCandidates(
+    domain,
+    [],
+    {
+      themeId: "p1",
+      start: "2026-07-01",
+      end: "2026-07-31",
+    },
+    domain.change_events,
+  );
   const svg = timeline.buildSlideTimelineSvg({
     title: "長期テーマの振り返り",
     subtitle: "TaskとActivity",

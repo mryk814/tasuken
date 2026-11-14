@@ -120,6 +120,35 @@ try {
     Math.min(runs, 3),
   ).medianMs;
 
+  // 画面へ渡す読み込み（workspace:load）。来歴（change_event）は載せず、日誌やActivityを
+  // 開いた時に範囲で読む（#755 束0b）。上の loadWorkspaceMs はMCP・同期などMainの読み込み。
+  // 束0bより前の版では、画面へ渡す読み込みは上の loadWorkspaceMs・ipcPayloadMb と同じだった。
+  const rendererLoad = repeat(() => repository.loadWorkspace(false, { withoutChangeEvents: true }));
+  const rendererSerialized = repeat(() => v8.serialize(rendererLoad.value), Math.min(runs, 3));
+  results.rendererLoad = {
+    loadMs: rendererLoad.medianMs,
+    hasChangeEvents: Object.hasOwn(rendererLoad.value, "change_events"),
+    ipcSerializeMs: rendererSerialized.medianMs,
+    ipcPayloadMb: Number((rendererSerialized.value.length / 1e6).toFixed(1)),
+    ipcDeserializeMs: repeat(() => v8.deserialize(rendererSerialized.value), Math.min(runs, 3))
+      .medianMs,
+  };
+  // 日誌を開いた時の1日分（来歴の一番新しい日。日付そのものは出さない）。
+  const newest = repository.db
+    .prepare(
+      "SELECT max(json_extract(data_json, '$.occurred_at')) AS at FROM entities WHERE entity_type = 'change_event'",
+    )
+    .get()?.at;
+  if (typeof newest === "string" && /^\d{4}-\d{2}-\d{2}/.test(newest)) {
+    const day = newest.slice(0, 10);
+    const dayEvents = repeat(() => repository.listChangeEventsForDates({ from: day, to: day }));
+    results.activityDay = {
+      medianMs: dayEvents.medianMs,
+      rows: dayEvents.value.length,
+      ipcPayloadMb: Number((v8.serialize(dayEvents.value).length / 1e6).toFixed(2)),
+    };
+  }
+
   // 共有フォルダ同期は10秒ごとに動く。フォルダI/Oを除いた、DB側の1回分の仕事。
   results.syncTick = {
     ensureSyncBaselineMs: repeat(() => repository.ensureSyncBaseline(), Math.min(runs, 3)).medianMs,

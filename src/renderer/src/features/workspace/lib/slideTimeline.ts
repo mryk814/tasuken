@@ -116,6 +116,8 @@ export function buildSlideTimelineCandidates(
   domain: WorkspaceDomain,
   statusUpdates: StatusUpdate[],
   options: { themeId: string; start: string; end: string },
+  /** 期間の来歴。Workspace には載らないので、画面が Main から範囲で読んで渡す（#755 束0b）。 */
+  changeEvents: WorkspaceDomain["change_events"],
 ): SlideTimelineCandidate[] {
   const candidates: SlideTimelineCandidate[] = [];
 
@@ -140,7 +142,7 @@ export function buildSlideTimelineCandidates(
     });
   }
 
-  for (const event of domain.change_events) {
+  for (const event of changeEvents) {
     const date = dateOnly(event.changed_at);
     const projectId = entityProjectId(domain, event.entity_type, event.entity_id);
     if (!inRange(date, options.start, options.end) || !projectMatches(projectId, options.themeId))

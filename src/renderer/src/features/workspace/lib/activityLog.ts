@@ -440,7 +440,8 @@ export function buildActivityReceiptPublication(
   domain: WorkspaceDomain,
 ): string {
   const events = queryActivityEvents({
-    events: (input.changeEvents ?? domain.change_events)
+    // 来歴は Workspace に載らない（#755 束0b）。呼び出し側が範囲で読んだ分だけを使う。
+    events: (input.changeEvents ?? [])
       .map(record)
       .filter((event) => !event.deleted_at && record(event.metadata).work_action === "accepted"),
     workspace: { ...domain, themes: input.themes },

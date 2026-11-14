@@ -51,6 +51,7 @@ const api: ResearchDeskApi = {
   },
   activity: {
     getCanonicalRootStatus: () => ipcRenderer.invoke(IPC.activityCanonicalRootStatus),
+    events: (query) => ipcRenderer.invoke(IPC.activityEvents, query),
     openCanonicalRef: (ref) => ipcRenderer.invoke(IPC.activityOpenCanonicalRef, ref),
   },
   aiContext: {

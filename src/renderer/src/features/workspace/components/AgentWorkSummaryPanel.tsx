@@ -6,11 +6,14 @@ import type { OpenDrawer, SaveEntities } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 import { EXTERNAL_REFERENCE_KIND_LABELS } from "../domain-model/labels";
 import {
+  agentSessionActivities,
+  agentSessionActivityIds,
   buildAgentSessionAssignmentOperations,
   buildAgentWorkProjection,
   groupAgentWorkProjection,
   type AgentWorkProjectionRow,
 } from "../domain-model/agentSessionProjection";
+import { useActivityEvents } from "../lib/useActivityEvents";
 
 const CLIENT_LABELS: Record<string, string> = {
   codex: "Codex",
@@ -45,6 +48,49 @@ interface AssignmentEditorState {
   sessionId: string;
   themeId: string;
   repositoryContextId: string;
+}
+
+/** 開いた行の根拠。来歴は Workspace に載らないので、開いた時にそのSessionの分だけを読む（#755 束0b）。 */
+function AgentWorkEvidence({ row }: { row: AgentWorkProjectionRow }) {
+  const loaded = useActivityEvents({ sessionIds: agentSessionActivityIds(row.session) });
+  const activities = agentSessionActivities(
+    loaded.events as unknown as WorkspaceDomain["change_events"],
+    row.session,
+  );
+  if (row.receipts.length === 0 && activities.length === 0) return null;
+  return (
+    <div className="agent-work-evidence">
+      {row.receipts.map((receipt) => (
+        <div className="agent-work-receipt" key={receipt.id}>
+          <span>Work Receipt</span>
+          <p>{receipt.summary}</p>
+          {(receipt.external_references || []).map((reference) => (
+            <a
+              key={`${reference.kind}:${reference.url}`}
+              href={reference.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {reference.display_label || EXTERNAL_REFERENCE_KIND_LABELS[reference.kind]}
+              <IconExternalLink size={12} aria-hidden="true" />
+            </a>
+          ))}
+        </div>
+      ))}
+      {activities.length > 0 && (
+        <div className="agent-work-activity">
+          <span>Activity {activities.length}</span>
+          <p>
+            {activities
+              .slice(0, 3)
+              .map((event) => event.summary || event.event_kind)
+              .filter(Boolean)
+              .join(" / ")}
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function timeLabel(value: string, rowDate: string, selectedDate?: string): string {
@@ -322,39 +368,7 @@ export function AgentWorkSummaryPanel({
                 )}
               </div>
             )}
-            {(row.receipts.length > 0 || row.activities.length > 0) && (
-              <div className="agent-work-evidence">
-                {row.receipts.map((receipt) => (
-                  <div className="agent-work-receipt" key={receipt.id}>
-                    <span>Work Receipt</span>
-                    <p>{receipt.summary}</p>
-                    {(receipt.external_references || []).map((reference) => (
-                      <a
-                        key={`${reference.kind}:${reference.url}`}
-                        href={reference.url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {reference.display_label || EXTERNAL_REFERENCE_KIND_LABELS[reference.kind]}
-                        <IconExternalLink size={12} aria-hidden="true" />
-                      </a>
-                    ))}
-                  </div>
-                ))}
-                {row.activities.length > 0 && (
-                  <div className="agent-work-activity">
-                    <span>Activity {row.activities.length}</span>
-                    <p>
-                      {row.activities
-                        .slice(0, 3)
-                        .map((event) => event.summary || event.event_kind)
-                        .filter(Boolean)
-                        .join(" / ")}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
+            <AgentWorkEvidence row={row} />
           </div>
         )}
       </article>

@@ -331,7 +331,15 @@ export function registerIpc(
     taskCapability,
     () => notifyTaskProjectionChanged(["task"]),
   );
-  ipcMain.handle(IPC.workspaceLoad, () => projectWorkspaceForRenderer(service.loadWorkspace()));
+  // 来歴（change_event）は読み込みの約9割を占める（#734）。画面へは載せず、開いた範囲だけ activityEvents で渡す。
+  ipcMain.handle(IPC.workspaceLoad, () =>
+    projectWorkspaceForRenderer(service.loadWorkspace(false, { withoutChangeEvents: true })),
+  );
+  ipcMain.handle(IPC.activityEvents, (_event, query) =>
+    service
+      .listActivityEvents(query)
+      .map((entity) => projectEntityForRenderer("change_event", entity as Entity)),
+  );
   ipcMain.handle(IPC.workspaceBootstrap, (_event, legacy) => {
     assertRendererBootstrapContainsNoMedia(legacy);
     return projectWorkspaceForRenderer(repository.bootstrap(legacy));

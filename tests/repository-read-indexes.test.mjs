@@ -208,6 +208,10 @@ test("読み取り用の索引はschema_versionを上げずに作り、開き直
       "idx_change_event_command_id_v1",
       "idx_change_event_dedupe_key_v1",
       "idx_change_event_irregular_dedupe_key_v1",
+      "idx_change_event_occurred_at_v1",
+      "idx_change_event_changed_at_v1",
+      "idx_change_event_irregular_time_v1",
+      "idx_change_event_session_id_v1",
     ]) {
       assert.ok(indexes.includes(name), name);
     }
@@ -292,4 +296,252 @@ test("queryActivityEventsは入力のEventを書き換えない（複製せず�
   assert.ok(query(frozen).events.length > 0);
   assert.deepEqual(query(frozen, recall), query(input(), recall));
   assert.deepEqual(query(frozen), query(input()));
+});
+
+// #755 束0b: 画面は来歴を全件で受け取らず、開いた範囲だけを読む。
+function insertDeletedChangeEvent(repository, id, data, updatedAt) {
+  insertRawChangeEvent(repository, id, data, updatedAt);
+  repository.db
+    .prepare("UPDATE entities SET deleted_at = ? WHERE entity_type = 'change_event' AND id = ?")
+    .run(updatedAt, id);
+}
+
+function seedActivityHistory(repository) {
+  const note = { id: "note-1", title: "Note", body_markdown: "a" };
+  const task = {
+    id: "task-1",
+    title: "Task",
+    state: "done",
+    completed_at: "2026-11-10T05:00:00.000Z",
+  };
+  repository.save("note", note);
+  const noteEvent = (occurredAt, extra = {}) =>
+    buildActivityEvent({
+      entityType: "note",
+      entityId: "note-1",
+      changeType: "created",
+      after: note,
+      occurredAt,
+      source: "manual",
+      origin: { kind: "manual", session_id: extra.session || "" },
+      metadata: { session_id: extra.session || "", dedupe_key: extra.key },
+    });
+  const at = (minute) => `2026-11-20T00:${String(minute).padStart(2, "0")}:00.000Z`;
+  // その日の中（UTCの日付は前の日）。
+  insertRawChangeEvent(
+    repository,
+    "e-in",
+    noteEvent("2026-11-10T03:00:00.000Z", { key: "k-in", session: "s-a" }),
+    at(1),
+  );
+  insertRawChangeEvent(
+    repository,
+    "e-early",
+    noteEvent("2026-11-09T16:30:00.000Z", { key: "k-early" }),
+    at(2),
+  );
+  // 次の日（JST）。前後1日の候補には入るが、その日の表示には出ない。
+  insertRawChangeEvent(
+    repository,
+    "e-late",
+    noteEvent("2026-11-10T15:30:00.000Z", { key: "k-late", session: "s-b" }),
+    at(3),
+  );
+  insertRawChangeEvent(
+    repository,
+    "e-old",
+    noteEvent("2026-11-05T03:00:00.000Z", { key: "k-old", session: "s-a" }),
+    at(4),
+  );
+  // 同じ重複判定のキーで別の日にある行。重複判定は日付で絞った後なので、範囲の外の行は要らない。
+  insertRawChangeEvent(
+    repository,
+    "e-dup-a",
+    noteEvent("2026-11-10T04:00:00.000Z", { key: "k-dup" }),
+    at(5),
+  );
+  insertRawChangeEvent(
+    repository,
+    "e-dup-b",
+    noteEvent("2026-11-25T04:00:00.000Z", { key: "k-dup" }),
+    at(6),
+  );
+  // 同時刻の updated_at（並びは rowid の大きい順）。
+  insertRawChangeEvent(
+    repository,
+    "e-tie-1",
+    noteEvent("2026-11-10T06:00:00.000Z", { key: "k-tie-1" }),
+    at(7),
+  );
+  insertRawChangeEvent(
+    repository,
+    "e-tie-2",
+    noteEvent("2026-11-10T06:00:00.000Z", { key: "k-tie-2" }),
+    at(7),
+  );
+  insertDeletedChangeEvent(
+    repository,
+    "e-deleted",
+    noteEvent("2026-11-10T07:00:00.000Z", { key: "k-del", session: "s-a" }),
+    at(8),
+  );
+  // 古い形（occurred_at が無く changed_at だけ）。範囲で絞れないので、いつも候補に入る。
+  insertRawChangeEvent(
+    repository,
+    "e-legacy",
+    {
+      entity_type: "note",
+      entity_id: "note-1",
+      changed_at: "2026-11-10T09:00:00+09:00",
+      change_type: "updated",
+      source: "manual",
+      after_json: JSON.stringify({ ...note, body_markdown: "b" }),
+    },
+    at(9),
+  );
+  // 完了の時刻（occurred_at）と記録の時刻（changed_at）が別の日。
+  insertRawChangeEvent(
+    repository,
+    "e-completed",
+    {
+      ...buildActivityEvent({
+        entityType: "task",
+        entityId: "task-1",
+        changeType: "completed",
+        before: { ...task, state: "todo" },
+        after: task,
+        source: "manual",
+        metadata: { dedupe_key: "k-completed" },
+      }),
+      changed_at: "2026-11-21T00:00:00.000Z",
+    },
+    at(10),
+  );
+  // スライドは changed_at の日付で並べる。
+  insertRawChangeEvent(
+    repository,
+    "e-changed-only",
+    {
+      ...noteEvent("2026-10-01T00:00:00.000Z", { key: "k-changed" }),
+      changed_at: "2026-11-15T00:00:00.000Z",
+    },
+    at(11),
+  );
+  return { note, task };
+}
+
+function activityIds(events, date, workspace) {
+  return queryActivityEvents({ events, workspace, date, timezone: "Asia/Tokyo" }).events.map(
+    (event) => event.id,
+  );
+}
+
+test("日付の範囲で読んだ来歴は、全件で読んだ時と同じ日の表示になる（索引あり・なし）", async () => {
+  await withRepository(async (repository) => {
+    const { note, task } = seedActivityHistory(repository);
+    const workspace = { notes: [note], tasks: [task] };
+    const all = repository.list("change_event");
+    const order = all.map((event) => event.id);
+    const fallback = () => {
+      const saved = repository.performanceIndexes;
+      repository.performanceIndexes = { ...saved, changeEventTime: false };
+      try {
+        return repository.listChangeEventsForDates({ from: "2026-11-10", to: "2026-11-10" });
+      } finally {
+        repository.performanceIndexes = saved;
+      }
+    };
+    for (const date of ["2026-11-09", "2026-11-10", "2026-11-11", "2026-11-25", "2026-12-01"]) {
+      const ranged = repository.listChangeEventsForDates({ from: date, to: date });
+      assert.deepEqual(
+        activityIds(ranged, date, workspace),
+        activityIds(all, date, workspace),
+        date,
+      );
+      // 並びは list("change_event") のまま（重複判定で同時刻の行から同じ1件を選ぶため）。
+      assert.deepEqual(
+        ranged.map((event) => event.id),
+        order.filter((id) => ranged.some((event) => event.id === id)),
+        date,
+      );
+    }
+    const day = activityIds(all, "2026-11-10", workspace);
+    assert.ok(day.includes("e-in") && day.includes("e-early") && day.includes("e-legacy"));
+    assert.ok(day.includes("e-completed"));
+    assert.ok(day.includes("e-dup-a"));
+    assert.equal(day.includes("e-deleted"), false);
+
+    const indexed = repository.listChangeEventsForDates({ from: "2026-11-10", to: "2026-11-10" });
+    assert.deepEqual(
+      fallback().map((event) => event.id),
+      indexed.map((event) => event.id),
+    );
+    for (const outside of ["e-old", "e-dup-b", "e-deleted"]) {
+      assert.equal(
+        indexed.some((event) => event.id === outside),
+        false,
+        outside,
+      );
+    }
+
+    // スライドの範囲（changed_at の日付）も、全件から絞った時と同じ行を含む。
+    const slideDate = (event) => String(event.changed_at || "").slice(0, 10);
+    const inSlide = (events) =>
+      events
+        .filter((event) => slideDate(event) >= "2026-11-12" && slideDate(event) <= "2026-11-30")
+        .map((event) => event.id);
+    assert.deepEqual(
+      inSlide(repository.listChangeEventsForDates({ from: "2026-11-12", to: "2026-11-30" })),
+      inSlide(all),
+    );
+    assert.ok(inSlide(all).includes("e-changed-only"));
+
+    assert.throws(() =>
+      repository.listChangeEventsForDates({ from: "2026-11-31", to: "2026-12-01" }),
+    );
+    assert.throws(() =>
+      repository.listChangeEventsForDates({ from: "2026-11-10", to: "2026-11-09" }),
+    );
+    assert.throws(() => repository.listChangeEventsForDates({ from: "2026-11-10" }));
+  });
+});
+
+test("Sessionで読んだ来歴は、全件を origin.session_id で絞った時と同じ行を同じ順で返す", async () => {
+  await withRepository(async (repository) => {
+    seedActivityHistory(repository);
+    const all = repository.list("change_event");
+    for (const ids of [["s-a"], ["s-a", "s-b"], ["missing"], []]) {
+      const expected = all
+        .filter((event) => ids.includes(event.origin?.session_id))
+        .map((event) => event.id);
+      assert.deepEqual(
+        repository.listChangeEventsForSessions(ids).map((event) => event.id),
+        expected,
+        ids.join(","),
+      );
+    }
+    assert.deepEqual(
+      repository.listChangeEventsForSessions(["s-a"]).map((event) => event.id),
+      ["e-old", "e-in"],
+    );
+  });
+});
+
+test("画面への読み込みは来歴を読まず、Main内の読み込みは今までどおり来歴を持つ", async () => {
+  await withRepository(async (repository) => {
+    const { note } = seedActivityHistory(repository);
+    const forRenderer = repository.loadWorkspace(false, { withoutChangeEvents: true });
+    assert.equal("change_events" in forRenderer, false);
+    assert.deepEqual(
+      forRenderer.notes.map((entry) => entry.id),
+      [note.id],
+    );
+    // MCP・同期・Snapshot などMainの読み込みは変えない。
+    const full = repository.loadWorkspace(false);
+    assert.equal(full.change_events.length, repository.list("change_event").length);
+    assert.equal(
+      repository.loadWorkspace(true).change_events.length,
+      full.change_events.length + 1,
+    );
+  });
 });

@@ -26,7 +26,6 @@ export interface AgentWorkProjectionRow {
   repositories: RepositoryContext[];
   tasks: Task[];
   receipts: WorkReceipt[];
-  activities: ChangeEvent[];
   presentation: "attention" | "content" | "record";
   unresolved: boolean;
   assignmentIncomplete: boolean;
@@ -104,34 +103,29 @@ function referencesForSession(references: NormalizedSessionReference[], sessionI
   });
 }
 
-/**
- * origin.session_id ごとのEvent位置。Sessionごとに全Eventを走査すると、実データ
- * （Session 650件 × Event 7,627件）でDebriefを開くたびに1秒以上かかっていた。
- */
-function changeEventIndexesBySession(
-  events: WorkspaceDomain["change_events"],
-): Map<unknown, number[]> {
-  const indexes = new Map<unknown, number[]>();
-  events.forEach((event, index) => {
-    const sessionId = event.origin?.session_id;
-    const list = indexes.get(sessionId);
-    if (list) list.push(index);
-    else indexes.set(sessionId, [index]);
-  });
-  return indexes;
+/** Main に問い合わせる、Sessionの来歴の origin.session_id（#755 束0b）。 */
+export function agentSessionActivityIds(
+  session: Pick<AgentSession, "id" | "source_session_id">,
+): string[] {
+  return [session.id, session.source_session_id].filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
 }
 
-/** 従来の change_events.filter(id一致 || source_session_id一致) と同じ並び・同じ要素。 */
-function activitiesForSession(
-  events: WorkspaceDomain["change_events"],
-  indexes: Map<unknown, number[]>,
-  session: AgentSession,
-): WorkspaceDomain["change_events"] {
-  const matched = new Set(indexes.get(session.id) || []);
-  if (session.source_session_id) {
-    for (const index of indexes.get(session.source_session_id) || []) matched.add(index);
-  }
-  return [...matched].sort((left, right) => left - right).map((index) => events[index]);
+/**
+ * Sessionの活動（origin.session_id が session.id か source_session_id に一致するEvent）。
+ * 渡した並びのまま返す。来歴は Workspace に載らないので、画面は agentSessionActivityIds で
+ * Main から読んだEventを渡す（#755 束0b）。
+ */
+export function agentSessionActivities<T extends Pick<ChangeEvent, "origin">>(
+  events: T[],
+  session: Pick<AgentSession, "id" | "source_session_id">,
+): T[] {
+  return events.filter(
+    (event) =>
+      event.origin?.session_id === session.id ||
+      Boolean(session.source_session_id && event.origin?.session_id === session.source_session_id),
+  );
 }
 
 function byIds<T extends { id: string }>(records: T[], ids: Set<string>): T[] {
@@ -231,7 +225,6 @@ export function buildAgentWorkProjection(
   const hookSourceApps = agentSessionHookSourceApps(domain.ai_proposals);
   const limit = options.limit ?? 20;
   const sessionReferences = normalizeSessionReferences(domain.references);
-  const eventIndexes = changeEventIndexesBySession(domain.change_events);
 
   const rows = domain.agent_sessions
     .map((session) => {
@@ -257,7 +250,6 @@ export function buildAgentWorkProjection(
           related.some((ref) => ref.type === "work_receipt" && ref.id === receipt.id) ||
           (session.source_session_id && receipt.source_session === session.source_session_id),
       );
-      const activities = activitiesForSession(domain.change_events, eventIndexes, session);
       const remaining = session.outcome?.remaining_work || [];
       const themes = byIds(domain.projects, themeIds);
       const repositories = byIds(domain.repository_contexts, repositoryIds);
@@ -279,7 +271,6 @@ export function buildAgentWorkProjection(
         repositories,
         tasks,
         receipts,
-        activities,
         unresolved,
         assignmentIncomplete: themes.length === 0 || repositories.length === 0,
       } satisfies Omit<AgentWorkProjectionRow, "presentation">;

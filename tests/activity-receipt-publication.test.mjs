@@ -48,6 +48,8 @@ function fixture() {
     date: "2026-09-05",
     themes: [{ id: "theme-1", name: "研究" }],
     timezone: "Asia/Tokyo",
+    // 来歴は Workspace に載らず、画面が日付で読んで渡す（#755 束0b）。
+    changeEvents: domain.change_events,
   };
   return { task, receipt, event, domain, input };
 }

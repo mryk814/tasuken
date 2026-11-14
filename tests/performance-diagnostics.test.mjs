@@ -40,7 +40,8 @@ test("main performance diagnostics are opt-in and content-free", () => {
 test("workspace reload is measured only through the opt-in main diagnostic helper", () => {
   const service = source("src/main/services/workspaceService.ts");
   assert.match(service, /measureMainPerformance\("workspace_load"/);
-  assert.match(service, /repository\.loadWorkspace\(includeDeleted\)/);
+  // options は画面へ渡す読み込みで来歴を読まない指定（#755 束0b）。
+  assert.match(service, /repository\.loadWorkspace\(includeDeleted, options\)/);
   assert.match(source("src/main/services/performanceDiagnostics.ts"), /TASKEN_PERF_DIAGNOSTICS/);
 });
 

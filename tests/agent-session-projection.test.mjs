@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  agentSessionActivities,
+  agentSessionActivityIds,
   agentSessionHasContent,
   agentSessionHookSourceApps,
   buildAgentSessionAssignmentOperations,
@@ -237,8 +239,9 @@ test("Tasken Debrief evidence derives today's cross-theme/repository AI work and
     tasken.receipts.map((receipt) => receipt.id),
     ["receipt-a"],
   );
+  // 来歴は行に持たず、開いた時に Main から読んだ分を Session で絞る（#755 束0b）。
   assert.deepEqual(
-    tasken.activities.map((event) => event.id),
+    agentSessionActivities(domain.change_events, tasken.session).map((event) => event.id),
     ["event-a"],
   );
   assert.equal(tasken.sessionIdentity, "codex-498");
@@ -513,8 +516,11 @@ test("Sessionの活動は session.id と source_session_id のどちらかに一
     (entry) => entry.session.id === "session-today",
   );
   assert.deepEqual(expected, ["e1", "e3", "e5"]);
+  // 行は来歴を持たない（#755 束0b）。Main へ問い合わせるIDと、読んだEventの絞り込みで同じ結果になる。
+  assert.equal("activities" in row, false);
+  assert.deepEqual(agentSessionActivityIds(row.session), ["session-today", "codex-498"]);
   assert.deepEqual(
-    row.activities.map((event) => event.id),
+    agentSessionActivities(domain.change_events, row.session).map((event) => event.id),
     expected,
   );
 });

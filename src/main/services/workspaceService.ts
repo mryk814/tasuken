@@ -96,6 +96,7 @@ import type {
   SlideTimelineExportResult,
 } from "../../shared/slideTimelineExport";
 import type {
+  ActivityEventsQuery,
   CanonicalNoteAiCompanion,
   CanonicalNoteCommitCompanion,
   DocumentSaveReferenceCompanion,
@@ -295,7 +296,9 @@ interface WorkspaceRepository {
   getMeta(): { workspaceId: string };
   remove(type: string, id: string): Record<string, unknown> | null;
   restore(type: string, id: string): Record<string, unknown> | null;
-  loadWorkspace(includeDeleted?: boolean): unknown;
+  loadWorkspace(includeDeleted?: boolean, options?: { withoutChangeEvents?: boolean }): unknown;
+  listChangeEventsForDates(range: { from: string; to: string }): Array<Record<string, unknown>>;
+  listChangeEventsForSessions(sessionIds: string[]): Array<Record<string, unknown>>;
   save(type: string, entity: unknown, options?: unknown): Record<string, unknown>;
   saveMany(
     operations: Array<{ action: "save"; type: string; entity: unknown; options?: unknown }>,
@@ -858,15 +861,30 @@ export class WorkspaceService {
     this.taskenCoreClient = taskenCoreClient;
   }
 
-  loadWorkspace(includeDeleted = false): unknown {
+  loadWorkspace(includeDeleted = false, options: { withoutChangeEvents?: boolean } = {}): unknown {
     return measureMainPerformance("workspace_load", () => {
       this.recoverNoteDeletions();
       this.recoverConversationContextReceipts();
       this.recoverThemeAiPackReceipts();
       this.recoverCanonicalMarkdownReceipts();
       this.migrateCanonicalMarkdownBindings();
-      return this.repository.loadWorkspace(includeDeleted);
+      return this.repository.loadWorkspace(includeDeleted, options);
     });
+  }
+
+  /**
+   * 画面が開いた範囲の来歴（#755 束0b）。workspace:load は来歴を載せないので、日誌・Activity・
+   * AI作業の行・スライドのTimelineは、ここで日付の範囲かSessionを絞って読む。
+   */
+  listActivityEvents(query: ActivityEventsQuery): Array<Record<string, unknown>> {
+    if (!query || typeof query !== "object" || Array.isArray(query))
+      throw new Error("来歴を読む範囲が不正です。");
+    if ("sessionIds" in query) {
+      if (!Array.isArray(query.sessionIds) || query.sessionIds.length > 100)
+        throw new Error("来歴を読むSessionの指定が不正です。");
+      return this.repository.listChangeEventsForSessions(query.sessionIds);
+    }
+    return this.repository.listChangeEventsForDates({ from: query.from, to: query.to });
   }
 
   private noteDeletionPath(id: string): string {

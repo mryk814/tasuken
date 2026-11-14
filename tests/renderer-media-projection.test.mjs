@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { Buffer } from "node:buffer";
@@ -55,8 +56,8 @@ test("workspace projection removes media paths nested in capture-owned receipt J
   });
   assertNoPrivateMediaPath(projected);
   assert.equal(projected.artifacts[0].filename, "voice.wav");
-  // receipt_jsonはMainだけが冪等性に使う。Rendererへは渡さない（IPCの量を半分にする）。
-  assert.equal("receipt_json" in projected.change_events[0], false);
+  // 来歴はWorkspaceごと画面へ渡さない（#755 束0b）。画面は activity:events で範囲を絞って読む。
+  assert.equal("change_events" in projected, false);
 });
 
 test("Activity EventのMain専用項目はRendererへ渡さず、Rendererからの保存では既存の値を戻す", () => {
@@ -176,4 +177,19 @@ test("mediaを含まない前後の写しは解析せずにそのまま渡し、
   assert.equal(projected.before_json, plain);
   assertNoPrivateMediaPath(projected);
   assert.equal(JSON.parse(projected.after_json).filename, "voice.wav");
+});
+
+test("起動時の読み込みは来歴を読まずに渡し、来歴は activity:events で範囲を絞ってMain専用の項目を外して渡す", () => {
+  // #755 束0b。#734 で、画面へ送る全件の約9割（133 MB）が change_event だった。
+  const ipc = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
+  assert.match(
+    ipc,
+    /IPC\.workspaceLoad, \(\) =>\s+projectWorkspaceForRenderer\(service\.loadWorkspace\(false, \{ withoutChangeEvents: true \}\)\)/,
+  );
+  assert.match(
+    ipc,
+    /IPC\.activityEvents, \(_event, query\) =>\s+service\s+\.listActivityEvents\(query\)\s+\.map\(\(entity\) => projectEntityForRenderer\("change_event", entity as Entity\)\)/,
+  );
+  const preload = readFileSync("src/preload/index.ts", "utf8");
+  assert.match(preload, /events: \(query\) => ipcRenderer\.invoke\(IPC\.activityEvents, query\)/);
 });

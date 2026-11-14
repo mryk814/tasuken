@@ -24,6 +24,7 @@ import type { BaseRecord } from "../types";
 import { THEME_NONE_VALUE } from "../../../../../shared/themeRef.mjs";
 import { collectActivityLogEntries, buildActivityPublication } from "../lib/activityLog";
 import { resolveActivityLogDirectory } from "../lib/activityLogDirectory";
+import { useActivityEvents } from "../lib/useActivityEvents";
 import {
   activitySessionTimeLabel,
   agentSessionClientLabel,
@@ -543,12 +544,17 @@ export function ActivityLogPanel({
       .catch(() => undefined);
   }, [data.views]);
 
+  // 来歴は読み込みに載らない。開いた日の分を Main から読む（#755 束0b）。
+  const activity = useActivityEvents({ from: date, to: date });
+  useEffect(() => {
+    if (activity.error) setToast(`Activityを読み込めませんでした。${activity.error}`, "danger");
+  }, [activity.error, setToast]);
   const input = {
     date,
     domain,
     statusUpdates: data.status_updates || [],
     themes,
-    changeEvents: domain.change_events as unknown as Array<Record<string, unknown>>,
+    changeEvents: activity.events,
     references: domain.references as unknown as Array<Record<string, unknown>>,
     artifacts: data.artifacts as unknown as Array<Record<string, unknown>>,
     roots: rootStatus,
@@ -596,7 +602,7 @@ export function ActivityLogPanel({
   const allEvents: StructuredActivityEvent[] = groupFocusSessionActivity(
     [...reviewableActivityEvents(entries.events as StructuredActivityEvent[]), ...taskWorkEvents],
     data.notes,
-    domain.change_events as unknown as BaseRecord[],
+    activity.events as BaseRecord[],
     date,
   );
   const agentSessions = buildAgentWorkProjection(domain, {
@@ -997,6 +1003,7 @@ export function ActivityLogPanel({
               <Button
                 variant="secondary"
                 compact
+                disabled={!activity.ready}
                 onClick={() =>
                   void workspaceApi
                     .copyText(activityLogContent)
@@ -1009,7 +1016,7 @@ export function ActivityLogPanel({
                 variant="secondary"
                 compact
                 onClick={() => void exportLog(!directory)}
-                disabled={exporting}
+                disabled={exporting || !activity.ready}
               >
                 出力
               </Button>

@@ -1,4 +1,5 @@
 import type {
+  ActivityEventsQuery,
   Entity,
   EntityType,
   DocumentSaveRequest,
@@ -81,6 +82,10 @@ export const workspaceApi = {
   },
   getActivityCanonicalRootStatus() {
     return desktopApi().activity.getCanonicalRootStatus();
+  },
+  /** 来歴は workspace の読み込みに載らない。開いた範囲だけを読む（#755 束0b）。 */
+  listActivityEvents(query: ActivityEventsQuery) {
+    return desktopApi().activity.events(query);
   },
   openActivityCanonicalRef(ref: Record<string, unknown>) {
     return desktopApi().activity.openCanonicalRef(ref);

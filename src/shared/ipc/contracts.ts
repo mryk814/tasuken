@@ -29,7 +29,7 @@ import type {
   Workspace,
   WorkspaceMeta,
 } from "../types/workspace";
-import type { CanonicalRootStatusMap } from "../types/workspace";
+import type { ActivityEventsQuery, CanonicalRootStatusMap } from "../types/workspace";
 import type {
   MemoStickyColor,
   MemoStickyTargetRequest,
@@ -156,6 +156,7 @@ export const IPC = {
   taskQuery: LEGACY_TASK_IPC_CHANNELS.query,
   taskChanged: LEGACY_TASK_IPC_CHANNELS.changed,
   activityCanonicalRootStatus: "activity:canonical-root-status",
+  activityEvents: "activity:events",
   activityOpenCanonicalRef: "activity:open-canonical-ref",
   aiContextPreview: "ai-context:preview",
   dataHealthGet: "data-health:get",
@@ -843,6 +844,8 @@ export interface ResearchDeskApi {
   task: TaskCapability;
   activity: {
     getCanonicalRootStatus(): Promise<CanonicalRootStatusMap>;
+    /** 来歴を範囲で読む。workspace.load() は来歴を載せない（#755 束0b）。 */
+    events(query: ActivityEventsQuery): Promise<Entity[]>;
     openCanonicalRef(ref: Record<string, unknown>): Promise<{ ok: boolean; error?: string }>;
   };
   aiContext: {

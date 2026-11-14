@@ -67,6 +67,40 @@ const CHANGE_EVENT_IRREGULAR_DEDUPE_KEY_SQL = [
   `trim(${CHANGE_EVENT_DEDUPE_KEY_SQL}, ${JS_TRIM_CHARACTERS_SQL}) = ''`,
   `${CHANGE_EVENT_DEDUPE_KEY_SQL} <> trim(${CHANGE_EVENT_DEDUPE_KEY_SQL}, ${JS_TRIM_CHARACTERS_SQL})`,
 ].join(" OR ");
+// 画面が日付の範囲や作業のSessionで来歴を読むための式（#755 束0b）。
+const CHANGE_EVENT_OCCURRED_AT_SQL = `json_extract(${CHANGE_EVENT_JSON_SQL}, '$.occurred_at')`;
+const CHANGE_EVENT_CHANGED_AT_SQL = `json_extract(${CHANGE_EVENT_JSON_SQL}, '$.changed_at')`;
+const CHANGE_EVENT_SESSION_ID_SQL = `json_extract(${CHANGE_EVENT_JSON_SQL}, '$.origin.session_id')`;
+// occurred_at が日付で始まる文字列でない行。範囲で絞れないので、いつも候補に入れる。
+const CHANGE_EVENT_IRREGULAR_TIME_SQL = [
+  `json_type(${CHANGE_EVENT_JSON_SQL}, '$.occurred_at') IS NOT 'text'`,
+  `${CHANGE_EVENT_OCCURRED_AT_SQL} NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*'`,
+].join(" OR ");
+const CALENDAR_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_PREFIX_PATTERN = /^\d{4}-\d{2}-\d{2}/;
+
+function calendarDateValue(value, label) {
+  const date = typeof value === "string" ? value : "";
+  const parsed = Date.parse(`${date}T00:00:00.000Z`);
+  if (
+    !CALENDAR_DATE_PATTERN.test(date) ||
+    !Number.isFinite(parsed) ||
+    new Date(parsed).toISOString().slice(0, 10) !== date
+  )
+    throw new Error(`来歴を読む${label}の日付が不正です（YYYY-MM-DD）。`);
+  return parsed;
+}
+
+function shiftedCalendarDate(epochMs, days) {
+  return new Date(epochMs + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+// list() は idx_entities_type_updated を逆向きに読むので、updated_at の新しい順、同時刻なら
+// rowid の大きい順になる。索引で引いた行も同じ並びにする（同時刻の重複判定で同じ1件を選ぶため）。
+function newestRowFirst(left, right) {
+  if (left.updated_at === right.updated_at) return right.__rowid - left.__rowid;
+  return left.updated_at < right.updated_at ? 1 : -1;
+}
 
 function parseRow(row) {
   if (!row) return null;
@@ -454,6 +488,9 @@ export class WorkspaceDatabase {
    * - change_event の command_id: Taskの保存・完了やProposalの採用など、Application Commandの
    *   たびに冪等性の確認で全Eventを読み直していた（1回あたり約0.65秒、1コマンドで2回以上）。
    *
+   * - change_event の occurred_at・changed_at・origin.session_id: 画面は来歴を全件で受け取らず、
+   *   日誌やActivityを開いた時に日付の範囲やSessionで絞って読む（#755 束0b）。その絞り込み用。
+   *
    * 作成に失敗しても起動は止めない。索引がないときは従来の全件走査に戻る。
    *
    * CREATE INDEX IF NOT EXISTS は同じ名前の古い定義を残す。式や列を変えるときは名前の版
@@ -461,7 +498,11 @@ export class WorkspaceDatabase {
    * 黙って遅さが戻る。
    */
   ensurePerformanceIndexes() {
-    this.performanceIndexes = { changeEventDedupe: false, changeEventCommandId: false };
+    this.performanceIndexes = {
+      changeEventDedupe: false,
+      changeEventCommandId: false,
+      changeEventTime: false,
+    };
     try {
       this.db.exec(`
         CREATE INDEX IF NOT EXISTS idx_sync_outbox_publish_state_v1
@@ -478,9 +519,108 @@ export class WorkspaceDatabase {
       `);
       this.performanceIndexes.changeEventDedupe = true;
       this.performanceIndexes.changeEventCommandId = true;
+      this.db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_change_event_occurred_at_v1
+          ON entities(${CHANGE_EVENT_OCCURRED_AT_SQL})
+          WHERE entity_type = 'change_event';
+        CREATE INDEX IF NOT EXISTS idx_change_event_changed_at_v1
+          ON entities(${CHANGE_EVENT_CHANGED_AT_SQL})
+          WHERE entity_type = 'change_event';
+        CREATE INDEX IF NOT EXISTS idx_change_event_irregular_time_v1
+          ON entities(updated_at)
+          WHERE entity_type = 'change_event' AND (${CHANGE_EVENT_IRREGULAR_TIME_SQL});
+        CREATE INDEX IF NOT EXISTS idx_change_event_session_id_v1
+          ON entities(${CHANGE_EVENT_SESSION_ID_SQL})
+          WHERE entity_type = 'change_event';
+      `);
+      this.performanceIndexes.changeEventTime = true;
     } catch (error) {
       console.warn("[tasken-db] 読み取り用の索引を作れませんでした。全件走査で続けます。", error);
     }
+  }
+
+  /**
+   * 画面が開いた日付の範囲（from〜to、どちらも端末の暦日 YYYY-MM-DD）で読む来歴（削除済みを除く）。
+   * workspace:load は来歴を載せない（#734 で全体の読み込みの約9割が change_event だった）。
+   *
+   * 表示側は queryActivityEvents などで日付を正確に絞り直す（重複判定も日付で絞った後に行う）。
+   * ここは前後1日ずつ広げた候補を返す：
+   * - occurred_at か changed_at の先頭の日付が範囲に入る行（時差は±1日に収まる）
+   * - occurred_at が日付で始まる文字列でない行（範囲で絞れないので、いつも入れる）
+   * 並びは list("change_event") と同じ（updated_at の新しい順、同時刻なら rowid の大きい順）。
+   */
+  listChangeEventsForDates({ from, to } = {}) {
+    const fromMs = calendarDateValue(from, "始め");
+    const toMs = calendarDateValue(to, "終わり");
+    if (fromMs > toMs) throw new Error("来歴を読む範囲の始めが終わりより後です。");
+    const lower = shiftedCalendarDate(fromMs, -1);
+    const upperExclusive = shiftedCalendarDate(toMs, 2);
+    const inRange = (value) =>
+      typeof value === "string" && value >= lower && value < upperExclusive;
+    if (!this.performanceIndexes?.changeEventTime) {
+      return this.list("change_event").filter(
+        (event) =>
+          inRange(event.occurred_at) ||
+          inRange(event.changed_at) ||
+          typeof event.occurred_at !== "string" ||
+          !DATE_PREFIX_PATTERN.test(event.occurred_at),
+      );
+    }
+    const rows = new Map();
+    const collect = (found) => {
+      for (const row of found) if (!rows.has(row.__rowid)) rows.set(row.__rowid, row);
+    };
+    for (const [indexName, expression] of [
+      ["idx_change_event_occurred_at_v1", CHANGE_EVENT_OCCURRED_AT_SQL],
+      ["idx_change_event_changed_at_v1", CHANGE_EVENT_CHANGED_AT_SQL],
+    ]) {
+      collect(
+        this.db
+          .prepare(
+            `SELECT *, rowid AS __rowid FROM entities INDEXED BY ${indexName}
+             WHERE entity_type = 'change_event' AND deleted_at IS NULL
+               AND ${expression} >= ? AND ${expression} < ?`,
+          )
+          .all(lower, upperExclusive),
+      );
+    }
+    collect(
+      this.db
+        .prepare(
+          `SELECT *, rowid AS __rowid FROM entities INDEXED BY idx_change_event_irregular_time_v1
+           WHERE entity_type = 'change_event' AND deleted_at IS NULL
+             AND (${CHANGE_EVENT_IRREGULAR_TIME_SQL})`,
+        )
+        .all(),
+    );
+    return [...rows.values()].sort(newestRowFirst).map(parseRow);
+  }
+
+  /**
+   * 作業のSession（origin.session_id）ごとの来歴（削除済みを除く）。並びは list("change_event") と同じ。
+   * AI作業の行を開いた時に、そのSessionの分だけを読む（#755 束0b）。
+   */
+  listChangeEventsForSessions(sessionIds) {
+    const ids = [
+      ...new Set(
+        (Array.isArray(sessionIds) ? sessionIds : []).filter((id) => typeof id === "string" && id),
+      ),
+    ];
+    if (!ids.length) return [];
+    const wanted = new Set(ids);
+    if (!this.performanceIndexes?.changeEventTime) {
+      return this.list("change_event").filter((event) => wanted.has(event.origin?.session_id));
+    }
+    return this.db
+      .prepare(
+        `SELECT *, rowid AS __rowid FROM entities INDEXED BY idx_change_event_session_id_v1
+         WHERE entity_type = 'change_event' AND deleted_at IS NULL
+           AND ${CHANGE_EVENT_SESSION_ID_SQL} IN (SELECT value FROM json_each(?))`,
+      )
+      .all(JSON.stringify(ids))
+      .sort(newestRowFirst)
+      .map(parseRow)
+      .filter((event) => wanted.has(event.origin?.session_id));
   }
 
   /**
@@ -1194,16 +1334,22 @@ export class WorkspaceDatabase {
     return this.save("theme", plan.create, { source: "system" });
   }
 
-  loadWorkspace(includeDeleted = false) {
+  /**
+   * withoutChangeEvents: 画面へ渡す読み込み。来歴（change_event）は読まず、change_events の項目も
+   * 載せない。画面は listChangeEventsForDates / listChangeEventsForSessions で絞って読む（#755 束0b）。
+   */
+  loadWorkspace(includeDeleted = false, { withoutChangeEvents = false } = {}) {
     this.ensurePersonalDefaultTheme();
-    return this.readWorkspaceSnapshot(includeDeleted);
+    return this.readWorkspaceSnapshot(includeDeleted, { withoutChangeEvents });
   }
 
   /** Read the current persisted workspace without creating or updating records. */
-  readWorkspaceSnapshot(includeDeleted = false) {
+  readWorkspaceSnapshot(includeDeleted = false, { withoutChangeEvents = false } = {}) {
     const result = {};
-    for (const type of workspaceEntityTypes)
+    for (const type of workspaceEntityTypes) {
+      if (withoutChangeEvents && type === "change_event") continue;
       result[collectionKeyForEntityType(type)] = this.list(type, includeDeleted);
+    }
     result.plan_revisions = this.db
       .prepare("SELECT * FROM plan_revisions ORDER BY changed_at DESC")
       .all()

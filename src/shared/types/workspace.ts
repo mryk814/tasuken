@@ -61,6 +61,7 @@ export interface Workspace {
   task_dependencies?: Entity[];
   plan_dependencies?: Entity[];
   knowledge_edges?: Entity[];
+  /** 画面への workspace:load には載らない。画面は ActivityEventsQuery で絞って読む（#755 束0b）。 */
   change_events?: Entity[];
   artifacts?: Entity[];
   sketches?: Entity[];
@@ -74,6 +75,12 @@ export interface Workspace {
   plan_revisions?: Entity[];
   [key: string]: Entity[] | WorkspaceMeta | undefined;
 }
+
+/**
+ * 画面が来歴（change_event）を読む範囲（#755 束0b）。from・to は端末の暦日（YYYY-MM-DD、両端を含む）。
+ * Mainは前後に少し広げた候補を返すので、表示側は日付やSessionで正確に絞り直す。
+ */
+export type ActivityEventsQuery = { from: string; to: string } | { sessionIds: string[] };
 
 export interface SaveOptions {
   reason?: string;

@@ -748,12 +748,18 @@ export function WorkspaceApp() {
           dates: targetDates,
           exportDate: async (targetDate) => {
             activeTargetDate = targetDate;
+            // 来歴は読み込みに載らない。書き出す日の分だけを読む（#755 束0b）。
+            const changeEvents = (await workspaceApi.listActivityEvents({
+              from: targetDate,
+              to: targetDate,
+            })) as Array<Record<string, unknown>>;
+            if (canceled) throw new Error("自動出力を中断しました。");
             const activityInput = {
               date: targetDate,
               domain: fullDomain,
               statusUpdates: fullData.status_updates || [],
               themes: allThemes,
-              changeEvents: fullDomain.change_events as unknown as Array<Record<string, unknown>>,
+              changeEvents,
               references: fullDomain.references as unknown as Array<Record<string, unknown>>,
               artifacts: fullData.artifacts as unknown as Array<Record<string, unknown>>,
               roots: fullData.canonical_root_status,

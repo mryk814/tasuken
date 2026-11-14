@@ -35,9 +35,16 @@ interface WorkspaceState {
   applyExternalSave(type: EntityType, entity: Entity): void;
   applyExternalSaves(changes: Array<{ type: EntityType; entity: Entity }>): void;
   applyCommandReceipt(receipt: CommandReceipt): void;
+  /**
+   * 来歴（change_event）が増えた・読み直した回数。Workspaceは来歴を持たない（#755 束0b）ので、
+   * 来歴を表示する画面はこの値が変わった時に、開いている範囲を読み直す（useActivityEvents）。
+   */
+  activityRevision: number;
 }
 
 function replaceEntity(workspace: Workspace, type: EntityType, saved: Entity): Workspace {
+  // 来歴は画面の Workspace に溜めない。表示する画面が activityRevision を見て範囲で読み直す。
+  if (type === "change_event") return workspace;
   const key = collectionKeyForEntityType(type) as keyof Workspace;
   const records = (workspace[key] as Entity[] | undefined) || [];
   const next = records.some((entry) => entry.id === saved.id)
@@ -76,11 +83,12 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   workspace: null,
   loadState: "idle",
   loadError: "",
+  activityRevision: 0,
   async load() {
     set({ loadState: "loading", loadError: "" });
     try {
       const workspace = await workspaceApi.load();
-      set({ workspace, loadState: "success" });
+      set({ workspace, loadState: "success", activityRevision: get().activityRevision + 1 });
       return workspace;
     } catch (error) {
       const loadError = error instanceof Error ? error.message : String(error);
@@ -90,18 +98,32 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
   async refresh() {
     const workspace = await workspaceApi.load();
-    set({ workspace, loadState: "success", loadError: "" });
+    set({
+      workspace,
+      loadState: "success",
+      loadError: "",
+      activityRevision: get().activityRevision + 1,
+    });
     return workspace;
   },
   async loadSample() {
     const workspace = await workspaceApi.loadSample();
-    set({ workspace, loadState: "success", loadError: "" });
+    set({
+      workspace,
+      loadState: "success",
+      loadError: "",
+      activityRevision: get().activityRevision + 1,
+    });
     return workspace;
   },
   async save(type, entity, options = {}) {
     const saved = await workspaceApi.save(type, entity, options);
     const workspace = get().workspace;
-    if (workspace) set({ workspace: replaceEntity(workspace, type, saved) });
+    if (workspace)
+      set({
+        workspace: replaceEntity(workspace, type, saved),
+        ...nextActivityRevision(get().activityRevision, [type]),
+      });
     return saved;
   },
   async saveMany(operations) {
@@ -111,7 +133,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       saved.forEach((entity, index) => {
         workspace = replaceEntity(workspace!, operations[index].type, entity);
       });
-      set({ workspace });
+      set({
+        workspace,
+        ...nextActivityRevision(
+          get().activityRevision,
+          operations.map((operation) => operation.type),
+        ),
+      });
     }
     return saved;
   },
@@ -127,7 +155,11 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   },
   applyExternalSave(type, entity) {
     const workspace = get().workspace;
-    if (workspace) set({ workspace: replaceEntity(workspace, type, entity) });
+    if (workspace)
+      set({
+        workspace: replaceEntity(workspace, type, entity),
+        ...nextActivityRevision(get().activityRevision, [type]),
+      });
   },
   applyExternalSaves(changes) {
     let workspace = get().workspace;
@@ -135,7 +167,13 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     for (const change of changes) {
       workspace = replaceIfNewer(workspace, change.type, change.entity);
     }
-    set({ workspace });
+    set({
+      workspace,
+      ...nextActivityRevision(
+        get().activityRevision,
+        changes.map((change) => change.type),
+      ),
+    });
   },
   applyCommandReceipt(receipt) {
     const changes = [...receipt.changes, ...(receipt.eventChanges || [])];
@@ -143,6 +181,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     let workspace = get().workspace;
     if (!workspace) return;
     for (const change of changes) workspace = replaceIfNewer(workspace, change.type, change.entity);
-    set({ workspace });
+    set({
+      workspace,
+      ...nextActivityRevision(
+        get().activityRevision,
+        changes.map((change) => change.type),
+      ),
+    });
   },
 }));
+
+function nextActivityRevision(current: number, types: EntityType[]): { activityRevision?: number } {
+  return types.includes("change_event") ? { activityRevision: current + 1 } : {};
+}

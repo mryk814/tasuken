@@ -151,18 +151,17 @@ export function commandNotificationPayloads(
   };
 }
 
+/**
+ * 画面へ渡すWorkspace（読み込み・旧データの取り込み・Snapshotの適用の応答）。来歴（change_event）は
+ * 載せない。画面は activity:events で範囲を絞って読む（#755 束0b。#734 で読み込みの約9割が来歴だった）。
+ */
 export function projectWorkspaceForRenderer(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return value;
   const workspace = value as Record<string, unknown>;
-  const projected = { ...workspace };
+  const { change_events: _changeEvents, ...projected } = workspace;
   if (Array.isArray(workspace.artifacts)) {
     projected.artifacts = workspace.artifacts.map((entity) =>
       projectEntityForRenderer("artifact", entity as Entity),
-    );
-  }
-  if (Array.isArray(workspace.change_events)) {
-    projected.change_events = workspace.change_events.map((entity) =>
-      projectEntityForRenderer("change_event", entity as Entity),
     );
   }
   return projected;

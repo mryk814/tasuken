@@ -10,6 +10,7 @@ import {
   type SlideTimelineBackground,
   type SlideTimelineUnit,
 } from "../lib/slideTimeline";
+import { useActivityEvents } from "../lib/useActivityEvents";
 import type { StatusUpdate, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 
@@ -54,19 +55,39 @@ export function SlideTimelineDialog({
   const [subtitle, setSubtitle] = useState("Taskenから作業の経緯と予定をまとめました");
   const [busy, setBusy] = useState<"copy" | "svg" | null>(null);
 
+  // 来歴は読み込みに載らない。Activityを混ぜる時だけ、期間の分を Main から読む（#755 束0b）。
+  const activity = useActivityEvents(
+    showActivity && start && end && start <= end ? { from: start, to: end } : null,
+  );
+  const changeEvents = activity.events as unknown as WorkspaceDomain["change_events"];
   const candidates = useMemo(
     () =>
-      buildSlideTimelineCandidates(domain, statusUpdates, {
-        themeId,
-        start,
-        end,
-      }).filter(
+      buildSlideTimelineCandidates(
+        domain,
+        statusUpdates,
+        {
+          themeId,
+          start,
+          end,
+        },
+        changeEvents,
+      ).filter(
         (item) =>
           (showTasks || item.kind !== "task") &&
           (showActivity || item.kind !== "activity") &&
           (showCompleted || !(item.kind === "task" && item.status === "done")),
       ),
-    [domain, end, showActivity, showCompleted, showTasks, start, statusUpdates, themeId],
+    [
+      changeEvents,
+      domain,
+      end,
+      showActivity,
+      showCompleted,
+      showTasks,
+      start,
+      statusUpdates,
+      themeId,
+    ],
   );
 
   useEffect(() => {
