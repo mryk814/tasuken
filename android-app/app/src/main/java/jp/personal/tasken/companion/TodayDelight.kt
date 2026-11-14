@@ -192,9 +192,8 @@ private fun TodayProgressBar(progress: TodayProgress) {
                 .weight(1f)
                 .height(8.dp)
                 .clip(CircleShape)
-                // 地（background）の上に直に置く。区切り線の色（borderSubtle）は地とほぼ同じ明るさで
-                // 見えなくなるので、枠の色を薄めて使う。
-                .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
+                // 地（background）の上に直に置くので、地の上で見える区切りの色を使う。
+                .background(MaterialTheme.colorScheme.outlineVariant),
         ) {
             Box(
                 Modifier

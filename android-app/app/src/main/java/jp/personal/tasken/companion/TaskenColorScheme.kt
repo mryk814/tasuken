@@ -29,7 +29,9 @@ object TaskenMaterialColorTokens {
         "inverseSurface" to TokenColorReference("text", "#26201E"),
         "inverseOnSurface" to TokenColorReference("surface", "#FFFFFF"),
         "outline" to TokenColorReference("border", "#DCC1C4"),
-        "outlineVariant" to TokenColorReference("borderSubtle", "#ECE0DE"),
+        // 画面の中身は地（bg）の上に直に並ぶ。borderSubtle（#ECE0DE）は地（#ECE2DF）とほぼ同じ明るさで、
+        // 区切り線が見えなくなるので、明るい表示では標準の枠の色を使う。暗い表示は borderSubtle で見える。
+        "outlineVariant" to TokenColorReference("border", "#DCC1C4"),
         "scrim" to TokenColorReference("bg", "#ECE2DF"),
         "onBackground" to TokenColorReference("text", "#26201E"),
         "onSurface" to TokenColorReference("text", "#26201E"),

@@ -149,11 +149,13 @@ internal fun FeedAvatar(name: String, modifier: Modifier = Modifier) {
 @Composable
 private fun feedAvatarPalette(): List<Pair<Color, Color>> {
     val scheme = MaterialTheme.colorScheme
+    // 円は地（bg）の上に直に置く。淡い面（Container）の色は地とほぼ同じ明るさで溶けるので、
+    // 一段濃い色（FixedDim）と、薄い墨の円を使う。
     return listOf(
-        scheme.primaryContainer to scheme.onPrimaryContainer,
-        scheme.secondaryContainer to scheme.onSecondaryContainer,
-        scheme.tertiaryContainer to scheme.onTertiaryContainer,
-        scheme.surfaceContainerHighest to scheme.onSurface,
+        scheme.primaryFixedDim to scheme.onPrimaryFixed,
+        scheme.onSurfaceVariant to scheme.surface,
+        scheme.tertiaryFixedDim to scheme.onTertiaryFixed,
+        scheme.secondaryFixedDim to scheme.onSecondaryFixed,
     )
 }
 
