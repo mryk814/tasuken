@@ -1065,7 +1065,7 @@ abstract class MobileLocalDao {
         val current = requireNotNull(task(taskId)) { "Taskがcacheにありません。再読み込みしてください。" }
         require(current.conflictCommandId == null) { "先に同期競合を解決してください。" }
         require(current.workState !in setOf("needs_human_review", "reported_done", "blocked")) {
-            "Work Receiptを確認してから操作してください。"
+            "PCで確認してから操作してください。"
         }
         val pending = current.optimisticCommandId?.let { outbox(it) }
         if (pending != null && pending.commandName in setOf("CompleteTask", "ReopenTask") &&

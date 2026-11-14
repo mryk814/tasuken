@@ -438,7 +438,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
                     R.id.widget_row_button,
                     when {
                         task.hasConflict -> "競合を確認: ${task.title}"
-                        task.requiresWorkReceipt -> "Work Receiptを確認: ${task.title}"
+                        task.requiresWorkReceipt -> "PCで確認: ${task.title}"
                         !task.canToggleState -> "同期状況を確認: ${task.title}"
                         task.isDone -> "Taskを再開: ${task.title}"
                         else -> "Taskを完了: ${task.title}"
