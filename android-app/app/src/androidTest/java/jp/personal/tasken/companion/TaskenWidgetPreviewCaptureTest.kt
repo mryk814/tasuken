@@ -48,7 +48,6 @@ class TaskenWidgetPreviewCaptureTest {
         lastSuccessfulSyncAt = "2026-10-07T12:00:00Z",
         todayDoneCount = 1,
         todayTotalCount = 4,
-        aiNeedsYou = 2,
     )
 
     @Test
@@ -73,7 +72,7 @@ class TaskenWidgetPreviewCaptureTest {
             context,
             "07-medium-all-done",
             TaskenWidgetMode.Medium,
-            snapshot.copy(tasks = emptyList(), todayDoneCount = 4, aiNeedsYou = 0, pendingCount = 0),
+            snapshot.copy(tasks = emptyList(), todayDoneCount = 4, pendingCount = 0),
             300 to 190,
         )
     }

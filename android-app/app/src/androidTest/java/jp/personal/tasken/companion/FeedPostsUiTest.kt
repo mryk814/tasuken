@@ -65,7 +65,6 @@ class FeedPostsUiTest {
                         paneState = TodayPaneState(),
                         onRetry = {}, onRetryPairing = {}, onPair = { _, _ -> },
                         onTaskSelected = onTask,
-                        attentionOnline = true,
                         seenBefore = seenBefore,
                     )
                 }

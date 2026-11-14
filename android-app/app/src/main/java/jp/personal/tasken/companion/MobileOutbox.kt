@@ -1431,7 +1431,6 @@ class MobileOutboxWorker(
             Log.w("TaskenOutbox", "Outbox sync failed and will be retried", error)
             false
         }
-        if (synchronized) repository.deliverPendingTaskNotifications()
         TaskenTodayWidget.updateAllNow(applicationContext)
         return if (synchronized) Result.success() else Result.retry()
     }
@@ -1452,7 +1451,6 @@ class MobileBackgroundSyncWorker(
             Log.w("TaskenBackgroundSync", "Background sync failed and will be retried", error)
             false
         }
-        if (synchronized) repository.deliverPendingTaskNotifications()
         TaskenTodayWidget.updateAllNow(applicationContext)
         return if (synchronized) Result.success() else Result.retry()
     }

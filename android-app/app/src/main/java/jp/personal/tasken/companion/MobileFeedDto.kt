@@ -5,6 +5,19 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
+ * Feed・続けることの応答に付く meta。名前は、もとは要対応（#601、束9a で外した）の契約から来ている。
+ */
+@Serializable
+data class MobileAttentionMetaDto(
+    val apiVersion: Int,
+    val schemaVersion: Int,
+    val serverId: String,
+    val serverRevision: Long,
+    val generatedAt: String,
+    val truncated: Boolean,
+)
+
+/**
  * DesktopのFeed投稿（AIの投稿・自分の投稿）を読むread model。
  *
  * Androidは読むだけで、投稿を作ったり並べ替えたりしない。投稿の範囲と並びはDesktopが決める。
