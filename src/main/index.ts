@@ -46,6 +46,7 @@ import {
   TaskenDesktopComposition,
   applyMcpPackageSmokeUserData,
   readMcpPackageSmokeLaunchOptions,
+  runMcpPackageSmokeVerifyOnly,
 } from "./composition/taskenDesktopComposition.ts";
 import { WorkspaceDatabase, inspectWorkspaceBackup } from "./repositories/workspaceRepository.mjs";
 import { BatchTranscriptionRepository } from "./repositories/batchTranscriptionRepository.mjs";
@@ -2602,6 +2603,15 @@ function installScreenRecordingDisplayHandler(screenRecording: ScreenRecordingSe
 
 async function startDesktopApp(): Promise<void> {
   await app.whenReady();
+  if (mcpPackageSmoke.enabled && mcpPackageSmoke.verifyOnly) {
+    // 下の起動処理より前で終える。理由はrunMcpPackageSmokeVerifyOnlyのコメント。
+    runMcpPackageSmokeVerifyOnly(
+      () => new WorkspaceDatabase(path.join(app.getPath("userData"), "research-desk.sqlite")),
+      mcpPackageSmoke,
+    );
+    app.exit(0);
+    return;
+  }
   migrateLegacyUserDataIfNeeded();
   applyEmbeddedAiRetirementMigration(app.getPath("userData"));
   configureMainLog(app.getPath("userData"));
@@ -2676,10 +2686,6 @@ async function startDesktopApp(): Promise<void> {
         })),
       }),
   }));
-  if (composition.packageSmokeVerifyOnlyCompleted) {
-    app.exit(0);
-    return;
-  }
   const applicationCommands = composition.applicationCommands;
   let smokeAudioSourcePath = "";
   if (isSmokeTest && !isSmokeRestartCheck) {

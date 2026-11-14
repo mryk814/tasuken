@@ -98,6 +98,15 @@
 - 追記（2026-11-12）: #724 の GitHub の Windows の CI で、同じファイルの「Stop racing SessionEnd keeps the latest outcome in the terminal observation」が同じ `OBSERVATION_LOCK_TIMEOUT` で落ちた（3.2 秒）。待ちの上限は 10ms×200 回（約 2 秒）で、重いと待ちきれない。本番でも Hook が重なると出来事の記録を落とす形なので、試験ではなく本体の上限を時間で決めて 10 秒にした（`agentSessionHookCollector.mjs` の `LOCK_WAIT_MS`）。
 - 追記（2026-11-14）: 10 秒でも落ちた。待ちの長さではなく、解放の名前の変更が一時的な EPERM で失敗して排他が残るのが原因だった（2026-11-14 の #735 の記録）。解放をやり直す形にした。
 
+## 2026-11-09 `smoke:mcp-package` の verify-only 起動が、ときどき access violation で落ちた
+
+- しようとしたこと: v0.1.85 のリリース workflow（run 42494518644）で `npm run smoke:mcp-package` を流す。
+- 起きたこと: 最後の `--mcp-package-smoke-verify-only` 起動が `Packaged Desktop Proposal verification failed (exit 3221225477)`（0xC0000005）で落ちた。stdout は空。流し直すと通った。手元で verify-only 起動だけを繰り返すと、30 回に 3〜5 回落ちた。
+- 原因: Chromium の子プロセス起動と `app.exit` の競合。crashReporter で取ったミニダンプ 5 件を Electron 45.0.0 の breakpad シンボルで読むと、5 件とも落ちたのは main ではなく process launcher thread で、`ChildProcessLauncherHelper::LaunchOnLauncherThread` → `sandbox::policy::SandboxWin::StartSandboxedProcess` の中だった。verify-only は composition を作るまで起動処理を進めてから `app.exit(0)` していた。その途中の `registerAttachmentProtocol()`（`protocol.handle`）を機に Chromium が子プロセス（network service と見ている）の起動を始め、起動の途中で main が後片付けを始めると落ちる。better-sqlite3 と `db.close()` は関係なかった。DB を閉じなくても落ち、protocol 登録より前で exit すると DB を開いても落ちなかった。protocol 登録の後で DB なしに main を同期で 10〜30ms 塞いでから exit しても落ちた。
+- 直し方: verify-only は composition を作らず、`app.whenReady()` の直後（protocol・session・window に触る前）で DB を開いて検証し、閉じて exit する（`runMcpPackageSmokeVerifyOnly`）。composition に verify-only を渡すと例外にした。直した後、package してすぐの `smoke:mcp-package` 10 回と、verify-only 起動だけの 150 回が全部通った。
+- 再発防止: `runMcpPackageSmokeVerifyOnly` の横のコメントに、起動処理の前で exit する理由を書いた。通常の終了（`before-quit` から非同期の片付けを経る `app.quit`）は子プロセスの起動が済んだ後なので、同じ競合には当たらない（`app.quit` に替えた実験では 30 回とも通った）。起動直後に `app.exit` する経路を新しく作るなら、子プロセスの起動を呼ぶ処理より前で exit する。ネイティブのクラッシュを調べるときは、`crashReporter.start({ uploadToServer: false })` でダンプを取り、Electron のリリースにある `electron-vX-win32-x64-symbols.zip`（breakpad の .sym）で落ちたスレッドの関数名を読むと速い。
+- 追記（2026-11-14）: この直し（#711）が PR のまま main に入っていなかったので、別の PR の GitHub Actions の windows-quality で、同じ `smoke:mcp-package` の verify-only 起動が `exit 3221225477` で落ちた。main に載せ直して入れた。
+
 ## 2026-11-08 手順書のツール名を確かめる試験が、何も確かめずに通っていた
 
 - しようとしたこと: `tests/muse-connector.test.mjs` で、`clients/muse/CONNECTOR.md` の「Which tool for which moment」の表に出てくるツール名が実在することを確かめる。
