@@ -481,7 +481,7 @@ class TodayViewModel(
     /** 反応・返信が受け付けられなかった理由。一時的な通知として見せる。 */
     val feedMessages: SharedFlow<String> = mutableFeedMessages.asSharedFlow()
     private val mutableRoutines = MutableStateFlow<MobileRoutinesDataDto?>(null)
-    /** 続けること・手入れ（#454）。取れなかったときは前回の内容を残す。 */
+    /** 続けること（#454）。取れなかったときは前回の内容を残す。 */
     val routines: StateFlow<MobileRoutinesDataDto?> = mutableRoutines.asStateFlow()
     private val mutableRoutineSavingId = MutableStateFlow<String?>(null)
     val routineSavingId: StateFlow<String?> = mutableRoutineSavingId.asStateFlow()
@@ -624,7 +624,7 @@ class TodayViewModel(
         refreshRoutines(result !is MobileTodayResult.PairingRequired)
     }
 
-    /** 続けること・手入れの取り直し（#454）。失敗しても前回の内容を残す。 */
+    /** 続けることの取り直し（#454）。失敗しても前回の内容を残す。 */
     private fun refreshRoutines(canConnect: Boolean) {
         routineRefreshJob?.cancel()
         val gateway = repository as? MobileGatewayRepository
@@ -652,11 +652,6 @@ class TodayViewModel(
             return
         }
         recordRoutine(habit.habitId, action)
-    }
-
-    fun recordMaintenance(item: MobileRoutineMaintenanceDto) {
-        val date = mutableRoutines.value?.date ?: return
-        recordRoutine(item.maintenanceId, MobileRoutineContract.maintenanceAction(item, date))
     }
 
     private fun recordRoutine(id: String, action: MobileRoutineActionDto) {
@@ -2004,9 +1999,9 @@ interface MobileGatewayRepository : MobileTaskRepository {
         MobileFeedActionResult.Unavailable("このDesktopでは返信を保存できません。")
     /** 送信待ちを送る。受け付けられなかった分の理由を返す（成功・接続できなかった分は返さない）。 */
     suspend fun flushFeedActions(): List<String> = emptyList()
-    /** 続けること・手入れ（#454）。窓口を持たないDesktopや接続できないときはnull。 */
+    /** 続けること（#454）。窓口を持たないDesktopや接続できないときはnull。 */
     suspend fun fetchRoutines(date: String): MobileRoutinesDataDto? = null
-    /** 続けること・手入れの記録。Desktopへ直接送り、送れなければ記録しない。 */
+    /** 続けることの記録。Desktopへ直接送り、送れなければ記録しない。 */
     suspend fun recordRoutine(action: MobileRoutineActionDto): MobileRoutineActionResult =
         MobileRoutineActionResult.Failed("このDesktopでは記録できません。Desktopを更新してください。")
     suspend fun replyToAgent(
