@@ -70,6 +70,9 @@ export function restartArtifactIdsFromResult(value) {
     value?.stage === "restart-ready" ? value?.screenRecordingArtifactId : "";
   const screenRecordingPausedResumed =
     value?.stage === "restart-ready" && value?.screenRecordingPausedResumed === true;
+  // 付箋の窓を開いたまま終了し、will-quit までに閉じたこと（切り離し窓が終了を止めない）。
+  const stickyQuitOpened = value?.stage === "restart-ready" && value?.stickyQuitOpened === true;
+  const stickyQuitClosed = value?.stage === "restart-ready" && value?.stickyQuitClosed === true;
   const videoOwnerId = value?.stage === "restart-ready" ? value?.smokeTaskId : "";
   if (
     !audioArtifactId ||
@@ -86,6 +89,8 @@ export function restartArtifactIdsFromResult(value) {
       screenRecordingArtifactId,
     ) ||
     !screenRecordingPausedResumed ||
+    !stickyQuitOpened ||
+    !stickyQuitClosed ||
     typeof videoOwnerId !== "string" ||
     !videoOwnerId.trim()
   )

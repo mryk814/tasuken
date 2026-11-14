@@ -145,6 +145,8 @@ let lastSmokeStage = "startup";
 const smokeTrace: string[] = [];
 let pendingSmokeQuitResult: Record<string, unknown> | null = null;
 let smokeQuitWatchdog: ReturnType<typeof setTimeout> | null = null;
+/** 終了の smoke で、開いたまま app.quit する付箋の窓。 */
+let smokeQuitStickyWindow: BrowserWindow | null = null;
 const readyMainWindows = new WeakSet<BrowserWindow>();
 let appQuitApproved = false;
 let appFlushPending = false;
@@ -433,6 +435,8 @@ interface SmokeCreatedResult {
   stickyImeSaved?: boolean;
   stickyResizePreserved?: boolean;
   stickyNativeCloseFlushed?: boolean;
+  /** リマインダーの通知のクリックと同じ openTaskDetail で、本体のドロワーにTaskが開いた。 */
+  reminderTaskDetailOpened?: boolean;
   audioArtifactId?: string;
   audioMetadataLoaded?: boolean;
   audioRangeVerified?: boolean;
@@ -481,8 +485,46 @@ function recordSmoke(stage: string, details: Record<string, unknown> = {}): void
   );
 }
 
-function completeInitialSmokeViaAppQuit(result: Record<string, unknown>): void {
-  pendingSmokeQuitResult = { ...result };
+/**
+ * 切り離し窓（付箋）を開いたまま app.quit し、will-quit までにその窓が閉じるかを見る。
+ * 付箋の close は isAppQuitApproved で通す作りなので、これが崩れると窓が終了を止める。
+ * 以前は Tasken Root の窓で同じことを見ていた（#755 で Root を外した）。
+ */
+async function completeInitialSmokeViaAppQuit(
+  result: Record<string, unknown>,
+  stickyMemoId: string,
+): Promise<void> {
+  if (!memoStickyController || !satelliteWindows)
+    throw new Error("sticky memo controller is not ready before app quit");
+  if (!memoStickyController.open(stickyMemoId))
+    throw new Error("sticky memo window did not reopen before app quit");
+  const stickyWindow = satelliteWindows.get({ kind: "memo", entityId: stickyMemoId });
+  if (!stickyWindow) throw new Error("sticky memo window was not registered before app quit");
+  // 読み込み中の窓は終了前の flush に応えられず、終了が止まるので、本文が出るまで待つ。
+  if (stickyWindow.webContents.isLoading()) {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("sticky memo quit load timeout")), 30_000);
+      stickyWindow.webContents.once("did-finish-load", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  }
+  const stickyReady = (await stickyWindow.webContents.executeJavaScript(`
+    (async () => {
+      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        if (document.querySelector("#text")?.value === "first\\n日本語 close-flush") return true;
+        await delay(100);
+      }
+      return false;
+    })()
+  `)) as boolean;
+  if (!stickyReady || stickyWindow.isDestroyed() || !stickyWindow.isVisible()) {
+    throw new Error("sticky memo window did not open before app quit");
+  }
+  smokeQuitStickyWindow = stickyWindow;
+  pendingSmokeQuitResult = { ...result, stickyQuitOpened: true };
   recordSmoke("quit-started", pendingSmokeQuitResult);
   smokeQuitWatchdog = setTimeout(() => {
     if (!pendingSmokeQuitResult) return;
@@ -1605,6 +1647,21 @@ flowchart LR
   } finally {
     releaseSmokeClipboardLock();
   }
+  // リマインダーの通知のクリックが使う入口を、そのまま通す。Today Mini を外す前（#755）は
+  // 小窓の openTask を経由してこの判定をしていた。
+  openTaskDetail(smokeTaskId);
+  created.reminderTaskDetailOpened = (await window.webContents.executeJavaScript(`
+    (async () => {
+      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        const drawer = document.querySelector(".drawer-form");
+        const title = drawer?.querySelector('input[name="title"]');
+        if (title?.value === ${JSON.stringify(smokeTaskTitle)}) return true;
+        await delay(100);
+      }
+      return false;
+    })()
+  `)) as boolean;
   recordSmoke("markdown-edit-complete");
 
   window.show();
@@ -1785,6 +1842,7 @@ flowchart LR
         result.stickyImeSaved &&
         result.stickyResizePreserved &&
         result.stickyNativeCloseFlushed &&
+        result.reminderTaskDetailOpened &&
         result.themeMode === "dark" &&
         result.themeModeAfterReload === "dark" &&
         result.aiMetadataPersisted &&
@@ -1821,7 +1879,7 @@ flowchart LR
         app.exit(1);
         return;
       }
-      completeInitialSmokeViaAppQuit(result);
+      await completeInitialSmokeViaAppQuit(result, stickySmokeId);
     } catch (error) {
       console.error(error);
       recordSmoke("reload-check-failed", { error: String(error) });
@@ -2530,7 +2588,12 @@ app.on("will-quit", () => {
   if (pendingSmokeQuitResult) {
     const result = pendingSmokeQuitResult;
     pendingSmokeQuitResult = null;
-    // will-quit まで届いたことが、終了の経路が詰まらずに通った印になる。
-    recordSmoke("restart-ready", result);
+    // will-quit まで届き、開いていた付箋の窓が閉じ終えていれば、終了の経路が詰まらずに通った。
+    const stickyQuitClosed = smokeQuitStickyWindow?.isDestroyed() === true;
+    smokeQuitStickyWindow = null;
+    recordSmoke(stickyQuitClosed ? "restart-ready" : "quit-failed", {
+      ...result,
+      stickyQuitClosed,
+    });
   }
 });

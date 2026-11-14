@@ -67,6 +67,8 @@ test("Electron smoke restart reuses userData/result and requires restart-ready w
       importedVideoArtifactId,
       screenRecordingArtifactId,
       screenRecordingPausedResumed: true,
+      stickyQuitOpened: true,
+      stickyQuitClosed: true,
       smokeTaskId: videoOwnerId,
     }),
     {
@@ -99,6 +101,26 @@ test("Electron smoke restart reuses userData/result and requires restart-ready w
     }),
     null,
   );
+  // 付箋の窓を開いたまま終了し、will-quit までに閉じたことを、両方そろって求める（#755）。
+  for (const [stickyQuitOpened, stickyQuitClosed] of [
+    [true, false],
+    [false, true],
+  ]) {
+    assert.equal(
+      restartArtifactIdsFromResult({
+        stage: "restart-ready",
+        audioArtifactId: artifactId,
+        microphoneArtifactId,
+        importedVideoArtifactId,
+        screenRecordingArtifactId,
+        screenRecordingPausedResumed: true,
+        stickyQuitOpened,
+        stickyQuitClosed,
+        smokeTaskId: videoOwnerId,
+      }),
+      null,
+    );
+  }
   const packagedArgs = buildElectronSmokeArgs(paths, { packaged: true });
   assert.ok(packagedArgs.includes("--smoke-require-packaged"));
   assert.equal(packagedArgs.includes("."), false);
@@ -123,6 +145,25 @@ test("desktop smoke reaches will-quit through a bounded app.quit path", async ()
     /function completeInitialSmokeViaAppQuit[\s\S]*recordSmoke\("quit-started"[\s\S]*setTimeout\([\s\S]*30_000[\s\S]*app\.quit\(\)/,
   );
   assert.match(source, /app\.on\("will-quit"[\s\S]*pendingSmokeQuitResult[\s\S]*"restart-ready"/);
+  // 付箋の窓を開いたまま終了し、will-quit で閉じ終えたかを見る（#755 で Tasken Root から移した）。
+  assert.match(
+    source,
+    /function completeInitialSmokeViaAppQuit[\s\S]*memoStickyController\.open\(stickyMemoId\)[\s\S]*stickyQuitOpened: true[\s\S]*app\.quit\(\)/,
+  );
+  assert.match(
+    source,
+    /app\.on\("will-quit"[\s\S]*smokeQuitStickyWindow\?\.isDestroyed\(\)[\s\S]*stickyQuitClosed \? "restart-ready" : "quit-failed"/,
+  );
+});
+
+// リマインダーの通知のクリックと同じ入口で、本体のドロワーにTaskが開くことを合否に含める（#755）。
+test("desktop smoke opens the Task drawer through the reminder openTaskDetail path", async () => {
+  const source = await readFile("src/main/index.ts", "utf8");
+  assert.match(
+    source,
+    /openTaskDetail\(smokeTaskId\);[\s\S]*?created\.reminderTaskDetailOpened = [\s\S]*?\.drawer-form[\s\S]*?recordSmoke\("markdown-edit-complete"\)/,
+  );
+  assert.match(source, /result\.reminderTaskDetailOpened &&/);
 });
 
 test("packaged smoke records, commits, plays and restart-checks a synthetic microphone capture", async () => {
