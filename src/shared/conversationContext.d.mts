@@ -50,9 +50,7 @@ export const CONVERSATION_CONTEXT_SCHEMA: "tasken-conversation-context/v1";
 export const CONVERSATION_CONTEXT_PUBLICATION_SCHEMA: "tasken-conversation-context-publication/v1";
 export const CONVERSATION_CONTEXT_DIRECTORY: "AI Context/Conversations";
 export const CONVERSATION_CONTEXT_SCOPES: readonly ConversationContextScope[];
-export function parseConversationContextMessages(
-  body: unknown,
-): Array<{
+export function parseConversationContextMessages(body: unknown): Array<{
   role: "user" | "assistant" | "system" | "tool";
   displayName: string;
   index: number;
@@ -72,9 +70,7 @@ export function buildConversationContextPlan(input: {
   selectedMessageIndexes?: number[];
   publishedAt?: string;
 }): ConversationContextPlan;
-export function publicationForThemeAiPack(
-  entity: Record<string, unknown>,
-): {
+export function publicationForThemeAiPack(entity: Record<string, unknown>): {
   published: true;
   title: string;
   theme_id: string;
