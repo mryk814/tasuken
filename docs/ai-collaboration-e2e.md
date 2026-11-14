@@ -26,6 +26,10 @@ AI Ready TaskのAppend / Done / Blockedは開始Proposalを必須にせず、最
 
 開始専用`task.start_work`を有効にしたHeadlessでは、本人の個人Taskを使う。UUIDの`work_attempt_id`を開始・報告で共通にし、同じキーの再送でversionも変更しない。再送のreadbackが別の作業単位、別executor、Ready・レビュー・削除済みなら継続着手しない。`tests/ai-task-start.test.mjs`が独立opt-in、拒否、再起動、再委任、同期、人の報告採用を検証する。通常のTask完了は引き続き人間操作とする。
 
+## AI の作業（Task を伴わない report_work）
+
+`tasken.report_work` を `task_id` なしで呼ぶと、Core の `/v1/commands/record-agent-work` が AI の作業を 1 件（種類 `agent_work_record`）だけ書く。案を通さず、Task・Note・Theme は変えず、来歴を作らず、同期の差分は 1 つ。書き手は Core が固定する（HTTP は認証した client 名）。同じ `idempotency_key` と、同じ client・`source_session` でもう記録した時間までの作業は、既にある 1 件を `duplicate` で返す。本人は消せて戻せ、AI は自分が書いた記録だけを `tasken.undo_change` に記録の ID を渡して取り消せる。Desktop の stdio と NAS の HTTP で同じに動くことと、2 台の同期・空の差分（`retired`）の受け方は `tests/agent-work-record.test.mjs` が確かめる。上の Fixed sequence は、`task_id` を付けた委任した Task の作業報告（案）の流れ。
+
 ## Validation
 
 ```powershell

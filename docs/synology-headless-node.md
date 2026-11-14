@@ -125,6 +125,7 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 
 - Core側が許可範囲を強制します。範囲外の種類（画像付きの提案・`knowledge_create`などの未対応の種類・`repository_context`・直接開始など）は`WRITE_NOT_ALLOWED`で拒否されます。
 - Task作業報告（`report_work(status=progress)`・`report_work(status=done)`・`report_work(status=blocked)`）はProposalなので、NASでも正式データはDesktopでの採用まで変わりません。開始（`start_task_work`）は直接書き込みのため公開しません。Desktopから開始するか、完了報告の採用時に開始も記録させてください。
+- AIの作業の記録（`task_id`なしの`report_work`。AIが自分の1回の作業を要約した1件）は、本人の記録を作らず変えないので、案を通さずにNASでもすぐ残ります（Desktopと同じ。AGENTS.md）。取り消し（`undo_change`）は`allowTaskChange`を許したclientだけで、それ以外は本人がDesktopで消します。
 - 作ったProposalは正式データではなく、DesktopのAgent Desk・Feedで人が確認して採用します。
 - 1つの`idempotency_key`は1つのnodeだけへ送ってください。DesktopとNASの両方へ同じkeyを送ると競合になります。
 - 画像付きProposalのstageはNASにはないため、種類を問わず画像付きの提案（Note案・Feed投稿の記事の画像）は受け付けられません。
@@ -135,13 +136,13 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 
 `TASKEN_MCP_READ_ONLY=0`のbridgeは、起動時にCoreのcapabilityを読み、この配備で使える書き込みtoolだけを一覧に出します。`proposals`配備で一覧に出るwrite toolsは次の5つです。
 
-| tool                          | Coreの判定                                                      |
-| ----------------------------- | --------------------------------------------------------------- |
-| `tasken.propose_feed_post`    | 受け付ける（`feed_post`）                                       |
-| `tasken.propose_note`         | 受け付ける（画像なしの`note_create`）                           |
-| `tasken.propose_note_edit`    | 受け付ける（`note_edit`。採用時にDesktopの版と照合）            |
-| `tasken.answer_feed_question` | 受け付ける（`feed_reply`。返信の表示名は検証済みのclient名）    |
-| `tasken.report_work`          | 受け付ける（`propose_task_work`、status=progress/done/blocked） |
+| tool                          | Coreの判定                                                                                                                         |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `tasken.propose_feed_post`    | 受け付ける（`feed_post`）                                                                                                          |
+| `tasken.propose_note`         | 受け付ける（画像なしの`note_create`）                                                                                              |
+| `tasken.propose_note_edit`    | 受け付ける（`note_edit`。採用時にDesktopの版と照合）                                                                               |
+| `tasken.answer_feed_question` | 受け付ける（`feed_reply`。返信の表示名は検証済みのclient名）                                                                       |
+| `tasken.report_work`          | 受け付ける。`task_id`なしはAIの作業の記録（`agent_work.record`、案を通さない）、`task_id`付きは作業報告の案（`propose_task_work`） |
 
 `start_task_work`（`missing_capability:task.start_work`）は一覧に出ません。AIは`tasken.get_capabilities`で、使えないtoolとその理由を一度に確認できます。一覧から外すのは案内のためで、Core自身の`WRITE_NOT_ALLOWED`による拒否が引き続き最終の境界です（画像付きの提案は`propose_note`・`propose_feed_post`が一覧に残るため、Coreが拒否します）。bridgeの起動時にCoreへ接続できなかった場合もtoolsetsとreadOnlyによる制限を適用し、残りのtoolを登録して、呼び出し時にCoreが拒否します。
 
