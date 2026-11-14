@@ -13,8 +13,7 @@
 ## 実データと検証
 
 - 通常起動は本人の実プロファイル（`%APPDATA%\tasken`）につながる。画面を確かめるときは `TASKEN_DEV_USER_DATA_DIR` に検証用の場所を指定して `npm run dev` で起動する。smoke の runner は一時 userData を自分で用意する。
-- `workspace:materials-demo*` は `--apply-local` を含み、本人のローカル DB に書き込む（`workspace:materials-demo` は既存の DB を退避してデモデータに置き換える）。検証では実行しない。
-- `audit:responsive` と `audit:materials-demo` は userData を指定せずに Electron を起動するので、実プロファイルを開く。
+- `audit:responsive` は userData を指定せずに Electron を起動するので、実プロファイルを開く。
 - テストは Electron の Node で動かす：`node scripts/run-electron-node.mjs --test tests/<対象>.test.mjs`（全体は `npm test`）。型は `npm run typecheck`、ビルドは `npm run build`。
 - 保存→再起動→再表示は `npm run smoke:model` と `npm run smoke:desktop` で確かめる。`smoke:desktop:focused` は build を省くので、ソースを変えたら build し直してから使う。古い成果物での成功は今回の検証に数えない。
 - merge 前の品質ゲートは `npm run ci`。

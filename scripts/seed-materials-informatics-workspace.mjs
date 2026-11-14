@@ -1,3 +1,6 @@
+// 架空の材料研究 Workspace を --target の SQLite へ作る試験用の fixture。
+// release:check の activity smoke（activity-electron-smoke.mjs）が一時 DB に使う。
+// 本人の DB を置き換えないよう、保存先は --target でしか受け取らない（#755 束 3）。
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,14 +12,12 @@ import {
 } from "../src/main/repositories/workspaceRepository.mjs";
 import { collectionKeyForEntityType } from "../src/shared/entityRegistry.mjs";
 import { buildPersonalDefaultTheme } from "../src/shared/personalTheme.mjs";
-import { resolveTaskenDatabasePath } from "../src/shared/taskenPaths.mjs";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
 import { queryActivityEvents } from "../src/shared/activityProjection.mjs";
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.dirname(scriptDirectory);
 const fixtureRoot = path.join(repositoryRoot, "fixtures", "materials-informatics");
-const localDatabasePath = resolveTaskenDatabasePath();
 
 function id(group, number) {
   const prefixes = {
@@ -2781,18 +2782,13 @@ function buildWorkspace(managedDirectory) {
 }
 
 function parseArguments(argv) {
-  const result = { target: "", applyLocal: false };
+  const result = { target: "" };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
-    if (value === "--apply-local") result.applyLocal = true;
-    else if (value === "--target") result.target = path.resolve(argv[++index] || "");
+    if (value === "--target") result.target = path.resolve(argv[++index] || "");
     else throw new Error(`未知の引数です: ${value}`);
   }
-  if (result.applyLocal && result.target)
-    throw new Error("--apply-localと--targetは同時に指定できません。");
-  result.target ||= result.applyLocal ? localDatabasePath : "";
-  if (!result.target)
-    throw new Error("--apply-local または --target <sqlite path> を指定してください。");
+  if (!result.target) throw new Error("--target <sqlite path> を指定してください。");
   return result;
 }
 
@@ -2943,17 +2939,7 @@ function seed(targetPath) {
   };
 }
 
-async function withMaterialsWorkspaceDatabase(targetPath, callback) {
-  const repository = new WorkspaceDatabase(targetPath);
-  try {
-    return await callback(repository);
-  } finally {
-    repository.db.pragma("wal_checkpoint(TRUNCATE)");
-    repository.db.close();
-  }
-}
-
-export { parseArguments, seed, withMaterialsWorkspaceDatabase };
+export { parseArguments, seed };
 
 const isMain =
   process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));

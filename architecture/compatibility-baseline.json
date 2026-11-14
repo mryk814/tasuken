@@ -4,8 +4,6 @@
   "categories": {
     "generic-entity-api": {
       "consumerPaths": [
-        "scripts/mermaid-powerpoint-audit.mjs",
-        "scripts/note-window-audit.mjs",
         "scripts/notes-performance.mjs",
         "src/main/index.ts",
         "src/renderer/src/features/workspace/pages/NotesPage.tsx",
@@ -217,16 +215,9 @@
     },
     "workspace-repository": {
       "consumerPaths": [
-        "scripts/inbox-feed-post-audit.mjs",
         "scripts/model-smoke.mjs",
         "scripts/seed-materials-informatics-workspace.mjs",
         "scripts/seed-feed-audit-workspace.mjs",
-        "scripts/seed-inbox-feed-audit-workspace.mjs",
-        "scripts/seed-theme-audit-workspace.mjs",
-        "scripts/seed-today-arrivals-audit-workspace.mjs",
-        "scripts/task-handoff-audit.mjs",
-        "scripts/today-date-audit.mjs",
-        "scripts/update-materials-informatics-workspace.mjs",
         "src/main/index.ts",
         "src/main/memoStickyController.ts",
         "src/main/noteWindowController.ts",
