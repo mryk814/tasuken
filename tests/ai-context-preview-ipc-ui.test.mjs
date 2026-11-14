@@ -52,7 +52,7 @@ test("compact UIはThemeの4状態とrequest raceを守り、Task編集には重
   assert.match(knowledgePage, /disabled={Boolean\(updatingIssueId\)}/);
   assert.match(knowledgePage, /healthRequestGate\.current\.isCurrent\(requestId\)/);
   assert.match(knowledgePage, /label={issue\.label}/);
-  assert.match(knowledgePage, /issue\.fixActions\.map/);
+  assert.match(knowledgePage, /issue\.fixActions\s*\.map/);
   assert.doesNotMatch(knowledgePage, /label={issue\.ruleId}/);
   assert.doesNotMatch(knowledgePage, /localStorage|healthRevisionKey/);
 });
