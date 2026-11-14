@@ -28,18 +28,12 @@ const manualAllowlist = {
     "HTTP MCP entry point bundled by build-mcp-bridge and launched by the Synology HTTP sidecar.",
   "seed-feed-audit-workspace.mjs":
     "Internal isolated-workspace seeder spawned by feed-surface-audit; not a CLI entry point.",
-  "seed-theme-audit-workspace.mjs":
-    "Internal isolated-workspace seeder spawned by theme-surface-audit; not a CLI entry point.",
-  "seed-today-arrivals-audit-workspace.mjs":
-    "Internal isolated-workspace seeder spawned by today-arrivals-audit; not a CLI entry point.",
-  "seed-inbox-feed-audit-workspace.mjs":
-    "Internal isolated-workspace seeder spawned by inbox-feed-post-audit; not a CLI entry point.",
+  "seed-materials-informatics-workspace.mjs":
+    "Internal fixture seeder spawned by activity-electron-smoke (release:check); writes only to --target, never the owner's database.",
+  "test-temp-root.mjs":
+    "Internal per-run temp root helper imported by run-electron-node (--test) and run-ci; not a CLI entry point.",
   "tasken-core-client.mjs":
     "Manual owner CLI that issues, lists and revokes read-only Core client tokens; prints a new token to stdout only.",
-  "task-board-audit.mjs":
-    "Internal isolated Task board UI audit imported by task-handoff-audit --task-board; not a CLI entry point.",
-  "task-board-integration-audit.mjs":
-    "Internal AI creation/coexistence fixture imported by task-board-audit --integrated; not a CLI entry point.",
 };
 
 function scriptFiles(directory) {

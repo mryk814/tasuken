@@ -84,14 +84,10 @@ npm run smoke:desktop
 npm run smoke:model
 ```
 
-狭幅・表示倍率ごとのレイアウト崩れを自動確認（本体の主要画面 / Note別ウィンドウ）:
+狭幅・表示倍率ごとのレイアウト崩れを自動確認（本体の主要画面）:
 
 ```bash
 npm run audit:responsive
-```
-
-```bash
-npm run audit:note-window
 ```
 
 MCP Serverをplain Nodeで起動（Tasken Desktopを先に起動してください）:
