@@ -20,7 +20,8 @@ import { Button } from "./common";
  * - 手動記録だけを扱い、**日付ごとのTaskを自動生成しない**。
  * - 主表示は「今日1回」「今週2/3回」。連続日数・達成率・失敗を強調する赤い表示は置かない。
  * - 実施記録のIDは組み立てで決まるので、連打と再送では増えず、同じ日の2回目は別の記録になる。
- * - Todayでは**Habitがある場合だけ**現れる（未使用の人へ空の設定案内を常設しない）。
+ * - Todayの行（rows）は**Habitがある場合だけ**現れる（未使用の人へ空の設定案内を常設しない）。
+ * - 追加・一時停止・履歴・削除は一覧（panel）で行う。一覧はTodayの「続けること・手入れ」のmenuから開く。
  */
 
 export interface HabitPanelProps extends Pick<
@@ -29,13 +30,15 @@ export interface HabitPanelProps extends Pick<
 > {
   /** 利用者のローカル日付（YYYY-MM-DD）。週は月曜開始。 */
   today: string;
-  /** 「続けることを追加」を常設するか（Settingsの管理面だけ true）。 */
-  manage?: boolean;
   /**
-   * Todayの「今日やること」の中へ、Taskと同じ行で並べる（2026-10-06）。
+   * rows: Todayの「今日やること」の中へ、Taskと同じ行で並べる（2026-10-06）。
    * 丸を押すと1回記録、記録済みの丸を押すと今日の直前の記録を取り消す。
+   * panel: 全件の一覧。追加・一時停止・履歴・削除ができる。
    */
   variant?: "panel" | "rows";
+  /** 一覧（panel）で追加の入力を開くか。開閉の釦は呼び出し側（種類の切り替えの横）に置く。 */
+  createOpen?: boolean;
+  onCreateOpenChange?(open: boolean): void;
 }
 
 function habitScheduleOf(habit: BaseRecord): {
@@ -68,15 +71,15 @@ export function HabitPanel({
   saveEntities,
   removeEntity,
   setToast,
-  manage = false,
   variant = "panel",
+  createOpen = false,
+  onCreateOpenChange,
 }: HabitPanelProps) {
   const habits = useMemo(
     () => (data.habits || []).filter((habit) => !habit.deleted_at),
     [data.habits],
   );
   const entries = useMemo(() => data.habit_entrys || [], [data.habit_entrys]);
-  const [showCreate, setShowCreate] = useState(false);
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<HabitScheduleKind>("daily");
   const [weeklyTarget, setWeeklyTarget] = useState("3");
@@ -87,8 +90,8 @@ export function HabitPanel({
   const active = habits.filter((habit) => habit.state !== "paused");
   const paused = habits.filter((habit) => habit.state === "paused");
   const ordered = [...active, ...paused];
-  // Todayでは、まだ使っていない人へ空の案内を出さない。
-  if (!manage && ordered.length === 0) return null;
+  // Todayの行では、まだ使っていない人へ空の案内を出さない。
+  if (variant === "rows" && active.length === 0) return null;
 
   const record = async (habit: BaseRecord, performedOn: string) => {
     const habitEntries = entriesOf(entries, String(habit.id));
@@ -228,7 +231,7 @@ export function HabitPanel({
         "main_ui",
       );
       setTitle("");
-      setShowCreate(false);
+      onCreateOpenChange?.(false);
       setToast("追加しました。今日で1回記録できます。", "success");
     } catch (error) {
       setToast(
@@ -293,25 +296,20 @@ export function HabitPanel({
   };
 
   return (
-    <section className="panel habit-panel" aria-labelledby="habit-panel-title">
-      <div className="section-heading">
-        <h2 id="habit-panel-title">続けること</h2>
-        {manage ? (
-          <button
-            className="text-button compact"
-            type="button"
-            onClick={() => setShowCreate((value) => !value)}
-          >
-            {showCreate ? "追加を閉じる" : "続けることを追加"}
-          </button>
-        ) : null}
-      </div>
-
-      {manage && showCreate ? (
-        <div className="habit-create">
+    <section className="habit-panel" aria-label="続けること">
+      {/* 1件も無い時は、空の案内の文の代わりに追加の入力をそのまま出す。 */}
+      {createOpen || ordered.length === 0 ? (
+        <form
+          className="habit-create"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void createHabit();
+          }}
+        >
           <label>
             名前
             <input
+              autoFocus={createOpen}
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               placeholder="読書、運動など"
@@ -339,16 +337,14 @@ export function HabitPanel({
               />
             </label>
           ) : null}
-          <Button variant="primary" compact disabled={busy} onClick={() => void createHabit()}>
+          <Button type="submit" variant="primary" compact disabled={busy}>
             追加する
           </Button>
           <p className="habit-note">週の区切りは月曜開始です。Taskは作りません。</p>
-        </div>
+        </form>
       ) : null}
 
-      {ordered.length === 0 ? (
-        <p className="habit-empty">「続けることを追加」から、毎日1回か週N回の記録を試せます。</p>
-      ) : (
+      {ordered.length === 0 ? null : (
         <ul className="habit-list">
           {ordered.map((habit) => {
             const schedule = habitScheduleOf(habit);
@@ -437,16 +433,16 @@ export function HabitPanel({
                   >
                     履歴（{listed.length}件）
                   </button>
-                  {manage ? (
-                    <Button
-                      variant="ghost"
-                      compact
-                      disabled={busy}
-                      onClick={() => void removeEntity("habit", { id: String(habit.id) })}
-                    >
-                      削除
-                    </Button>
-                  ) : null}
+                  {/* 削除は tombstone。帯の「取り消す」で戻せるので、確かめの一手は挟まない。 */}
+                  <Button
+                    variant="ghost"
+                    compact
+                    disabled={busy}
+                    aria-label={`${String(habit.title || "無題")}を削除`}
+                    onClick={() => void removeEntity("habit", habit)}
+                  >
+                    削除
+                  </Button>
                 </div>
                 {openHistory === String(habit.id) ? (
                   listed.length === 0 ? (

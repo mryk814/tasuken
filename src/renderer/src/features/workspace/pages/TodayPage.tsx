@@ -38,6 +38,7 @@ import { ReminderDueBanner, useReminderNow } from "../components/common";
 import { isReminderDue } from "../lib/reminders";
 import { HabitPanel } from "../components/HabitPanel";
 import { MaintenancePanel } from "../components/MaintenancePanel";
+import { RoutineManage, type RoutineManageState } from "../components/RoutineManage";
 import {
   calendarFetchedLabel,
   calendarStateMessage,
@@ -958,6 +959,10 @@ export function TodayPage({
 }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [showWorkLog, setShowWorkLog] = useState(false);
+  // 続けること・手入れの追加と、全件の一覧（削除もここ）。「今日やること」のmenuから開く。
+  const [routineManage, setRoutineManage] = useState<RoutineManageState | null>(null);
+  const habitCount = (data.habits || []).filter((habit) => !habit.deleted_at).length;
+  const maintenanceCount = (data.maintenances || []).filter((item) => !item.deleted_at).length;
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState(PERSONAL_DEFAULT_THEME_ID);
   // トーストの「元に戻す」は保存後に走るため、常に最新の保存関数を参照する。
@@ -1580,44 +1585,90 @@ export function TodayPage({
         </section>
       )}
 
-      <section className="panel today-focus-panel">
+      <section className="panel today-focus-panel has-heading-menu">
         <div className="section-heading">
           <h2>今日やること</h2>
           <TodayProgress {...progress} />
+          <ToolbarMenu
+            className="today-routine-menu"
+            label="続けること・手入れ"
+            title="続けること・手入れの追加と一覧"
+            items={[
+              {
+                id: "add-habit",
+                label: "続けることを追加",
+                onSelect: () => setRoutineManage({ kind: "habit", createOpen: true }),
+              },
+              {
+                id: "add-maintenance",
+                label: "手入れを追加",
+                onSelect: () => setRoutineManage({ kind: "maintenance", createOpen: true }),
+              },
+              {
+                id: "list-routines",
+                label: `一覧と削除（続けること${habitCount}・手入れ${maintenanceCount}）`,
+                onSelect: () =>
+                  setRoutineManage((current) => ({
+                    // 手入れしか無い時は、空の続けることではなく手入れの一覧から開く。
+                    kind:
+                      current?.kind ??
+                      (habitCount === 0 && maintenanceCount > 0 ? "maintenance" : "habit"),
+                    createOpen: false,
+                  })),
+              },
+            ]}
+          />
           <button className="text-button compact" onClick={() => navigate("todo")}>
             やることへ
           </button>
         </div>
-        <TodayRows
-          rows={shownTodayRows}
-          themes={themes}
-          empty="今日のタスクはありません"
-          today={today}
-          {...rowHandlers}
-          onAdd={() => setShowAdd(true)}
-          markDueToday={false}
-          pendingIds={pendingIds}
-          strikingIds={strikes.ids}
-        />
-        {/* 続けること・手入れはTaskと同じ行で並べる（2026-10-06）。無ければ何も出さない。 */}
-        <div className="today-task-list today-routine-list" style={personalChipStyle(themes)}>
-          <HabitPanel
-            data={data}
+        {/* 見出しのmenuがパネルの外へ開けるよう、角の切り抜きは本文の側で行う。 */}
+        <div className="today-focus-body">
+          <TodayRows
+            rows={shownTodayRows}
+            themes={themes}
+            empty="今日のタスクはありません"
             today={today}
-            saveEntities={saveEntities}
-            removeEntity={removeEntity}
-            setToast={setToast}
-            variant="rows"
+            {...rowHandlers}
+            onAdd={() => setShowAdd(true)}
+            markDueToday={false}
+            pendingIds={pendingIds}
+            strikingIds={strikes.ids}
           />
-          <MaintenancePanel
-            data={data}
-            today={today}
-            saveEntities={saveEntities}
-            removeEntity={removeEntity}
-            removeEntityQuiet={removeEntityQuiet}
-            setToast={setToast}
-            variant="rows"
-          />
+          {/* 続けること・手入れはTaskと同じ行で並べる（2026-10-06）。無ければ何も出さない。 */}
+          <div className="today-task-list today-routine-list" style={personalChipStyle(themes)}>
+            <HabitPanel
+              data={data}
+              today={today}
+              saveEntities={saveEntities}
+              removeEntity={removeEntity}
+              setToast={setToast}
+              variant="rows"
+            />
+            <MaintenancePanel
+              data={data}
+              today={today}
+              saveEntities={saveEntities}
+              removeEntity={removeEntity}
+              removeEntityQuiet={removeEntityQuiet}
+              setToast={setToast}
+              variant="rows"
+            />
+          </div>
+          {routineManage && (
+            <RoutineManage
+              state={routineManage}
+              onChange={setRoutineManage}
+              habitCount={habitCount}
+              maintenanceCount={maintenanceCount}
+              data={data}
+              today={today}
+              saveEntities={saveEntities}
+              removeEntity={removeEntity}
+              removeEntityQuiet={removeEntityQuiet}
+              setToast={setToast}
+            />
+          )}
         </div>
       </section>
 

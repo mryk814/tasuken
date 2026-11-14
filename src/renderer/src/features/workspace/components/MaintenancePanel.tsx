@@ -21,7 +21,7 @@ import { Button } from "./common";
  * - 次の目安は**推奨間隔からの提案**で、必ず守る締切ではない。Taskの期限違反として数えない。
  * - 前回が分からない項目は「次の目安を決める」から始める（勝手に期限超過にしない）。
  * - Todayには目安が近い項目だけを小さく出し、過去の未実施回数を積み上げない。
- * - 管理と履歴はSettingsに置く。
+ * - 追加・履歴・削除は全件の一覧（panel）で行う。一覧はTodayの「続けること・手入れ」のmenuから開く。
  */
 
 export interface MaintenancePanelProps extends Pick<
@@ -30,10 +30,15 @@ export interface MaintenancePanelProps extends Pick<
 > {
   /** 利用者のローカル日付（YYYY-MM-DD）。 */
   today: string;
-  /** 追加・履歴・削除を出すか（Settingsの管理面だけ true）。 */
-  manage?: boolean;
-  /** Todayの「今日やること」の中へ、Taskと同じ行で並べる（2026-10-06）。丸を押すと今日やったと記録する。 */
+  /**
+   * rows: Todayの「今日やること」の中へ、目安が近い物だけをTaskと同じ行で並べる（2026-10-06）。
+   * 丸を押すと今日やったと記録する。
+   * panel: 目安が近くない物も含む全件の一覧。追加・履歴・削除ができる。
+   */
   variant?: "panel" | "rows";
+  /** 一覧（panel）で追加の入力を開くか。開閉の釦は呼び出し側（種類の切り替えの横）に置く。 */
+  createOpen?: boolean;
+  onCreateOpenChange?(open: boolean): void;
 }
 
 export function MaintenancePanel({
@@ -43,8 +48,9 @@ export function MaintenancePanel({
   removeEntity,
   removeEntityQuiet,
   setToast,
-  manage = false,
   variant = "panel",
+  createOpen = false,
+  onCreateOpenChange,
 }: MaintenancePanelProps) {
   const items = useMemo(
     () => (data.maintenances || []).filter((item) => !item.deleted_at),
@@ -54,7 +60,6 @@ export function MaintenancePanel({
   const [title, setTitle] = useState("");
   const [action, setAction] = useState("");
   const [intervalDays, setIntervalDays] = useState("30");
-  const [showCreate, setShowCreate] = useState(false);
   const [openHistory, setOpenHistory] = useState<string | null>(null);
   const [performedOn, setPerformedOn] = useState<Record<string, string>>({});
   const [nextDue, setNextDue] = useState<Record<string, string>>({});
@@ -72,9 +77,11 @@ export function MaintenancePanel({
   const due = (item: BaseRecord) =>
     maintenanceDue({ nextDueOn: item.next_due_on ? String(item.next_due_on) : null, today });
 
-  const visible = items.filter((item) => (manage ? true : isMaintenanceDueSoon(due(item))));
-  // 今日の面では、目安が近いものが無ければ何も出さない（未実施回数を積み上げない）。
-  if (!manage && visible.length === 0) return null;
+  const visible = items.filter((item) =>
+    variant === "rows" ? isMaintenanceDueSoon(due(item)) : true,
+  );
+  // 今日の行では、目安が近いものが無ければ何も出さない（未実施回数を積み上げない）。
+  if (variant === "rows" && visible.length === 0) return null;
 
   const intervalOf = (item: BaseRecord) => {
     const value = Number(item.interval_days);
@@ -120,7 +127,7 @@ export function MaintenancePanel({
       );
       setTitle("");
       setAction("");
-      setShowCreate(false);
+      onCreateOpenChange?.(false);
       setToast("追加しました。次の目安を決めてから記録できます。", "success");
     } catch (error) {
       setToast(
@@ -145,6 +152,8 @@ export function MaintenancePanel({
         "次の目安を決めました。",
         "main_ui",
       );
+      // 入力に残すと、次の「実施を記録」の次の目安が、提案ではなく今決めた日のままになる。
+      setNextDue((current) => ({ ...current, [String(item.id)]: "" }));
       setToast("次の目安を決めました。", "success");
     } catch (error) {
       setToast(
@@ -279,25 +288,20 @@ export function MaintenancePanel({
   }
 
   return (
-    <section className="panel maintenance-panel" aria-labelledby="maintenance-panel-title">
-      <div className="section-heading">
-        <h2 id="maintenance-panel-title">手入れ</h2>
-        {manage ? (
-          <button
-            className="text-button compact"
-            type="button"
-            onClick={() => setShowCreate((value) => !value)}
-          >
-            {showCreate ? "追加を閉じる" : "手入れを追加"}
-          </button>
-        ) : null}
-      </div>
-
-      {manage && showCreate ? (
-        <div className="maintenance-create">
+    <section className="maintenance-panel" aria-label="手入れ">
+      {/* 1件も無い時は、空の案内の文の代わりに追加の入力をそのまま出す。 */}
+      {createOpen || items.length === 0 ? (
+        <form
+          className="maintenance-create"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void createItem();
+          }}
+        >
           <label>
             対象
             <input
+              autoFocus={createOpen}
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               placeholder="エアコン"
@@ -321,20 +325,16 @@ export function MaintenancePanel({
               onChange={(event) => setIntervalDays(event.target.value)}
             />
           </label>
-          <Button variant="primary" compact disabled={busy} onClick={() => void createItem()}>
+          <Button type="submit" variant="primary" compact disabled={busy}>
             追加する
           </Button>
           <p className="maintenance-note">
             次の目安は推奨間隔からの提案です。守るべき締切はTaskの期限で扱います。
           </p>
-        </div>
+        </form>
       ) : null}
 
-      {items.length === 0 ? (
-        <p className="maintenance-empty">「手入れを追加」から、対象と推奨間隔を決めて始めます。</p>
-      ) : visible.length === 0 ? (
-        <p className="maintenance-empty">目安が近い手入れはありません。</p>
-      ) : (
+      {items.length === 0 ? null : (
         <ul className="maintenance-list">
           {visible.map((item) => {
             const maintenanceId = String(item.id);
@@ -452,21 +452,21 @@ export function MaintenancePanel({
                       直前の記録を戻す
                     </Button>
                   ) : null}
-                  {manage ? (
-                    <Button
-                      variant="ghost"
-                      compact
-                      disabled={busy}
-                      onClick={() =>
-                        void removeEntity("maintenance", {
-                          ...item,
-                          title: maintenanceLabel(item),
-                        })
-                      }
-                    >
-                      削除
-                    </Button>
-                  ) : null}
+                  {/* 削除は tombstone。帯の「取り消す」で戻せるので、確かめの一手は挟まない。 */}
+                  <Button
+                    variant="ghost"
+                    compact
+                    disabled={busy}
+                    aria-label={`${maintenanceLabel(item)}を削除`}
+                    onClick={() =>
+                      void removeEntity("maintenance", {
+                        ...item,
+                        title: maintenanceLabel(item),
+                      })
+                    }
+                  >
+                    削除
+                  </Button>
                 </div>
 
                 {openHistory === maintenanceId ? (
@@ -504,7 +504,7 @@ export function MaintenancePanel({
         </ul>
       )}
 
-      {manage && items.length > 0 ? (
+      {items.length > 0 ? (
         <p className="maintenance-note">
           目安を過ぎても、Taskの期限違反としては数えません。次に実施した日から新しい目安を提案します。
         </p>
