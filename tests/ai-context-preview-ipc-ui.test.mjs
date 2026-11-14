@@ -7,19 +7,10 @@ const contracts = fs.readFileSync("src/shared/ipc/contracts.ts", "utf8");
 const registerIpc = fs.readFileSync("src/main/ipc/registerIpc.ts", "utf8");
 const preload = fs.readFileSync("src/preload/index.ts", "utf8");
 const workspaceApi = fs.readFileSync("src/renderer/src/services/workspaceApi.ts", "utf8");
-const previewPanel = fs.readFileSync(
-  "src/renderer/src/features/workspace/components/AiContextPreviewPanel.tsx",
-  "utf8",
-);
 const knowledgePage = fs.readFileSync(
   "src/renderer/src/features/workspace/pages/KnowledgePage.tsx",
   "utf8",
 );
-const themePage = fs.readFileSync(
-  "src/renderer/src/features/workspace/pages/ThemePage.tsx",
-  "utf8",
-);
-const drawer = fs.readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
 
 test("Context Preview/Data Health IPCはtyped requestだけをMainへ渡す (#296)", () => {
   assert.match(contracts, /aiContextPreview: "ai-context:preview"/);
@@ -37,17 +28,7 @@ test("Context Preview/Data Health IPCはtyped requestだけをMainへ渡す (#29
   assert.match(workspaceApi, /desktopApi\(\)\.dataHealth\.setState\(request\)/);
 });
 
-test("compact UIはThemeの4状態とrequest raceを守り、Task編集には重複Previewを置かない (#296)", () => {
-  assert.match(themePage, /AiContextPreviewPanel[\s\S]*scope={{ type: "theme"/);
-  assert.doesNotMatch(drawer, /AiContextPreviewPanel/);
-  assert.match(previewPanel, /requestSequence\.current/);
-  assert.match(previewPanel, /return \(\) => \{\s*requestSequence\.current \+= 1;\s*\}/);
-  assert.match(previewPanel, /確認中/);
-  assert.match(previewPanel, /state === "empty"/);
-  assert.match(previewPanel, /alert-note danger/);
-  assert.match(previewPanel, /さらに \{preview\.excluded\.length - 12\} 件/);
-  assert.match(previewPanel, /relationPath/);
-  assert.match(previewPanel, /stale|superseded/);
+test("Data Healthの画面はrequest raceを守り、ruleIdでなくlabelを出す (#296)", () => {
   assert.match(knowledgePage, /setUpdatingIssueId\(issue\.id\)/);
   assert.match(knowledgePage, /disabled={Boolean\(updatingIssueId\)}/);
   assert.match(knowledgePage, /healthRequestGate\.current\.isCurrent\(requestId\)/);

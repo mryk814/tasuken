@@ -110,11 +110,7 @@ import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs"
 import { reconcileStableLinkAssertions } from "../../shared/stableLinks.mjs";
 import { queryActivityEvents } from "../../shared/activityProjection.mjs";
 import { changeEventsForCommand } from "../../shared/activityEvent.mjs";
-import {
-  previewTaskCoding,
-  previewThemeCoding,
-  previewThemeM365,
-} from "../../shared/aiContextPreview.mjs";
+import { previewTaskCoding } from "../../shared/aiContextPreview.mjs";
 import { DataHealthEvaluator, normalizeDataHealthState } from "../../shared/dataHealth.mjs";
 import { formatRecordCountsMarkdown, type RecordCountRow } from "./recordCounts.mjs";
 import {
@@ -825,7 +821,6 @@ export class WorkspaceService {
   private readonly taskenCoreClient?: {
     proposeAgentSession?(request: ProposeAgentSessionRequest): Promise<ProposeAgentSessionResponse>;
     getTaskContext(request: { task_id: string }): Promise<unknown>;
-    getThemeContext(request: { theme_id: string }): Promise<unknown>;
     inspect(): Promise<{ api_version: string; capabilities: string[] }>;
   };
   constructor(
@@ -837,7 +832,6 @@ export class WorkspaceService {
         request: ProposeAgentSessionRequest,
       ): Promise<ProposeAgentSessionResponse>;
       getTaskContext(request: { task_id: string }): Promise<unknown>;
-      getThemeContext(request: { theme_id: string }): Promise<unknown>;
       inspect(): Promise<{ api_version: string; capabilities: string[] }>;
     },
     proposalMarkdownImageDecoder: ProposalMarkdownImageDecoder = createNativeImageDecoder(
@@ -1642,65 +1636,27 @@ export class WorkspaceService {
     }
   }
 
+  /**
+   * Taskを任せる前に、MCPがそのTaskについて渡すContextを確かめる（Handoffの欄が使う）。
+   * Theme画面の「渡す内容の確認」とAI Packの経路は#755 束2で外した。
+   */
   async getAiContextPreview(requestValue: unknown): Promise<AiContextPreviewResult> {
     const request = objectValue(requestValue) as Partial<AiContextPreviewRequest>;
     const scopeValue = objectValue(request.scope);
-    const scopeType =
-      scopeValue.type === "theme" || scopeValue.type === "task" ? scopeValue.type : null;
     const scopeId = typeof scopeValue.id === "string" ? scopeValue.id.trim() : "";
-    const channel =
-      request.channel === "ai_pack" || request.channel === "mcp" ? request.channel : null;
-    if (!scopeType || !scopeId || !channel) {
+    if (scopeValue.type !== "task" || !scopeId || request.channel !== "mcp") {
       throw new Error("Context Previewの対象または種類が不正です。画面を開き直してください。");
     }
-    const requestedScope = { type: scopeType, id: scopeId } as const;
+    const requestedScope = { type: "task", id: scopeId } as const;
     try {
-      if (channel === "ai_pack") {
-        let themeId = scopeId;
-        if (scopeType === "task") {
-          const task = this.repository.get("task", scopeId);
-          themeId =
-            typeof task?.project_id === "string" && task.project_id.trim()
-              ? task.project_id.trim()
-              : typeof task?.theme_id === "string"
-                ? task.theme_id.trim()
-                : "";
-          if (!task || task.deleted_at || !themeId) {
-            return {
-              state: "error",
-              requestedScope,
-              effectiveScope: requestedScope,
-              producer: "theme_ai_pack",
-              preview: null,
-              includedInEffectiveScope: false,
-              error: "Taskまたは所属Themeが見つかりません。TaskのThemeを確認してください。",
-            };
-          }
-        }
-        const { plan } = this.buildThemeAiPack(themeId);
-        const preview = previewThemeM365(plan);
-        const included = scopeType === "theme" || preview.untypedIncludedIds.includes(scopeId);
-        return {
-          state: preview.counts.included || preview.files.length ? "ready" : "empty",
-          requestedScope,
-          effectiveScope: { type: "theme", id: themeId },
-          producer: "theme_ai_pack",
-          preview,
-          includedInEffectiveScope: included,
-        };
-      }
       if (!this.taskenCoreClient) throw new Error("Tasken Core clientが構成されていません。");
-      const response =
-        scopeType === "task"
-          ? await this.taskenCoreClient.getTaskContext({ task_id: scopeId })
-          : await this.taskenCoreClient.getThemeContext({ theme_id: scopeId });
-      const preview =
-        scopeType === "task" ? previewTaskCoding(response) : previewThemeCoding(response);
+      const response = await this.taskenCoreClient.getTaskContext({ task_id: scopeId });
+      const preview = previewTaskCoding(response);
       return {
         state: preview.counts.included ? "ready" : "empty",
         requestedScope,
         effectiveScope: requestedScope,
-        producer: scopeType === "task" ? "mcp_task_context" : "mcp_theme_context",
+        producer: "mcp_task_context",
         preview,
         includedInEffectiveScope: preview.included.some((entry) => entry.ref.id === scopeId),
       };
@@ -1709,12 +1665,7 @@ export class WorkspaceService {
         state: "error",
         requestedScope,
         effectiveScope: requestedScope,
-        producer:
-          channel === "ai_pack"
-            ? "theme_ai_pack"
-            : scopeType === "task"
-              ? "mcp_task_context"
-              : "mcp_theme_context",
+        producer: "mcp_task_context",
         preview: null,
         includedInEffectiveScope: null,
         error: safeContextPreviewError(error),

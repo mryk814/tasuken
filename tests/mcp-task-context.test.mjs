@@ -15,7 +15,7 @@ import { queueMcpProposal, validateMcpProposalEnvelope } from "./fixtures/legacy
 import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
 import { taskWorkInboxGroups } from "../src/shared/contracts/task/public.ts";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
-import { previewTaskCoding, previewThemeCoding } from "../src/shared/aiContextPreview.mjs";
+import { previewTaskCoding } from "../src/shared/aiContextPreview.mjs";
 
 const workspaceRepositoryModule = "../src/main/repositories/" + "workspaceRepository.mjs";
 const { WorkspaceDatabase } = await import(workspaceRepositoryModule);
@@ -350,7 +350,7 @@ test("Task context budgets AI metadata, rejects private source roots, and keeps 
   }
 });
 
-test("Theme Coding uses the common bounded relation query and Preview preserves its exact selection", () => {
+test("Theme Coding uses the common bounded relation query", () => {
   const context = contextFixture();
   try {
     const result = context.toolGetThemeContext({
@@ -367,15 +367,6 @@ test("Theme Coding uses the common bounded relation query and Preview preserves 
     );
     assert.ok(
       result.open_items.some((entry) => entry.entity_type === "task" && entry.id === "task-1"),
-    );
-    const preview = previewThemeCoding(result);
-    assert.deepEqual(
-      preview.included.map((entry) => entry.ref),
-      result.context_selection.included.map((entry) => entry.ref),
-    );
-    assert.deepEqual(
-      preview.excluded.map((entry) => ({ ref: entry.ref, reason: entry.reason })),
-      result.context_selection.excluded.map((entry) => ({ ref: entry.ref, reason: entry.reason })),
     );
     assert.equal(JSON.stringify(result).includes("C:/private"), false);
   } finally {
