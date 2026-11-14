@@ -12,8 +12,8 @@ MCP bridgeは接続ごとに公開するツールを選べます。stdioでは�
 | `proposals` | `get_proposal_status`, `list_proposals`                                                                                                                                                                        |
 | `meta`      | `get_capabilities`                                                                                                                                                                                             |
 | `write`     | `start_task_work`, `report_work`, `create_task`, `create_note`, `change_task`, `undo_change`, `decide_proposal`, `edit_note`, `propose_note`, `propose_note_edit`, `propose_feed_post`, `answer_feed_question` |
-| `all`       | 上記6セット。互換用の`legacy`は含めない                                                                                                                                                                        |
-| `legacy`    | 旧名`append_work_receipt`, `report_task_done`, `report_task_blocked`                                                                                                                                           |
+| `all`       | 上記6セット                                                                                                                                                                                                    |
+| `legacy`    | 空。旧名3道具は外した（#755）。設定に残っていても起動を止めないよう、名前だけ受ける                                                                                                                            |
 
 複数指定は和集合です。空配列・空文字・未知のセット名は起動エラーにし、全公開へフォールバックしません。正本は`src/main/mcp/toolAvailability.mjs`の`MCP_TOOL_REQUIREMENTS`です。
 
@@ -39,7 +39,7 @@ HTTPでは`TASKEN_MCP_HTTP_CLIENTS_FILE`の既存の各クライアント項目�
 
 共通で`task_id`・`expected_version`・`idempotency_key`・`caller`・`executor_label`が必要です。人に質問するときは`request_id`に安定したUUIDを付けます。従来どおり任意欄であり、単なる障害報告には必須ではありません。再送時は日時・版・内容・キーを保持します。Proposalの保存形式、旧requestのtool識別子、採用・再送判定は変更しません。`done`も人が採用する報告であり、Taskの完了は別の人間操作です。
 
-旧3名は既定の一覧から外しました。移行期間に必要なら`TASKEN_MCP_TOOLSETS=all,legacy`、HTTPなら`"toolsets": ["all", "legacy"]`で追加できます。外部クライアントのツールキャッシュは再読み込みしてください。読み取り専用の既定は16個を維持します。書き込みあり・capabilities未指定の既定は、3入口を1入口に統合したため26個から24個になります。`all,legacy`では27個です。NASの`proposals`配備はread 16 + write 5の21個です。
+旧3名（`append_work_receipt`・`report_task_done`・`report_task_blocked`）は道具ごと外しました（#755）。表の「従来の入口」は、保存済みのProposalに残るtool識別子として読めるように残しています。外部クライアントのツールキャッシュは再読み込みしてください。読み取り専用の既定は16個を維持します。書き込みあり・capabilities未指定の既定は、3入口を1入口に統合したため26個から24個になります。`all,legacy`では27個です。NASの`proposals`配備はread 16 + write 5の21個です。
 
 ## 必要時に読むガイド
 

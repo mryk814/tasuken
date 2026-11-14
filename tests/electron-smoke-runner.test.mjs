@@ -67,8 +67,6 @@ test("Electron smoke restart reuses userData/result and requires restart-ready w
       importedVideoArtifactId,
       screenRecordingArtifactId,
       screenRecordingPausedResumed: true,
-      taskenRootOpened: true,
-      taskenRootQuitCompleted: true,
       smokeTaskId: videoOwnerId,
     }),
     {
@@ -97,36 +95,6 @@ test("Electron smoke restart reuses userData/result and requires restart-ready w
       importedVideoArtifactId,
       screenRecordingArtifactId,
       screenRecordingPausedResumed: false,
-      taskenRootOpened: true,
-      taskenRootQuitCompleted: true,
-      smokeTaskId: videoOwnerId,
-    }),
-    null,
-  );
-  assert.equal(
-    restartArtifactIdsFromResult({
-      stage: "restart-ready",
-      audioArtifactId: artifactId,
-      microphoneArtifactId,
-      importedVideoArtifactId,
-      screenRecordingArtifactId,
-      screenRecordingPausedResumed: true,
-      taskenRootOpened: true,
-      taskenRootQuitCompleted: false,
-      smokeTaskId: videoOwnerId,
-    }),
-    null,
-  );
-  assert.equal(
-    restartArtifactIdsFromResult({
-      stage: "restart-ready",
-      audioArtifactId: artifactId,
-      microphoneArtifactId,
-      importedVideoArtifactId,
-      screenRecordingArtifactId,
-      screenRecordingPausedResumed: true,
-      taskenRootOpened: false,
-      taskenRootQuitCompleted: true,
       smokeTaskId: videoOwnerId,
     }),
     null,
@@ -138,39 +106,23 @@ test("Electron smoke restart reuses userData/result and requires restart-ready w
   assert.equal(packagedArgs.includes("--disable-gpu-compositing"), false);
 });
 
-test("desktop smoke waits for the exact pasted nodes and settled Today mini state", async () => {
+// Today Mini の窓の検査は、窓ごと外した（#755）ので消した。
+test("desktop smoke waits for the exact pasted nodes", async () => {
   const source = await readFile("src/main/index.ts", "utf8");
   assert.match(
     source,
     /querySelectorAll\("h2"\)[\s\S]*?Pasted Markdown Heading[\s\S]*?querySelectorAll\("strong"\)[\s\S]*?Pasted Bold Text/,
   );
-  assert.match(
-    source,
-    /toggleTodayMiniWindow\(\)[\s\S]*?getSatelliteWindowState\(\)[\s\S]*?todayOpen[\s\S]*?toggleTodayMiniWindow\(\)/,
-  );
-  assert.match(
-    source,
-    /toggleResult[\s\S]*?for \(let attempt = 0;[\s\S]*?const settledBounds = todayMini\.getBounds\(\)[\s\S]*?todayMini\.isVisible\(\)[\s\S]*?topmostReported \|\| todayMini\.isAlwaysOnTop\(\)[\s\S]*?boundsWithinEnvironment\(settledBounds, initialMiniBounds\)[\s\S]*?todayMiniToggleRestored/,
-  );
-  // 環境がどこまで保証するかを先に測り、最前面を報告しない環境でも
-  // 本体の不具合と区別できるようにする（#607）。
-  assert.match(
-    source,
-    /probeWindowEnvironment[\s\S]*?topmostReported: probe\.isAlwaysOnTop\(\)[\s\S]*?boundsDelta/,
-  );
-  assert.match(source, /result\.todayMiniAlwaysOnTop \|\| !result\.todayMiniTopmostSupported/);
 });
 
-test("desktop smoke opens Tasken Root and reaches will-quit through a bounded app.quit path", async () => {
+// Tasken Root を開く段は Root ごと外した（#755）。終了の経路が will-quit に届くことだけを確かめる。
+test("desktop smoke reaches will-quit through a bounded app.quit path", async () => {
   const source = await readFile("src/main/index.ts", "utf8");
   assert.match(
     source,
-    /function completeInitialSmokeViaAppQuit[\s\S]*taskenRootController\.toggle\(\)[\s\S]*taskenRootController\.getWindow\(\)[\s\S]*recordSmoke\("quit-started"[\s\S]*setTimeout\([\s\S]*30_000[\s\S]*app\.quit\(\)/,
+    /function completeInitialSmokeViaAppQuit[\s\S]*recordSmoke\("quit-started"[\s\S]*setTimeout\([\s\S]*30_000[\s\S]*app\.quit\(\)/,
   );
-  assert.match(
-    source,
-    /app\.on\("will-quit"[\s\S]*taskenRootClosedBeforeWillQuit[\s\S]*taskenRootController\?\.destroy\(\)[\s\S]*taskenRootQuitCompleted[\s\S]*"restart-ready"/,
-  );
+  assert.match(source, /app\.on\("will-quit"[\s\S]*pendingSmokeQuitResult[\s\S]*"restart-ready"/);
 });
 
 test("packaged smoke records, commits, plays and restart-checks a synthetic microphone capture", async () => {

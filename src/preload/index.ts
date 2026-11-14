@@ -7,10 +7,6 @@ import { createTaskPreloadCapability } from "./capabilities/task";
 type Unsubscribe = () => void;
 
 const api: ResearchDeskApi = {
-  agentLauncher: {
-    clients: () => ipcRenderer.invoke(IPC.agentLaunchClients),
-    launch: (request) => ipcRenderer.invoke(IPC.agentLaunch, request),
-  },
   openTaskCapture: (mode) => ipcRenderer.invoke(IPC.quickCaptureOpenTask, mode),
   captureOrganizer: {
     openSaved: (captureId, version) =>
@@ -197,20 +193,6 @@ const api: ResearchDeskApi = {
     performanceDiagnosticsEnabled: () => ipcRenderer.invoke(IPC.appPerformanceDiagnosticsEnabled),
     reportPerformance: (report) => ipcRenderer.send(IPC.appPerformanceReport, report),
     getMcpBridgeInfo: () => ipcRenderer.invoke(IPC.mcpBridgeInfo),
-    toggleTaskenRoot: () => ipcRenderer.invoke(IPC.taskenRootToggle),
-    hideTaskenRoot: () => ipcRenderer.invoke(IPC.taskenRootHide),
-    openTaskenRootTarget: (request) => ipcRenderer.invoke(IPC.taskenRootOpen, request),
-    getTaskenRootShortcut: () => ipcRenderer.invoke(IPC.taskenRootShortcutGet),
-    setTaskenRootShortcut: (shortcut) => ipcRenderer.invoke(IPC.taskenRootShortcutSet, shortcut),
-    onTaskenRootShown: (callback): Unsubscribe => {
-      const handler = (): void => callback();
-      ipcRenderer.on(IPC.taskenRootShown, handler);
-      return () => {
-        ipcRenderer.removeListener(IPC.taskenRootShown, handler);
-      };
-    },
-    showTodayMiniWindow: () => ipcRenderer.invoke(IPC.todayMiniShow),
-    toggleTodayMiniWindow: () => ipcRenderer.invoke(IPC.todayMiniToggleWindow),
     setMemoStickyTarget: (request) => ipcRenderer.invoke(IPC.memoStickySetTarget, request),
     toggleMemoStickyTargetsVisibility: () =>
       ipcRenderer.invoke(IPC.memoStickyToggleTargetsVisibility),
@@ -220,7 +202,6 @@ const api: ResearchDeskApi = {
       const handler = (_event: Electron.IpcRendererEvent, state: unknown): void => {
         const value = state && typeof state === "object" ? (state as Record<string, unknown>) : {};
         callback({
-          todayOpen: value.todayOpen === true,
           openMemoIds: Array.isArray(value.openMemoIds) ? value.openMemoIds.map(String) : [],
           stickyMemoIds: Array.isArray(value.stickyMemoIds) ? value.stickyMemoIds.map(String) : [],
           alwaysOnTopMemoIds: Array.isArray(value.alwaysOnTopMemoIds)
@@ -303,16 +284,6 @@ const api: ResearchDeskApi = {
         ipcRenderer.removeListener(IPC.workspaceOpenTaskDetail, handler);
       };
     },
-    onOpenTaskenRootTarget: (callback): Unsubscribe => {
-      const handler = (
-        _event: Electron.IpcRendererEvent,
-        request: Parameters<typeof callback>[0],
-      ): void => callback(request);
-      ipcRenderer.on(IPC.workspaceOpenRootTarget, handler);
-      return () => {
-        ipcRenderer.removeListener(IPC.workspaceOpenRootTarget, handler);
-      };
-    },
     onCapturedTaskFocus: (callback): Unsubscribe => {
       const handler = (
         _event: Electron.IpcRendererEvent,
@@ -376,7 +347,7 @@ const api: ResearchDeskApi = {
   },
 };
 
-const { mobileGateway: _mobileGateway, agentLauncher: _agentLauncher, ...legacyResearchDesk } = api;
+const { mobileGateway: _mobileGateway, ...legacyResearchDesk } = api;
 
 contextBridge.exposeInMainWorld("api", api);
 contextBridge.exposeInMainWorld("researchDesk", legacyResearchDesk);

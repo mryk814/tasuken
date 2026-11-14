@@ -5,7 +5,6 @@ import {
   IconArrowRight,
   IconChevronDown,
   IconBellRinging,
-  IconCalendarCheck,
   IconKeyboard,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
@@ -71,29 +70,15 @@ interface AppTitleBarProps {
 }
 
 export interface TitleBarLauncherData {
-  todayWindowOpen: boolean;
   stickyWindowsShown: boolean;
   /** 付箋表示対象を一括で展開／収納する。Memo自体は変更しない。 */
   toggleStickyWindows(): void;
-  toggleTodayWindow(): void;
 }
 
 /** Top Barから衛星ウィンドウを直接操作する（#327）。Popoverは経由しない。 */
 function TitleBarLauncher({ launcher }: { launcher: TitleBarLauncherData }) {
-  const todayLabel = launcher.todayWindowOpen ? "今日やることを収納" : "今日やることを表示";
   return (
     <div className="titlebar-launcher">
-      <button
-        type="button"
-        className={`titlebar-launcher-button${launcher.todayWindowOpen ? " is-active" : ""}`}
-        aria-label={todayLabel}
-        title={todayLabel}
-        aria-pressed={launcher.todayWindowOpen}
-        onClick={launcher.toggleTodayWindow}
-      >
-        <IconCalendarCheck size={16} aria-hidden="true" />
-        <span className="titlebar-launcher-state" aria-hidden="true" />
-      </button>
       <button
         type="button"
         className={`titlebar-launcher-button${launcher.stickyWindowsShown ? " is-active" : ""}`}

@@ -6,7 +6,6 @@ import type {
   AppUpdateCheckResult,
   AutomaticSnapshotBackupStatus,
   McpBridgeInfo,
-  RootShortcutState,
   SharedSyncStatus,
 } from "../../../../../shared/ipc/contracts";
 import type {
@@ -22,14 +21,11 @@ import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types
 import { todayIso as todayIsoDate } from "../domain-model/scheduleSemantics";
 import { entityTitle } from "../lib/domain";
 import { Button, IntegrationStatus, PageHeader } from "../components/common";
-import { HabitPanel } from "../components/HabitPanel";
-import { MaintenancePanel } from "../components/MaintenancePanel";
 import { CaptureOrganizerSettings } from "../components/CaptureOrganizerSettings";
 import {
-  DEFAULT_ROOT_SHORTCUT,
   DIRECT_SHORTCUT_DEFINITIONS,
   formatShortcutLabel,
-} from "../../../../../shared/taskenRoot";
+} from "../../../../../shared/globalShortcuts";
 
 interface SettingsPageProps extends PageProps {
   themeMode: "light" | "dark";
@@ -40,21 +36,11 @@ interface SettingsPageProps extends PageProps {
 }
 
 type SettingsSectionId =
-  | "general"
-  | "appearance"
-  | "habits"
-  | "maintenance"
-  | "storage"
-  | "integrations"
-  | "mobile"
-  | "ai-mcp"
-  | "advanced";
+  "general" | "appearance" | "storage" | "integrations" | "mobile" | "ai-mcp" | "advanced";
 
 const SETTINGS_SECTIONS: Array<{ id: SettingsSectionId; label: string; description: string }> = [
   { id: "general", label: "General", description: "基本の使い方" },
   { id: "appearance", label: "Appearance", description: "表示と編集" },
-  { id: "habits", label: "Habits", description: "続けることの記録" },
-  { id: "maintenance", label: "Maintenance", description: "手入れの目安と履歴" },
   { id: "storage", label: "Storage & Files", description: "保存と同期" },
   { id: "integrations", label: "Integrations", description: "外部サービス" },
   { id: "mobile", label: "Mobile", description: "Android接続" },
@@ -81,7 +67,6 @@ function backupTime(value: string): string {
 }
 
 export function SettingsPage({
-  data,
   domain,
   themeMode,
   setThemeMode,
@@ -90,9 +75,6 @@ export function SettingsPage({
   allThemes,
   setSnapshotPreview,
   snapshotPreview,
-  saveEntities,
-  removeEntity,
-  removeEntityQuiet,
   setToast,
 }: SettingsPageProps) {
   const [busy, setBusy] = useState(false);
@@ -112,9 +94,6 @@ export function SettingsPage({
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(() =>
     settingsSectionFromHash(window.location.hash),
   );
-  const [rootShortcut, setRootShortcut] = useState(DEFAULT_ROOT_SHORTCUT);
-  const [rootShortcutState, setRootShortcutState] = useState<RootShortcutState | null>(null);
-  const [rootShortcutBusy, setRootShortcutBusy] = useState(false);
   const [automaticBackupStatus, setAutomaticBackupStatus] =
     useState<AutomaticSnapshotBackupStatus | null>(null);
   const [automaticBackupEnabled, setAutomaticBackupEnabled] = useState(true);
@@ -194,22 +173,6 @@ export function SettingsPage({
   }
 
   useEffect(() => {
-    workspaceApi
-      .getTaskenRootShortcut()
-      .then((state) => {
-        setRootShortcut(state.shortcut);
-        setRootShortcutState(state);
-      })
-      .catch(() =>
-        setRootShortcutState({
-          shortcut: DEFAULT_ROOT_SHORTCUT,
-          registered: false,
-          error: "現在の登録状態を確認できません。",
-        }),
-      );
-  }, []);
-
-  useEffect(() => {
     setAutomaticBackupState("loading");
     setAutomaticBackupError("");
     workspaceApi
@@ -285,30 +248,6 @@ export function SettingsPage({
     setAutomaticBackupGenerations(status.generations);
     setAutomaticBackupState("success");
     setAutomaticBackupError("");
-  }
-
-  async function saveRootShortcut() {
-    setRootShortcutBusy(true);
-    try {
-      const state = await workspaceApi.setTaskenRootShortcut(rootShortcut);
-      setRootShortcutState(state);
-      if (state.registered) {
-        setRootShortcut(state.shortcut);
-        setToast("Tasken Rootのショートカットを変更しました。", "success");
-      } else {
-        setToast(
-          `ショートカットを登録できませんでした。${state.error || "別の組み合わせを指定してください。"}`,
-          "danger",
-        );
-      }
-    } catch (error) {
-      setToast(
-        `ショートカットを変更できませんでした。${error instanceof Error ? error.message : String(error)}`,
-        "danger",
-      );
-    } finally {
-      setRootShortcutBusy(false);
-    }
   }
 
   useEffect(() => {
@@ -890,66 +829,21 @@ export function SettingsPage({
               })()}
             </section>
             <section className="panel settings-form" hidden={activeSection !== "general"}>
-              <div className="settings-section-heading">
-                <h2>Tasken Root</h2>
-                <IntegrationStatus
-                  label={
-                    rootShortcutState?.registered
-                      ? "利用可能"
-                      : rootShortcutState
-                        ? "競合"
-                        : "確認中"
-                  }
-                  tone={
-                    rootShortcutState?.registered
-                      ? "normal"
-                      : rootShortcutState
-                        ? "attention"
-                        : "loading"
-                  }
-                />
-              </div>
-              <p className="field-help">Taskenが前面にないときも、仕事とActionを横断検索します。</p>
-              <label>
-                Global shortcut
-                <input
-                  value={rootShortcut}
-                  onChange={(event) => setRootShortcut(event.target.value)}
-                  spellCheck={false}
-                />
-              </label>
-              {rootShortcutState?.error ? (
-                <p className="field-help">{rootShortcutState.error}</p>
-              ) : null}
-              <Button
-                variant="secondary"
-                disabled={rootShortcutBusy || !rootShortcut.trim()}
-                onClick={() => void saveRootShortcut()}
-              >
-                ショートカットを保存
-              </Button>
-              <details className="settings-detail">
-                <summary>Direct shortcutとの役割</summary>
-                <div className="settings-detail-body">
-                  <p className="field-help">
-                    RootはEntityを探して操作する共通入口です。毎日繰り返す記録だけはDirect
-                    shortcutを維持します。
-                  </p>
-                  <dl className="settings-meta-list">
-                    {DIRECT_SHORTCUT_DEFINITIONS.map((definition) => (
-                      <div key={definition.id}>
-                        <dt>{definition.label}</dt>
-                        <dd className="mono-value shortcut-label">
-                          {formatShortcutLabel(
-                            definition.accelerator,
-                            typeof navigator === "undefined" ? "" : navigator.platform,
-                          )}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                </div>
-              </details>
+              <h2>ショートカット</h2>
+              <p className="field-help">Taskenが前面にないときも、記録の窓を開きます。</p>
+              <dl className="settings-meta-list">
+                {DIRECT_SHORTCUT_DEFINITIONS.map((definition) => (
+                  <div key={definition.id}>
+                    <dt>{definition.label}</dt>
+                    <dd className="mono-value shortcut-label">
+                      {formatShortcutLabel(
+                        definition.accelerator,
+                        typeof navigator === "undefined" ? "" : navigator.platform,
+                      )}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
             </section>
             <section className="panel settings-form" hidden={activeSection !== "appearance"}>
               <h2>表示</h2>
@@ -1224,35 +1118,6 @@ export function SettingsPage({
                   </div>
                 </div>
               </details>
-            </section>
-            <section className="panel settings-form" hidden={activeSection !== "habits"}>
-              {/* #454後半: Habitの最小実験。ここで追加し、記録はTodayで行う。 */}
-              <p className="field-help">
-                「毎日1回」「週N回」を手動で記録します。Taskは作りません。週の区切りは月曜開始です。
-              </p>
-              <HabitPanel
-                data={data}
-                today={todayIsoDate()}
-                saveEntities={saveEntities}
-                removeEntity={removeEntity}
-                setToast={setToast}
-                manage
-              />
-            </section>
-            <section className="panel settings-form" hidden={activeSection !== "maintenance"}>
-              {/* #454後半: Maintenanceの最小実験。目安と履歴の管理はここへ置く。 */}
-              <p className="field-help">
-                対象と推奨間隔を決めて、実施した日を記録します。次の目安は提案で、Taskの期限ではありません。
-              </p>
-              <MaintenancePanel
-                data={data}
-                today={todayIsoDate()}
-                saveEntities={saveEntities}
-                removeEntity={removeEntity}
-                removeEntityQuiet={removeEntityQuiet}
-                setToast={setToast}
-                manage
-              />
             </section>
             <section className="panel settings-form" hidden={activeSection !== "storage"}>
               {/* 保存先の設定は同期ルート一つに集約し、配下はTaskenが自動生成する（#306）。 */}

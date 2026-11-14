@@ -230,9 +230,7 @@ test("Headless replica joins a shared-folder sync and serves read-only MCP reads
       assert.ok(listed.tools.length < 22, String(listed.tools.length));
       for (const writeTool of [
         "tasken.start_task_work",
-        "tasken.append_work_receipt",
-        "tasken.report_task_done",
-        "tasken.report_task_blocked",
+        "tasken.report_work",
         "tasken.propose_note",
         "tasken.propose_feed_post",
         "tasken.answer_feed_question",
@@ -836,11 +834,6 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
         reason: "missing_capability:task.start_work",
         listed: false,
       },
-      ...["append_work_receipt", "report_task_done", "report_task_blocked"].map((name) => ({
-        name: `tasken.${name}`,
-        reason: "toolset_not_enabled",
-        listed: false,
-      })),
     ]);
 
     // 拒否: bridgeを経由しない要求も、許可範囲外の種類はCore自身がWRITE_NOT_ALLOWEDで止める。

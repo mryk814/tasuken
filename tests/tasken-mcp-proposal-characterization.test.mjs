@@ -589,13 +589,20 @@ test("proposal validators enforce public bounds and reject private paths, creden
   }
 });
 
-test("all proposal tools including legacy aliases use their authenticated Core command owner", () => {
+// 旧名3道具（append_work_receipt・report_task_done・report_task_blocked）は外した（#755）。
+test("all proposal tools use their authenticated Core command owner", () => {
   const source = fs.readFileSync("src/main/mcp/server.mjs", "utf8");
-  const names = [
-    "tasken.report_work",
+  for (const retired of [
     "tasken.append_work_receipt",
     "tasken.report_task_done",
     "tasken.report_task_blocked",
+  ])
+    assert.doesNotMatch(
+      source,
+      new RegExp(`registerTool\\(\\s*"${retired.replaceAll(".", "\\.")}"`),
+    );
+  const names = [
+    "tasken.report_work",
     "tasken.propose_note",
     "tasken.propose_note_edit",
     "tasken.propose_feed_post",
@@ -609,7 +616,7 @@ test("all proposal tools including legacy aliases use their authenticated Core c
     const next = source.indexOf("server.registerTool(", start + registrations[0][0].length);
     const block = source.slice(start, next === -1 ? source.length : next);
     assert.match(block, /annotations: PROPOSAL_ANNOTATIONS/);
-    assert.match(block, index < 4 ? /queueTaskWork/ : /queueContent/);
+    assert.match(block, index < 1 ? /queueTaskWork/ : /queueContent/);
     assert.match(block, /withCoreClient/);
     assert.doesNotMatch(block, /queueMcpProposal/);
   }

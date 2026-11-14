@@ -14,7 +14,9 @@ async function importBundled(relativePath) {
     write: false,
     logLevel: "silent",
   });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  return import(
+    `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
+  );
 }
 
 const planning = await importBundled("src/renderer/src/features/workspace/lib/dailyPlanning.ts");
@@ -27,30 +29,48 @@ function row(id, state = "todo", schedule = undefined) {
 }
 
 test("daily planning candidates classify open work without completed tasks", () => {
-  const candidates = planning.buildDailyPlanningCandidates([
-    row("overdue", "todo", { end_date: "2026-07-04" }),
-    row("due-today", "todo", { end_date: "2026-07-05" }),
-    row("range-started-today", "todo", { start_date: "2026-07-05", end_date: "2026-07-10" }),
-    row("ongoing-period-this-week", "todo", { start_date: "2026-07-03", end_date: "2026-07-10", date_kind: "range" }),
-    row("this-week", "todo", { end_date: "2026-07-12" }),
-    row("later", "todo", { end_date: "2026-07-13" }),
-    row("unscheduled", "todo"),
-    row("done", "done", { end_date: "2026-07-04" }),
-  ], "2026-07-05");
+  const candidates = planning.buildDailyPlanningCandidates(
+    [
+      row("overdue", "todo", { end_date: "2026-07-04" }),
+      row("due-today", "todo", { end_date: "2026-07-05" }),
+      row("range-started-today", "todo", { start_date: "2026-07-05", end_date: "2026-07-10" }),
+      row("ongoing-period-this-week", "todo", {
+        start_date: "2026-07-03",
+        end_date: "2026-07-10",
+        date_kind: "range",
+      }),
+      row("this-week", "todo", { end_date: "2026-07-12" }),
+      row("later", "todo", { end_date: "2026-07-13" }),
+      row("unscheduled", "todo"),
+      row("done", "done", { end_date: "2026-07-04" }),
+    ],
+    "2026-07-05",
+  );
 
-  assert.deepEqual(candidates.overdue.map((entry) => entry.task.id), ["overdue"]);
-  assert.deepEqual(candidates.thisWeek.map((entry) => entry.task.id), ["ongoing-period-this-week", "this-week"]);
-  assert.deepEqual(candidates.someday.map((entry) => entry.task.id), ["unscheduled"]);
+  assert.deepEqual(
+    candidates.overdue.map((entry) => entry.task.id),
+    ["overdue"],
+  );
+  assert.deepEqual(
+    candidates.thisWeek.map((entry) => entry.task.id),
+    ["ongoing-period-this-week", "this-week"],
+  );
+  assert.deepEqual(
+    candidates.someday.map((entry) => entry.task.id),
+    ["unscheduled"],
+  );
 });
 
-test("Today page uses the Today mini window instead of the daily planning wizard", () => {
+test("Today page does not use the daily planning wizard", () => {
   const source = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
   // 候補棚の投影はDomainと日付だけに依存させ、Today画面の外へ分けた（#684）。
-  const projectionSource = readFileSync("src/renderer/src/features/workspace/lib/dailyPlanning.ts", "utf8");
+  const projectionSource = readFileSync(
+    "src/renderer/src/features/workspace/lib/dailyPlanning.ts",
+    "utf8",
+  );
 
   assert.match(projectionSource, /buildDailyPlanningCandidates/);
   assert.match(source, /buildTodayPageProjection/);
-  assert.match(source, /workspaceApi\.showTodayMiniWindow/);
   assert.match(source, /今日やること/);
   assert.doesNotMatch(source, /今日の計画/);
   assert.doesNotMatch(source, /DailyPlanWizard/);

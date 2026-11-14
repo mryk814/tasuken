@@ -856,7 +856,7 @@ test("Capture text boundaries preserve the original through SQLite restart, repl
   }
 });
 
-test("Main Today and Today mini use the same explicit-date Task selector", () => {
+test("Main Today uses the explicit-date Task selector", () => {
   const tasks = [
     { id: "today", title: "Today", state: "todo" },
     { id: "ongoing", title: "Ongoing", state: "todo" },

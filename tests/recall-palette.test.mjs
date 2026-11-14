@@ -217,8 +217,6 @@ test("Ctrl+K契約はPaletteへ一本化し、入力中の既存ショートカ�
     "src/renderer/src/features/workspace/components/CommandPalette.tsx",
     "utf8",
   );
-  const root = readFileSync("src/renderer/src/tasken-root/TaskenRootApp.tsx", "utf8");
-  const rootCss = readFileSync("src/renderer/src/tasken-root/tasken-root.css", "utf8");
   const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
   const shell = readFileSync("src/renderer/src/features/workspace/components/shell.tsx", "utf8");
 
@@ -248,10 +246,7 @@ test("Ctrl+K契約はPaletteへ一本化し、入力中の既存ショートカ�
     /recalledGroup[\s\S]*?setActiveGroups\(\[\.\.\.activeGroups, recalledGroup\]\)/,
   );
   assert.match(app, /\.drawer input, \.drawer textarea, \.drawer button/);
-  assert.match(root, /nativeEvent\.isComposing[\s\S]*?nativeEvent\.keyCode === 229/);
-  assert.match(root, /scrollIntoView\(\{ block: "nearest" \}\)/);
-  assert.match(root, /Math\.max\(0, Math\.min\(current, matches\.length - 1\)\)/);
-  assert.match(rootCss, /:focus-visible[\s\S]*?box-shadow: var\(--focus-ring\)/);
+  // Tasken Root（ランチャー）の同じ検査は、Root ごと外した（#755）ので消した。
   assert.match(
     styles,
     /\.command-palette-result-status\s*\{[\s\S]*?color: var\(--color-text-secondary\)/,

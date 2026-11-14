@@ -70,9 +70,6 @@ export function restartArtifactIdsFromResult(value) {
     value?.stage === "restart-ready" ? value?.screenRecordingArtifactId : "";
   const screenRecordingPausedResumed =
     value?.stage === "restart-ready" && value?.screenRecordingPausedResumed === true;
-  const taskenRootOpened = value?.stage === "restart-ready" && value?.taskenRootOpened === true;
-  const taskenRootQuitCompleted =
-    value?.stage === "restart-ready" && value?.taskenRootQuitCompleted === true;
   const videoOwnerId = value?.stage === "restart-ready" ? value?.smokeTaskId : "";
   if (
     !audioArtifactId ||
@@ -89,8 +86,6 @@ export function restartArtifactIdsFromResult(value) {
       screenRecordingArtifactId,
     ) ||
     !screenRecordingPausedResumed ||
-    !taskenRootOpened ||
-    !taskenRootQuitCompleted ||
     typeof videoOwnerId !== "string" ||
     !videoOwnerId.trim()
   )

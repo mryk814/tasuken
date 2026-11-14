@@ -27,11 +27,9 @@ const readTools = [
   "tasken.list_proposals",
   "tasken.get_capabilities",
 ];
+// 旧名の append_work_receipt・report_task_done・report_task_blocked は外した（#755）。
 const proposalTools = [
   "tasken.report_work",
-  "tasken.append_work_receipt",
-  "tasken.report_task_done",
-  "tasken.report_task_blocked",
   "tasken.propose_note",
   "tasken.propose_note_edit",
   "tasken.propose_feed_post",

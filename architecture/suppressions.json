@@ -47,7 +47,7 @@
       "owner": "shared-contract-migration",
       "issue": 407,
       "expiresAt": "2026-11-30",
-      "removalCondition": "After Main, Preload, Renderer, Today Mini, and Root consumer inventory reaches zero, remove IPC.task*, ResearchDeskApi.task, LEGACY_TASK_IPC_CHANNELS, and this suppression."
+      "removalCondition": "After Main, Preload, and Renderer consumer inventory reaches zero, remove IPC.task*, ResearchDeskApi.task, LEGACY_TASK_IPC_CHANNELS, and this suppression."
     },
     {
       "rule": "composition.baseline_increase",

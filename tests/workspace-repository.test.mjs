@@ -338,24 +338,18 @@ test("activity log export directory preference round-trips", () => {
   assert.equal(repo.getPreference("activityLogLastFinalizedDate"), "2026-07-27");
 });
 
-test("Tasken Root and automatic Snapshot preferences round-trip with bounded values", () => {
+// Tasken Root（ランチャー）は外した（#755）。その設定（taskenRoot.*）と旧い activeGroup は、
+// もう読みも書きもしない。保存済みの値は workspace_meta に残るが、移さずに放っておく。
+test("retired launcher and legacy group preferences are no longer accepted", () => {
   const repo = fakePreferenceRepository();
-  const shortcut = "CommandOrControl+Alt+Space";
-  const usedAt = "2026-08-13T01:02:03.000Z";
+  for (const key of ["taskenRoot.globalShortcut", "taskenRoot.usage.v1", "activeGroup"]) {
+    assert.throws(() => repo.getPreference(key), /未対応の設定です/);
+    assert.throws(() => repo.setPreference(key, "x"), /未対応の設定です/);
+  }
+});
 
-  assert.equal(repo.getPreference("taskenRoot.globalShortcut"), "");
-  assert.equal(repo.setPreference("taskenRoot.globalShortcut", shortcut), shortcut);
-  assert.equal(repo.getPreference("taskenRoot.globalShortcut"), shortcut);
-  assert.deepEqual(
-    repo.setPreference("taskenRoot.usage.v1", {
-      "task:one": { count: 4.8, lastUsedAt: usedAt },
-      invalid: { count: -1, lastUsedAt: "not-a-date" },
-    }),
-    { "task:one": { count: 4, lastUsedAt: usedAt } },
-  );
-  assert.deepEqual(repo.getPreference("taskenRoot.usage.v1"), {
-    "task:one": { count: 4, lastUsedAt: usedAt },
-  });
+test("automatic Snapshot preferences round-trip with bounded values", () => {
+  const repo = fakePreferenceRepository();
 
   assert.equal(repo.getPreference("automaticSnapshotBackupEnabled"), true);
   assert.equal(repo.setPreference("automaticSnapshotBackupEnabled", false), false);

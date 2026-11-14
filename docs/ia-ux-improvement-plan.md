@@ -34,7 +34,7 @@ IAの現状の正本はコード（`src/renderer/src/pages/routes.ts` / `compone
 
 - 右ペイン `ContextPane`（期限切れ・待ち・現在地・再発見。ドロワー表示中は退避）
 - エンティティ編集ドロワー（14種類のフォーム）
-- ウィンドウ外の入口: トレイメニュー、capture window 4モード（Inbox記録 `Ctrl+Shift+N` / 今日のタスク / やったこと記録 / 付箋メモ `Ctrl+Shift+.`）、Todayミニ表示
+- ウィンドウ外の入口: トレイメニュー、capture window 4モード（Inbox記録 `Ctrl+Shift+N` / 今日のタスク / やったこと記録 / 付箋メモ `Ctrl+Shift+.`）
 
 ### 1.2 記録（入力）導線の全量
 

@@ -242,7 +242,6 @@ test("Wave 5 content detail service preserves legacy Note/Conversation/Artifact 
   const workspace = fixture();
   const legacy = new ReadOnlyTaskenContext("wave5-content.sqlite", {
     workspace,
-    aiVisibilityDefault: ["coding_agent"],
   });
   const { service } = serviceFixture();
   try {

@@ -8,10 +8,7 @@
     "capability.ipc_registration_outside_manifest|src/main/quickCaptureController.ts|",
     "capability.ipc_registration_outside_manifest|src/main/recordingIndicatorController.ts|",
     "capability.ipc_registration_outside_manifest|src/main/services/screenRecordingService.ts|",
-    "capability.ipc_registration_outside_manifest|src/main/taskenRootController.ts|",
-    "capability.ipc_registration_outside_manifest|src/main/todayMiniController.ts|",
     "capability.renderer_direct_window_api|src/renderer/src/features/workspace/WorkspaceApp.tsx|",
-    "capability.renderer_direct_window_api|src/renderer/src/tasken-root/TaskenRootApp.tsx|",
     "contract.parallel_mjs_declaration|src/main/repositories/batchTranscriptionRepository.mjs|src/main/repositories/batchTranscriptionRepository.d.mts",
     "contract.parallel_mjs_declaration|src/main/services/activityCanonicalResolver.mjs|src/main/services/activityCanonicalResolver.d.mts",
     "contract.parallel_mjs_declaration|src/main/services/atomicText.mjs|src/main/services/atomicText.d.mts",
@@ -47,14 +44,12 @@
     "main.application_platform_import|src/main/services/workspaceService.ts|external:electron",
     "module.missing_public_entrypoint|src/renderer/src/features/memo-sticky|",
     "module.missing_public_entrypoint|src/renderer/src/features/workspace|",
-    "module.missing_public_entrypoint|src/renderer/src/tasken-root|",
     "module.undeclared_dependency|src/main/services/applicationCommandService.ts|src/main/mediaCapturePersistence.ts",
     "module.undeclared_dependency|src/main/services/applicationCommandService.ts|src/main/repositories/domain.mjs",
     "module.undeclared_dependency|src/main/services/snapshotMediaValidation.ts|src/main/mediaCapturePersistence.ts",
     "module.undeclared_dependency|src/main/services/snapshotService.mjs|src/main/repositories/workspaceRepository.mjs",
     "module.undeclared_dependency|src/main/services/workspaceService.ts|src/main/log.ts",
     "module.undeclared_dependency|src/main/services/workspaceService.ts|src/main/mediaCapturePersistence.ts",
-    "module.undeclared_dependency|src/renderer/src/services/workspaceApi.ts|src/renderer/src/data/workspace.js",
-    "module.undeclared_dependency|src/renderer/src/tasken-root/TaskenRootApp.tsx|src/renderer/src/services/workspaceApi.ts"
+    "module.undeclared_dependency|src/renderer/src/services/workspaceApi.ts|src/renderer/src/data/workspace.js"
   ]
 }
