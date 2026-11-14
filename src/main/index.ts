@@ -53,6 +53,7 @@ import { WorkspaceService } from "./services/workspaceService";
 import { AiProposalAcceptanceService } from "./services/aiProposalAcceptanceService";
 import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
+import { runRetiredOutputCleanupOnce } from "./services/retiredOutputCleanup.mjs";
 import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBackup";
 import { applyEmbeddedAiRetirementMigration } from "./services/embeddedAiRetirementMigration";
 import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
@@ -143,6 +144,8 @@ let automaticSnapshotBackup: AutomaticSnapshotBackupService | null = null;
 let agentLogSyncService: WorkspaceService | null = null;
 // 起動直後の画面表示とworkspace:loadの邪魔をしないよう、自動バックアップは少し遅らせて裏で写す。
 const AUTOMATIC_BACKUP_STARTUP_DELAY_MS = 30_000;
+// 前の版の AI Pack・日別 Context の出力の片付け（#755 束2）。起動の直後の読み込みと競らせない。
+const RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS = 20_000;
 let smokeMediaCaptureService: MediaCaptureService | null = null;
 let smokeVideoSourcePath = "";
 let lastSmokeStage = "startup";
@@ -2870,6 +2873,16 @@ async function startDesktopApp(): Promise<void> {
     setTimeout(
       () => void automaticSnapshotBackup?.run("startup"),
       AUTOMATIC_BACKUP_STARTUP_DELAY_MS,
+    ).unref?.();
+    const cleanupRepository = workspaceRepository;
+    setTimeout(
+      () =>
+        void runRetiredOutputCleanupOnce({
+          repository: cleanupRepository,
+          trash: (filePath) => shell.trashItem(filePath),
+          log: (level, message) => logMain(level, "retired-output-cleanup", message),
+        }),
+      RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS,
     ).unref?.();
     sharedFolderSyncService.start();
     trayController.setup();
