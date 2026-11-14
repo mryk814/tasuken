@@ -2496,16 +2496,21 @@ async function startDesktopApp(): Promise<void> {
       () => void automaticSnapshotBackup?.run("startup"),
       AUTOMATIC_BACKUP_STARTUP_DELAY_MS,
     ).unref?.();
-    const cleanupRepository = workspaceRepository;
-    setTimeout(
-      () =>
-        void runRetiredOutputCleanupOnce({
-          repository: cleanupRepository,
-          trash: (filePath) => shell.trashItem(filePath),
-          log: (level, message) => logMain(level, "retired-output-cleanup", message),
-        }),
-      RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS,
-    ).unref?.();
+    // 配布した版だけで走らせる。開発中の起動（npm run dev・bench:desktop・audit）は本物の DB や
+    // その写しを開くことがあり、Theme の storage_root は本物の同期先を指したままなので、
+    // 本物の AI Pack を本物のごみ箱へ移してしまう。
+    if (app.isPackaged) {
+      const cleanupRepository = workspaceRepository;
+      setTimeout(
+        () =>
+          void runRetiredOutputCleanupOnce({
+            repository: cleanupRepository,
+            trash: (filePath) => shell.trashItem(filePath),
+            log: (level, message) => logMain(level, "retired-output-cleanup", message),
+          }),
+        RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS,
+      ).unref?.();
+    }
     sharedFolderSyncService.start();
     trayController.setup();
     reminderController.start();
