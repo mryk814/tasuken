@@ -219,7 +219,7 @@ internal fun SyncStatusSheet(
 }
 
 /**
- * 設定を1か所へ集める。各画面に散らばっていた通知・PCなし整理・接続をここから開く。
+ * 設定を1か所へ集める。通知の許可と接続をここから開く。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -227,7 +227,6 @@ internal fun AppSettingsSheet(
     notificationsAllowed: Boolean,
     notificationPermissionDenied: Boolean,
     onRequestNotifications: (() -> Unit)?,
-    onOpenDirectAiSettings: () -> Unit,
     onRepair: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -247,17 +246,6 @@ internal fun AppSettingsSheet(
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
-            SettingsGroupLabel("入力の整理")
-            StatusRow(
-                icon = R.drawable.ic_tabler_sparkles,
-                tone = StatusTone.Info,
-                title = "PCなし整理",
-                detail = "PCがオフでも、入力をTaskへ分けられるようにします",
-                value = "開く",
-                onClick = onOpenDirectAiSettings,
-                modifier = Modifier.testTag("open-direct-ai-settings"),
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             SettingsGroupLabel("接続")
             StatusRow(
                 icon = R.drawable.ic_tabler_link,

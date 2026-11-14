@@ -304,7 +304,6 @@ sealed interface CaptureUiState {
         val entityId: String,
         val kind: MobileCaptureKind,
         val completionBehavior: CaptureCompletionBehavior = CaptureCompletionBehavior.Close,
-        val additionalEntityIds: List<String> = emptyList(),
     ) : CaptureUiState
     data class Error(val message: String) : CaptureUiState
 }
@@ -335,12 +334,6 @@ class TodayViewModel(
     val relatedDocumentsRepository: MobileRelatedDocumentsRepository? get() = repository as? MobileRelatedDocumentsRepository
     val themeContextRepository: MobileThemeContextRepository? get() = repository as? MobileThemeContextRepository
     val localSearchRepository: MobileLocalSearchRepository? get() = repository as? MobileLocalSearchRepository
-    suspend fun organizeCapture(draft: MobileCaptureDraft): List<MobileCaptureOrganization> =
-        kotlinx.coroutines.withContext(ioDispatcher) {
-            val gateway = repository as? MobileGatewayRepository
-                ?: error("Desktopへ接続するとAI整理を利用できます。")
-            gateway.organizeCapture(draft)
-        }
     private val mutableUiState = MutableStateFlow<TodayUiState>(TodayUiState.Loading)
     val uiState: StateFlow<TodayUiState> = mutableUiState.asStateFlow()
     private val mutableAgentSessions = MutableStateFlow<List<MobileAgentSessionDto>>(emptyList())
@@ -816,23 +809,14 @@ class TodayViewModel(
         completionBehavior: CaptureCompletionBehavior = CaptureCompletionBehavior.Close,
     ) {
         val entityLabel = if (draft.kind == MobileCaptureKind.Task) "Task" else "Capture"
-        val drafts = if (draft.kind == MobileCaptureKind.Task) draft.organizedTaskDrafts() else listOf(draft)
-        if (drafts.isEmpty()) {
-            mutableCaptureState.value = CaptureUiState.Error("追加する候補を選んでください。")
-            return
-        }
-        val normalizedDrafts = drafts.map { if (it.kind == MobileCaptureKind.Task) it.withText(it.text.trim()) else it }
-        if (normalizedDrafts.any { it.text.isBlank() }) {
+        val normalizedDraft = if (draft.kind == MobileCaptureKind.Task) draft.withText(draft.text.trim()) else draft
+        if (normalizedDraft.text.isBlank()) {
             mutableCaptureState.value = CaptureUiState.Error("${entityLabel}の内容を入力してください。")
             return
         }
         val textLimit = if (draft.kind == MobileCaptureKind.Task) MOBILE_TASK_TITLE_MAX_LENGTH else MOBILE_CAPTURE_TEXT_MAX_LENGTH
-        if (normalizedDrafts.any { it.text.length > textLimit }) {
+        if (normalizedDraft.text.length > textLimit) {
             mutableCaptureState.value = CaptureUiState.Error("${entityLabel}は${textLimit}文字以内で入力してください。全文は保持しています。")
-            return
-        }
-        if (normalizedDrafts.any { runCatching { it.organization?.validate() }.isFailure }) {
-            mutableCaptureState.value = CaptureUiState.Error("整理案の日付・予定時刻・所要時間・チェック項目を確認してから追加してください。")
             return
         }
         val offlineRepository = repository as? MobileOfflineTaskRepository
@@ -841,21 +825,13 @@ class TodayViewModel(
             return
         }
         mutableCaptureState.value = try {
-            val entityIds = withContext(ioDispatcher) {
-                if (draft.kind == MobileCaptureKind.Task) offlineRepository.enqueueCreateTasks(normalizedDrafts)
-                else normalizedDrafts.map { normalizedDraft ->
-                    when (normalizedDraft.kind) {
-                        MobileCaptureKind.Task -> offlineRepository.enqueueCreateTask(normalizedDraft)
-                        MobileCaptureKind.Capture -> offlineRepository.enqueueCreateCapture(normalizedDraft)
-                    }
+            val entityId = withContext(ioDispatcher) {
+                when (normalizedDraft.kind) {
+                    MobileCaptureKind.Task -> offlineRepository.enqueueCreateTask(normalizedDraft)
+                    MobileCaptureKind.Capture -> offlineRepository.enqueueCreateCapture(normalizedDraft)
                 }
             }
-            CaptureUiState.Queued(
-                entityId = entityIds.first(),
-                kind = draft.kind,
-                completionBehavior = completionBehavior,
-                additionalEntityIds = entityIds.drop(1),
-            )
+            CaptureUiState.Queued(entityId = entityId, kind = draft.kind, completionBehavior = completionBehavior)
         } catch (_: Exception) {
             CaptureUiState.Error("${entityLabel}を保存できませんでした。入力を残したまま再試行してください。")
         }
@@ -867,36 +843,6 @@ class TodayViewModel(
 
     fun undoCreatedCapture(entityId: String, kind: MobileCaptureKind) {
         viewModelScope.launch { undoCreatedCaptureNow(entityId, kind) }
-    }
-
-    fun undoCreatedCaptures(entityIds: List<String>) {
-        if (entityIds.isEmpty()) return
-        viewModelScope.launch {
-            val offlineRepository = repository as? MobileOfflineTaskRepository
-            if (offlineRepository == null) {
-                mutableTaskActionState.value = TaskActionUiState.Error(
-                    entityIds.first(),
-                    "この環境ではTask追加を元に戻せません。",
-                )
-                return@launch
-            }
-            mutableTaskActionState.value = TaskActionUiState.Saving(entityIds.first())
-            mutableTaskActionState.value = try {
-                val results = withContext(ioDispatcher) {
-                    entityIds.asReversed().map { offlineRepository.undoCreateTask(it) }
-                }
-                TaskActionUiState.Queued(
-                    taskId = entityIds.first(),
-                    requiresSync = results.any(MobileUndoCreateResult::requiresSync),
-                    message = "${entityIds.size}件のTask追加を元に戻しました。",
-                )
-            } catch (error: Exception) {
-                TaskActionUiState.Error(
-                    entityIds.first(),
-                    error.message ?: "Task追加を元に戻せませんでした。",
-                )
-            }
-        }
     }
 
     internal suspend fun undoCreatedCaptureNow(entityId: String, kind: MobileCaptureKind) {
@@ -1438,15 +1384,11 @@ class TodayPaneState(
         captureDraft.share?.mimeType,
         taskScheduleFilter.name,
         taskThemeId,
-        captureDraft.organization?.let { kotlinx.serialization.json.Json.encodeToString(MobileCaptureOrganization.serializer(), it) },
-        captureDraft.originalText,
+        // 26・27 は入力の AI 整理（#755 束9a で外した）が使っていた。並びを保つため空けておく。
+        null,
+        null,
         captureDraft.speech?.capturedAt,
         captureDraft.speech?.timeZone,
-        captureDraft.originalThemeId,
-        kotlinx.serialization.json.Json.encodeToString(
-            kotlinx.serialization.builtins.ListSerializer(MobileCaptureOrganization.serializer()),
-            captureDraft.additionalOrganizations,
-        ),
     )
 
     companion object {
@@ -1477,16 +1419,6 @@ class TodayPaneState(
                         null
                     },
                 createdAt = saved.getOrNull(19) as? String ?: java.time.Instant.now().toString(),
-                organization = (saved.getOrNull(26) as? String)?.let {
-                    kotlinx.serialization.json.Json.decodeFromString(MobileCaptureOrganization.serializer(), it)
-                },
-                originalText = saved.getOrNull(27) as? String,
-                originalThemeId = saved.getOrNull(30) as? String,
-                additionalOrganizations = (saved.getOrNull(31) as? String)?.let {
-                    kotlinx.serialization.json.Json.decodeFromString(
-                        kotlinx.serialization.builtins.ListSerializer(MobileCaptureOrganization.serializer()), it,
-                    )
-                }.orEmpty(),
             ),
             captureOpen = saved.getOrNull(4) as? Boolean ?: false,
             captureVoiceStartRequested = saved.getOrNull(20) as? Boolean ?: false,
@@ -1511,8 +1443,6 @@ class TodayPaneState(
 }
 
 interface MobileGatewayRepository : MobileTaskRepository {
-    suspend fun organizeCapture(draft: MobileCaptureDraft): List<MobileCaptureOrganization> =
-        error("このDesktopではAI整理を利用できません。Desktopを更新してください。")
     fun configuration(): MobileGatewayConfiguration
     fun pair(origin: String, pairingCode: String): MobileTodayResult
     fun retryPairing(): MobileTodayResult
@@ -1571,13 +1501,6 @@ interface MobileOfflineTaskRepository {
         draft: MobileCaptureDraft,
         todayDate: java.time.LocalDate? = java.time.LocalDate.now(),
     ): String
-    suspend fun enqueueCreateTasks(
-        drafts: List<MobileCaptureDraft>,
-        todayDate: java.time.LocalDate? = java.time.LocalDate.now(),
-    ): List<String> {
-        require(drafts.size == 1) { "この環境では複数のTaskを一度に追加できません。" }
-        return listOf(enqueueCreateTask(drafts.single(), todayDate))
-    }
     suspend fun enqueueCreateCapture(draft: MobileCaptureDraft): String =
         error("この環境ではCaptureを追加できません。")
     suspend fun undoCreateTask(taskId: String): MobileUndoCreateResult =

@@ -84,20 +84,15 @@ data class MobileCaptureDraft(
     val speech: MobileSpeechProvenance?,
     val share: MobileShareProvenance?,
     val createdAt: String,
-    val organization: MobileCaptureOrganization? = null,
-    val additionalOrganizations: List<MobileCaptureOrganization> = emptyList(),
-    val originalText: String? = null,
-    val originalThemeId: String? = null,
     val photos: List<MobileCapturePhoto> = emptyList(),
 ) {
     init {
         require(speech == null || source == MobileCaptureSource.AndroidSpeech)
         require((source == MobileCaptureSource.ShareTarget) == (share != null))
-        require(additionalOrganizations.size <= 7)
     }
 
     // Drafts retain all input, including over-limit text; limits apply only at the command boundary.
-    fun withText(value: String): MobileCaptureDraft = copy(text = value, organization = organization?.copy(title = value))
+    fun withText(value: String): MobileCaptureDraft = copy(text = value)
 
     fun withPhoto(photo: MobileCapturePhoto): MobileCaptureDraft =
         if (photos.any { it.fileName == photo.fileName }) this else copy(photos = photos + photo)
@@ -105,61 +100,9 @@ data class MobileCaptureDraft(
     fun withoutPhoto(fileName: String): MobileCaptureDraft =
         copy(photos = photos.filterNot { it.fileName == fileName })
 
-    fun withKind(value: MobileCaptureKind): MobileCaptureDraft =
-        if (value == kind) this else withoutOrganization().copy(kind = value)
+    fun withKind(value: MobileCaptureKind): MobileCaptureDraft = if (value == kind) this else copy(kind = value)
 
-    fun withoutOrganization(): MobileCaptureDraft = copy(
-        text = originalText ?: text,
-        projectId = if (organization != null) originalThemeId else projectId,
-        organization = null, additionalOrganizations = emptyList(), originalText = null, originalThemeId = null,
-    )
-
-    fun withThemeId(value: String?): MobileCaptureDraft = copy(
-        projectId = value?.trim()?.takeIf(String::isNotEmpty),
-        organization = organization?.copy(themeId = value?.trim()?.takeIf(String::isNotEmpty)),
-    )
-
-    fun withOrganization(value: MobileCaptureOrganization): MobileCaptureDraft {
-        return withOrganizations(listOf(value))
-    }
-
-    fun withOrganizations(values: List<MobileCaptureOrganization>): MobileCaptureDraft {
-        require(values.isNotEmpty() && values.size <= 8)
-        values.forEach(MobileCaptureOrganization::validate)
-        return withEditedOrganizations(values)
-    }
-
-    // Editing may temporarily leave a title/date incomplete; validate at inference and save boundaries.
-    fun withEditedOrganizations(values: List<MobileCaptureOrganization>): MobileCaptureDraft {
-        require(values.isNotEmpty() && values.size <= 8)
-        val value = values.first()
-        val original = originalText ?: text
-        require(original.isNotBlank() && original.length <= 12000)
-        return copy(text = value.title, projectId = value.themeId, kind = MobileCaptureKind.Task,
-            organization = value, additionalOrganizations = values.drop(1), originalText = original,
-            originalThemeId = if (organization == null) projectId else originalThemeId)
-    }
-
-    fun allOrganizations(): List<MobileCaptureOrganization> =
-        listOfNotNull(organization) + additionalOrganizations
-
-    fun organizedTaskDrafts(): List<MobileCaptureDraft> {
-        val proposals = allOrganizations()
-        if (proposals.isEmpty()) return listOf(this)
-        return proposals.mapIndexedNotNull { index, proposal ->
-            if (proposal.excluded) return@mapIndexedNotNull null
-            copy(
-                // ID は、除外した候補も数えた元の index から作る。除外しても後続の ID が変わらず、
-                // 再試行で重複しない。
-                draftId = if (index == 0) draftId else "$draftId:task:$index",
-                text = proposal.title,
-                projectId = proposal.themeId,
-                kind = MobileCaptureKind.Task,
-                organization = proposal,
-                additionalOrganizations = emptyList(),
-            )
-        }
-    }
+    fun withThemeId(value: String?): MobileCaptureDraft = copy(projectId = value?.trim()?.takeIf(String::isNotEmpty))
 
     fun withSpeechResult(
         result: ShortSpeechRecognitionResult,
@@ -167,12 +110,7 @@ data class MobileCaptureDraft(
         capturedAt: String = Instant.now().toString(),
         timeZone: String = java.time.ZoneId.systemDefault().id,
     ): MobileCaptureDraft = copy(
-        text = if (append && (originalText ?: text).isNotBlank()) "${originalText ?: text} ${result.text}" else result.text,
-        organization = null,
-        additionalOrganizations = emptyList(),
-        originalText = null,
-        projectId = if (organization != null) originalThemeId else projectId,
-        originalThemeId = null,
+        text = if (append && text.isNotBlank()) "$text ${result.text}" else result.text,
         source = MobileCaptureSource.AndroidSpeech,
         speech = MobileSpeechProvenance(
             recognitionMode = result.mode,
