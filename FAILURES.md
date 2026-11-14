@@ -2,6 +2,14 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-14 `npm run ci` の最後の smoke が「10 秒以内に閉じる」だけで 6 回中 5 回落ちた
+
+- しようとしたこと: #755 の束 3・束 9a を main に入れる前に `npm run ci` を流す。PC はほかの作業で CPU 90% 前後。
+- 起きたこと: `smoke:proposal-live:focused` が、確かめの中身を全部通った後の `closeElectron` で「Tasken did not close within ten seconds.」。束 9a は src に触れない（Android と試験だけ）のに同じ所で落ち、単独で流し直しても 3 回中 2 回落ちた。
+- 原因: 終了の待ちに余裕が無かった。アプリは before-quit で画面の書き出しを最大 10 秒待ち、その後に Core・Android 連携の受け口・動いている自動バックアップを上限なしで止める。smoke は閉じるのを 10 秒しか待たないので、書き出しが少し延びるだけで、その後の片付けが入る余地が無かった。最近の main の変更に終了を遅くする物は見つからなかった（before-quit の本体は 11/7 から変わっていない）。
+- 直し方: `live-proposal-electron-smoke.mjs` と `activity-electron-smoke.mjs` の終了の待ちを 30 秒にした。止まったままの終了は 30 秒で捕まえる。
+- 再発防止: 待ちの横にコメントで理由を書いた。smoke の終了の待ちは、アプリ側の書き出しの上限（10 秒）より長くする。段ごとの時間はまだ測っていない（落ち続けるなら、書き出し・stopSafely・バックアップの中止・will-quit の時刻を logMain に出して測る）。
+
 ## 2026-11-14 v0.1.89 の Windows release が、Release の時だけ流れる smoke の古い文で落ちた
 
 - しようとしたこと: #736（ナビの言葉の日本語化）と #741 を入れた後、v0.1.89 のタグを push して Windows release を流す。

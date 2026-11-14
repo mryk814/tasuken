@@ -190,7 +190,11 @@ function workReceiptArguments({ taskId, expectedVersion, idempotencyKey, summary
 async function closeElectron() {
   if (!electronApp) return;
   const processHandle = electronApp.process();
-  const closeEvent = electronApp.waitForEvent("close", { timeout: 10_000 }).then(
+  // The app itself waits up to 10 s for the renderer flush in before-quit, then stops Core,
+  // the mobile gateway and any running backup with no limit of their own. Waiting exactly
+  // 10 s here left no room for those, so a busy PC failed this check after every real
+  // check had passed. 30 s still catches a quit that hangs.
+  const closeEvent = electronApp.waitForEvent("close", { timeout: 30_000 }).then(
     () => true,
     () => false,
   );
@@ -199,7 +203,7 @@ async function closeElectron() {
   const closed = await closeEvent;
   if (!closed && processHandle.exitCode === null) processHandle.kill();
   electronApp = undefined;
-  assert.equal(closed, true, "Tasken did not close within ten seconds.");
+  assert.equal(closed, true, "Tasken did not close within 30 seconds.");
 }
 
 try {
