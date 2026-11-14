@@ -4,6 +4,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveTaskenUserDataPath } from "../src/shared/taskenPaths.mjs";
 
 import { createSnapshot } from "../src/main/services/snapshotService.mjs";
 import {
@@ -2785,10 +2786,21 @@ function parseArguments(argv) {
   const result = { target: "" };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
-    if (value === "--target") result.target = path.resolve(argv[++index] || "");
-    else throw new Error(`未知の引数です: ${value}`);
+    if (value === "--target") {
+      const raw = argv[++index];
+      if (!raw) throw new Error("--target <sqlite path> を指定してください。");
+      result.target = path.resolve(raw);
+    } else throw new Error(`未知の引数です: ${value}`);
   }
   if (!result.target) throw new Error("--target <sqlite path> を指定してください。");
+  // 本人の実プロファイル（環境変数で差し替えていない既定の場所）の中には、明示されても書かない。
+  // この台本は既存の DB を退避してデモで置き換えるので、本人の記録を置き換えうる（#755 束3）。
+  const { TASKEN_USER_DATA_DIR: _userData, TASKEN_DB_PATH: _dbPath, ...defaultEnv } = process.env;
+  const realProfile = resolveTaskenUserDataPath({ env: defaultEnv });
+  const relative = path.relative(realProfile.toLowerCase(), result.target.toLowerCase());
+  if (relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative))) {
+    throw new Error(`本人の実プロファイルの中には書けません: ${result.target}`);
+  }
   return result;
 }
 
