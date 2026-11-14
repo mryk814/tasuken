@@ -9829,10 +9829,12 @@ kbd {
   background: var(--color-accent-subtle-bg);
   border-color: var(--color-accent-subtle-bd);
 }
+/* AI が作業中の印は、すぐ下の「作業中」のチップ（.todo-ai-state-chip.is-in_progress）と同じ藍にする。
+   進行中の色（status-active）は Task の状態の色で、同じ事実が二色に分かれて見えるため。 */
 .priority-flag-button.is-working {
-  color: var(--color-status-active-fg);
-  background: var(--color-status-active-bg);
-  border-color: var(--color-status-active-bd);
+  color: var(--action-ai-fg);
+  background: var(--action-ai-bg);
+  border-color: var(--action-ai-bd);
   cursor: default;
   opacity: 1;
 }
@@ -17250,9 +17252,9 @@ kbd {
 }
 
 .task-handoff-state.is-working {
-  color: var(--color-status-active-fg);
-  background: var(--color-status-active-bg);
-  border-color: var(--color-status-active-bd);
+  color: var(--action-ai-fg);
+  background: var(--action-ai-bg);
+  border-color: var(--action-ai-bd);
 }
 
 .task-handoff-fields {
