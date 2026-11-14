@@ -405,7 +405,7 @@ Androidの接続画面に、`https://<NASのtailnet名>:8448`とコードを入�
 - 乗り換える前に、スマホのoutboxを空にする（Desktopへ送って応答を失った操作を、NASへ再送して二重に適用しないため）。
 - NASが取り込みの途中（`starting`・`waiting_*`・`blocked`・`io_error`）の間と、そのEntityが同期の競合中の間は、既存Entityの編集を503で断る。端末のoutboxに残り、取り込みが追いつくと自動で通る。競合はDesktopの画面で解く。
 - NASのDBを古いバックアップから戻すと、共有フォルダへ公開済みの連番より後戻りする。検出すると公開と取り込みを止め（`blocked`）、端末の書き込みも断る。抜け出し方は下の「後戻りで止まったとき」。
-- 委任はNASではできない。写真・Capture・Task・WorkLog・Feedの反応と返信・続けること・手入れは、Desktopと同じ範囲を書ける。
+- 写真・Capture・Task・WorkLog・Feedの反応と返信・続けることは、Desktopと同じ範囲を書ける（委任・要対応・手入れ・AIの整理の受け口は #755 束9b で外した）。
 
 ### 後戻りで止まったとき
 

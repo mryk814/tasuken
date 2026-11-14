@@ -428,6 +428,9 @@ const definitions = /** @type {const} */ ([
     legacyThemeFields: ["theme_id"],
     requiredFields: ["title", "body_markdown", "published_at"],
   },
+  // 手入れ（maintenance・maintenance_entry）は #755 束9b で画面と書き込みの入口を外した。種類の登録は
+  // 読むだけで残す（記録を消さず、古い差分に残った手入れが同期で来ても止まらないようにする）。
+  // 記録は設定 → Advanced から 1 件ずつ Markdown に書き出せる（main/services/maintenanceExport.ts）。
   {
     type: "maintenance",
     collectionKey: "maintenances",

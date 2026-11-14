@@ -21,7 +21,7 @@ import { Button } from "./common";
  * - 主表示は「今日1回」「今週2/3回」。連続日数・達成率・失敗を強調する赤い表示は置かない。
  * - 実施記録のIDは組み立てで決まるので、連打と再送では増えず、同じ日の2回目は別の記録になる。
  * - Todayの行（rows）は**Habitがある場合だけ**現れる（未使用の人へ空の設定案内を常設しない）。
- * - 追加・一時停止・履歴・削除は一覧（panel）で行う。一覧はTodayの「続けること・手入れ」のmenuから開く。
+ * - 追加・一時停止・履歴・削除は一覧（panel）で行う。一覧はTodayの「続けること」のmenuから開く。
  */
 
 export interface HabitPanelProps extends Pick<

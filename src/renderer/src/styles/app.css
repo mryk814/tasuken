@@ -2395,7 +2395,7 @@ textarea:hover {
 }
 
 /*
- * 続けること・手入れの一覧（Todayの「今日やること」のmenuから開く）。
+ * 続けることの一覧（Todayの「今日やること」のmenuから開く）。
  * 行のすぐ下に、同じパネルの続きとして出す（枠を重ねない）。
  */
 .today-focus-panel.has-heading-menu {
@@ -2433,118 +2433,29 @@ textarea:hover {
   color: var(--color-text-secondary);
   font: var(--text-xs) var(--font-mono);
 }
-.today-routine-manage .habit-panel .habit-row,
-.today-routine-manage .maintenance-panel .maintenance-row {
+.today-routine-manage-title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+.today-routine-manage .habit-panel .habit-row {
   gap: var(--space-2);
   padding: var(--space-3) 0;
 }
-.today-routine-manage .habit-panel .habit-row:last-child,
-.today-routine-manage .maintenance-panel .maintenance-row:last-child {
+.today-routine-manage .habit-panel .habit-row:last-child {
   border-bottom: 0;
 }
-.today-routine-manage .habit-panel .habit-row-head,
-.today-routine-manage .maintenance-panel .maintenance-row-head {
+.today-routine-manage .habit-panel .habit-row-head {
   flex-wrap: wrap;
 }
-.today-routine-manage .habit-panel .habit-state,
-.today-routine-manage .maintenance-panel .maintenance-due {
+.today-routine-manage .habit-panel .habit-state {
   border: 0;
   border-radius: 0;
   padding: 0;
 }
-.today-routine-manage .habit-panel .habit-actions,
-.today-routine-manage .maintenance-panel .maintenance-actions {
+.today-routine-manage .habit-panel .habit-actions {
   gap: var(--space-2) var(--space-3);
 }
-.today-routine-manage .maintenance-panel .maintenance-actions label {
-  min-width: 0;
-}
-.today-routine-manage .maintenance-panel .maintenance-note-field {
-  flex: 1 1 180px;
-}
-.today-routine-manage .maintenance-panel input {
-  max-width: 100%;
-}
-
-/* #454後半: Maintenanceの最小実験。目安は提案で、遅れを赤い違反表示にしない。 */
-.maintenance-panel .maintenance-create {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-2);
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-.maintenance-panel .maintenance-create label,
-.maintenance-panel .maintenance-actions label {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-.maintenance-panel input {
-  font: inherit;
-  color: var(--color-text-primary);
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
-.maintenance-panel .maintenance-note,
-.maintenance-panel .maintenance-empty,
-.maintenance-panel .maintenance-meta {
-  font-size: var(--text-sm);
-  color: var(--color-text-tertiary);
-}
-.maintenance-panel .maintenance-list,
-.maintenance-panel .maintenance-history {
-  display: grid;
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.maintenance-panel .maintenance-row {
-  display: grid;
-  gap: var(--space-1);
-  padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-.maintenance-panel .maintenance-row-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-}
-.maintenance-panel .maintenance-title {
-  font-weight: var(--weight-medium);
-}
-.maintenance-panel .maintenance-due {
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 0 var(--space-1);
-}
-.maintenance-panel .maintenance-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  align-items: flex-end;
-}
-.maintenance-panel .maintenance-history-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  padding: var(--space-1) 0;
-}
-.maintenance-panel .maintenance-history-date {
-  font-variant-numeric: tabular-nums;
-}
-.maintenance-panel .maintenance-history-note {
-  color: var(--color-text-secondary);
-}
-
 /* #454後半: Habitの最小実験。連続日数や達成率を強調する装飾は持たない。 */
 .habit-panel .habit-create {
   display: flex;
@@ -2891,7 +2802,7 @@ textarea:hover {
   color: var(--color-danger-strong);
   font-weight: var(--weight-medium);
 }
-/* 続けること・手入れの行（2026-10-06）。Taskの行と同じ形で、テーマ色の帯は持たない。 */
+/* 続けることの行（2026-10-06）。Taskの行と同じ形で、テーマ色の帯は持たない。 */
 .today-routine-list:empty {
   display: none;
 }

@@ -36,7 +36,6 @@ import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components
 import { ReminderDueBanner, useReminderNow } from "../components/common";
 import { isReminderDue } from "../lib/reminders";
 import { HabitPanel } from "../components/HabitPanel";
-import { MaintenancePanel } from "../components/MaintenancePanel";
 import { RoutineManage, type RoutineManageState } from "../components/RoutineManage";
 import {
   calendarFetchedLabel,
@@ -64,7 +63,7 @@ import type { PlanNode, Schedule, Task, Waiting } from "../domain-model/types";
 import type { ExecutionWindowTaskRow, OngoingPeriodTaskRow } from "../domain-model/viewModels";
 
 /** 今日期限 / 期限切れ。完了系には付けない。 */
-/** 続けること・手入れは個人業務として、個人業務Themeと同じ帯の色にする。 */
+/** 続けることは個人業務として、個人業務Themeと同じ帯の色にする。 */
 function personalChipStyle(themes: PageProps["themes"]): React.CSSProperties {
   const index = themes.findIndex((entry) => entry.id === PERSONAL_DEFAULT_THEME_ID);
   return {
@@ -953,15 +952,13 @@ export function TodayPage({
   startFocusSession,
   saveEntities,
   removeEntity,
-  removeEntityQuiet,
   setToast,
 }: PageProps) {
   const [showAdd, setShowAdd] = useState(false);
   const [showWorkLog, setShowWorkLog] = useState(false);
-  // 続けること・手入れの追加と、全件の一覧（削除もここ）。「今日やること」のmenuから開く。
+  // 続けることの追加と、全件の一覧（削除もここ）。「今日やること」のmenuから開く。
   const [routineManage, setRoutineManage] = useState<RoutineManageState | null>(null);
   const habitCount = (data.habits || []).filter((habit) => !habit.deleted_at).length;
-  const maintenanceCount = (data.maintenances || []).filter((item) => !item.deleted_at).length;
   const [addTitle, setAddTitle] = useState("");
   const [addTheme, setAddTheme] = useState(PERSONAL_DEFAULT_THEME_ID);
   // トーストの「元に戻す」は保存後に走るため、常に最新の保存関数を参照する。
@@ -1590,30 +1587,18 @@ export function TodayPage({
           <TodayProgress {...progress} />
           <ToolbarMenu
             className="today-routine-menu"
-            label="続けること・手入れ"
-            title="続けること・手入れの追加と一覧"
+            label="続けること"
+            title="続けることの追加と一覧"
             items={[
               {
                 id: "add-habit",
                 label: "続けることを追加",
-                onSelect: () => setRoutineManage({ kind: "habit", createOpen: true }),
-              },
-              {
-                id: "add-maintenance",
-                label: "手入れを追加",
-                onSelect: () => setRoutineManage({ kind: "maintenance", createOpen: true }),
+                onSelect: () => setRoutineManage({ createOpen: true }),
               },
               {
                 id: "list-routines",
-                label: `一覧と削除（続けること${habitCount}・手入れ${maintenanceCount}）`,
-                onSelect: () =>
-                  setRoutineManage((current) => ({
-                    // 手入れしか無い時は、空の続けることではなく手入れの一覧から開く。
-                    kind:
-                      current?.kind ??
-                      (habitCount === 0 && maintenanceCount > 0 ? "maintenance" : "habit"),
-                    createOpen: false,
-                  })),
+                label: `一覧と削除（続けること${habitCount}）`,
+                onSelect: () => setRoutineManage({ createOpen: false }),
               },
             ]}
           />
@@ -1634,7 +1619,7 @@ export function TodayPage({
             pendingIds={pendingIds}
             strikingIds={strikes.ids}
           />
-          {/* 続けること・手入れはTaskと同じ行で並べる（2026-10-06）。無ければ何も出さない。 */}
+          {/* 続けることはTaskと同じ行で並べる（2026-10-06）。無ければ何も出さない。 */}
           <div className="today-task-list today-routine-list" style={personalChipStyle(themes)}>
             <HabitPanel
               data={data}
@@ -1644,27 +1629,16 @@ export function TodayPage({
               setToast={setToast}
               variant="rows"
             />
-            <MaintenancePanel
-              data={data}
-              today={today}
-              saveEntities={saveEntities}
-              removeEntity={removeEntity}
-              removeEntityQuiet={removeEntityQuiet}
-              setToast={setToast}
-              variant="rows"
-            />
           </div>
           {routineManage && (
             <RoutineManage
               state={routineManage}
               onChange={setRoutineManage}
               habitCount={habitCount}
-              maintenanceCount={maintenanceCount}
               data={data}
               today={today}
               saveEntities={saveEntities}
               removeEntity={removeEntity}
-              removeEntityQuiet={removeEntityQuiet}
               setToast={setToast}
             />
           )}

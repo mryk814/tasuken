@@ -120,7 +120,6 @@
         "src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx",
         "src/renderer/src/features/workspace/components/PlaceReminderFields.tsx",
         "src/renderer/src/features/workspace/lib/placeReminder.ts",
-        "src/renderer/src/features/workspace/components/MaintenancePanel.tsx",
         "src/renderer/src/features/workspace/components/NoteCreateMenu.tsx",
         "src/renderer/src/features/workspace/components/PendingRecordingsPanel.tsx",
         "src/renderer/src/features/workspace/components/RecordingsPanel.tsx",

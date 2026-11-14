@@ -5,7 +5,6 @@ import path from "node:path";
 import test from "node:test";
 
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
-import { maintenanceEntryId, nextDueFrom } from "../src/shared/contracts/maintenance/schedule.ts";
 
 /**
  * Maintenanceの最小実験の保存境界（#454後半 / O単位）。
@@ -16,6 +15,12 @@ import { maintenanceEntryId, nextDueFrom } from "../src/shared/contracts/mainten
  */
 
 const TODAY = "2026-09-21";
+
+// 手入れの画面と目安の計算（contracts/maintenance/schedule.ts）は #755 束9b で外した。記録は読むだけで
+// 登録に残り、同期と削除・復元の境界はそのまま守る。記録の ID は前の画面と同じ形で組み立てる。
+function maintenanceEntryId(maintenanceId, performedOn) {
+  return `maintenance-entry:${maintenanceId}:${performedOn}`;
+}
 
 function item(overrides = {}) {
   return {
@@ -106,55 +111,6 @@ test("削除すると実施記録も外れ、復元で一緒に戻る", async ()
 
     database.restore("maintenance", "maintenance-1");
     assert.equal(database.list("maintenance_entry").length, 2, "復元で記録も戻る");
-  } finally {
-    database.db.close();
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-test("直前の値を記録へ残すので、実施記録と次の目安を一緒に戻せる", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "tasken-maintenance-undo-"));
-  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
-  try {
-    database.loadWorkspace();
-    // 1回目の実施（前回なし → 次の目安を決めた状態から始める）。
-    database.save(
-      "maintenance",
-      item({ last_performed_on: "2026-07-20", next_due_on: "2026-08-20" }),
-    );
-    // 2回目の実施を記録する。直前の値は記録側へ残す。
-    const performedOn = "2026-08-25";
-    const nextDueOn = nextDueFrom(performedOn, 31);
-    // UIと同じく、記録する前の値を記録側へ残す（戻せるようにする）。
-    database.save(
-      "maintenance_entry",
-      entry({
-        performed_on: performedOn,
-        next_due_on: nextDueOn,
-        previous_due_on: "2026-08-20",
-        previous_performed_on: "2026-07-20",
-      }),
-    );
-    database.save("maintenance", item({ last_performed_on: performedOn, next_due_on: nextDueOn }));
-    assert.equal(database.get("maintenance", "maintenance-1").next_due_on, "2026-09-25");
-
-    // 戻す: 記録を消し、記録に残した直前の値へMaintenanceを戻す。
-    const saved = database.get(
-      "maintenance_entry",
-      maintenanceEntryId("maintenance-1", performedOn),
-    );
-    database.remove("maintenance_entry", saved.id);
-    database.save(
-      "maintenance",
-      item({
-        last_performed_on: saved.previous_performed_on,
-        next_due_on: saved.previous_due_on,
-      }),
-    );
-    const restored = database.get("maintenance", "maintenance-1");
-    assert.equal(restored.next_due_on, "2026-08-20", "次の目安も戻る");
-    assert.equal(restored.last_performed_on, "2026-07-20", "前回実施日も戻る");
-    assert.equal(database.list("maintenance_entry").length, 0);
   } finally {
     database.db.close();
     await rm(directory, { recursive: true, force: true });
