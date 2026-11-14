@@ -68,16 +68,13 @@ async function prepareCopy() {
   setMeta.run("activity_log_directory", "");
   // 自動バックアップは世代を入れ替える（古いものを消す）ので、本物の保存先へ向けない。
   setMeta.run("automatic_snapshot_backup_directory", path.join(workDirectory, "backups"));
-  // Daily Contextの自動公開は本物の公開先とTheme AI Packを書き換える。止めて行き先も作業フォルダにする。
-  const dailyAuto = copy
-    .prepare("SELECT value FROM workspace_meta WHERE key = 'daily_context_auto_state'")
-    .get();
-  if (dailyAuto) {
-    const state = JSON.parse(dailyAuto.value);
-    state.config = { ...state.config, enabled: false, root: path.join(workDirectory, "daily") };
-    setMeta.run("daily_context_auto_state", JSON.stringify(state));
-  }
-  copy.prepare("DELETE FROM workspace_meta WHERE key = 'daily_context_publication'").run();
+  // 日別 Context（#755 束2 で外した）の設定は、もう読まないが本物の公開先のパスを持つことがある。
+  // 写しからは消して、下の「外を指すパス」の確かめに引っかからないようにする。
+  copy
+    .prepare(
+      "DELETE FROM workspace_meta WHERE key IN ('daily_context_auto_state', 'daily_context_publication')",
+    )
+    .run();
   // 抜けを防ぐ: 設定に作業フォルダの外を指す絶対パスが残っていたら起動しない。
   const outside = copy
     .prepare("SELECT key, value FROM workspace_meta")

@@ -1,16 +1,3 @@
-import type {
-  DailyContextPlan,
-  DailyContextSelection,
-  DailyContextPublishResult,
-} from "../dailyContext";
-import type { DailyContextAutoConfig, DailyContextAutoStatus } from "../dailyContextAuto";
-export interface DailyContextPublishRequest {
-  selection: DailyContextSelection;
-  root: string;
-  generatedAt: string;
-  expectedContentHash: string;
-  allowPartial: boolean;
-}
 export interface CapturedTaskFocusRequest {
   requestId: string;
   taskId: string;
@@ -269,11 +256,6 @@ export const IPC = {
   calendarEvents: "calendar:events",
   applicationCommand: "application:command",
   applicationCommandBatch: "application:command-batch",
-  dailyContextPreview: "daily-context:preview",
-  dailyContextPublish: "daily-context:publish",
-  dailyContextAutoStatus: "daily-context:auto-status",
-  dailyContextAutoConfigure: "daily-context:auto-configure",
-  dailyContextAutoRetry: "daily-context:auto-retry",
   conversationContextPreview: "conversation-context:preview",
   conversationContextPublish: "conversation-context:publish",
   conversationContextRemove: "conversation-context:remove",
@@ -697,13 +679,6 @@ export interface ResearchDeskApi {
   dataHealth: {
     get(query?: DataHealthQuery): Promise<DataHealthQueryResult>;
     setState(request: DataHealthStateUpdateRequest): Promise<DataHealthQueryResult>;
-  };
-  dailyContext: {
-    preview(selection: DailyContextSelection): Promise<DailyContextPlan>;
-    publish(request: DailyContextPublishRequest): Promise<DailyContextPublishResult>;
-    autoStatus(): Promise<DailyContextAutoStatus>;
-    configureAuto(config: DailyContextAutoConfig): Promise<DailyContextAutoStatus>;
-    retryAuto(): Promise<DailyContextAutoStatus>;
   };
   conversationContext: {
     preview(request: ConversationContextPreviewRequest): Promise<ConversationContextPreviewResult>;

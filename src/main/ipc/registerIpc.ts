@@ -350,17 +350,6 @@ export function registerIpc(
   ipcMain.handle(IPC.dataHealthSetState, (_event, request) =>
     service.setDataHealthIssueState(request),
   );
-  ipcMain.handle(IPC.dailyContextPreview, (_event, selection) =>
-    service.getDailyContextPreview(selection),
-  );
-  ipcMain.handle(IPC.dailyContextPublish, (_event, request) =>
-    service.publishDailyContext(request),
-  );
-  ipcMain.handle(IPC.dailyContextAutoStatus, () => service.getDailyContextAutoStatus());
-  ipcMain.handle(IPC.dailyContextAutoConfigure, (_event, config) =>
-    service.configureDailyContextAuto(config),
-  );
-  ipcMain.handle(IPC.dailyContextAutoRetry, () => service.retryDailyContextAuto());
   ipcMain.handle(IPC.conversationContextPreview, (_event, request) =>
     service.getConversationContextPreview(request),
   );
@@ -378,9 +367,6 @@ export function registerIpc(
   ipcMain.handle(IPC.preferenceSet, (_event, key, value) => {
     const normalizedKey = requireId(key);
     const saved = repository.setPreference(normalizedKey, value);
-    if (normalizedKey === "artifactDirectory") {
-      service.notifyDailyContextAutoChange();
-    }
     if (normalizedKey === "artifactDirectory") {
       // Root changes are workspace projection changes, not entity changes.
       // Refreshing here updates canonical_root_status in the live renderer.

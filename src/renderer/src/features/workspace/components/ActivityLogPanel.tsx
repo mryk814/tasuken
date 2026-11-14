@@ -61,7 +61,6 @@ import {
   type ActivityCalendarTimelineItem,
 } from "../lib/activityCalendar";
 import { Button, EmptyState, ThemePickerSelect } from "./common";
-import { DailyContextPublishDialog } from "./DailyContextPublishDialog";
 
 type StructuredActivityEvent = {
   id?: string;
@@ -442,7 +441,6 @@ export function ActivityLogPanel({
     }
   }
   const [directory, setDirectory] = useState("");
-  const [publishOpen, setPublishOpen] = useState(false);
   const [autoExportTime, setAutoExportTime] = useState("");
   const [filePath, setFilePath] = useState("");
   const [themeFilter, setThemeFilter] = useState("all");
@@ -898,13 +896,6 @@ export function ActivityLogPanel({
 
   return (
     <section id="daily-activity" className="panel activity-log-strip debrief-activity-panel">
-      {publishOpen && (
-        <DailyContextPublishDialog
-          today={date}
-          themes={themes}
-          close={() => setPublishOpen(false)}
-        />
-      )}
       <div className="section-heading">
         <div>
           <h2>
@@ -922,11 +913,6 @@ export function ActivityLogPanel({
               title="AIの生ログを選んで取り込む"
             >
               <IconFileImport size={18} />
-            </Button>
-          )}
-          {expanded && (
-            <Button variant="secondary" compact onClick={() => setPublishOpen(true)}>
-              公開用Markdown
             </Button>
           )}
           {expanded && (

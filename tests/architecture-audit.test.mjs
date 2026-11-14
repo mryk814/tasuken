@@ -304,11 +304,11 @@ test("production audit is deterministic and keeps temporary composition growth v
     assert.equal(first.stdout, second.stdout);
     const report = JSON.parse(first.stdout);
     assert.equal(report.mode, "report-only");
-    assert.equal(report.summary.newFindings, 23, unexplainedFindings(report));
-    assert.equal(report.summary.suppressedFindings, 23);
+    assert.equal(report.summary.newFindings, 22, unexplainedFindings(report));
+    assert.equal(report.summary.suppressedFindings, 22);
     assert.equal(report.summary.blockingFindings, 0, unexplainedFindings(report));
     const newFindings = report.findings.filter((entry) => !entry.baseline);
-    assert.equal(newFindings.length, 23);
+    assert.equal(newFindings.length, 22);
     assert.equal(
       newFindings.every((entry) => entry.suppressed && entry.suppression?.issue),
       true,
@@ -322,7 +322,6 @@ test("production audit is deterministic and keeps temporary composition growth v
         ["src/main/ipc/registerIpc.ts", true, 405],
         ["src/preload/index.ts", true, 405],
         ["src/renderer/src/features/workspace/WorkspaceApp.tsx", true, 481],
-        ["src/renderer/src/services/workspaceApi.ts", true, 405],
         ["src/shared/ipc/contracts.ts", true, 407],
       ],
     );
