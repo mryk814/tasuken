@@ -842,6 +842,9 @@ export function SettingsPage({
                       {restoreOutcome.previousBackupPath ? (
                         <p>戻す前のデータ: {restoreOutcome.previousBackupPath}</p>
                       ) : null}
+                      {restoreOutcome.setAsidePath ? (
+                        <p>戻す直前まで使っていたデータ: {restoreOutcome.setAsidePath}</p>
+                      ) : null}
                       {restoreOutcome.syncStopped ? (
                         <p>端末間同期を止めました。再開は「Sync」で行います。</p>
                       ) : null}

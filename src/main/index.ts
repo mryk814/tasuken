@@ -2273,11 +2273,17 @@ async function startDesktopApp(): Promise<void> {
   registerAttachmentProtocol();
   // 「控えから戻す」の準備が済んでいれば、DBを開く前に差し替える（workspaceRestore.ts）。
   // 結果は設定の画面と起動時の知らせで本人に見せる。
-  applyPendingRestore({
+  const pendingRestore = applyPendingRestore({
     userDataPath: app.getPath("userData"),
     inspect: (filePath) => inspectWorkspaceBackup(filePath),
     log: (level, message, error) => logMain(level, "workspace-restore", message, error),
   });
+  if (pendingRestore?.status === "halted") {
+    // 正本が元の名前に無い。このまま開くと空のDBを作って本人に書かせてしまうので、起動しない。
+    dialog.showErrorBox("Taskenを起動できません", pendingRestore.error);
+    app.exit(1);
+    return;
+  }
   workspaceRepository = new WorkspaceDatabase(
     path.join(app.getPath("userData"), "research-desk.sqlite"),
   );

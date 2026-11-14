@@ -326,11 +326,11 @@ test("差し替えの途中でプロセスが止まっても、次の起動で�
   const countAtBackup = ws.state.repository.entityCount();
   const backupPath = await ws.backup();
   ws.state.repository.save("note", { id: "note-3", title: "控えの後に足した" });
-  await ws.stage(backupPath);
+  const plan = await ws.stage(backupPath);
   ws.quit();
   // 正本を退けた直後（写しを置く前）に止まった状況。
   const live = path.join(ws.userData, DATABASE);
-  fs.renameSync(live, `${live}.restore-replaced`);
+  fs.renameSync(live, path.join(ws.userData, plan.setAsideName));
 
   assert.equal(ws.apply().status, "restored");
   assert.equal(ws.open().entityCount(), countAtBackup);
@@ -342,17 +342,21 @@ test("写しを置いた後・片付ける前に止まっても、古いDBを上
   const countAtBackup = ws.state.repository.entityCount();
   const backupPath = await ws.backup();
   ws.state.repository.save("note", { id: "note-3", title: "控えの後に足した" });
-  await ws.stage(backupPath);
+  const plan = await ws.stage(backupPath);
   ws.quit();
   const live = path.join(ws.userData, DATABASE);
-  fs.renameSync(live, `${live}.restore-replaced`);
+  const setAside = path.join(ws.userData, plan.setAsideName);
+  fs.renameSync(live, setAside);
   fs.renameSync(`${live}.restore-staged`, live);
 
-  assert.equal(ws.apply().status, "restored");
+  const outcome = ws.apply();
+  assert.equal(outcome.status, "restored");
   const restored = ws.open();
   assert.equal(restored.entityCount(), countAtBackup);
   assert.equal(restored.get("note", "note-3"), null);
-  assert.equal(fs.existsSync(`${live}.restore-replaced`), false);
+  // 退けた正本は消さずに残る。
+  assert.equal(outcome.setAsidePath, setAside);
+  assert.equal(fs.existsSync(setAside), true);
 });
 
 test("戻すのを取りやめると、次の起動で差し替わらない", async (t) => {
@@ -439,4 +443,156 @@ test("同期している端末で控えから戻すと、同期が止まる。�
   });
   assert.equal(sync.isPublishBlocked(), true);
   assert.deepEqual(published(), publishedBefore);
+});
+
+/** fs の関数を、userData の中の名前が pattern に合う時だけ失敗させる（片付け・名前替えの失敗の再現）。 */
+function failFsFor(t, ws, name, pattern) {
+  const original = fs[name];
+  const userData = path.resolve(ws.userData);
+  fs[name] = (target, ...rest) => {
+    const resolved = path.resolve(String(target));
+    if (path.dirname(resolved) === userData && pattern.test(path.basename(resolved))) {
+      throw Object.assign(new Error(`injected ${name} failure`), { code: "EBUSY" });
+    }
+    return original(target, ...rest);
+  };
+  const restore = () => {
+    fs[name] = original;
+  };
+  t.after(restore);
+  return restore;
+}
+
+test("戻した後の片付けに失敗しても、次の起動で戻した後の記録を消さない", async (t) => {
+  const ws = workspace(t);
+  seed(ws);
+  const backupPath = await ws.backup();
+  ws.state.repository.save("note", { id: "note-3", title: "控えの後に足した" });
+  await ws.stage(backupPath);
+  ws.quit();
+
+  // 退けた正本と予定の片付け（rmSync）が、ほかのプログラムに掴まれて失敗する。
+  const restoreRm = failFsFor(t, ws, "rmSync", /restore-(replaced|plan)/);
+  const outcome = ws.apply();
+  restoreRm();
+  assert.equal(outcome.status, "restored");
+
+  // 戻したDBで一日仕事をする。
+  const restored = ws.open();
+  restored.save("note", { id: "note-after-restore", title: "戻した後の一日の仕事" });
+  const countAfterWork = restored.entityCount();
+  ws.quit();
+
+  // 次の起動で、古い正本を上へ戻さない。
+  assert.notEqual(ws.apply()?.status, "failed");
+  const reopened = ws.open();
+  assert.equal(reopened.entityCount(), countAfterWork);
+  assert.equal(reopened.get("note", "note-after-restore").title, "戻した後の一日の仕事");
+  assert.equal(reopened.get("note", "note-3"), null);
+  // その次の起動でも同じ。
+  ws.quit();
+  assert.equal(ws.apply(), null);
+  assert.equal(ws.open().get("note", "note-after-restore").title, "戻した後の一日の仕事");
+});
+
+test("準備の後に書いた記録は、戻した後も退けた正本（before-restore）に残る", async (t) => {
+  const ws = workspace(t);
+  seed(ws);
+  const backupPath = await ws.backup();
+  const plan = await ws.stage(backupPath);
+  // 準備の後、終了までの間の書き込み（MCP・Androidの受け口・共有フォルダの受信など）。
+  ws.state.repository.save("note", { id: "note-late", title: "準備の後に届いた記録" });
+  ws.quit();
+
+  const outcome = ws.apply();
+  assert.equal(outcome.status, "restored");
+  const setAside = path.join(ws.userData, plan.setAsideName);
+  assert.match(plan.setAsideName, /^research-desk\.before-restore-\d{8}T\d{9}Z\.sqlite$/);
+  assert.equal(outcome.setAsidePath, setAside);
+  assert.equal(readRestoreOutcome(ws.userData).setAsidePath, setAside);
+  // 戻す前の控え（準備の最初に取る）には入っていない。
+  const before = new WorkspaceDatabase(outcome.previousBackupPath);
+  try {
+    assert.equal(before.get("note", "note-late"), null);
+  } finally {
+    before.db.close();
+  }
+  // 戻したDBには無く、退けた正本には -wal ごと残る。
+  assert.equal(ws.open().get("note", "note-late"), null);
+  const setAsideDatabase = new WorkspaceDatabase(setAside);
+  try {
+    assert.equal(setAsideDatabase.get("note", "note-late").title, "準備の後に届いた記録");
+  } finally {
+    setAsideDatabase.db.close();
+  }
+  // 次の起動でも消さない。
+  ws.quit();
+  assert.equal(ws.apply(), null);
+  assert.equal(fs.existsSync(setAside), true);
+});
+
+test("確かめた後に committed を書けなければ、戻す前のDBへ戻す", async (t) => {
+  const ws = workspace(t);
+  seed(ws);
+  const backupPath = await ws.backup();
+  ws.state.repository.save("note", { id: "note-3", title: "控えの後に足した" });
+  const count = ws.state.repository.entityCount();
+  await ws.stage(backupPath);
+  ws.quit();
+
+  const outcome = ws.apply({
+    beforeStep: (step) => {
+      if (step === "commit") throw new Error("injected failure at commit");
+    },
+  });
+  assert.equal(outcome.status, "failed");
+  assert.equal(outcome.setAsidePath, "");
+  const reopened = ws.open();
+  assert.equal(reopened.entityCount(), count);
+  assert.equal(reopened.get("note", "note-3").title, "控えの後に足した");
+  assert.deepEqual(
+    fs.readdirSync(ws.userData).filter((name) => /restore-(staged|plan)|before-restore/.test(name)),
+    [],
+  );
+});
+
+test("失敗を元へ戻すのにも失敗したら起動を止め（halted）、次の起動で続きから元へ戻す", async (t) => {
+  const ws = workspace(t);
+  seed(ws);
+  const backupPath = await ws.backup();
+  ws.state.repository.save("note", { id: "note-3", title: "控えの後に足した" });
+  const count = ws.state.repository.entityCount();
+  await ws.stage(backupPath);
+  ws.quit();
+
+  // 確かめで失敗し、退けた本体を元の名前へ戻す rename も掴まれて失敗する。
+  const restoreRename = failFsFor(
+    t,
+    ws,
+    "renameSync",
+    /^research-desk\.before-restore-.*\.sqlite$/,
+  );
+  const halted = ws.apply({
+    beforeStep: (step) => {
+      if (step === "verify") throw new Error("injected failure at verify");
+    },
+  });
+  restoreRename();
+  assert.equal(halted.status, "halted");
+  assert.match(halted.error, /research-desk\.before-restore-/);
+  // 正本の名前には何も無い（ここで開けば空のDBを作ってしまう）。予定は残っている。
+  assert.equal(fs.existsSync(path.join(ws.userData, DATABASE)), false);
+  assert.equal(fs.existsSync(path.join(ws.userData, "restore-plan.json")), true);
+
+  // 掴んでいたプログラムが離れた後の起動で、元へ戻す。
+  const outcome = ws.apply();
+  assert.equal(outcome.status, "failed");
+  assert.match(outcome.error, /データは戻す前のままです/);
+  const reopened = ws.open();
+  assert.equal(reopened.entityCount(), count);
+  assert.equal(reopened.get("note", "note-3").title, "控えの後に足した");
+  assert.deepEqual(
+    fs.readdirSync(ws.userData).filter((name) => /restore-(staged|plan)|before-restore/.test(name)),
+    [],
+  );
 });

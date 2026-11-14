@@ -630,6 +630,11 @@ export interface WorkspaceRestoreOutcome {
   entityCount: number;
   /** 戻す前のDBの控え。空の作業台から戻した時は ""。 */
   previousBackupPath: string;
+  /**
+   * 戻す直前まで使っていたDB（userData の research-desk.before-restore-….sqlite）。
+   * 準備の後の書き込みも入っている。Taskenは消さない。戻せなかった時は ""。
+   */
+  setAsidePath: string;
   syncStopped: boolean;
   attachmentsRestored: number;
   attachmentsInBackup: boolean;

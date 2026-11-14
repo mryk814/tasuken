@@ -9,9 +9,15 @@ import type { WorkspaceRestoreOutcome } from "../../shared/ipc/contracts";
  *
  * 動いているアプリは正本を開いたままなので、その場では差し替えない。2段に分ける。
  * 1. stageRestore（動作中）: 今のDBを控える → 控えの添付を足す → 控えを正本の隣へ写して確かめる →
- *    予定（plan）を書く。ここまで正本には触れない。
- * 2. applyPendingRestore（次の起動の最初、DBを開く前）: 正本を脇へ退ける → 写しを正本の名前にする →
- *    件数を確かめる → 退けた正本を消す。どこで失敗・中断しても、退けた正本を元の名前へ戻す。
+ *    予定（plan、phase=staged）を書く。ここまで正本には触れない。
+ * 2. applyPendingRestore（次の起動の最初、DBを開く前）: 正本を脇へ退ける → 写しを正本の名前にする
+ *    （placed）→ 件数を確かめる → committed を書く。committed より前に失敗・中断したら、
+ *    退けた正本を元の名前へ戻す。committed の後は、どんな時も退けた正本を上へ戻さない
+ *    （戻したDBを開いた後の記録を消してしまう）。
+ *
+ * 退けた正本（research-desk.before-restore-<時刻>.sqlite と -wal・-shm）は消さずに残す。
+ * 準備から終了までの間にも、MCP・Androidの受け口・共有フォルダの受信・終了の時の書き出しが
+ * 正本へ書くので、準備の最初に取る「戻す前の控え」と同じ中身とは限らない。消すのは本人に任せる。
  *
  * 添付（ノートの画像と撮影した写真）は、名前がUUIDか内容のhashで決まり、書き換わらない。
  * だから控えの側は「足すだけの写し」にでき、世代ごとに丸ごと持たなくてよい。戻す時も、
@@ -26,8 +32,10 @@ export const BACKUP_ATTACHMENT_ROOT = "attachments";
 const PLAN_FILE = "restore-plan.json";
 const OUTCOME_FILE = "restore-outcome.json";
 const STAGED_SUFFIX = ".restore-staged";
-const REPLACED_SUFFIX = ".restore-replaced";
-const SQLITE_SIDE_FILES = ["", "-wal", "-shm"] as const;
+/** 退けた正本の名前の頭。後ろに時刻と .sqlite が付く。 */
+const SET_ASIDE_PREFIX = "research-desk.before-restore-";
+/** -wal・-shm を先に、本体を最後に退ける。本体が退いていれば、付属のファイルも退き終えている。 */
+const SET_ASIDE_ORDER = ["-wal", "-shm", ""] as const;
 /** 戻す前の控え。自動バックアップの世代（tasken-auto-*）とは別の名前にして、入れ替えで消さない。 */
 const PRE_RESTORE_PREFIX = "tasken-before-restore-";
 const BACKUP_FILE_PATTERN =
@@ -44,9 +52,22 @@ export interface RestoreDatabasePort {
   backupTo(filePath: string, shouldAbort: () => boolean): Promise<void>;
 }
 
+/**
+ * 差し替えの段。予定のファイルに書き、次の起動はこれを見て続きを決める。
+ * - staged: 写しを置いた（準備の終わり）。正本はまだ元の名前。
+ * - placed: 正本を退け、写しを正本の名前にした。まだ誰も開いていない。
+ * - committed: 件数まで確かめた。この後は退けた正本を上へ戻さない。
+ * - rolling-back: 失敗したので退けた正本を元へ戻している。途中で止まっても続きから戻す。
+ */
+export type RestorePhase = "staged" | "placed" | "committed" | "rolling-back";
+const RESTORE_PHASES: readonly RestorePhase[] = ["staged", "placed", "committed", "rolling-back"];
+
 export interface RestorePlan {
   format: "tasken-restore-plan";
   formatVersion: 1;
+  phase: RestorePhase;
+  /** 退けた正本の名前（userData の中）。戻した後も消さない。 */
+  setAsideName: string;
   requestedAt: string;
   sourcePath: string;
   entityCount: number;
@@ -59,6 +80,15 @@ export interface RestorePlan {
 }
 
 export type RestoreOutcome = WorkspaceRestoreOutcome;
+
+/**
+ * 失敗を元へ戻すのにも失敗し、正本が元の名前に無い時。起動を続けると空のDBを作って
+ * 本人に書かせてしまうので、知らせて終了する（予定は残し、次の起動で続きから元へ戻す）。
+ */
+export interface RestoreHalt {
+  status: "halted";
+  error: string;
+}
 
 export interface StageRestoreOptions {
   userDataPath: string;
@@ -77,7 +107,7 @@ export interface ApplyRestoreOptions {
   now?: () => Date;
   log?: (level: "info" | "warn" | "error", message: string, error?: unknown) => void;
   /** 試験用: 差し替えの各段の直前に呼ぶ。投げると、その段で失敗した扱いになる。 */
-  beforeStep?: (step: "set-aside" | "place" | "verify") => void;
+  beforeStep?: (step: "set-aside" | "place" | "verify" | "commit") => void;
 }
 
 function timestamp(date: Date): string {
@@ -92,9 +122,20 @@ function databasePath(userDataPath: string): string {
   return path.join(userDataPath, WORKSPACE_DATABASE_FILE);
 }
 
+function fsyncFile(filePath: string): void {
+  const descriptor = fs.openSync(filePath, "r+");
+  try {
+    fs.fsyncSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+/** 一時名へ書いて fsync してから名前を替える。電源が落ちても、古い中身か新しい中身のどちらかが残る。 */
 function writeJsonAtomic(filePath: string, value: unknown): void {
   const temporaryPath = `${filePath}.${process.pid}.tmp`;
   fs.writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  fsyncFile(temporaryPath);
   fs.renameSync(temporaryPath, filePath);
 }
 
@@ -281,10 +322,14 @@ export async function stageRestore(options: StageRestoreOptions): Promise<Restor
     if (prepared.entityCount !== source.entityCount) {
       throw restoreError("控えを写した後の件数が、控えと一致しませんでした。");
     }
+    // 予定を書いた後に電源が落ちても、中身の欠けた写しを正本にしないよう、先に書き切る。
+    fsyncFile(stagedTemporary);
     fs.renameSync(stagedTemporary, staged);
     const plan: RestorePlan = {
       format: "tasken-restore-plan",
       formatVersion: 1,
+      phase: "staged",
+      setAsideName: `${SET_ASIDE_PREFIX}${timestamp(requestedAt)}.sqlite`,
       requestedAt: requestedAt.toISOString(),
       sourcePath,
       entityCount: source.entityCount,
@@ -309,51 +354,81 @@ export function cancelStagedRestore(userDataPathValue: string): void {
 }
 
 /**
- * 退けた正本を元の名前へ戻す。本体を最後に戻すので、「本体の退避が残っている」なら
- * 戻し終えていないと分かる（途中で止まっても、次の起動で続きから戻せる）。
+ * 退けた正本を元の名前へ戻す。committed より前（戻したDBをまだ誰も開いていない時）だけ呼ぶ。
+ * 本体を先に戻す。本体が退いている間は、正本の名前にある本体・-wal・-shm はどれも
+ * 写した控えの側の物なので捨ててよい（退けた -wal・-shm は、まだ退けた側にある）。
+ * 本体を戻した後に止まっても、次の起動は退けた -wal・-shm だけを戻す。
  */
-function moveBack(live: string): void {
-  for (const suffix of ["-wal", "-shm", ""]) {
-    const replaced = `${live}${suffix}${REPLACED_SUFFIX}`;
-    if (!fs.existsSync(replaced)) continue;
+function moveBack(live: string, setAside: string): void {
+  if (fs.existsSync(setAside)) {
+    for (const suffix of ["", "-wal", "-shm"]) fs.rmSync(`${live}${suffix}`, { force: true });
+    fs.renameSync(setAside, live);
+  }
+  for (const suffix of ["-wal", "-shm"]) {
+    if (!fs.existsSync(`${setAside}${suffix}`)) continue;
     fs.rmSync(`${live}${suffix}`, { force: true });
-    fs.renameSync(replaced, `${live}${suffix}`);
+    fs.renameSync(`${setAside}${suffix}`, `${live}${suffix}`);
   }
 }
 
-function hasReplaced(live: string): boolean {
-  return SQLITE_SIDE_FILES.some((suffix) => fs.existsSync(`${live}${suffix}${REPLACED_SUFFIX}`));
+function hasSetAside(setAside: string): boolean {
+  return SET_ASIDE_ORDER.some((suffix) => fs.existsSync(`${setAside}${suffix}`));
+}
+
+function isRestorePlan(value: RestorePlan | null): value is RestorePlan {
+  return (
+    value?.format === "tasken-restore-plan" &&
+    value.formatVersion === 1 &&
+    RESTORE_PHASES.includes(value.phase) &&
+    typeof value.setAsideName === "string" &&
+    value.setAsideName.startsWith(SET_ASIDE_PREFIX) &&
+    path.basename(value.setAsideName) === value.setAsideName &&
+    Number.isInteger(value.entityCount)
+  );
+}
+
+function haltMessage(setAside: string): string {
+  return (
+    "控えから戻す途中で失敗し、戻す前のデータベースを元の名前へ戻せませんでした。" +
+    `戻す前のデータは ${setAside} に残っています。` +
+    "このフォルダのファイルを使っているプログラム（同期やウイルス対策のソフトなど）が無いか確かめてから、" +
+    "Taskenをもう一度起動してください。起動の時に、続きから元へ戻します。"
+  );
 }
 
 /**
  * 起動の最初、DBを開く前に呼ぶ。戻す予定があれば差し替える。予定が無ければ null。
  * 失敗した時は、退けた正本を元の名前へ戻し、結果に理由を残す（投げない。起動は続ける）。
+ * 元へ戻すのにも失敗した時だけ halted を返す。呼ぶ側は知らせて終了し、DBを開かない。
  */
-export function applyPendingRestore(options: ApplyRestoreOptions): RestoreOutcome | null {
+export function applyPendingRestore(
+  options: ApplyRestoreOptions,
+): RestoreOutcome | RestoreHalt | null {
   const now = options.now || (() => new Date());
   const log = options.log || (() => {});
   const userDataPath = path.resolve(options.userDataPath);
   const live = databasePath(userDataPath);
   const staged = `${live}${STAGED_SUFFIX}`;
   const planPath = path.join(userDataPath, PLAN_FILE);
-  const plan = readJson<RestorePlan>(planPath);
-  const validPlan =
-    plan?.format === "tasken-restore-plan" &&
-    plan.formatVersion === 1 &&
-    Number.isInteger(plan.entityCount);
+  const read = readJson<RestorePlan>(planPath);
 
-  // 前回の差し替えが途中で止まっていた時。写しがまだ置かれていなければ、正本を元へ戻してやり直す。
-  // 置いた後に止まったのなら、下の確認から続ける。
-  const resumedAfterPlace = hasReplaced(live) && !fs.existsSync(staged) && fs.existsSync(live);
-  if (hasReplaced(live) && !resumedAfterPlace) moveBack(live);
-
-  if (!validPlan || !plan) {
+  if (!isRestorePlan(read)) {
+    if (fs.existsSync(planPath) && !fs.existsSync(live)) {
+      // 読めない予定が残り、正本も無い。差し替えの途中かもしれないので、空のDBを作らせない。
+      log("error", "戻す予定が読めず、データベースも見つからない");
+      return {
+        status: "halted",
+        error:
+          "控えから戻す予定のファイルが読めず、データベースも見つかりませんでした。" +
+          `${userDataPath} の中の research-desk.before-restore-… のファイルに、戻す前のデータが残っている場合があります。`,
+      };
+    }
+    // 予定が無い時は、退けた正本の名前も分からない。正本にも退けたファイルにも触れない。
     if (fs.existsSync(planPath) || fs.existsSync(staged)) cancelStagedRestore(userDataPath);
-    // 予定が無いのに退けた本体が残るのは、失敗の後に元へ戻し切れなかった時だけ
-    // （成功した時は、退けた正本を消してから予定を消す）。続きを戻す。
-    if (fs.existsSync(`${live}${REPLACED_SUFFIX}`)) moveBack(live);
     return null;
   }
+  const plan = read;
+  const setAside = path.join(userDataPath, plan.setAsideName);
 
   const outcome = (status: RestoreOutcome["status"], error = ""): RestoreOutcome => {
     const value: RestoreOutcome = {
@@ -362,6 +437,7 @@ export function applyPendingRestore(options: ApplyRestoreOptions): RestoreOutcom
       sourcePath: plan.sourcePath,
       entityCount: plan.entityCount,
       previousBackupPath: plan.previousBackupPath,
+      setAsidePath: status === "restored" && fs.existsSync(setAside) ? setAside : "",
       syncStopped: status === "restored" && plan.syncWasEnabled,
       attachmentsRestored: plan.attachmentsRestored,
       attachmentsInBackup: plan.attachmentsInBackup,
@@ -374,53 +450,119 @@ export function applyPendingRestore(options: ApplyRestoreOptions): RestoreOutcom
     }
     return value;
   };
+  const failedMessage =
+    "控えから戻せませんでした。データは戻す前のままです。別の控えで、もう一度試してください。";
+  const writePhase = (phase: RestorePhase) => writeJsonAtomic(planPath, { ...plan, phase });
 
+  /** 退けた正本を元へ戻し、予定を片付ける。戻せなければ halted。 */
+  const rollBack = (): RestoreOutcome | RestoreHalt => {
+    try {
+      writePhase("rolling-back");
+    } catch (error) {
+      log("warn", "戻す予定の段を書けなかった", error);
+    }
+    try {
+      moveBack(live, setAside);
+    } catch (error) {
+      // 予定は rolling-back のまま残し、次の起動で続きから戻す。
+      log("error", "退けたデータベースを元の名前へ戻せなかった", error);
+      return { status: "halted", error: haltMessage(setAside) };
+    }
+    try {
+      cancelStagedRestore(userDataPath);
+    } catch (error) {
+      // 予定が残っても、次の起動は rolling-back を見て戻し直す（もう戻っているので何もしない）。
+      log("warn", "戻す予定を片付けられなかった（次の起動でもう一度片付ける）", error);
+    }
+    return outcome("failed", failedMessage);
+  };
+
+  if (plan.phase === "committed") {
+    // 戻し終えて、予定を消し損ねただけ。退けた正本は上へ戻さない。
+    try {
+      fs.rmSync(planPath, { force: true });
+    } catch (error) {
+      log("warn", "戻した後の予定を消せなかった（次の起動でもう一度消す）", error);
+    }
+    return null;
+  }
+  if (plan.phase === "rolling-back") {
+    log("warn", "前回の起動で元へ戻す途中だった。続きから戻す");
+    return rollBack();
+  }
+
+  // ここから先は、まだ誰も戻したDBを開いていない（committed より前）。
+  let placed = false;
+  if (plan.phase === "placed") {
+    // 退けた本体が無いのは、元へ戻し終えた後に予定を消し損ねた時など。もう一度戻すだけにする。
+    if (!fs.existsSync(setAside) || !fs.existsSync(live)) return rollBack();
+    placed = true;
+  } else {
+    const stagedExists = fs.existsSync(staged);
+    const setAsideMain = fs.existsSync(setAside);
+    const liveMain = fs.existsSync(live);
+    if (!stagedExists && setAsideMain && liveMain) {
+      // 写しを正本の名前にした後、placed を書く前に止まった。確かめから続ける。
+      placed = true;
+    } else if (stagedExists && setAsideMain && liveMain) {
+      // 本体は最後に退けるので、正本が元の名前にあるのに退けた本体がある時は、ほかの物が名前を使っている。
+      // どちらにも触れずにやめる。
+      log("error", `退ける先の名前が既に使われている: ${setAside}`);
+      cancelStagedRestore(userDataPath);
+      return outcome("failed", failedMessage);
+    } else if (hasSetAside(setAside)) {
+      // 退ける途中で止まった（写しはまだ置いていない）。元へ戻してから、やり直す。
+      try {
+        moveBack(live, setAside);
+      } catch (error) {
+        log("error", "前回の途中で退けたデータベースを元の名前へ戻せなかった", error);
+        return rollBack();
+      }
+    }
+  }
+
+  // 失敗した時に、退けた正本を元へ戻す必要があるか。
+  let touched = placed;
   try {
-    if (!resumedAfterPlace) {
+    if (!placed) {
+      if (!fs.existsSync(staged)) throw new Error("写した控えが見つかりません。");
       if (options.inspect(staged).entityCount !== plan.entityCount) {
         throw new Error("写した控えの件数が、準備した時と違います。");
       }
       options.beforeStep?.("set-aside");
-      // -wal に未反映の変更があるので、3つとも一緒に退ける。
-      for (const suffix of SQLITE_SIDE_FILES) {
+      touched = true;
+      // -wal に未反映の変更があるので、3つとも同じ名前にそろえて退ける。
+      for (const suffix of SET_ASIDE_ORDER) {
         if (fs.existsSync(`${live}${suffix}`)) {
-          fs.renameSync(`${live}${suffix}`, `${live}${suffix}${REPLACED_SUFFIX}`);
+          fs.renameSync(`${live}${suffix}`, `${setAside}${suffix}`);
         }
       }
       options.beforeStep?.("place");
       fs.renameSync(staged, live);
+      writePhase("placed");
     }
     options.beforeStep?.("verify");
     if (options.inspect(live).entityCount !== plan.entityCount) {
       throw new Error("戻した後の件数が、控えと一致しませんでした。");
     }
+    options.beforeStep?.("commit");
+    // DBを開く前に書く。これより後は、退けた正本を上へ戻さない。
+    writePhase("committed");
   } catch (error) {
     log("error", "控えから戻せなかった。戻す前のデータベースへ戻す", error);
-    try {
-      if (hasReplaced(live)) moveBack(live);
-    } catch (rollbackError) {
-      // ここへ来るのは、退けた正本を元の名前へ戻せない時だけ。退けたファイルは消さずに残る。
-      log("error", "退けたデータベースを元の名前へ戻せなかった", rollbackError);
-    }
+    if (touched) return rollBack();
     cancelStagedRestore(userDataPath);
-    return outcome(
-      "failed",
-      "控えから戻せませんでした。データは戻す前のままです。別の控えで、もう一度試してください。",
-    );
+    return outcome("failed", failedMessage);
   }
 
-  // 件数まで確かめられた。退けた正本は「戻す前の控え」と同じ中身なので消す。
-  // 予定は最後に消す。退けた正本を消せずに終わっても、次の起動は予定を見て
-  // 「置いた後」と分かり、確認からやり直す（古い正本を上へ戻さない）。
+  // 退けた正本は消さない（準備の後の書き込みを持っている）。予定だけを消す。
+  // 消せなくても、次の起動は committed を見て予定を消し直すだけにする。
   try {
-    for (const suffix of SQLITE_SIDE_FILES) {
-      fs.rmSync(`${live}${suffix}${REPLACED_SUFFIX}`, { force: true });
-    }
     fs.rmSync(planPath, { force: true });
   } catch (error) {
-    log("warn", "退けたデータベースを消せなかった（次の起動でもう一度消す）", error);
+    log("warn", "戻した後の予定を消せなかった（次の起動でもう一度消す）", error);
   }
-  log("info", `控えから戻した (entities=${plan.entityCount})`);
+  log("info", `控えから戻した (entities=${plan.entityCount}, setAside=${setAside})`);
   return outcome("restored");
 }
 
