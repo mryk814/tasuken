@@ -30,25 +30,44 @@ internal fun nextSendableCommand(
     val byId = open.associateBy(OutboxCommandEntity::commandId)
     // Commands are compared by the head of their dependsOn chain: createdAt can tie (one clock reading for
     // several edits), and a dependent must never be counted as earlier than the command it waits for.
-    fun head(command: OutboxCommandEntity): OutboxCommandEntity {
+    val heads = HashMap<String, OutboxCommandEntity>(open.size)
+    fun head(command: OutboxCommandEntity): OutboxCommandEntity = heads.getOrPut(command.commandId) {
         var current = command
         val seen = mutableSetOf(current.commandId)
         while (true) {
-            val parent = current.dependsOnCommandId?.let(byId::get) ?: return current
-            if (!seen.add(parent.commandId)) return current
+            val parent = current.dependsOnCommandId?.let(byId::get) ?: break
+            if (!seen.add(parent.commandId)) break
             current = parent
         }
+        current
     }
     val order = compareBy(OutboxCommandEntity::createdAt, OutboxCommandEntity::commandId)
+    // For each target, the chains still touching it, by their heads. A head still waiting on a settled
+    // parent can never be sent, so it holds nothing back.
+    val headsByTarget = HashMap<String, MutableSet<OutboxCommandEntity>>()
+    open.forEach { command ->
+        val commandHead = head(command)
+        if (commandHead.dependsOnCommandId == null) {
+            command.targets().forEach { headsByTarget.getOrPut(it) { mutableSetOf() } += commandHead }
+        }
+    }
+    val earliestHeadsByTarget = headsByTarget.mapValues { (_, value) -> value.sortedWith(order).take(2) }
+    val tasksBeingCreated = open.filter { it.commandName == "CreateTask" }.mapNotNullTo(HashSet()) { it.taskId }
+
+    fun heldBack(command: OutboxCommandEntity): Boolean {
+        val earlierOnSameTarget = command.targets().any { target ->
+            earliestHeadsByTarget[target].orEmpty().firstOrNull { it.commandId != command.commandId }
+                ?.let { order.compare(it, command) < 0 } == true
+        }
+        // A work log naming a Task waits for that Task's unsent CreateTask whatever the times say: its
+        // createdAt is the draft's enteredAt, which can be older than a Task picked later from a restored draft.
+        return earlierOnSameTarget ||
+            (command.commandName == "RecordWorkLog" && command.referencedTaskId() in tasksBeingCreated)
+    }
+
     return open.filter { command ->
         command.serverId == serverId && command.state in sendableStates && command.dependsOnCommandId == null &&
-            command.commandId !in skipped && open.none { other ->
-                val otherHead = head(other)
-                // A head still waiting on a settled parent can never be sent, so it holds nothing back.
-                otherHead.dependsOnCommandId == null && otherHead.commandId != command.commandId &&
-                    order.compare(otherHead, command) < 0 &&
-                    other.mustPrecede(command)
-            }
+            command.commandId !in skipped && !heldBack(command)
     }.minWithOrNull(
         compareBy<OutboxCommandEntity, String?>(nullsFirst()) { it.lastAttemptAt }
             .thenBy { it.createdAt }
@@ -56,12 +75,11 @@ internal fun nextSendableCommand(
     )
 }
 
-private fun OutboxCommandEntity.mustPrecede(later: OutboxCommandEntity): Boolean =
-    (taskId != null && taskId == later.taskId) ||
-        (captureId != null && captureId == later.captureId) ||
-        (workLogId != null && workLogId == later.workLogId) ||
-        (commandName == "CreateTask" && taskId != null && later.commandName == "RecordWorkLog" &&
-            later.referencedTaskId() == taskId)
+private fun OutboxCommandEntity.targets(): List<String> = listOfNotNull(
+    taskId?.let { "task:$it" },
+    captureId?.let { "capture:$it" },
+    workLogId?.let { "workLog:$it" },
+)
 
 private fun OutboxCommandEntity.referencedTaskId(): String? = runCatching {
     Json.parseToJsonElement(envelopeJson).jsonObject["command"]?.jsonObject?.get("taskId")?.jsonPrimitive?.contentOrNull
