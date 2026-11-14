@@ -53,11 +53,21 @@ test(
         ],
         { shell: false, windowsHide: true, timeout: 10_000 },
       );
-      const actual = (await readFile(output, "utf8"))
-        .replace(/\r\n/g, "\n")
-        .split("\n")
-        .slice(0, -1)
-        .map((value) => Buffer.from(value, "base64").toString("utf8"));
+      // The launch script returns once the console child has survived 500ms (an interactive CLI
+      // keeps running), not when the fixture has written its output. A busy PC can start the
+      // fixture later than that, so wait until every line is there before reading (#735).
+      const expectedLines = args.length + 1;
+      let lines = [];
+      for (const giveUpAt = Date.now() + 15_000; Date.now() < giveUpAt;) {
+        const text = await readFile(output, "utf8").catch((error) => {
+          if (error?.code === "ENOENT" || error?.code === "EBUSY") return "";
+          throw error;
+        });
+        lines = text.replace(/\r\n/g, "\n").split("\n").slice(0, -1);
+        if (lines.length >= expectedLines) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      const actual = lines.map((value) => Buffer.from(value, "base64").toString("utf8"));
       // Windows expands a TEMP path such as RUNNER~1 to its long directory name.
       assert.deepEqual(actual, [await realpath(cwd), ...args]);
     } finally {
