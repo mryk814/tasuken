@@ -90,6 +90,17 @@ class MobileOutboxOrderTest {
     }
 
     @Test
+    fun `a work log from an older draft still waits for a Task created after it`() {
+        // A restored draft keeps its enteredAt, so the work log can be older than the Task it names.
+        val workLog = command("log", "2026-08-22T01:00:01Z", workLogId = "note-1", commandName = "RecordWorkLog",
+            envelopeJson = """{"commandId":"log","command":{"name":"RecordWorkLog","body":"x","taskId":"task-new"}}""")
+        val create = command("create", "2026-08-22T01:30:00Z", taskId = "task-new", commandName = "CreateTask")
+
+        assertEquals(create, nextSendableCommand(listOf(workLog, create), "server-1"))
+        assertNull(nextSendableCommand(listOf(workLog, create), "server-1", skipped = setOf("create")))
+    }
+
+    @Test
     fun `never tried commands keep creation order and the least recently tried comes next`() {
         val triedLate = command("a", "2026-08-22T01:00:01Z", state = OutboxState.RetryWait, taskId = "task-a",
             lastAttemptAt = "2026-08-22T01:05:00Z")
