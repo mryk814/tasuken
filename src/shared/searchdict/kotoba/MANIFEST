@@ -1,0 +1,4 @@
+# kotoba の辞書のうち、一般の表記ゆれ（dict/alias.tsv）だけの写し。公開のリポジトリに置いてよい組。ここで直さず、kotoba で直してから kotoba-copy -set alias で写し直す
+set	alias
+commit	1049b6205abe41d158044ebafba6e7582422b7a0
+file	dict/alias.tsv	04ae1f833a11c3fc4461016fb83961eea7cf5c1382856e6215faf25b28f76aaf
