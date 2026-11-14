@@ -82,8 +82,9 @@ export interface RestorePlan {
 export type RestoreOutcome = WorkspaceRestoreOutcome;
 
 /**
- * 失敗を元へ戻すのにも失敗し、正本が元の名前に無い時。起動を続けると空のDBを作って
- * 本人に書かせてしまうので、知らせて終了する（予定は残し、次の起動で続きから元へ戻す）。
+ * 失敗を元へ戻すのにも失敗し、正本が元の名前に無い時と、予定のファイルを読めない時。
+ * 起動を続けると空のDBを作って本人に書かせてしまう（または差し替えの途中の正本を開く）ので、
+ * 知らせて終了する（予定は残し、次の起動で続きから元へ戻す）。
  */
 export interface RestoreHalt {
   status: "halted";
@@ -144,6 +145,31 @@ function readJson<T>(filePath: string): T | null {
     return JSON.parse(fs.readFileSync(filePath, "utf8")) as T;
   } catch {
     return null;
+  }
+}
+
+type PlanRead =
+  | { kind: "missing" }
+  | { kind: "unreadable"; error: unknown }
+  | { kind: "read"; value: RestorePlan | null };
+
+/**
+ * 予定を読む。無い（ENOENT）と読めない（EBUSY・EPERM など）を分ける。
+ * 読めない時に「予定が無い」と扱うと、予定を消して、差し替えの途中かもしれない正本を開いてしまう。
+ * JSONとして壊れている時は value を null にする（呼ぶ側が、正本の有無で扱いを決める）。
+ */
+function readPlan(planPath: string): PlanRead {
+  let text: string;
+  try {
+    text = fs.readFileSync(planPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | null)?.code === "ENOENT") return { kind: "missing" };
+    return { kind: "unreadable", error };
+  }
+  try {
+    return { kind: "read", value: JSON.parse(text) as RestorePlan };
+  } catch {
+    return { kind: "read", value: null };
   }
 }
 
@@ -396,10 +422,60 @@ function haltMessage(setAside: string): string {
   );
 }
 
+/** 本人が手で直す時に、正本の名前に残った -wal・-shm を先にどける一文（別のDBの -wal を当てないため）。 */
+function strayJournalNote(live: string): string {
+  return ["-wal", "-shm"].some((suffix) => fs.existsSync(`${live}${suffix}`))
+    ? `${WORKSPACE_DATABASE_FILE}-wal・${WORKSPACE_DATABASE_FILE}-shm は、先に別のフォルダへ移してください。`
+    : "";
+}
+
+/** 元へ戻そうとしたら、退けた正本も正本も無かった時の知らせ。 */
+function missingDatabaseMessage(userDataPath: string, plan: RestorePlan): string {
+  const live = databasePath(userDataPath);
+  const head =
+    "控えから戻す途中で、データベースが見つからなくなりました。" +
+    `${userDataPath} に ${WORKSPACE_DATABASE_FILE} も ${plan.setAsideName} もありません。\n\n`;
+  if (!plan.previousBackupPath) {
+    return `${head}戻す前は記録の無い作業台でした。Taskenを閉じたまま restore-plan.json を消してから起動してください。`;
+  }
+  return (
+    `${head}戻す前の控えが ${plan.previousBackupPath} にあります。Taskenを閉じたまま、次のようにしてください。\n` +
+    `1. その控えを ${userDataPath} へ写し、${WORKSPACE_DATABASE_FILE} の名前に替える。${strayJournalNote(live)}\n` +
+    `2. ${PLAN_FILE} を消してから、Taskenを起動する。`
+  );
+}
+
+/** 予定が壊れて読めず、正本も無い時の知らせ。いちばん新しい退けた正本を名前で示す。 */
+function unreadablePlanMessage(userDataPath: string): string {
+  let newest = "";
+  try {
+    newest =
+      fs
+        .readdirSync(userDataPath)
+        .filter((name) => name.startsWith(SET_ASIDE_PREFIX) && name.endsWith(".sqlite"))
+        .sort()
+        .pop() ?? "";
+  } catch {
+    // 一覧が読めなくても、知らせは出す。
+  }
+  const head = "控えから戻す予定のファイルが読めず、データベースも見つかりませんでした。\n\n";
+  if (!newest) {
+    return (
+      `${head}${userDataPath} に、戻す前のデータベース（${SET_ASIDE_PREFIX}…sqlite）もありません。` +
+      `${PLAN_FILE} を消すと、空の状態で起動します。その後、設定の「控えから戻す」で控えを選んでください。`
+    );
+  }
+  return (
+    `${head}戻す前のデータは ${newest} に残っています。Taskenを閉じたまま、${userDataPath} で次のようにしてください。\n` +
+    `1. ${newest} を ${WORKSPACE_DATABASE_FILE} の名前に替える（同じ名前の -wal・-shm があれば、それも ${WORKSPACE_DATABASE_FILE}-wal・${WORKSPACE_DATABASE_FILE}-shm に替える）。\n` +
+    `2. ${PLAN_FILE} を消してから、Taskenを起動する。`
+  );
+}
+
 /**
  * 起動の最初、DBを開く前に呼ぶ。戻す予定があれば差し替える。予定が無ければ null。
  * 失敗した時は、退けた正本を元の名前へ戻し、結果に理由を残す（投げない。起動は続ける）。
- * 元へ戻すのにも失敗した時だけ halted を返す。呼ぶ側は知らせて終了し、DBを開かない。
+ * 元へ戻すのにも失敗した時と、予定を読めない時は halted を返す。呼ぶ側は知らせて終了し、DBを開かない。
  */
 export function applyPendingRestore(
   options: ApplyRestoreOptions,
@@ -410,18 +486,25 @@ export function applyPendingRestore(
   const live = databasePath(userDataPath);
   const staged = `${live}${STAGED_SUFFIX}`;
   const planPath = path.join(userDataPath, PLAN_FILE);
-  const read = readJson<RestorePlan>(planPath);
+  const planRead = readPlan(planPath);
+  if (planRead.kind === "unreadable") {
+    // ほかのプログラムが掴んでいるだけかもしれない。予定を消さず、正本も開かずに止める。
+    log("error", "戻す予定のファイルを読めなかった", planRead.error);
+    return {
+      status: "halted",
+      error:
+        `控えから戻す予定のファイル（${planPath}）を読めませんでした。` +
+        "このフォルダのファイルを使っているプログラム（同期やウイルス対策のソフトなど）が無いか確かめてから、" +
+        "Taskenをもう一度起動してください。",
+    };
+  }
+  const read = planRead.kind === "read" ? planRead.value : null;
 
   if (!isRestorePlan(read)) {
     if (fs.existsSync(planPath) && !fs.existsSync(live)) {
-      // 読めない予定が残り、正本も無い。差し替えの途中かもしれないので、空のDBを作らせない。
+      // 壊れた予定が残り、正本も無い。差し替えの途中かもしれないので、空のDBを作らせない。
       log("error", "戻す予定が読めず、データベースも見つからない");
-      return {
-        status: "halted",
-        error:
-          "控えから戻す予定のファイルが読めず、データベースも見つかりませんでした。" +
-          `${userDataPath} の中の research-desk.before-restore-… のファイルに、戻す前のデータが残っている場合があります。`,
-      };
+      return { status: "halted", error: unreadablePlanMessage(userDataPath) };
     }
     // 予定が無い時は、退けた正本の名前も分からない。正本にも退けたファイルにも触れない。
     if (fs.existsSync(planPath) || fs.existsSync(staged)) cancelStagedRestore(userDataPath);
@@ -467,6 +550,12 @@ export function applyPendingRestore(
       // 予定は rolling-back のまま残し、次の起動で続きから戻す。
       log("error", "退けたデータベースを元の名前へ戻せなかった", error);
       return { status: "halted", error: haltMessage(setAside) };
+    }
+    if (!fs.existsSync(live)) {
+      // 退けた本体も正本も無く、moveBack は何もしなかった。このまま起動すると空のDBを作るので止める。
+      // 予定は残し、次の起動でも同じく止める。
+      log("error", `元へ戻そうとしたが、データベースも退けた正本も無い: ${setAside}`);
+      return { status: "halted", error: missingDatabaseMessage(userDataPath, plan) };
     }
     try {
       cancelStagedRestore(userDataPath);

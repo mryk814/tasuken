@@ -596,3 +596,73 @@ test("失敗を元へ戻すのにも失敗したら起動を止め（halted）�
     [],
   );
 });
+
+test("元へ戻す時に、退けた正本も正本も無ければ起動を止め（halted）、空のDBを作らせない", async (t) => {
+  for (const phase of ["rolling-back", "placed"]) {
+    await t.test(phase, async (t) => {
+      const ws = workspace(t);
+      seed(ws);
+      const backupPath = await ws.backup();
+      const plan = await ws.stage(backupPath);
+      ws.quit();
+      // 退けた正本も、正本の名前の本体も、ほかのプログラムに持ち去られた状況。
+      const live = path.join(ws.userData, DATABASE);
+      for (const suffix of ["", "-wal", "-shm"]) fs.rmSync(`${live}${suffix}`, { force: true });
+      const planPath = path.join(ws.userData, "restore-plan.json");
+      fs.writeFileSync(planPath, JSON.stringify({ ...plan, phase }));
+
+      const halted = ws.apply();
+      assert.equal(halted?.status, "halted");
+      // 本人が戻せるよう、戻す前の控えの場所と手順を知らせる。
+      assert.ok(halted.error.includes(plan.previousBackupPath));
+      assert.match(halted.error, /restore-plan\.json を消して/);
+      assert.equal(fs.existsSync(live), false);
+      assert.equal(fs.existsSync(planPath), true);
+      // 次の起動でも同じく止まる。
+      assert.equal(ws.apply()?.status, "halted");
+    });
+  }
+});
+
+test("予定のファイルが一時的に読めない時は、予定を消さずに起動を止め、次の起動で戻す", async (t) => {
+  const ws = workspace(t);
+  seed(ws);
+  const countAtBackup = ws.state.repository.entityCount();
+  const backupPath = await ws.backup();
+  ws.state.repository.save("note", { id: "note-3", title: "控えの後に足した" });
+  await ws.stage(backupPath);
+  ws.quit();
+
+  const restoreRead = failFsFor(t, ws, "readFileSync", /^restore-plan\.json$/);
+  const halted = ws.apply();
+  restoreRead();
+  assert.equal(halted?.status, "halted");
+  assert.match(halted.error, /restore-plan\.json/);
+  // 予定も写しも残り、正本はまだ戻す前のまま。
+  assert.equal(fs.existsSync(path.join(ws.userData, "restore-plan.json")), true);
+  assert.equal(fs.existsSync(path.join(ws.userData, `${DATABASE}.restore-staged`)), true);
+
+  assert.equal(ws.apply().status, "restored");
+  assert.equal(ws.open().entityCount(), countAtBackup);
+});
+
+test("予定が壊れて正本も無い時の知らせに、いちばん新しい退けた正本の名前と戻す手順が入る", async (t) => {
+  const ws = workspace(t);
+  seed(ws);
+  ws.quit();
+  const live = path.join(ws.userData, DATABASE);
+  const older = "research-desk.before-restore-20261101T000000000Z.sqlite";
+  const newer = "research-desk.before-restore-20261114T010203000Z.sqlite";
+  fs.copyFileSync(live, path.join(ws.userData, older));
+  fs.renameSync(live, path.join(ws.userData, newer));
+  for (const suffix of ["-wal", "-shm"]) fs.rmSync(`${live}${suffix}`, { force: true });
+  fs.writeFileSync(path.join(ws.userData, "restore-plan.json"), "{ broken");
+
+  const halted = ws.apply();
+  assert.equal(halted?.status, "halted");
+  assert.ok(halted.error.includes(newer));
+  assert.ok(!halted.error.includes(older));
+  assert.match(halted.error, /research-desk\.sqlite の名前に替え/);
+  assert.match(halted.error, /restore-plan\.json を消して/);
+  assert.ok(halted.error.includes(ws.userData));
+});
