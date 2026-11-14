@@ -93,21 +93,6 @@ export const workspaceApi = {
   setDataHealthIssueState(request: Parameters<Window["api"]["dataHealth"]["setState"]>[0]) {
     return desktopApi().dataHealth.setState(request);
   },
-  getThemeAiPackStatus(themeId: string) {
-    return desktopApi().themeAiPack.status(themeId);
-  },
-  previewThemeAiPack(themeId: string) {
-    return desktopApi().themeAiPack.preview(themeId);
-  },
-  publishThemeAiPack(themeId: string, expectedContentHash: string) {
-    return desktopApi().themeAiPack.publish({ themeId, expectedContentHash });
-  },
-  openThemeAiPackFolder(themeId: string) {
-    return desktopApi().themeAiPack.openFolder(themeId);
-  },
-  onThemeAiPackChanged(callback: Parameters<Window["api"]["themeAiPack"]["onChanged"]>[0]) {
-    return desktopApi().themeAiPack.onChanged(callback);
-  },
   previewConversationContext(
     request: Parameters<Window["api"]["conversationContext"]["preview"]>[0],
   ) {

@@ -1,13 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import {
-  IconCopy,
-  IconFolder,
-  IconMessage2Plus,
-  IconPencil,
-  IconRefresh,
-} from "@tabler/icons-react";
+import { useMemo, useState } from "react";
+import { IconCopy, IconFolder, IconMessage2Plus, IconPencil } from "@tabler/icons-react";
 
-import type { ThemeAiPackPreviewResult } from "../../../../../shared/ipc/contracts";
 import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { usePreference } from "../../../utils/usePreference";
@@ -46,7 +39,6 @@ import {
   ActionButton,
   Button,
   EmptyState,
-  IntegrationStatus,
   PageHeader,
   SimpleRows,
   StatusBadge,
@@ -83,43 +75,6 @@ const MILESTONE_PREVIEW_LIMIT = 3;
 /** 「いま分かっていること」に出すKnowledgeの上限。 */
 const KNOWLEDGE_PREVIEW_LIMIT = 2;
 const NOTE_PREVIEW_LIMIT = 4;
-const AI_PACK_STATE_LABELS: Record<string, string> = {
-  missing: "未生成",
-  dirty: "更新あり",
-  current: "最新",
-  skipped: "最新",
-  current_with_warning: "最新（要確認）",
-  stale_preview: "再確認が必要",
-  publishing: "更新中",
-  failed_retryable: "再試行できます",
-  recovery_required: "復旧が必要",
-  needs_root: "保存先未設定",
-  root_unavailable: "保存先を利用できません",
-  identity_conflict: "Theme ID競合",
-};
-
-function aiPackStatusTone(
-  state: string | undefined,
-  loading: boolean,
-): "normal" | "neutral" | "attention" | "error" | "loading" {
-  if (loading || state === "publishing") return "loading";
-  if (state === "recovery_required" || state === "identity_conflict") return "error";
-  if (
-    [
-      "missing",
-      "dirty",
-      "stale_preview",
-      "failed_retryable",
-      "needs_root",
-      "root_unavailable",
-      "current_with_warning",
-    ].includes(state || "")
-  )
-    return "attention";
-  if (state === "current" || state === "skipped") return "normal";
-  return "neutral";
-}
-
 function noteProps(note: BaseRecord): Record<string, unknown> {
   return note.properties_json && typeof note.properties_json === "object"
     ? (note.properties_json as Record<string, unknown>)
@@ -324,63 +279,11 @@ export function ThemePage({
   setToast,
 }: PageProps) {
   const [sectionTitle, setSectionTitle] = useState("");
-  const [aiPack, setAiPack] = useState<ThemeAiPackPreviewResult | null>(null);
-  const [aiPackLoading, setAiPackLoading] = useState(false);
-  const [aiPackPublishing, setAiPackPublishing] = useState(false);
-  const [aiPackError, setAiPackError] = useState("");
-  const [aiPackPreviewOpen, setAiPackPreviewOpen] = useState(false);
   const [themePreference, setThemePreference] = usePreference(
     "theme.preferences",
     activeTheme?.id || "none",
   );
   const tab = themePreference.tab;
-  const activeThemeId = activeTheme?.id || "";
-  const aiPackRevisionKey = useMemo(
-    () =>
-      Object.values(data as unknown as Record<string, unknown>)
-        .filter(Array.isArray)
-        .flatMap((entries) => entries as Array<Record<string, unknown>>)
-        .map(
-          (entry) =>
-            `${String(entry.id || "")}:${String(entry.version || "")}:${String(entry.updated_at || "")}`,
-        )
-        .sort()
-        .join("|"),
-    [data],
-  );
-
-  useEffect(() => {
-    if (!activeThemeId) {
-      setAiPack(null);
-      return undefined;
-    }
-    let current = true;
-    const refresh = async () => {
-      setAiPack((previous) => (previous?.themeId === activeThemeId ? previous : null));
-      setAiPackLoading(true);
-      setAiPackError("");
-      try {
-        const preview = await workspaceApi.previewThemeAiPack(activeThemeId);
-        if (current) setAiPack(preview);
-      } catch (error) {
-        if (current)
-          setAiPackError(
-            error instanceof Error ? error.message : "AI Packを確認できませんでした。",
-          );
-      } finally {
-        if (current) setAiPackLoading(false);
-      }
-    };
-    void refresh();
-    const unsubscribe = workspaceApi.onThemeAiPackChanged((change) => {
-      if (change.themeId === activeThemeId) void refresh();
-    });
-    return () => {
-      current = false;
-      unsubscribe();
-    };
-  }, [activeThemeId, aiPackRevisionKey]);
-
   const collapsedSections = new Set(themePreference.collapsedSections);
   if (!activeTheme) {
     return (
@@ -604,46 +507,6 @@ export function ThemePage({
   function editPrompt(prompt: BaseRecord) {
     openDrawer({ type: "note", mode: "edit", entity: prompt });
   }
-  async function publishAiPack() {
-    if (!aiPack || aiPackPublishing) return;
-    setAiPackPublishing(true);
-    setAiPackError("");
-    try {
-      const result = await workspaceApi.publishThemeAiPack(theme.id, aiPack.contentHash);
-      if (result.state === "stale_preview") {
-        setToast("Previewが古くなりました。生成内容を確認し直してください。", "warning");
-      } else if (["current", "skipped", "current_with_warning"].includes(result.state)) {
-        setToast(
-          result.state === "skipped" ? "AI Packは最新です。" : "AI Packを更新しました。",
-          "success",
-        );
-      } else {
-        setToast(
-          result.error || "AI Packを更新できませんでした。保存先を確認して再試行してください。",
-          "warning",
-        );
-      }
-      setAiPack(await workspaceApi.previewThemeAiPack(theme.id));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "AI Packを更新できませんでした。";
-      setAiPackError(message);
-      setToast(`${message} 保存先を確認して再試行してください。`, "danger");
-    } finally {
-      setAiPackPublishing(false);
-    }
-  }
-
-  async function openAiPackFolder() {
-    try {
-      const result = await workspaceApi.openThemeAiPackFolder(theme.id);
-      if (!result.ok) setToast(result.error || "AI Packフォルダを開けませんでした。", "warning");
-    } catch (error) {
-      setToast(
-        error instanceof Error ? error.message : "AI Packフォルダを開けませんでした。",
-        "danger",
-      );
-    }
-  }
 
   return (
     <div className="page theme-page">
@@ -842,7 +705,7 @@ export function ThemePage({
 
           {/*
             技術設定は日常の概要より後ろへ畳む（計画フェーズ4）。
-            登録・Preview・更新・フォルダを開く操作は、開いた先でそのまま使える。
+            Repositoryの登録と変更は、開いた先でそのまま使える。
           */}
           <details className="theme-settings">
             <summary>連携と設定</summary>
@@ -898,100 +761,6 @@ export function ThemePage({
                   <span>
                     登録すると、この作業場所で集めたAIセッションをThemeへ関連付けやすくなります。
                   </span>
-                </div>
-              )}
-            </section>
-
-            <section
-              className="panel theme-ai-pack-panel"
-              aria-busy={aiPackLoading || aiPackPublishing}
-            >
-              <div className="section-heading">
-                <div className="theme-ai-pack-title">
-                  <h2>M365向け AI Pack</h2>
-                  <IntegrationStatus
-                    tone={aiPackStatusTone(aiPack?.state, aiPackPublishing || aiPackLoading)}
-                    label={
-                      aiPackPublishing
-                        ? "更新中"
-                        : aiPackLoading
-                          ? "確認中"
-                          : AI_PACK_STATE_LABELS[aiPack?.state || ""] || "確認できません"
-                    }
-                  />
-                </div>
-                <div className="inline-actions">
-                  <Button
-                    variant="secondary"
-                    compact
-                    onClick={() => setAiPackPreviewOpen((open) => !open)}
-                    disabled={!aiPack || aiPackLoading}
-                  >
-                    {aiPackPreviewOpen ? "閉じる" : "Preview"}
-                  </Button>
-                  {aiPack?.canOpenFolder && (
-                    <Button variant="secondary" compact onClick={() => void openAiPackFolder()}>
-                      <IconFolder size={15} />
-                      開く
-                    </Button>
-                  )}
-                  <Button
-                    variant="secondary"
-                    compact
-                    onClick={() => void publishAiPack()}
-                    disabled={!aiPack || aiPackLoading || aiPackPublishing}
-                  >
-                    <IconRefresh size={15} />
-                    {aiPackPublishing ? "更新中" : aiPack?.retryPending ? "再試行" : "更新"}
-                  </Button>
-                </div>
-              </div>
-              {aiPackLoading && !aiPack && <p className="field-help">生成内容を確認しています。</p>}
-              {aiPackError && (
-                <p className="form-error">{aiPackError} 保存先を確認して再試行してください。</p>
-              )}
-              {aiPack && (
-                <div className="theme-ai-pack-summary">
-                  <span>{aiPack.files.length} files</span>
-                  <span>{aiPack.includedCount}件を収録</span>
-                  <span>{aiPack.excludedCount}件を除外</span>
-                  <span>{aiPack.totalCharacterCount.toLocaleString("ja-JP")}文字</span>
-                  {aiPack.lastPublishedAt && (
-                    <span>最終生成 {formatDate(aiPack.lastPublishedAt)}</span>
-                  )}
-                  {aiPack.warnings.length > 0 && (
-                    <span className="danger-text">警告 {aiPack.warnings.length}件</span>
-                  )}
-                </div>
-              )}
-              {aiPackPreviewOpen && aiPack && (
-                <div className="theme-ai-pack-preview">
-                  {(aiPack.excludedReasons.length > 0 || aiPack.warnings.length > 0) && (
-                    <div className="theme-ai-pack-notices">
-                      {aiPack.excludedReasons.map((reason) => (
-                        <span key={`${reason.type}:${reason.reason}`}>
-                          {reason.type}: {reason.reason} ({reason.count})
-                        </span>
-                      ))}
-                      {aiPack.warnings.map((warning) => (
-                        <span key={`${warning.kind}:${warning.type}:${warning.id}`}>
-                          {warning.title}: {warning.reason}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  {aiPack.files.map((file) => (
-                    <details key={file.name} className="theme-ai-pack-file">
-                      <summary>
-                        <strong>{file.name}</strong>
-                        <span>
-                          {file.includedCount}件 / {file.characterCount.toLocaleString("ja-JP")}
-                          文字
-                        </span>
-                      </summary>
-                      <pre>{file.content}</pre>
-                    </details>
-                  ))}
                 </div>
               )}
             </section>

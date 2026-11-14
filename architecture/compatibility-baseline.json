@@ -66,7 +66,7 @@
         "src/main/services/canonicalPath.mjs",
         "src/main/services/conversationContextPublisher.mjs",
         "src/main/services/screenRecordingGrantRegistry.mjs",
-        "src/main/services/themeAiPackPublisher.mjs",
+        "src/main/services/themeFolderLocation.mjs",
         "src/shared/activityProjection.mjs",
         "src/shared/aiContextPreview.mjs",
         "src/shared/aiMetadata.mjs",
@@ -84,7 +84,6 @@
         "src/shared/screenRecording.mjs",
         "src/shared/screenRecordingEdit.mjs",
         "src/shared/stableLinks.mjs",
-        "src/shared/themeAiPack.mjs",
         "src/shared/themeRef.mjs",
         "src/shared/todayTasks.mjs",
         "src/shared/viewOrdering.mjs",
@@ -246,7 +245,6 @@
         "tests/shared-folder-sync.test.mjs",
         "tests/task-place-reminder.test.mjs",
         "tests/task-work-receipts.test.mjs",
-        "tests/theme-ai-pack-workspace.test.mjs",
         "tests/view-preferences.test.mjs",
         "tests/workspace-repository.test.mjs"
       ]

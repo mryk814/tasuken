@@ -67,9 +67,6 @@ import type {
   DataHealthQuery,
   DataHealthQueryResult,
   DataHealthStateUpdateRequest,
-  ThemeAiPackPreviewResult,
-  ThemeAiPackPublishResult,
-  ThemeAiPackStatusResult,
 } from "../../shared/ipc/contracts";
 import { createMcpBridgeInfo } from "../../shared/ipc/contracts";
 import { coreWriteProfile } from "../../shared/contracts/core/public.mjs";
@@ -108,7 +105,6 @@ import type {
 import { referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
 import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs";
 import { reconcileStableLinkAssertions } from "../../shared/stableLinks.mjs";
-import { queryActivityEvents } from "../../shared/activityProjection.mjs";
 import { changeEventsForCommand } from "../../shared/activityEvent.mjs";
 import { previewTaskCoding } from "../../shared/aiContextPreview.mjs";
 import { DataHealthEvaluator, normalizeDataHealthState } from "../../shared/dataHealth.mjs";
@@ -117,14 +113,8 @@ import {
   CONVERSATION_CONTEXT_PUBLICATION_SCHEMA,
   buildConversationContextPlan,
   normalizeConversationContextPublication,
-  publicationForThemeAiPack,
   type ConversationContextPlan,
 } from "../../shared/conversationContext.mjs";
-import {
-  buildThemeAiPackPlan,
-  type BuildThemeAiPackPlanInput,
-  type ThemeAiPackPlan,
-} from "../../shared/themeAiPack.mjs";
 import { buildDailyContextPlan } from "../../shared/dailyContext";
 import { localDate as activityLocalDate } from "../../shared/activityProjection.mjs";
 import {
@@ -140,10 +130,8 @@ import { collectDailyContextAutoChanges } from "./dailyContextAutoSources";
 import {
   publishDailyContext,
   readDailyContextSelections,
-  publishedSourceIndex,
   withdrawDailyContext,
 } from "./dailyContextPublisher";
-import { publicSourceThemeIndexPath } from "../../shared/publicSourceProjection";
 import {
   buildCanonicalMarkdownContent,
   canonicalMarkdownBindingFromProperties,
@@ -181,15 +169,7 @@ import {
 } from "./canonicalPath.mjs";
 import { buildMermaidPptxBuffer } from "./mermaidPowerPointService";
 import { createSnapshot, readSnapshot } from "./snapshotService.mjs";
-import {
-  THEME_AI_PACK_DIRECTORY,
-  THEME_AI_PACK_MANIFEST,
-  discoverThemeAiPackLocation,
-  ensureThemeAiPackLocation,
-  inspectThemeAiPack,
-  publishThemeAiPack,
-  recoverThemeAiPackOperations,
-} from "./themeAiPackPublisher.mjs";
+import { discoverThemeFolderLocation, ensureThemeFolderLocation } from "./themeFolderLocation.mjs";
 import { rejectGenericAudioArtifact, rejectGenericVideoArtifact } from "../mediaCapturePersistence";
 import { artifactOpenTarget } from "../../shared/artifactLinks.mjs";
 import {
@@ -228,30 +208,10 @@ import {
 
 type SnapshotDecisions = Record<string, string>;
 
-interface ThemeAiPackInputs {
-  candidates: NonNullable<BuildThemeAiPackPlanInput["candidates"]>;
-  workspace: Record<string, unknown>;
-  events: Array<Record<string, unknown>>;
-  roots: Record<string, string>;
-}
-
 const MARKDOWN_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
 /** アプリ内ビューア用。インフォグラフィック等の大きめ画像も許容する。 */
 const PREVIEW_IMAGE_MAX_BYTES = 40 * 1024 * 1024;
 const PREVIEW_TEXT_MAX_BYTES = 5 * 1024 * 1024;
-const THEME_AI_PACK_CANDIDATE_TYPES = [
-  "capture_entry",
-  "task",
-  "waiting",
-  "plan_node",
-  "note",
-  "resource",
-  "status_update",
-  "work_receipt",
-  "knowledge_node",
-  "artifact",
-  "sketch",
-] as const;
 const RELEASES_API_URL = "https://api.github.com/repos/mryk814/tasuken/releases/latest";
 const RELEASES_PAGE_URL = "https://github.com/mryk814/tasuken/releases/latest";
 const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
@@ -542,22 +502,6 @@ function sameStableLinkAssertion(
   }
 }
 
-function isSafeThemeAiPackDirectory(themeFolder: string, packDirectory: string): boolean {
-  const resolvedThemeFolder = path.resolve(themeFolder);
-  const resolvedPackDirectory = path.resolve(packDirectory);
-  if (
-    path.dirname(resolvedPackDirectory) !== resolvedThemeFolder ||
-    path.basename(resolvedPackDirectory) !== THEME_AI_PACK_DIRECTORY
-  )
-    return false;
-  try {
-    const packStat = fs.lstatSync(resolvedPackDirectory);
-    return !packStat.isSymbolicLink() && packStat.isDirectory();
-  } catch {
-    return false;
-  }
-}
-
 function normalizeDocumentSaveCompanions(
   value: unknown,
   noteId: string,
@@ -811,10 +755,8 @@ function normalizeMarkdownImageAttachment(value: unknown): MarkdownImageAttachme
 export class WorkspaceService {
   private dailyContextAuto: DailyContextAutoPublisher | null = null;
   private readonly pendingSnapshots = new Map<string, Workspace>();
-  private readonly publishingThemeAiPacks = new Set<string>();
   private readonly canonicalRecoveryPath: string;
   private readonly canonicalRecoveryWarningPath: string;
-  private readonly themeAiPackRecoveryDirectory: string;
   private readonly dataHealthEvaluator = new DataHealthEvaluator();
   private readonly conversationContextRecoveryDirectory: string;
   private readonly proposalMarkdownImages: ProposalMarkdownImageStore;
@@ -847,7 +789,6 @@ export class WorkspaceService {
       userDataPath,
       "canonical-markdown-recovery-warning.json",
     );
-    this.themeAiPackRecoveryDirectory = path.join(userDataPath, "theme-ai-pack-recovery");
     this.conversationContextRecoveryDirectory = path.join(
       userDataPath,
       "conversation-context-recovery",
@@ -859,7 +800,6 @@ export class WorkspaceService {
     return measureMainPerformance("workspace_load", () => {
       this.recoverNoteDeletions();
       this.recoverConversationContextReceipts();
-      this.recoverThemeAiPackReceipts();
       this.recoverCanonicalMarkdownReceipts();
       this.migrateCanonicalMarkdownBindings();
       return this.repository.loadWorkspace(includeDeleted, options);
@@ -1208,19 +1148,6 @@ export class WorkspaceService {
     return writeAtomicTextFile(filePath, content, operationId);
   }
 
-  private recoverThemeAiPackReceipts(): void {
-    const results = recoverThemeAiPackOperations({
-      recoveryDirectory: this.themeAiPackRecoveryDirectory,
-    });
-    for (const result of results) {
-      if (result.state === "recovery_required") {
-        console.warn(
-          `Theme AI Pack ${result.operationId} は自動復旧できませんでした。${result.error || ""}`,
-        );
-      }
-    }
-  }
-
   getDailyContextPreview(selection: unknown, generatedAt = new Date().toISOString()) {
     const workspace = this.repository.loadWorkspace(true) as Record<string, unknown>;
     const publication = objectValue(this.repository.getPreference("dailyContextPublication"));
@@ -1503,137 +1430,12 @@ export class WorkspaceService {
       });
       if (selection.date === plan.selection.date) result = saved;
     }
-    for (const theme of this.repository.list("theme", true)) {
-      const location = this.resolveThemeAiPack(theme);
-      if (location.status === "needs_root") continue;
-      if (location.status !== "ok")
-        throw new Error(
-          "既存Theme AI Packの保存先を確認できません。保存先を復旧して再公開してください。",
-        );
-      if (!fs.existsSync(path.join(location.packDirectory, THEME_AI_PACK_MANIFEST))) continue;
-      const pack = theme.deleted_at
-        ? publishThemeAiPack({
-            plan: buildThemeAiPackPlan({
-              theme,
-              generatedAt: request.generatedAt,
-            }),
-            packDirectory: location.packDirectory,
-            recoveryDirectory: this.themeAiPackRecoveryDirectory,
-          })
-        : this.publishThemeAiPack({
-            themeId: theme.id,
-            expectedContentHash: this.getThemeAiPackPreview(theme.id).contentHash,
-          });
-      if ((!pack.written && pack.state !== "skipped") || pack.state === "current_with_warning")
-        throw new Error(
-          "日別と本文は更新しましたが、既存Theme AI Packを更新できませんでした。旧公開物を確認して再公開してください。",
-        );
-    }
     this.repository.setPreference("dailyContextPublication", {
       root: request.root,
       timezone: plan.selection.timezone,
       refreshPending: false,
     });
     return result!;
-  }
-
-  /**
-   * Theme AI Packの材料。Themeに依らないので、全Themeの状態をまとめて出すとき（Data Health）は
-   * 1回だけ読んでThemeごとに使い回す。Themeごとに全件を読み直していたころは、実データで
-   * 1 Themeあたり1秒以上かかり、Knowledgeを開くたびにTheme数ぶんMainが止まっていた。
-   */
-  private themeAiPackInputs(loadedWorkspace?: Record<string, unknown>): ThemeAiPackInputs {
-    const candidates = THEME_AI_PACK_CANDIDATE_TYPES.flatMap((type) =>
-      this.repository.list(type).map((entity) => {
-        const publication = type === "resource" ? publicationForThemeAiPack(entity) : null;
-        return { type, entity, ...(publication ? { publication } : {}) };
-      }),
-    );
-    // 呼び出し側が同じ loadWorkspace(false) をすでに持っていれば、それを使う。
-    const workspace =
-      loadedWorkspace || (this.repository.loadWorkspace(false) as Record<string, unknown>);
-    return {
-      candidates,
-      workspace,
-      // loadWorkspace(false) は削除済みを除いた change_event を持つ。list("change_event") と同じ中身。
-      events: (workspace.change_events as Array<Record<string, unknown>> | undefined) || [],
-      roots: this.activityCanonicalRootPaths(),
-    };
-  }
-
-  private buildThemeAiPack(
-    themeIdValue: unknown,
-    sharedInputs?: ThemeAiPackInputs,
-  ): {
-    theme: Record<string, unknown>;
-    plan: ThemeAiPackPlan;
-  } {
-    const themeId = typeof themeIdValue === "string" ? themeIdValue.trim() : "";
-    if (!themeId) throw new Error("Theme IDがありません。Themeを開き直してください。");
-    const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
-    if (!theme || theme.deleted_at) throw new Error("AI Packを作成するThemeが見つかりません。");
-    const { candidates, workspace, events, roots } = sharedInputs || this.themeAiPackInputs();
-    const activity = queryActivityEvents({
-      workspace,
-      events,
-      themeId,
-      roots,
-      limit: 100,
-    });
-    const sourceRevision = markdownSignature(
-      JSON.stringify(
-        [
-          ["theme", theme.id, theme.version, theme.updated_at],
-          ...candidates.map(({ type, entity }) => [
-            type,
-            entity.id,
-            entity.version,
-            entity.updated_at,
-          ]),
-          ...activity.events.map((event) => [
-            "change_event",
-            event.id,
-            event.entity_ref?.revision,
-            event.occurred_at,
-          ]),
-        ].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
-      ),
-    );
-    return {
-      theme,
-      plan: buildThemeAiPackPlan({
-        theme,
-        candidates,
-        activity,
-        generatedAt: this.now(),
-        sourceRevision,
-        publicBodyIndexLink: this.publicBodyIndexLink(theme),
-      }),
-    };
-  }
-
-  private publicBodyIndexLink(theme: Record<string, unknown>): string | null {
-    const setting = objectValue(this.repository.getPreference("dailyContextPublication"));
-    if (typeof setting.root !== "string" || typeof setting.timezone !== "string") return null;
-    const location = this.resolveThemeAiPack(theme);
-    if (location.status !== "ok") return null;
-    try {
-      const target = publishedSourceIndex(
-        setting.root,
-        this.repository.getMeta().workspaceId,
-        setting.timezone,
-        publicSourceThemeIndexPath(String(theme.id)),
-      );
-      if (!target) return null;
-      const relative = path.relative(location.packDirectory, target).replace(/\\/g, "/");
-      if (path.isAbsolute(relative) || /^[a-z]+:/i.test(relative)) return null;
-      return relative
-        .split("/")
-        .map((part) => encodeURIComponent(part))
-        .join("/");
-    } catch {
-      return null;
-    }
   }
 
   /**
@@ -1687,40 +1489,9 @@ export class WorkspaceService {
     const query = objectValue(queryValue) as DataHealthQuery;
     const workspace = this.repository.loadWorkspace(false) as Workspace;
     const state = normalizeDataHealthState(this.repository.getDataHealthState());
-    const themes = [
-      ...((workspace.projects || []) as Array<Record<string, unknown>>),
-      ...((workspace.themes || []) as Array<Record<string, unknown>>),
-    ].filter((theme) => !theme.deleted_at && typeof theme.id === "string");
-    const seenThemeIds = new Set<string>();
-    // 材料は全Themeで共通なので1回だけ作る。作れなければ、従来どおり各Themeを失敗として返す。
-    let packInputs: ThemeAiPackInputs | null = null;
-    let packInputsError: unknown = null;
-    const sharedPackInputs = () => {
-      if (!packInputs && !packInputsError) {
-        try {
-          packInputs = this.themeAiPackInputs(workspace as unknown as Record<string, unknown>);
-        } catch (error) {
-          packInputsError = error;
-        }
-      }
-      if (packInputsError) throw packInputsError;
-      return packInputs!;
-    };
-    const themeAiPackStatuses = themes.flatMap((theme) => {
-      const themeId = String(theme.id);
-      if (seenThemeIds.has(themeId)) return [];
-      seenThemeIds.add(themeId);
-      try {
-        const status = this.getThemeAiPackStatus(themeId, sharedPackInputs());
-        return [{ themeId, state: status.state }];
-      } catch {
-        return [{ themeId, state: "failed_retryable" }];
-      }
-    });
     const evaluated = this.dataHealthEvaluator.evaluate(workspace, {
       state,
       generatedAt: this.now(),
-      themeAiPackStatuses,
     });
     const stateFilter = query.state && query.state !== "all" ? query.state : "open";
     const issues = evaluated.issues.filter(
@@ -1778,8 +1549,8 @@ export class WorkspaceService {
     return this.getDataHealth({ state: "all" });
   }
 
-  private resolveThemeAiPack(theme: Record<string, unknown>) {
-    return discoverThemeAiPackLocation({
+  private resolveThemeFolder(theme: Record<string, unknown>) {
+    return discoverThemeFolderLocation({
       syncRoot: String(this.repository.getPreference("artifactDirectory") || ""),
       themeStorageRoot: typeof theme.storage_root === "string" ? theme.storage_root : "",
       themeId: String(theme.id || ""),
@@ -1851,7 +1622,7 @@ export class WorkspaceService {
         this.repository.get("project", bindingThemeId, true)
       : theme;
     if (!bindingTheme) return { location: { status: "theme_missing" as const }, storage: null };
-    const location = this.resolveThemeAiPack(bindingTheme);
+    const location = this.resolveThemeFolder(bindingTheme);
     if (location.status !== "ok") return { location, storage: null };
     const storage =
       publication?.status === "published"
@@ -1914,19 +1685,6 @@ export class WorkspaceService {
     };
   }
 
-  private publishThemeAiPackAfterConversationChange(themeId: string): {
-    state: string;
-    error?: string;
-  } {
-    try {
-      const preview = this.getThemeAiPackPreview(themeId);
-      const result = this.publishThemeAiPack({ themeId, expectedContentHash: preview.contentHash });
-      return { state: result.state, ...(result.error ? { error: result.error } : {}) };
-    } catch (error) {
-      return { state: "failed_retryable", error: errorText(error) };
-    }
-  }
-
   publishConversationContext(requestValue: unknown): ConversationContextPublishResult {
     const request = objectValue(requestValue);
     const plannedPublishedAt =
@@ -1955,10 +1713,10 @@ export class WorkspaceService {
     if (!plan.allowed) {
       throw new Error(plan.blocking_reasons[0] || "M365への公開が許可されていません。");
     }
-    const location = this.resolveThemeAiPack(theme);
+    const location = this.resolveThemeFolder(theme);
     if (location.status !== "ok")
       throw new Error("ThemeのOneDrive保存先を利用できません。Settingsを確認してください。");
-    const ensured = ensureThemeAiPackLocation(location, { operationId: randomUUID() });
+    const ensured = ensureThemeFolderLocation(location, { operationId: randomUUID() });
     if (ensured.status !== "ok") throw new Error("ThemeのOneDrive保存先を準備できませんでした。");
     const existingPublication = normalizeConversationContextPublication(
       resource.conversation_context_publication,
@@ -1990,7 +1748,6 @@ export class WorkspaceService {
           dirty: false,
           written: false,
           contentHash: plan.content_hash,
-          themePackState: this.getThemeAiPackStatus(plan.theme_id).state,
         };
       }
     }
@@ -2036,7 +1793,6 @@ export class WorkspaceService {
         },
       });
       completeConversationContextOperation(this.conversationContextRecoveryDirectory, operationId);
-      const pack = this.publishThemeAiPackAfterConversationChange(plan.theme_id);
       return {
         conversationId: plan.conversation_id,
         themeId: plan.theme_id,
@@ -2044,13 +1800,6 @@ export class WorkspaceService {
         dirty: false,
         written: fileResult.written,
         contentHash: plan.content_hash,
-        themePackState: pack.state,
-        ...(pack.error
-          ? {
-              warning:
-                "Conversationは公開済みですが、Theme AI Packを更新できませんでした。Theme画面から再試行してください。",
-            }
-          : {}),
       };
     } catch (error) {
       try {
@@ -2112,10 +1861,10 @@ export class WorkspaceService {
     const theme =
       this.repository.get("theme", themeId, true) || this.repository.get("project", themeId, true);
     if (!theme) throw new Error("ConversationのThemeが見つかりません。");
-    const location = this.resolveThemeAiPack(theme);
+    const location = this.resolveThemeFolder(theme);
     if (location.status !== "ok")
       throw new Error("ThemeのOneDrive保存先を利用できません。Settingsを確認してください。");
-    const ensured = ensureThemeAiPackLocation(location, { operationId: randomUUID() });
+    const ensured = ensureThemeFolderLocation(location, { operationId: randomUUID() });
     if (ensured.status !== "ok") throw new Error("ThemeのOneDrive保存先を準備できませんでした。");
     const operationId = randomUUID();
     const pendingPublication = {
@@ -2151,19 +1900,11 @@ export class WorkspaceService {
         },
       });
       completeConversationContextOperation(this.conversationContextRecoveryDirectory, operationId);
-      const pack = this.publishThemeAiPackAfterConversationChange(themeId);
       return {
         conversationId,
         themeId,
         publicationState: "removed",
         removed: fileResult.removed,
-        themePackState: pack.state,
-        ...(pack.error
-          ? {
-              warning:
-                "AI Contextから外しましたが、Theme AI Packを更新できませんでした。Theme画面から再試行してください。",
-            }
-          : {}),
       };
     } catch (error) {
       try {
@@ -2227,7 +1968,7 @@ export class WorkspaceService {
           this.repository.get("theme", receipt.themeId, true) ||
           this.repository.get("project", receipt.themeId, true);
         if (!theme) throw new Error("Themeが見つかりません。");
-        const location = this.resolveThemeAiPack(theme);
+        const location = this.resolveThemeFolder(theme);
         if (location.status !== "ok")
           throw new Error(`Theme保存先を再発見できません: ${location.status}`);
         let phase = receipt.phase;
@@ -2278,7 +2019,6 @@ export class WorkspaceService {
             this.conversationContextRecoveryDirectory,
             receipt.operationId,
           );
-          this.publishThemeAiPackAfterConversationChange(receipt.themeId);
           continue;
         }
         if (receipt.action === "remove" && phase === "file_removed") {
@@ -2305,7 +2045,6 @@ export class WorkspaceService {
             this.conversationContextRecoveryDirectory,
             receipt.operationId,
           );
-          this.publishThemeAiPackAfterConversationChange(receipt.themeId);
           continue;
         }
         throw new Error("file操作が完了していないため自動確定できません。");
@@ -2315,134 +2054,6 @@ export class WorkspaceService {
         );
       }
     }
-  }
-
-  getThemeAiPackPreview(
-    themeIdValue: unknown,
-    sharedInputs?: ThemeAiPackInputs,
-  ): ThemeAiPackPreviewResult {
-    const { theme, plan } = this.buildThemeAiPack(themeIdValue, sharedInputs);
-    const location = this.resolveThemeAiPack(theme);
-    const storage =
-      location.status === "ok"
-        ? inspectThemeAiPack({ plan, packDirectory: location.packDirectory })
-        : { state: location.status, dirty: true };
-    return {
-      themeId: plan.theme_id,
-      contentHash: plan.content_hash,
-      plannedGeneratedAt: plan.generated_at,
-      lastPublishedAt: "manifest" in storage ? String(storage.manifest?.generatedAt || "") : "",
-      sourceRevision: plan.source_revision,
-      state: storage.state,
-      dirty: storage.dirty,
-      retryPending: location.status === "needs_root" || location.status === "root_unavailable",
-      locationStatus: location.status,
-      canOpenFolder:
-        location.status === "ok" &&
-        isSafeThemeAiPackDirectory(location.themeFolder, location.packDirectory),
-      files: plan.files.map((file, index) => ({
-        name: file.name,
-        content: file.content,
-        includedCount: plan.preview.files[index]?.includedCount || 0,
-        characterCount: plan.preview.files[index]?.characterCount || file.content.length,
-      })),
-      includedCount: plan.preview.includedCount,
-      excludedCount: plan.preview.excludedCount,
-      excludedReasons: plan.preview.excludedReasons,
-      warnings: plan.preview.warnings,
-      totalCharacterCount: plan.preview.totalCharacterCount,
-    };
-  }
-
-  getThemeAiPackStatus(
-    themeIdValue: unknown,
-    sharedInputs?: ThemeAiPackInputs,
-  ): ThemeAiPackStatusResult {
-    const preview = this.getThemeAiPackPreview(themeIdValue, sharedInputs);
-    const { files, warnings, excludedReasons: _excludedReasons, ...status } = preview;
-    return {
-      ...status,
-      fileCount: files.length,
-      warningCount: warnings.length,
-    };
-  }
-
-  publishThemeAiPack(requestValue: unknown): ThemeAiPackPublishResult {
-    const request = objectValue(requestValue);
-    const themeId = typeof request.themeId === "string" ? request.themeId.trim() : "";
-    const expectedContentHash =
-      typeof request.expectedContentHash === "string" ? request.expectedContentHash.trim() : "";
-    if (!themeId || !expectedContentHash)
-      throw new Error("AI Pack Previewが古いため、内容を確認し直してください。");
-    if (this.publishingThemeAiPacks.has(themeId)) {
-      return { state: "publishing", dirty: true, retryPending: false, written: false, themeId };
-    }
-    this.publishingThemeAiPacks.add(themeId);
-    try {
-      const { theme, plan } = this.buildThemeAiPack(themeId);
-      if (plan.content_hash !== expectedContentHash) {
-        return {
-          state: "stale_preview",
-          dirty: true,
-          retryPending: false,
-          written: false,
-          themeId,
-          contentHash: plan.content_hash,
-        };
-      }
-      const location = this.resolveThemeAiPack(theme);
-      if (location.status !== "ok") {
-        return {
-          state: location.status,
-          dirty: true,
-          retryPending: location.status === "needs_root" || location.status === "root_unavailable",
-          written: false,
-          themeId,
-          contentHash: plan.content_hash,
-          ...(location.status === "identity_conflict" ? { error: location.reason } : {}),
-        };
-      }
-      const ensured = ensureThemeAiPackLocation(location, { operationId: randomUUID() });
-      if (ensured.status !== "ok") throw new Error("AI Packの保存先を準備できませんでした。");
-      const result = publishThemeAiPack({
-        plan,
-        packDirectory: ensured.packDirectory,
-        recoveryDirectory: this.themeAiPackRecoveryDirectory,
-      });
-      return {
-        ...result,
-        themeId,
-        contentHash: plan.content_hash,
-        lastPublishedAt: result.manifest?.generatedAt || "",
-      };
-    } finally {
-      this.publishingThemeAiPacks.delete(themeId);
-    }
-  }
-
-  async openThemeAiPackFolder(themeIdValue: unknown): Promise<{ ok: boolean; error?: string }> {
-    const { theme } = this.buildThemeAiPack(themeIdValue);
-    const location = this.resolveThemeAiPack(theme);
-    if (location.status !== "ok")
-      return {
-        ok: false,
-        error: "AI Packの保存Rootを利用できません。Settingsを確認してください。",
-      };
-    const resolvedPackDirectory = path.resolve(location.packDirectory);
-    if (!fs.existsSync(resolvedPackDirectory)) {
-      return {
-        ok: false,
-        error: "AI Packはまだ生成されていません。内容を確認して更新してください。",
-      };
-    }
-    if (!isSafeThemeAiPackDirectory(location.themeFolder, resolvedPackDirectory)) {
-      return {
-        ok: false,
-        error: "AI Packの保存先にsymlink/junctionは利用できません。Settingsを確認してください。",
-      };
-    }
-    const error = await shell.openPath(resolvedPackDirectory);
-    return error ? { ok: false, error } : { ok: true };
   }
 
   private readCanonicalFile(filePath: string): CanonicalFileSnapshot {
@@ -4174,7 +3785,7 @@ export class WorkspaceService {
     if (!root) return { kind: "needs_directory" };
     let themeFolder: string;
     if (fs.existsSync(root)) {
-      const discovered = discoverThemeAiPackLocation({
+      const discovered = discoverThemeFolderLocation({
         syncRoot,
         themeStorageRoot,
         themeId,
@@ -4932,7 +4543,7 @@ export class WorkspaceService {
     const root = themeStorageRoot || syncRoot;
     if (!root) return { kind: "needs_directory" };
     if (fs.existsSync(root)) {
-      const discovered = discoverThemeAiPackLocation({
+      const discovered = discoverThemeFolderLocation({
         syncRoot,
         themeStorageRoot,
         themeId,

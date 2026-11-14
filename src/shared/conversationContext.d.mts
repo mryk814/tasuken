@@ -70,10 +70,3 @@ export function buildConversationContextPlan(input: {
   selectedMessageIndexes?: number[];
   publishedAt?: string;
 }): ConversationContextPlan;
-export function publicationForThemeAiPack(entity: Record<string, unknown>): {
-  published: true;
-  title: string;
-  theme_id: string;
-  storage_root_id: string;
-  relative_path: string;
-} | null;

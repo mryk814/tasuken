@@ -96,7 +96,6 @@ test("用途別の保存先設定を増やさず標準サブフォルダで振�
   assert.equal(segmentsFor("notes"), "Notes");
   assert.equal(segmentsFor("artifacts"), "Artifacts");
   assert.equal(segmentsFor("exports"), "Exports");
-  assert.equal(segmentsFor("ai_pack"), "AI Pack");
   assert.equal(segmentsFor("activity"), "Activity");
   // 未知の用途でも保存先を失わない。
   assert.equal(segmentsFor("unknown"), "Artifacts");

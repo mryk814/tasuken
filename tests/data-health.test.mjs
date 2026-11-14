@@ -11,7 +11,7 @@ import {
 } from "../src/shared/dataHealth.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
-test("Data Healthはcanonical/link/relation/AI Pack anomalyをprivate pathなしで投影する (#296)", () => {
+test("Data Healthはcanonical/link/relation anomalyをprivate pathなしで投影する (#296)", () => {
   const workspace = {
     projects: [{ id: "theme-1", name: "Theme", ai_summary: "Theme", ai_freshness: "current" }],
     notes: [
@@ -64,18 +64,12 @@ test("Data Healthはcanonical/link/relation/AI Pack anomalyをprivate pathなし
   };
   const result = buildDataHealth(workspace, {
     generatedAt: "2026-08-09T00:00:00.000Z",
-    themeAiPackStatuses: [
-      { themeId: "theme-1", state: "dirty", packDirectory: "C:\\Users\\private\\AI Pack" },
-      { themeId: "theme-2", state: "recovery_required", error: "C:\\private" },
-    ],
   });
   const rules = new Set(result.issues.map((issue) => issue.ruleId));
   for (const rule of [
     "broken_internal_link",
     "broken_relation",
     "canonical_markdown_anomaly",
-    "ai_pack_stale",
-    "ai_pack_anomaly",
     "isolated_entity",
     "duplicate_candidate",
     "stale_context",
@@ -86,8 +80,6 @@ test("Data Healthはcanonical/link/relation/AI Pack anomalyをprivate pathなし
     JSON.stringify(result),
     /C:\\\\Users|C:\\\\private|secret\.md|packDirectory|absolutePath/,
   );
-  assert.equal(result.issues.find((issue) => issue.ruleId === "ai_pack_stale").severity, "warning");
-  assert.equal(result.issues.find((issue) => issue.ruleId === "ai_pack_anomaly").severity, "error");
   assert.deepEqual(
     result.issues.find(
       (issue) => issue.ruleId === "canonical_markdown_anomaly" && issue.ref.id === "note-1",

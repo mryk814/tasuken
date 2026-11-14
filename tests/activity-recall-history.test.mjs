@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
 import { queryActivityEvents } from "../src/shared/activityProjection.mjs";
-import { buildThemeAiPackPlan } from "../src/shared/themeAiPack.mjs";
 
 const at = "2026-09-01T00:00:00.000Z";
 const themeA = { id: "theme-a", name: "現在のA名" };
@@ -37,7 +36,7 @@ const fixture = (extra = {}) => ({
   ...extra,
 });
 
-test("recall retains historical Task/Theme names and affiliation after move; default and Current Work stay current", () => {
+test("recall retains historical Task/Theme names and affiliation after move; default stays current", () => {
   const input = fixture();
   const historical = queryActivityEvents({ ...input, theme_id: themeA.id }).events[0];
   assert.equal(historical.entity_title, oldTask.title);
@@ -51,12 +50,6 @@ test("recall retains historical Task/Theme names and affiliation after move; def
     queryActivityEvents({ ...input, profile: "default" }).events[0].entity_title,
     currentTask.title,
   );
-  const pack = (theme) =>
-    buildThemeAiPackPlan({ theme, candidates: [{ type: "task", entity: currentTask }] });
-  const currentWork = (plan) =>
-    plan.files.find((file) => file.name === "01 Current Work.md").content;
-  assert.ok(!currentWork(pack(themeA)).includes(currentTask.title));
-  assert.ok(currentWork(pack(themeB)).includes(currentTask.title));
 });
 
 test("archived entities retain history; deleted or missing entities cannot revive snapshot bodies", () => {

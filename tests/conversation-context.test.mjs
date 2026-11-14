@@ -5,7 +5,6 @@ import {
   CONVERSATION_CONTEXT_PUBLICATION_SCHEMA,
   buildConversationContextPlan,
   parseConversationContextMessages,
-  publicationForThemeAiPack,
 } from "../src/shared/conversationContext.mjs";
 
 const theme = { id: "theme-materials", name: "Materials" };
@@ -119,7 +118,7 @@ test("first publication binds a stable path and title rename only changes conten
   assert.match(renamed.content, /# Renamed conversation/);
 });
 
-test("unchanged published projection is current and Theme AI Pack receives reference only", () => {
+test("unchanged published projection is current", () => {
   const initial = buildConversationContextPlan({
     resource: conversation(),
     theme,
@@ -140,13 +139,6 @@ test("unchanged published projection is current and Theme AI Pack receives refer
   const current = buildConversationContextPlan({ resource: published, theme });
   assert.equal(current.publication_state, "published");
   assert.equal(current.dirty, false);
-  assert.deepEqual(publicationForThemeAiPack(published), {
-    published: true,
-    title: published.title,
-    theme_id: theme.id,
-    storage_root_id: `theme:${theme.id}`,
-    relative_path: initial.relative_path,
-  });
 });
 
 test("publish-time Theme binding blocks reassignment until explicit removal", () => {
@@ -176,13 +168,6 @@ test("publish-time Theme binding blocks reassignment until explicit removal", ()
   assert.equal(plan.allowed, false);
   assert.equal(plan.publication_state, "dirty");
   assert.match(plan.blocking_reasons.join("\n"), /先にAI Contextから外して/);
-  assert.deepEqual(publicationForThemeAiPack(reassigned), {
-    published: true,
-    title: reassigned.title,
-    theme_id: theme.id,
-    storage_root_id: `theme:${theme.id}`,
-    relative_path: initial.relative_path,
-  });
 });
 
 test("role-like headings inside fenced code are not parsed as messages", () => {

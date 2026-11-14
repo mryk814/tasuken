@@ -269,16 +269,11 @@ export const IPC = {
   calendarEvents: "calendar:events",
   applicationCommand: "application:command",
   applicationCommandBatch: "application:command-batch",
-  themeAiPackStatus: "theme-ai-pack:status",
   dailyContextPreview: "daily-context:preview",
   dailyContextPublish: "daily-context:publish",
   dailyContextAutoStatus: "daily-context:auto-status",
   dailyContextAutoConfigure: "daily-context:auto-configure",
   dailyContextAutoRetry: "daily-context:auto-retry",
-  themeAiPackPreview: "theme-ai-pack:preview",
-  themeAiPackPublish: "theme-ai-pack:publish",
-  themeAiPackOpenFolder: "theme-ai-pack:open-folder",
-  themeAiPackChanged: "theme-ai-pack:changed",
   conversationContextPreview: "conversation-context:preview",
   conversationContextPublish: "conversation-context:publish",
   conversationContextRemove: "conversation-context:remove",
@@ -455,86 +450,6 @@ export async function copyMcpBridgeConfig(
   await copyText(info.configJson);
 }
 
-export type ThemeAiPackState =
-  | "loading"
-  | "missing"
-  | "dirty"
-  | "current"
-  | "skipped"
-  | "current_with_warning"
-  | "stale_preview"
-  | "publishing"
-  | "failed_retryable"
-  | "recovery_required"
-  | "needs_root"
-  | "root_unavailable"
-  | "identity_conflict";
-
-export interface ThemeAiPackPreviewFile {
-  name: string;
-  content: string;
-  includedCount: number;
-  characterCount: number;
-}
-
-export interface ThemeAiPackPreviewResult {
-  themeId: string;
-  contentHash: string;
-  plannedGeneratedAt: string;
-  lastPublishedAt: string;
-  sourceRevision: string | null;
-  state: ThemeAiPackState;
-  dirty: boolean;
-  retryPending: boolean;
-  locationStatus: string;
-  canOpenFolder: boolean;
-  files: ThemeAiPackPreviewFile[];
-  includedCount: number;
-  excludedCount: number;
-  excludedReasons: Array<{ type: string; reason: string; count: number }>;
-  warnings: Array<{
-    kind: "stale" | "superseded";
-    type: string;
-    id: string;
-    title: string;
-    reason: string;
-  }>;
-  totalCharacterCount: number;
-  error?: string;
-}
-
-export interface ThemeAiPackStatusResult extends Omit<
-  ThemeAiPackPreviewResult,
-  "files" | "warnings" | "excludedReasons"
-> {
-  fileCount: number;
-  warningCount: number;
-}
-
-export interface ThemeAiPackPublishRequest {
-  themeId: string;
-  expectedContentHash: string;
-}
-
-export interface ThemeAiPackPublishResult {
-  themeId: string;
-  contentHash?: string;
-  state: ThemeAiPackState;
-  dirty: boolean;
-  retryPending: boolean;
-  written: boolean;
-  lastPublishedAt?: string;
-  error?: string;
-  warning?: string;
-}
-
-export interface ThemeAiPackChangedPayload {
-  themeId: string;
-  contentHash?: string;
-  state: ThemeAiPackState;
-  dirty: boolean;
-}
-
 export type AiContextPreviewChannel = "mcp";
 export type AiContextPreviewScope = { type: "task"; id: string };
 
@@ -621,7 +536,6 @@ export interface ConversationContextPublishResult {
   dirty: boolean;
   written: boolean;
   contentHash?: string;
-  themePackState?: string;
   error?: string;
   warning?: string;
 }
@@ -635,7 +549,6 @@ export interface ConversationContextRemoveResult {
   themeId: string;
   publicationState: string;
   removed: boolean;
-  themePackState?: string;
   warning?: string;
 }
 
@@ -791,13 +704,6 @@ export interface ResearchDeskApi {
     autoStatus(): Promise<DailyContextAutoStatus>;
     configureAuto(config: DailyContextAutoConfig): Promise<DailyContextAutoStatus>;
     retryAuto(): Promise<DailyContextAutoStatus>;
-  };
-  themeAiPack: {
-    status(themeId: string): Promise<ThemeAiPackStatusResult>;
-    preview(themeId: string): Promise<ThemeAiPackPreviewResult>;
-    publish(request: ThemeAiPackPublishRequest): Promise<ThemeAiPackPublishResult>;
-    openFolder(themeId: string): Promise<{ ok: boolean; error?: string }>;
-    onChanged(callback: (change: ThemeAiPackChangedPayload) => void): () => void;
   };
   conversationContext: {
     preview(request: ConversationContextPreviewRequest): Promise<ConversationContextPreviewResult>;
