@@ -275,3 +275,52 @@ test("Daily ScratchpadはMarkdownとして書けて確認できる（#316）", (
   assert.equal(/選択をNoteへ/.test(dialog), false);
   assert.match(dialog, /選択をTaskへ/);
 });
+
+// 設定の Habits / Maintenance の区分を外した（#755 束1）ので、追加・削除と全件の一覧は
+// Today の「今日やること」の menu だけが入口になる。ここが切れると、Desktop のどこからも
+// 続けること・手入れを足せず、消せず、目安が近くない手入れを見られなくなる。
+test("続けること・手入れの追加・削除・全件の一覧は、Today の menu から届く（#755）", () => {
+  const read = (name) =>
+    readFileSync(`src/renderer/src/features/workspace/components/${name}.tsx`, "utf8");
+  const habitPanel = read("HabitPanel");
+  const maintenancePanel = read("MaintenancePanel");
+  const routineManage = read("RoutineManage");
+
+  // menu の 3 つの口と、開いた先。
+  const menu = todayPageSource.slice(
+    todayPageSource.indexOf('className="today-routine-menu"'),
+    todayPageSource.indexOf(
+      "<TodayRows",
+      todayPageSource.indexOf('className="today-routine-menu"'),
+    ),
+  );
+  assert.match(menu, /label: "続けることを追加"[\s\S]*?kind: "habit", createOpen: true/);
+  assert.match(menu, /label: "手入れを追加"[\s\S]*?kind: "maintenance", createOpen: true/);
+  assert.match(menu, /label: `一覧と削除（/);
+  assert.match(todayPageSource, /\{routineManage && \(\s*<RoutineManage/);
+
+  // 開いた先は、全件の一覧（panel）で、追加の入力の開閉を渡している。
+  for (const panel of ["HabitPanel", "MaintenancePanel"]) {
+    assert.match(
+      routineManage,
+      new RegExp(`<${panel}[\\s\\S]*?variant="panel"[\\s\\S]*?createOpen=\\{state\\.createOpen\\}`),
+    );
+  }
+
+  // 一覧の追加と削除は、条件（前の manage）に隠れていない。
+  for (const source of [habitPanel, maintenancePanel]) {
+    assert.doesNotMatch(source, /\bmanage\b/);
+    assert.match(source, /<form[\s\S]*?onSubmit=/);
+  }
+  assert.match(habitPanel, /removeEntity\("habit", habit\)/);
+  assert.match(maintenancePanel, /removeEntity\("maintenance", \{/);
+
+  // 手入れは、行（rows）の時だけ目安が近い物に絞る。一覧は全件。
+  assert.match(
+    maintenancePanel,
+    /variant === "rows" \? isMaintenanceDueSoon\(due\(item\)\) : true/,
+  );
+
+  // 削除は tombstone で、帯の「取り消す」で戻す。画面を覆う窓（modal）にすると帯を押せない。
+  assert.doesNotMatch(routineManage, /<dialog|showModal/);
+});

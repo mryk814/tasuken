@@ -2390,53 +2390,75 @@ textarea:hover {
   display: grid;
 }
 
-/* Settingsの外枠の中に、余白のないパネル枠を重ねない。 */
-.settings-form:has(> .habit-panel),
-.settings-form:has(> .maintenance-panel) {
-  grid-column: 1 / -1;
-  width: 100%;
+/*
+ * 続けること・手入れの一覧（Todayの「今日やること」のmenuから開く）。
+ * 行のすぐ下に、同じパネルの続きとして出す（枠を重ねない）。
+ */
+.today-focus-panel.has-heading-menu {
+  /* 見出しのmenuをパネルの外へ開く。角の切り抜きは本文の側で行う。 */
+  overflow: visible;
 }
-.settings-form > .habit-panel,
-.settings-form > .maintenance-panel {
+.today-focus-panel.has-heading-menu > .today-focus-body {
+  overflow: hidden;
+  border-radius: 0 0 calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px);
+}
+.today-routine-menu {
+  margin-left: auto;
+}
+.today-routine-menu .toolbar-menu-list {
+  width: max-content;
+}
+.today-routine-manage {
+  display: grid;
+  gap: var(--space-1);
   min-width: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  padding: var(--space-3) var(--pad-card) var(--space-1);
+  border-top: 1px solid var(--color-border-subtle);
 }
-.settings-form > .habit-panel .section-heading,
-.settings-form > .maintenance-panel .section-heading {
-  padding: 0 0 var(--space-3);
-}
-.settings-form > .habit-panel .habit-row,
-.settings-form > .maintenance-panel .maintenance-row {
+.today-routine-manage-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
-  padding: var(--space-4) 0;
 }
-.settings-form > .habit-panel .habit-row:last-child,
-.settings-form > .maintenance-panel .maintenance-row:last-child {
+.today-routine-manage-head .today-routine-close {
+  margin-left: auto;
+}
+.today-routine-count {
+  margin-left: var(--space-1);
+  color: var(--color-text-secondary);
+  font: var(--text-xs) var(--font-mono);
+}
+.today-routine-manage .habit-panel .habit-row,
+.today-routine-manage .maintenance-panel .maintenance-row {
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+}
+.today-routine-manage .habit-panel .habit-row:last-child,
+.today-routine-manage .maintenance-panel .maintenance-row:last-child {
   border-bottom: 0;
 }
-.settings-form > .habit-panel .habit-row-head,
-.settings-form > .maintenance-panel .maintenance-row-head {
+.today-routine-manage .habit-panel .habit-row-head,
+.today-routine-manage .maintenance-panel .maintenance-row-head {
   flex-wrap: wrap;
 }
-.settings-form > .habit-panel .habit-state,
-.settings-form > .maintenance-panel .maintenance-due {
+.today-routine-manage .habit-panel .habit-state,
+.today-routine-manage .maintenance-panel .maintenance-due {
   border: 0;
   border-radius: 0;
   padding: 0;
 }
-.settings-form > .habit-panel .habit-actions,
-.settings-form > .maintenance-panel .maintenance-actions {
+.today-routine-manage .habit-panel .habit-actions,
+.today-routine-manage .maintenance-panel .maintenance-actions {
   gap: var(--space-2) var(--space-3);
 }
-.settings-form > .maintenance-panel .maintenance-actions label {
+.today-routine-manage .maintenance-panel .maintenance-actions label {
   min-width: 0;
 }
-.settings-form > .maintenance-panel .maintenance-note-field {
+.today-routine-manage .maintenance-panel .maintenance-note-field {
   flex: 1 1 180px;
 }
-.settings-form > .maintenance-panel input {
+.today-routine-manage .maintenance-panel input {
   max-width: 100%;
 }
 
