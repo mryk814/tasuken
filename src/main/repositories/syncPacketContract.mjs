@@ -25,6 +25,14 @@ export function assertSyncPacket(packet, workspaceId) {
   }
 }
 
+/** 移行（#751 の PR 4）で中身を抜く種類。会話の記録と、それに付いた案・来歴・結び付け。 */
+const RETIRABLE_ENTITY_TYPES = new Set([
+  "agent_session",
+  "ai_proposal",
+  "change_event",
+  "reference",
+]);
+
 /**
  * 空の差分（retired）か。移行で畳んだ記録の送信済みの差分は、行を消すと連番が欠けて受け手が止まるので、
  * 封筒（連番・change ID・端末・種類・ID）だけを残し、中身を抜いて `retired: true` を付ける（#751）。
@@ -45,11 +53,11 @@ function checkSyncPacket(packet, workspaceId) {
   if (packet.workspaceId !== workspaceId) throw new Error("別のWorkspaceの同期差分です。");
   if (isRetiredSyncPacket(packet)) {
     // 中身を持たないことを確かめる。中身を持つ差分に印だけ付けて取り込みを飛ばすことはさせない。
-    // 種類はこの版が知らなくてもよい（畳んだ種類が後の版で登録から消えても、受け手が止まらない）。
+    // 種類は、移行で畳む物の名前だけを並べる（登録で引かないので、後の版で登録から消えても止まらない）。
+    // この受け方は移行より前に全端末へ入れるので、受ける種類を絞れるのは今だけ。
     if (
       packet.entity !== undefined ||
-      typeof packet.entityType !== "string" ||
-      !packet.entityType ||
+      !RETIRABLE_ENTITY_TYPES.has(packet.entityType) ||
       typeof packet.entityId !== "string" ||
       !packet.entityId
     ) {

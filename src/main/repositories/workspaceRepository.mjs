@@ -19,6 +19,7 @@ import { DATA_HEALTH_STATE_SCHEMA, normalizeDataHealthState } from "../../shared
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { migratePublishedFeedNotes } from "./feedPostMigration.mjs";
 import { assertSyncPacket, isRetiredSyncPacket } from "./syncPacketContract.mjs";
+import { normalizeAgentWorkRecord } from "../../shared/contracts/task/public.ts";
 import {
   isPersonalDefaultTheme,
   isThemeDeletable,
@@ -2176,8 +2177,13 @@ export class WorkspaceDatabase {
 
   insertImported(type, input, fallbackSource = "imported", previous = null, options = {}) {
     assertEntityType(type);
+    // AIの作業は、同期で届いた差分に余計な欄があっても決まった欄だけを残す（#751）。
     const normalizedInput =
-      type === "task" ? normalizeImportedTask(input, previous, fallbackSource) : input;
+      type === "task"
+        ? normalizeImportedTask(input, previous, fallbackSource)
+        : type === "agent_work_record"
+          ? normalizeAgentWorkRecord(input)
+          : input;
     // Receiptはローカルではappend-only。正本が公開した後継revisionの取り込みだけを許す。
     const updatingReceipt =
       type === "work_receipt" && normalizedInput.id && this.get(type, normalizedInput.id, true);

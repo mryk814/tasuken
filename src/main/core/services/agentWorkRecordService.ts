@@ -4,12 +4,14 @@ import {
   AGENT_WORK_RECORD_LIMITS,
   agentWorkRecordFieldsSchema,
   agentWorkRecordPublicSchema,
+  normalizeAgentClientKind,
   recordAgentWorkRequestSchema,
   recordAgentWorkResponseSchema,
   type AgentWorkRecordFields,
   type RecordAgentWorkRequest,
   type RecordAgentWorkResponse,
 } from "../../../shared/contracts/task/public.ts";
+import { containsSecretLike } from "../../../shared/taskContext.mjs";
 import type { AgentWorkRecordPort, AgentWorkRecordRow } from "../ports/agentWorkRecordPort.ts";
 import { CorePublicError } from "./corePublicError.ts";
 
@@ -22,6 +24,7 @@ export type AgentWorkWriteBasis = "ai_report" | "log_pickup";
  */
 const PICKUP_SLACK_MS = 10 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
+const FUTURE_TOLERANCE_MS = 5 * 60_000;
 
 function stableId(value: string): string {
   const h = createHash("sha256").update(value).digest("hex");
@@ -95,8 +98,33 @@ export class AgentWorkRecordService {
     input: RecordAgentWorkRequest,
     basis: AgentWorkWriteBasis = "ai_report",
   ): RecordAgentWorkResponse {
-    const request = recordAgentWorkRequestSchema.parse(input);
+    const parsed = recordAgentWorkRequestSchema.parse(input);
+    const request = { ...parsed, client_kind: normalizeAgentClientKind(parsed.client_kind) };
     const receivedAt = this.now();
+    // 先の時刻を受けると、同じ会話の後の報告がその時刻まで duplicate で捨てられる
+    // （時差を Z と書き違えた時など）。時計のずれを見て 5 分までは受ける。
+    for (const field of ["started_at", "ended_at"] as const) {
+      const value = request[field];
+      if (value && time(value) > time(receivedAt) + FUTURE_TOLERANCE_MS)
+        throw invalid(
+          field,
+          `${field}が受け取った時刻より先です。時差の書き方を確かめてください。`,
+        );
+    }
+    for (const [field, values] of [
+      ["summary", [request.summary]],
+      ["intent", [request.intent]],
+      ["notice", [request.notice]],
+      ["changed", request.changed || []],
+      ["verified", request.verified || []],
+      ["remaining", request.remaining || []],
+      ["client_label", [request.client_label]],
+      ["model_label", [request.model_label]],
+      ["source_session", [request.source_session]],
+    ] as const) {
+      if (values.some((value) => value && containsSecretLike(value)))
+        throw invalid(field, `${field}に秘密の情報（トークン・鍵など）らしい文字列があります。`);
+    }
     const { dry_run: dryRun, ...identity } = request;
     const fingerprint = createHash("sha256").update(JSON.stringify(identity)).digest("hex");
     const id = stableId(
@@ -140,8 +168,13 @@ export class AgentWorkRecordService {
       }
       let startedAt = request.started_at || null;
       if (request.source_session) {
+        const prior = transaction.listForSession(request.client_kind, request.source_session);
         const plan = planAgentWorkRange(
-          transaction.listForSession(request.client_kind, request.source_session),
+          // AI が書く時は、同じ書き手が取り消した記録を数えない（取り消して書き直せるように）。
+          // 拾い上げは消した記録も数える（本人が消した作業を拾い直さない）。
+          basis === "ai_report"
+            ? prior.filter((record) => !(record.deleted_at && record.written_by === request.caller))
+            : prior,
           { startedAt, endedAt },
           basis,
         );

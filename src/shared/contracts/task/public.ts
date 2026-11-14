@@ -416,6 +416,7 @@ export {
   AGENT_WORK_STATUSES,
   agentWorkRecordFieldsSchema,
   agentWorkRecordPublicSchema,
+  normalizeAgentClientKind,
   normalizeAgentWorkRecord,
   recordAgentWorkRequestSchema,
   recordAgentWorkResponseSchema,

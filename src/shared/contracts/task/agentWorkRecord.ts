@@ -31,6 +31,17 @@ export const AGENT_WORK_STATUSES = ["done", "partial", "blocked"] as const;
 /** ai_report = AI が書いた、log_pickup = 終わった会話のログから拾った、folded = 移行で畳んだ。 */
 export const AGENT_WORK_BASES = ["ai_report", "log_pickup", "folded"] as const;
 
+/**
+ * AI の種類の表記をそろえる（`Claude-Code`・`claude code` → `claude_code`）。同じ作業を 2 回数えない
+ * 判定の鍵に使うので、AI が書く入口とログからの拾い上げ（PR 3）が同じ値で見られるようにする。
+ */
+export function normalizeAgentClientKind(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
 /** 端末の場所を記録に入れない。絶対パス・file URL・ホームからの名前を断る。 */
 function isTerminalLocation(value: string): boolean {
   return /^(?:[A-Za-z]:[\\/]|[\\/]|~[\\/]|file:)/i.test(value);

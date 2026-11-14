@@ -460,10 +460,9 @@ test("同期: 空の差分（retired）を受けても止まらず、連番が�
   const workspaceId = env.second.db.workspaceId;
   writePacket(env.shared, retiredPacket(workspaceId, migrated, 1, "agent_session", "s-1"));
   writePacket(env.shared, retiredPacket(workspaceId, migrated, 2, "change_event", "e-1"));
-  // 後の版で登録から消えた種類の空の差分でも止まらない。
-  writePacket(env.shared, retiredPacket(workspaceId, migrated, 3, "retired_kind", "x-1"));
-  writePacket(env.shared, retiredPacket(workspaceId, migrated, 4, TYPE, kept.id));
-  // 空の差分の後に続く、ふつうの差分。
+  writePacket(env.shared, retiredPacket(workspaceId, migrated, 3, "ai_proposal", "p-1"));
+  writePacket(env.shared, retiredPacket(workspaceId, migrated, 4, "reference", "r-1"));
+  // 空の差分の後に続く、ふつうの差分。余計な欄が付いていても、決まった欄だけを残して取り込む。
   const later = createTaskenCore(env.first.db).recordAgentWork.record(
     work({ idempotency_key: "later", source_session: "conversation-2" }),
   );
@@ -472,12 +471,18 @@ test("同期: 空の差分（retired）を受けても止まらず、連番が�
       .prepare("SELECT change_id FROM sync_outbox ORDER BY device_sequence DESC LIMIT 1")
       .get().change_id,
   ).packet;
-  writePacket(env.shared, { ...source, deviceId: migrated, deviceSequence: 5 });
+  writePacket(env.shared, {
+    ...source,
+    deviceId: migrated,
+    deviceSequence: 5,
+    entity: { ...source.entity, unknown_field: "持ち込ませない" },
+  });
 
   await env.second.sync.syncNow();
   assert.equal(env.second.sync.status().state, "idle");
   assert.equal(env.second.db.syncCursor(migrated), 5);
   assert.equal(env.second.db.get(TYPE, later.id).summary, later.record.summary);
+  assert.equal("unknown_field" in env.second.db.get(TYPE, later.id), false);
   // 空の差分は手元の記録を変えない（消すのは各端末の移行）。
   assert.equal(env.second.db.get(TYPE, kept.id).deleted_at, null);
 
@@ -729,4 +734,99 @@ test("NAS: 案だけを受ける配備（proposals）でも書け、読み取り
       await core.stop();
     }
   }
+});
+
+test("同期: 畳む予定の種類でない空の差分は受けない（中身を黙って飛ばさせない）", async (t) => {
+  for (const entityType of [TYPE, "task", "note", "retired_kind"]) {
+    const env = await joined(t, ["first", "second"]);
+    const migrated = "00000000-0000-4000-8000-0000000000bb";
+    writePacket(
+      env.shared,
+      retiredPacket(env.second.db.workspaceId, migrated, 1, entityType, "x-1"),
+    );
+    await assert.rejects(env.second.sync.syncNow(), /空の同期差分/, entityType);
+    assert.equal(env.second.db.syncCursor(migrated), 0, entityType);
+  }
+});
+
+test("Core: 受け取った時刻より 5 分以上先の時刻は断る（後の報告が黙って捨てられないように）", async (t) => {
+  const { db, client } = await startDesktop(t);
+  const ahead = (minutes) => new Date(Date.now() + minutes * 60_000).toISOString();
+  // 日本時間に Z を付けた時の形（9 時間先）。
+  for (const [patch, field] of [
+    [{ ended_at: ahead(9 * 60) }, "ended_at"],
+    [{ started_at: ahead(30), ended_at: ahead(60) }, "started_at"],
+  ])
+    await rejectsWith(
+      client.recordAgentWork(work({ idempotency_key: field, ...patch })),
+      "VALIDATION_FAILED",
+      (error) => assert.equal(error.details.field, field),
+    );
+  assert.equal(db.list(TYPE, true).length, 0);
+  // 時計のずれ程度（数分）は受ける。
+  const near = await client.recordAgentWork(work({ idempotency_key: "near", ended_at: ahead(3) }));
+  assert.equal(near.status, "recorded");
+});
+
+test("Core: AI の種類の表記をそろえ、取り消した直後に同じ時刻で書き直せる", async (t) => {
+  const { client, db } = await startDesktop(t);
+  const first = await client.recordAgentWork(work({ client_kind: "Claude-Code" }));
+  assert.equal(first.record.client_kind, "claude_code");
+  // 表記が違っても同じ AI の同じ会話として数える。
+  const sameWork = await client.recordAgentWork(
+    work({ idempotency_key: "other-spelling", client_kind: "claude code" }),
+  );
+  assert.equal(sameWork.status, "duplicate");
+  assert.equal(sameWork.id, first.id);
+
+  // 書いた AI が取り消したら、同じ時刻までの作業を書き直せる。
+  await client.undoChange({
+    change_id: first.id,
+    caller: "claude-code",
+    source_app: "test-mcp",
+    source_session: "conversation-1",
+    idempotency_key: "undo-first",
+    why: "書き直す",
+  });
+  const rewritten = await client.recordAgentWork(
+    work({ idempotency_key: "rewrite", summary: "書き直した要約。" }),
+  );
+  assert.equal(rewritten.status, "recorded");
+  assert.notEqual(rewritten.id, first.id);
+  // 本人が消した記録は、ほかの書き手（拾い上げなど）の判定では数えたまま。
+  workspaceRemove(db, rewritten.id);
+  const otherWriter = await client.recordAgentWork(
+    work({ idempotency_key: "other-writer", caller: "someone-else" }),
+  );
+  assert.equal(otherWriter.status, "duplicate");
+});
+
+function workspaceRemove(db, id) {
+  db.remove(TYPE, id);
+}
+
+test("Core: 自由な文に秘密の形（トークン・鍵・Bearer・認証情報付きの URL）があれば断る", async (t) => {
+  const { db, client } = await startDesktop(t);
+  const token = `ghp_${"a".repeat(36)}`;
+  for (const [patch, field] of [
+    [{ summary: `トークン ${token} を設定した` }, "summary"],
+    [{ summary: `github_pat_${"b".repeat(40)} を使った` }, "summary"],
+    [{ notice: `sk-${"c".repeat(40)}` }, "notice"],
+    [{ intent: `xoxb-${"d".repeat(30)}` }, "intent"],
+    [{ verified: ["AKIAABCDEFGHIJKLMNOP で確かめた"] }, "verified"],
+    [{ remaining: ["-----BEGIN OPENSSH PRIVATE KEY-----"] }, "remaining"],
+    [{ summary: "Authorization: Bearer abcdefghijklmnop を送った" }, "summary"],
+    [{ changed: ["https://user:pass@example.com/repo.git"] }, "changed"],
+  ])
+    await rejectsWith(
+      client.recordAgentWork(work({ idempotency_key: field + JSON.stringify(patch), ...patch })),
+      "VALIDATION_FAILED",
+      (error) => assert.equal(error.details.field, field),
+    );
+  assert.equal(db.list(TYPE, true).length, 0);
+  // ふつうの言葉の「token」や URL は通す。
+  const plain = await client.recordAgentWork(
+    work({ summary: "token の期限切れを直した。https://example.com/docs を見た。" }),
+  );
+  assert.equal(plain.status, "recorded");
 });

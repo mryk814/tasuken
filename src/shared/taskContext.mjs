@@ -429,6 +429,23 @@ function credentialFieldName(value) {
   return CREDENTIAL_FIELD_NAMES.has(text(value).replace(/[_-]/g, "").toLowerCase());
 }
 
+const SECRET_LIKE = [
+  new RegExp(HIGH_CONFIDENCE_TOKEN.source),
+  /-----BEGIN [A-Z0-9 ]+-----/,
+  /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/,
+  // 認証情報付きのURL（scheme://user:password@host）。
+  /\b[a-z][a-z0-9+.-]*:\/\/[^\s/@:]+:[^\s/@]+@/i,
+];
+
+/**
+ * よく知られた秘密の形（トークン・鍵・Bearer・認証情報付きのURL）を含むか。消して残すのではなく、
+ * 受け口で断る時に使う（AIの作業の記録など、#751）。誤検出しやすい「token: 〜」の形は見ない。
+ */
+export function containsSecretLike(value) {
+  const source = text(value);
+  return SECRET_LIKE.some((pattern) => pattern.test(source));
+}
+
 /** Remove URL credentials, unsupported URL-like locators, local paths, and authentication material. */
 export function safeReceiptText(value) {
   let result = text(value);
