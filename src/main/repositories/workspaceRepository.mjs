@@ -2965,3 +2965,35 @@ export function inspectWorkspaceBackup(filePath) {
     copy.close();
   }
 }
+
+/**
+ * 戻す用に写した控え（正本へ差し替える前の、誰も開いていないファイル）を確かめて整える。
+ * - 壊れた写しを正本にしないよう、ページの整合を確かめる（quick_check）。
+ * - 端末間同期を止める。控えは同期の通し番号ごと昔へ戻るので、写しの設定のまま起動して
+ *   同期が走ると、公開済みの番号を別の中身で使い直しうる。同期の再開は本人が決める。
+ * migrateは走らせない（差し替えの後、正本として開く時に走る）。
+ */
+export function prepareRestoredCopy(filePath) {
+  const copy = new Database(filePath, { fileMustExist: true });
+  try {
+    copy.pragma("locking_mode = EXCLUSIVE");
+    copy.pragma("journal_mode = DELETE");
+    if (copy.pragma("quick_check", { simple: true }) !== "ok") {
+      throw new Error("控えのファイルが壊れています。別の控えを選んでください。");
+    }
+    const syncWasEnabled =
+      copy.prepare("SELECT value FROM workspace_meta WHERE key = 'shared_sync_enabled'").get()
+        ?.value === "true";
+    if (syncWasEnabled) {
+      copy
+        .prepare("UPDATE workspace_meta SET value = 'false' WHERE key = 'shared_sync_enabled'")
+        .run();
+    }
+    return {
+      entityCount: copy.prepare("SELECT COUNT(*) AS count FROM entities").get().count,
+      syncWasEnabled,
+    };
+  } finally {
+    copy.close();
+  }
+}

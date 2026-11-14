@@ -6,6 +6,7 @@ import type {
   AutomaticSnapshotBackupConfig,
   AutomaticSnapshotBackupStatus,
 } from "../../shared/ipc/contracts";
+import { backupAttachmentRoot, mirrorAttachments } from "./workspaceRestore";
 
 /**
  * 自動バックアップは正本DBそのもの（SQLite）の写しにする。
@@ -14,7 +15,10 @@ import type {
  * 1ファイル10MB・全体50MBの読み込み上限に当たり、2026-10-06以降の起動では毎回失敗していた
  * （実データでchange_events.jsonが137MB）。失敗するまでにも起動時のMainを約3秒止めていた。
  * SQLiteのbackupは同期の状態や設定まで含めて写せて、上限もなく、小分けに進むのでMainをほぼ止めない。
- * 戻すときは、Taskenを終了して写しを正本の名前でコピーする（README）。
+ * 戻すときは、設定の「控えから戻す」を使う（workspaceRestore.ts）。
+ *
+ * ノートの画像と撮影した写真は、保存先の attachments/ へ足すだけの写しを置く。ファイルは
+ * 名前で中身が決まり書き換わらないので、世代ごとに丸ごと持たず、消しもしない。
  */
 const AUTOMATIC_BACKUP_PATTERN = /^tasken-auto-(\d{8}T\d{9}Z)-[0-9a-f]{8}\.sqlite$/;
 /** 終了や失敗で残った作成途中のファイル。自分が作る名前だけを片付ける。 */
@@ -37,6 +41,8 @@ export interface AutomaticBackupDatabase {
 interface AutomaticSnapshotBackupOptions extends AutomaticSnapshotBackupConfig {
   database: AutomaticBackupDatabase;
   defaultDirectory: string;
+  /** 正本の添付（userData/attachments）。指定すると、写しと一緒に保存先へ控える。 */
+  attachmentDirectory?: string;
   now?: () => Date;
   log?: (level: "info" | "warn" | "error", message: string, error?: unknown) => void;
 }
@@ -69,6 +75,7 @@ class BackupCancelledError extends Error {}
 export class AutomaticSnapshotBackupService {
   private readonly database: AutomaticBackupDatabase;
   private readonly defaultDirectory: string;
+  private readonly attachmentDirectory: string;
   private readonly now: () => Date;
   private readonly log: NonNullable<AutomaticSnapshotBackupOptions["log"]>;
   private config: AutomaticSnapshotBackupConfig;
@@ -87,6 +94,9 @@ export class AutomaticSnapshotBackupService {
   constructor(options: AutomaticSnapshotBackupOptions) {
     this.database = options.database;
     this.defaultDirectory = path.resolve(options.defaultDirectory);
+    this.attachmentDirectory = options.attachmentDirectory
+      ? path.resolve(options.attachmentDirectory)
+      : "";
     this.now = options.now || (() => new Date());
     this.log = options.log || (() => {});
     this.config = this.normalizeConfig(options);
@@ -172,6 +182,7 @@ export class AutomaticSnapshotBackupService {
         `自動バックアップを作成した (trigger=${trigger}, generations=${this.config.generations})`,
       );
       this.removeOldGenerations();
+      await this.backupAttachments(directory);
     } catch (error) {
       if (temporaryPath) this.removeTemporaryFile(temporaryPath);
       // 中止はbackupTo自身が投げる（進捗の途中で止める）ことも、終わった直後に気づくこともある。
@@ -184,6 +195,25 @@ export class AutomaticSnapshotBackupService {
     }
     this.refreshInventory();
     return this.status();
+  }
+
+  /**
+   * 添付を保存先へ足す。失敗してもDBの写しは成功のまま残し、理由だけ伝える
+   * （次の作成で、足りない分をもう一度写す）。
+   */
+  private async backupAttachments(directory: string): Promise<void> {
+    if (!this.attachmentDirectory) return;
+    try {
+      await mirrorAttachments(
+        this.attachmentDirectory,
+        backupAttachmentRoot(directory, true),
+        () => this.cancelRequested,
+      );
+    } catch (error) {
+      this.runtime.lastError =
+        "記録は控えましたが、画像と写真を控えられませんでした。保存先を確認して、もう一度試してください。";
+      this.log("error", "添付の控えに失敗した", error);
+    }
   }
 
   /**
