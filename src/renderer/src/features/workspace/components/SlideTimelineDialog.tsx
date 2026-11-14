@@ -48,19 +48,26 @@ export function SlideTimelineDialog({
   // 完了の扱いは画面のTimelineへ合わせ、出力対象を一致させる（#318）。
   const [showCompleted, setShowCompleted] = useState(initialShowCompleted);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [title, setTitle] = useState(() => `${slideTimelineThemeName(themes, initialThemeId)} Timeline`);
+  const [title, setTitle] = useState(
+    () => `${slideTimelineThemeName(themes, initialThemeId)} Timeline`,
+  );
   const [subtitle, setSubtitle] = useState("Taskenから作業の経緯と予定をまとめました");
   const [busy, setBusy] = useState<"copy" | "svg" | null>(null);
 
-  const candidates = useMemo(() => buildSlideTimelineCandidates(domain, statusUpdates, {
-    themeId,
-    start,
-    end,
-  }).filter((item) => (
-    (showTasks || item.kind !== "task")
-    && (showActivity || item.kind !== "activity")
-    && (showCompleted || !(item.kind === "task" && item.status === "done"))
-  )), [domain, end, showActivity, showCompleted, showTasks, start, statusUpdates, themeId]);
+  const candidates = useMemo(
+    () =>
+      buildSlideTimelineCandidates(domain, statusUpdates, {
+        themeId,
+        start,
+        end,
+      }).filter(
+        (item) =>
+          (showTasks || item.kind !== "task") &&
+          (showActivity || item.kind !== "activity") &&
+          (showCompleted || !(item.kind === "task" && item.status === "done")),
+      ),
+    [domain, end, showActivity, showCompleted, showTasks, start, statusUpdates, themeId],
+  );
 
   useEffect(() => {
     setSelectedIds(new Set(candidates.slice(0, 24).map((item) => item.id)));
@@ -93,7 +100,10 @@ export function SlideTimelineDialog({
       await workspaceApi.copyImage({ dataUrl: await slideTimelineSvgToPng(svg, 2) });
       setToast("高解像度PNGをコピーしました。PowerPointでCtrl+Vしてください。", "success");
     } catch (error) {
-      setToast(`スライド用画像をコピーできませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `スライド用画像をコピーできませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     } finally {
       setBusy(null);
     }
@@ -113,7 +123,10 @@ export function SlideTimelineDialog({
         setToast(`SVGを書き出しました。${result.filePath || ""}`, "success");
       }
     } catch (error) {
-      setToast(`SVGを書き出せませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `SVGを書き出せませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     } finally {
       setBusy(null);
     }
@@ -121,19 +134,27 @@ export function SlideTimelineDialog({
 
   return (
     <div className="modal-backdrop slide-timeline-backdrop">
-      <section className="slide-timeline-dialog" role="dialog" aria-modal="true" aria-labelledby="slide-timeline-title">
+      <section
+        className="slide-timeline-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="slide-timeline-title"
+      >
         <header className="slide-timeline-header">
           <div>
             <h2 id="slide-timeline-title">スライド用タイムライン</h2>
             <p>選んだ項目だけを16:9の一枚に整えます。</p>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="閉じる"><IconX size={19} /></button>
+          <button className="icon-button" onClick={onClose} aria-label="閉じる">
+            <IconX size={19} />
+          </button>
         </header>
 
         <div className="slide-timeline-body">
           <aside className="slide-timeline-settings">
             <div className="slide-timeline-field-grid">
-              <label>Theme
+              <label>
+                Theme
                 <select
                   value={themeId}
                   onChange={(event) => {
@@ -143,47 +164,111 @@ export function SlideTimelineDialog({
                   }}
                 >
                   <option value="all">すべて</option>
-                  {themes.map((theme) => <option key={theme.id} value={theme.id}>{theme.name}</option>)}
+                  {themes.map((theme) => (
+                    <option key={theme.id} value={theme.id}>
+                      {theme.name}
+                    </option>
+                  ))}
                 </select>
               </label>
-              <label>時間軸
-                <select value={unit} onChange={(event) => setUnit(event.target.value as SlideTimelineUnit)}>
+              <label>
+                時間軸
+                <select
+                  value={unit}
+                  onChange={(event) => setUnit(event.target.value as SlideTimelineUnit)}
+                >
                   <option value="day">日</option>
                   <option value="week">週</option>
                   <option value="month">月</option>
                 </select>
               </label>
-              <label>開始
-                <input type="date" value={start} onChange={(event) => setStart(event.target.value)} />
+              <label>
+                開始
+                <input
+                  type="date"
+                  value={start}
+                  onChange={(event) => setStart(event.target.value)}
+                />
               </label>
-              <label>終了
+              <label>
+                終了
                 <input type="date" value={end} onChange={(event) => setEnd(event.target.value)} />
               </label>
             </div>
             {!rangeValid && <p className="field-error">終了日は開始日以降にしてください。</p>}
 
-            <label>タイトル
-              <input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={80} />
+            <label>
+              タイトル
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                maxLength={80}
+              />
             </label>
-            <label>サブタイトル
-              <input value={subtitle} onChange={(event) => setSubtitle(event.target.value)} maxLength={120} />
+            <label>
+              サブタイトル
+              <input
+                value={subtitle}
+                onChange={(event) => setSubtitle(event.target.value)}
+                maxLength={120}
+              />
             </label>
 
             <div className="slide-timeline-inline-options">
-              <label className="toggle"><input type="checkbox" checked={showTasks} onChange={(event) => setShowTasks(event.target.checked)} />Task</label>
-              <label className="toggle"><input type="checkbox" checked={showActivity} onChange={(event) => setShowActivity(event.target.checked)} />Activity</label>
-              <label className="toggle"><input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />完了</label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={showTasks}
+                  onChange={(event) => setShowTasks(event.target.checked)}
+                />
+                Task
+              </label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={showActivity}
+                  onChange={(event) => setShowActivity(event.target.checked)}
+                />
+                Activity
+              </label>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={showCompleted}
+                  onChange={(event) => setShowCompleted(event.target.checked)}
+                />
+                完了
+              </label>
             </div>
             <div className="segmented" aria-label="背景">
-              <button className={background === "white" ? "is-active" : ""} onClick={() => setBackground("white")}>白背景</button>
-              <button className={background === "transparent" ? "is-active" : ""} onClick={() => setBackground("transparent")}>透明</button>
+              <button
+                className={background === "white" ? "is-active" : ""}
+                onClick={() => setBackground("white")}
+              >
+                白背景
+              </button>
+              <button
+                className={background === "transparent" ? "is-active" : ""}
+                onClick={() => setBackground("transparent")}
+              >
+                透明
+              </button>
             </div>
 
             <div className="slide-timeline-selection-heading">
               <strong>含める項目</strong>
-              <span>{selected.length} / {candidates.length}</span>
-              <button className="text-button compact" onClick={() => setSelectedIds(new Set(candidates.map((item) => item.id)))}>すべて</button>
-              <button className="text-button compact" onClick={() => setSelectedIds(new Set())}>解除</button>
+              <span>
+                {selected.length} / {candidates.length}
+              </span>
+              <button
+                className="text-button compact"
+                onClick={() => setSelectedIds(new Set(candidates.map((item) => item.id)))}
+              >
+                すべて
+              </button>
+              <button className="text-button compact" onClick={() => setSelectedIds(new Set())}>
+                解除
+              </button>
             </div>
             <div className="slide-timeline-selection" aria-label="出力項目">
               {candidates.map((item) => (
@@ -191,36 +276,65 @@ export function SlideTimelineDialog({
                   <input
                     type="checkbox"
                     checked={selectedIds.has(item.id)}
-                    onChange={(event) => setSelectedIds((current) => {
-                      const next = new Set(current);
-                      if (event.target.checked) next.add(item.id);
-                      else next.delete(item.id);
-                      return next;
-                    })}
+                    onChange={(event) =>
+                      setSelectedIds((current) => {
+                        const next = new Set(current);
+                        if (event.target.checked) next.add(item.id);
+                        else next.delete(item.id);
+                        return next;
+                      })
+                    }
                   />
-                  <span className={`slide-timeline-kind is-${item.kind}`}>{item.kind === "task" ? "TASK" : "ACT"}</span>
+                  <span className={`slide-timeline-kind is-${item.kind}`}>
+                    {item.kind === "task" ? "TASK" : "ACT"}
+                  </span>
                   <span className="slide-timeline-item-title">{item.title}</span>
                   <time>{item.start}</time>
                 </label>
               ))}
-              {!candidates.length && <div className="empty-state compact">この期間のTask / Activityはありません。</div>}
+              {!candidates.length && (
+                <div className="empty-state compact">この期間のTask / Activityはありません。</div>
+              )}
             </div>
           </aside>
 
           <main className={`slide-timeline-preview is-${background}`}>
             <div className="slide-timeline-slide">
-              {svg
-                ? <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`} alt="スライド用タイムラインのプレビュー" />
-                : <div className="empty-state">期間を確認してください。</div>}
+              {svg ? (
+                <img
+                  src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`}
+                  alt="スライド用タイムラインのプレビュー"
+                />
+              ) : (
+                <div className="empty-state">期間を確認してください。</div>
+              )}
             </div>
-            {selected.length > 24 && <p className="slide-timeline-overflow-note">1枚には先頭24件を表示します。項目を絞ると読みやすくなります。</p>}
+            {selected.length > 24 && (
+              <p className="slide-timeline-overflow-note">
+                1枚には先頭24件を表示します。項目を絞ると読みやすくなります。
+              </p>
+            )}
           </main>
         </div>
 
         <footer className="slide-timeline-footer">
           <span>PNG 3200 × 1800 / SVG 1600 × 900</span>
-          <button className="secondary-button" disabled={busy !== null} onClick={() => void exportSvg()}><IconFileTypeSvg size={17} />{busy === "svg" ? "書き出し中…" : "SVGを書き出す"}</button>
-          <button className="primary-button" disabled={busy !== null} onClick={() => void copyForPowerPoint()}><IconCopy size={17} />{busy === "copy" ? "コピー中…" : "PowerPoint用にコピー"}</button>
+          <button
+            className="secondary-button"
+            disabled={busy !== null}
+            onClick={() => void exportSvg()}
+          >
+            <IconFileTypeSvg size={17} />
+            {busy === "svg" ? "書き出し中…" : "SVGを書き出す"}
+          </button>
+          <button
+            className="primary-button"
+            disabled={busy !== null}
+            onClick={() => void copyForPowerPoint()}
+          >
+            <IconCopy size={17} />
+            {busy === "copy" ? "コピー中…" : "PowerPoint用にコピー"}
+          </button>
         </footer>
       </section>
     </div>

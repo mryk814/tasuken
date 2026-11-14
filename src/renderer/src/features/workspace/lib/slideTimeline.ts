@@ -71,11 +71,21 @@ function recordTimestamp(record: unknown): string {
   return dateOnly(row.updated_at || row.created_at);
 }
 
-function entityRecords(domain: WorkspaceDomain, type: string): Array<{ id: string; project_id?: string | null; title?: string | null; text?: string | null }> {
+function entityRecords(
+  domain: WorkspaceDomain,
+  type: string,
+): Array<{ id: string; project_id?: string | null; title?: string | null; text?: string | null }> {
   const key = domainCollectionKeyForEntityType(type as EntityType) as keyof WorkspaceDomain | null;
   if (!key) return [];
   const records = domain[key];
-  return Array.isArray(records) ? records as Array<{ id: string; project_id?: string | null; title?: string | null; text?: string | null }> : [];
+  return Array.isArray(records)
+    ? (records as Array<{
+        id: string;
+        project_id?: string | null;
+        title?: string | null;
+        text?: string | null;
+      }>)
+    : [];
 }
 
 function entityProjectId(domain: WorkspaceDomain, type: string, id: string): string | null {
@@ -88,14 +98,18 @@ function entityTitle(domain: WorkspaceDomain, type: string, id: string): string 
 }
 
 function activityLabel(changeType: string): string {
-  return ({
-    created: "作成",
-    updated: "更新",
-    completed: "完了",
-    rescheduled: "日程変更",
-    triaged: "整理",
-    deleted: "削除",
-  } as Record<string, string>)[changeType] || "活動";
+  return (
+    (
+      {
+        created: "作成",
+        updated: "更新",
+        completed: "完了",
+        rescheduled: "日程変更",
+        triaged: "整理",
+        deleted: "削除",
+      } as Record<string, string>
+    )[changeType] || "活動"
+  );
 }
 
 export function buildSlideTimelineCandidates(
@@ -107,7 +121,9 @@ export function buildSlideTimelineCandidates(
 
   for (const task of domain.tasks) {
     if (!projectMatches(task.project_id, options.themeId)) continue;
-    const schedule = domain.schedules.find((entry) => entry.owner_type === "task" && entry.owner_id === task.id);
+    const schedule = domain.schedules.find(
+      (entry) => entry.owner_type === "task" && entry.owner_id === task.id,
+    );
     const fallback = dateOnly(task.completed_at || task.updated_at || task.created_at);
     const start = dateOnly(schedule?.start_date || schedule?.end_date) || fallback;
     const end = dateOnly(schedule?.end_date || schedule?.start_date) || start;
@@ -127,7 +143,8 @@ export function buildSlideTimelineCandidates(
   for (const event of domain.change_events) {
     const date = dateOnly(event.changed_at);
     const projectId = entityProjectId(domain, event.entity_type, event.entity_id);
-    if (!inRange(date, options.start, options.end) || !projectMatches(projectId, options.themeId)) continue;
+    if (!inRange(date, options.start, options.end) || !projectMatches(projectId, options.themeId))
+      continue;
     candidates.push({
       id: `activity:${event.id}`,
       kind: "activity",
@@ -142,7 +159,11 @@ export function buildSlideTimelineCandidates(
 
   for (const update of statusUpdates) {
     const date = dateOnly(update.date || update.updated_at || update.created_at);
-    if (!inRange(date, options.start, options.end) || !projectMatches(update.theme_id, options.themeId)) continue;
+    if (
+      !inRange(date, options.start, options.end) ||
+      !projectMatches(update.theme_id, options.themeId)
+    )
+      continue;
     candidates.push({
       id: `activity:status:${update.id}`,
       kind: "activity",
@@ -156,31 +177,42 @@ export function buildSlideTimelineCandidates(
   }
 
   const seen = new Set<string>();
-  return candidates.sort((a, b) => (
-    a.start.localeCompare(b.start)
-    || (a.kind === b.kind ? 0 : a.kind === "task" ? -1 : 1)
-    || a.title.localeCompare(b.title, "ja")
-  )).filter((item) => {
-    const key = [item.kind, item.projectId, item.start, item.end, item.title, item.detail].join("\u0000");
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return candidates
+    .sort(
+      (a, b) =>
+        a.start.localeCompare(b.start) ||
+        (a.kind === b.kind ? 0 : a.kind === "task" ? -1 : 1) ||
+        a.title.localeCompare(b.title, "ja"),
+    )
+    .filter((item) => {
+      const key = [item.kind, item.projectId, item.start, item.end, item.title, item.detail].join(
+        "\u0000",
+      );
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 function escapeXml(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&apos;",
-  })[character] || character);
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&apos;",
+      })[character] || character,
+  );
 }
 
 function truncate(value: string, length: number): string {
   const characters = Array.from(value.trim());
-  return characters.length <= length ? value.trim() : `${characters.slice(0, length - 1).join("")}…`;
+  return characters.length <= length
+    ? value.trim()
+    : `${characters.slice(0, length - 1).join("")}…`;
 }
 
 function tickDates(start: string, end: string, unit: SlideTimelineUnit): string[] {
@@ -213,36 +245,49 @@ export function buildSlideTimelineSvg(options: SlideTimelineBuildOptions): strin
   const overflowCount = Math.max(0, options.items.length - visibleItems.length);
   const rowHeight = plotHeight / Math.max(visibleItems.length + (overflowCount ? 1 : 0), 1);
   const totalDays = Math.max(1, daysBetween(options.start, options.end));
-  const xFor = (date: string) => left + Math.max(0, Math.min(totalDays, daysBetween(options.start, date))) / totalDays * plotWidth;
+  const xFor = (date: string) =>
+    left +
+    (Math.max(0, Math.min(totalDays, daysBetween(options.start, date))) / totalDays) * plotWidth;
   const ticks = tickDates(options.start, options.end, options.unit);
-  const background = options.background === "white"
-    ? `<rect width="${SLIDE_WIDTH}" height="${SLIDE_HEIGHT}" fill="#fffdfb"/>`
-    : "";
+  const background =
+    options.background === "white"
+      ? `<rect width="${SLIDE_WIDTH}" height="${SLIDE_HEIGHT}" fill="#fffdfb"/>`
+      : "";
 
-  const tickMarkup = ticks.map((date, index) => {
-    const x = xFor(date);
-    const anchor = index === 0 ? "start" : index === ticks.length - 1 ? "end" : "middle";
-    return `<line x1="${x}" y1="${top - 24}" x2="${x}" y2="${SLIDE_HEIGHT - bottom + 8}" stroke="#e5d9d8" stroke-width="1"/>`
-      + `<text x="${x}" y="${top - 38}" text-anchor="${anchor}" class="tick">${escapeXml(dateLabel(date, options.unit))}</text>`;
-  }).join("");
+  const tickMarkup = ticks
+    .map((date, index) => {
+      const x = xFor(date);
+      const anchor = index === 0 ? "start" : index === ticks.length - 1 ? "end" : "middle";
+      return (
+        `<line x1="${x}" y1="${top - 24}" x2="${x}" y2="${SLIDE_HEIGHT - bottom + 8}" stroke="#e5d9d8" stroke-width="1"/>` +
+        `<text x="${x}" y="${top - 38}" text-anchor="${anchor}" class="tick">${escapeXml(dateLabel(date, options.unit))}</text>`
+      );
+    })
+    .join("");
 
-  const rowMarkup = visibleItems.map((item, index) => {
-    const y = top + rowHeight * index + rowHeight / 2;
-    const rowTop = top + rowHeight * index;
-    const x1 = xFor(item.start);
-    const x2 = xFor(item.end);
-    const kind = item.kind === "task" ? "TASK" : "ACT";
-    const title = truncate(item.title, 30);
-    const label = `<text x="56" y="${y + 5}" class="kind">${kind}</text>`
-      + `<text x="112" y="${y + 5}" class="label">${escapeXml(title)}</text>`
-      + `<text x="${left - 18}" y="${y + 5}" text-anchor="end" class="detail">${escapeXml(item.detail)}</text>`;
-    const mark = item.kind === "task"
-      ? `<rect x="${x1}" y="${y - 8}" width="${Math.max(8, x2 - x1)}" height="16" rx="8" fill="${item.status === "done" ? "#6f7767" : "#8a2f3b"}"/>`
-        + (item.status === "done" ? `<path d="M ${Math.max(x1 + 5, x2 - 18)} ${y} l 4 4 l 8 -9" fill="none" stroke="#fffdfb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>` : "")
-      : `<line x1="${left}" y1="${y}" x2="${x1}" y2="${y}" stroke="#d6c7c6" stroke-width="2"/>`
-        + `<path d="M ${x1} ${y - 9} L ${x1 + 9} ${y} L ${x1} ${y + 9} L ${x1 - 9} ${y} Z" fill="#2f6fa6"/>`;
-    return `<rect x="40" y="${rowTop}" width="${SLIDE_WIDTH - 80}" height="${rowHeight}" fill="${index % 2 ? "#fbf6f3" : "transparent"}"/>${label}${mark}`;
-  }).join("");
+  const rowMarkup = visibleItems
+    .map((item, index) => {
+      const y = top + rowHeight * index + rowHeight / 2;
+      const rowTop = top + rowHeight * index;
+      const x1 = xFor(item.start);
+      const x2 = xFor(item.end);
+      const kind = item.kind === "task" ? "TASK" : "ACT";
+      const title = truncate(item.title, 30);
+      const label =
+        `<text x="56" y="${y + 5}" class="kind">${kind}</text>` +
+        `<text x="112" y="${y + 5}" class="label">${escapeXml(title)}</text>` +
+        `<text x="${left - 18}" y="${y + 5}" text-anchor="end" class="detail">${escapeXml(item.detail)}</text>`;
+      const mark =
+        item.kind === "task"
+          ? `<rect x="${x1}" y="${y - 8}" width="${Math.max(8, x2 - x1)}" height="16" rx="8" fill="${item.status === "done" ? "#6f7767" : "#8a2f3b"}"/>` +
+            (item.status === "done"
+              ? `<path d="M ${Math.max(x1 + 5, x2 - 18)} ${y} l 4 4 l 8 -9" fill="none" stroke="#fffdfb" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`
+              : "")
+          : `<line x1="${left}" y1="${y}" x2="${x1}" y2="${y}" stroke="#d6c7c6" stroke-width="2"/>` +
+            `<path d="M ${x1} ${y - 9} L ${x1 + 9} ${y} L ${x1} ${y + 9} L ${x1 - 9} ${y} Z" fill="#2f6fa6"/>`;
+      return `<rect x="40" y="${rowTop}" width="${SLIDE_WIDTH - 80}" height="${rowHeight}" fill="${index % 2 ? "#fbf6f3" : "transparent"}"/>${label}${mark}`;
+    })
+    .join("");
 
   const overflowMarkup = overflowCount
     ? `<text x="56" y="${top + rowHeight * visibleItems.length + rowHeight / 2 + 5}" class="overflow">ほか ${overflowCount} 件 — 項目選択で1枚に収められます</text>`
@@ -251,19 +296,21 @@ export function buildSlideTimelineSvg(options: SlideTimelineBuildOptions): strin
     ? ""
     : `<text x="${SLIDE_WIDTH / 2}" y="${SLIDE_HEIGHT / 2}" text-anchor="middle" class="empty">期間内の項目を選択してください</text>`;
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${SLIDE_WIDTH}" height="${SLIDE_HEIGHT}" viewBox="0 0 ${SLIDE_WIDTH} ${SLIDE_HEIGHT}">`
-    + `<style>text{font-family:"Yu Gothic UI","Meiryo",sans-serif;fill:#342e2c}.title{font-size:42px;font-weight:700}.subtitle{font-size:19px;fill:#756967}.theme{font-size:18px;font-weight:700;fill:#8a2f3b}.tick{font-size:15px;fill:#756967}.kind{font-size:12px;font-weight:800;letter-spacing:1px;fill:#756967}.label{font-size:17px;font-weight:600}.detail{font-size:13px;fill:#756967}.overflow{font-size:16px;font-weight:600;fill:#8a2f3b}.empty{font-size:22px;fill:#756967}</style>`
-    + background
-    + `<text x="56" y="76" class="title">${escapeXml(truncate(options.title || "Timeline", 48))}</text>`
-    + `<text x="56" y="112" class="subtitle">${escapeXml(truncate(options.subtitle, 72))}</text>`
-    + `<text x="1544" y="76" text-anchor="end" class="theme">${escapeXml(truncate(options.themeName, 34))}</text>`
-    + `<text x="1544" y="110" text-anchor="end" class="subtitle">${escapeXml(`${options.start} — ${options.end}`)}</text>`
-    + `<line x1="${left}" y1="${top - 24}" x2="${SLIDE_WIDTH - right}" y2="${top - 24}" stroke="#8a2f3b" stroke-width="3"/>`
-    + tickMarkup
-    + rowMarkup
-    + overflowMarkup
-    + emptyMarkup
-    + `</svg>`;
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${SLIDE_WIDTH}" height="${SLIDE_HEIGHT}" viewBox="0 0 ${SLIDE_WIDTH} ${SLIDE_HEIGHT}">` +
+    `<style>text{font-family:"Yu Gothic UI","Meiryo",sans-serif;fill:#342e2c}.title{font-size:42px;font-weight:700}.subtitle{font-size:19px;fill:#756967}.theme{font-size:18px;font-weight:700;fill:#8a2f3b}.tick{font-size:15px;fill:#756967}.kind{font-size:12px;font-weight:800;letter-spacing:1px;fill:#756967}.label{font-size:17px;font-weight:600}.detail{font-size:13px;fill:#756967}.overflow{font-size:16px;font-weight:600;fill:#8a2f3b}.empty{font-size:22px;fill:#756967}</style>` +
+    background +
+    `<text x="56" y="76" class="title">${escapeXml(truncate(options.title || "Timeline", 48))}</text>` +
+    `<text x="56" y="112" class="subtitle">${escapeXml(truncate(options.subtitle, 72))}</text>` +
+    `<text x="1544" y="76" text-anchor="end" class="theme">${escapeXml(truncate(options.themeName, 34))}</text>` +
+    `<text x="1544" y="110" text-anchor="end" class="subtitle">${escapeXml(`${options.start} — ${options.end}`)}</text>` +
+    `<line x1="${left}" y1="${top - 24}" x2="${SLIDE_WIDTH - right}" y2="${top - 24}" stroke="#8a2f3b" stroke-width="3"/>` +
+    tickMarkup +
+    rowMarkup +
+    overflowMarkup +
+    emptyMarkup +
+    `</svg>`
+  );
 }
 
 export async function slideTimelineSvgToPng(svg: string, scale = 2): Promise<string> {
