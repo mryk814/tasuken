@@ -2023,7 +2023,7 @@ internal fun TodayTaskList(
                 actionState is TaskActionUiState.Saving -> "${task.title}は別のTaskの保存完了後に操作"
                 task.conflict != null -> "${task.title}は競合を解決してから操作"
                 task.pending && !task.canChangePendingState -> "${task.title}は同期後に操作"
-                requiresWorkReceipt -> "${task.title}はWork Receiptを確認してから操作"
+                requiresWorkReceipt -> "${task.title}はPCで確認してから操作"
                 task.state == "done" -> "${task.title}を未完了に戻す"
                 else -> "${task.title}を完了"
             }
@@ -2812,7 +2812,7 @@ internal fun TodayDetailPane(
                         actionState is TaskActionUiState.Saving && actionState.taskId == task.id -> "保存中"
                         task.conflict != null -> "競合を解決してから操作"
                         task.pending && !task.canChangePendingState -> "同期後に操作"
-                        task.workState in setOf("needs_human_review", "reported_done", "blocked") -> "Work Receiptを確認"
+                        task.workState in setOf("needs_human_review", "reported_done", "blocked") -> "PCで確認"
                         task.pending && task.state == "done" -> "未完了に変更"
                         task.pending -> "完了に変更"
                         task.state == "done" -> "未完了に戻す"

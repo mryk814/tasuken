@@ -627,7 +627,7 @@ class MobileOutboxDatabaseTest {
             val error = runCatching { outbox.enqueueComplete(taskId) }.exceptionOrNull()
 
             assertTrue(error is IllegalArgumentException)
-            assertTrue(error?.message?.contains("Work Receipt") == true)
+            assertTrue(error?.message?.contains("PCで確認") == true)
             assertEquals("todo", dao.task(taskId)?.state)
             assertNull(dao.task(taskId)?.optimisticCommandId)
         }
