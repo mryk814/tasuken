@@ -147,27 +147,15 @@ class TaskDailyDetailUiTest {
     }
 
     @Test
-    fun aiOptionsRemainReachableAndReadyOrFailedChangesStayVisible() {
-        val current = mutableStateOf(task())
-        val aiState = mutableStateOf<AiReadyUiState>(AiReadyUiState.Idle)
+    fun aiReadyToggleIsNotOfferedOnThePhone() {
+        // 委任（AI Ready の切り替え）はスマホから外した（#755 束9a）。
         composeRule.setContent {
             MaterialTheme {
-                TodayDetailPane(
-                    task = current.value, actionState = TaskActionUiState.Idle,
-                    aiReadyState = aiState.value, onStateAction = {},
-                )
+                TodayDetailPane(task = task(), actionState = TaskActionUiState.Idle, onStateAction = {})
             }
         }
-        composeRule.onNodeWithTag("task-ai-options-toggle").performScrollTo().assertExists()
-        composeRule.onNodeWithText("AI Ready").assertExists()
-        composeRule.runOnIdle { current.value = current.value.copy(workState = "ready_for_agent") }
-        composeRule.onNodeWithText("解除").assertExists()
-        composeRule.runOnIdle {
-            current.value = current.value.copy(workState = "not_delegated")
-            aiState.value = AiReadyUiState.Unavailable("daily", "接続を確認して再試行してください。")
-        }
-        composeRule.onNodeWithText("接続を確認して再試行してください。").assertExists()
-        composeRule.onNodeWithTag("task-ai-ready-toggle-daily").assertExists()
+        composeRule.onNodeWithTag("task-quick-actions").assertExists()
+        composeRule.onNodeWithTag("task-ai-options-toggle").assertDoesNotExist()
     }
 
     @Test

@@ -160,7 +160,7 @@ internal fun TaskPlaceReminderEditor(
                 // Android 11 以降は「常に許可」を設定画面で選ぶ。10 では通常のダイアログ。
                 if (Build.VERSION.SDK_INT >= 30 && fromUser) openAppSettings()
                 else backgroundLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-            Build.VERSION.SDK_INT >= 33 && !MobileTaskNotifications.canPost(context) ->
+            Build.VERSION.SDK_INT >= 33 && !TaskenNotifications.canPost(context) ->
                 if (askedNotification && fromUser) openAppSettings()
                 else { askedNotification = true; notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
             else -> Unit

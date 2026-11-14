@@ -25,7 +25,7 @@ class TaskenCompanionApp : Application() {
     override fun onCreate() {
         super.onCreate()
         MobileOutboxScheduler.ensurePeriodicSync(this)
-        MobileTaskNotifications.createChannel(this)
+        TaskenNotifications.retireRemovedChannels(this)
         TaskenTodayWidget.updateAll(this)
         // アプリ内のTask・Theme変更をウィジェットへ即時反映する。
         // 定期同期だけでは完了・編集・追加が次の同期まで古いままになる。

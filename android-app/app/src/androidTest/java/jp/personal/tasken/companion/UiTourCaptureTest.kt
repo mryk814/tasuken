@@ -71,7 +71,6 @@ class UiTourCaptureTest {
             }
         }
         capture("10-task-detail")
-        step("11-task-detail-ai") { composeRule.onNodeWithTag("task-ai-options-toggle").performClick() }
     }
 
     @Test
@@ -87,21 +86,6 @@ class UiTourCaptureTest {
                 workState = "needs_human_review",
                 updatedAt = now.minusSeconds(5400).toString(),
                 latestWorkReceipt = MobileWorkReceiptSummary("r2", now.minusSeconds(5400).toString(), "Codex", "温度条件の違いを表にまとめました。確認をお願いします。"),
-            ),
-        )
-        val attention = listOf(
-            AttentionRow(
-                attentionId = "task-work:request:1",
-                kind = AttentionKind.AnswerRequest,
-                taskId = "t3",
-                taskTitle = "粘度測定の条件を決める",
-                taskVersion = 12,
-                headline = "測定温度が決まっていません。",
-                summary = "測定温度が決まっていません。",
-                questionOrAction = "25℃と40℃のどちらで進めますか。",
-                agentLabel = "Codex",
-                requestId = "33333333-3333-4333-8333-333333333333",
-                canReply = true,
             ),
         )
         composeRule.setContent {
@@ -140,10 +124,6 @@ class UiTourCaptureTest {
                         onRetryPairing = {},
                         onPair = { _, _ -> },
                         onTaskSelected = {},
-                        attention = attention,
-                        attentionCounts = MobileAttentionCountsDto(needsYou = 1, working = 1, queued = 0),
-                        attentionFetchedAt = now.toString(),
-                        attentionOnline = true,
                         seenBefore = now.minusSeconds(3600),
                     )
                 }

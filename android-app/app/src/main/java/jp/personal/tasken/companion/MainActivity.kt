@@ -183,10 +183,6 @@ class MainActivity : ComponentActivity() {
         val viewModelFactory = TodayViewModelFactory(
             repository,
             refreshExternalProjection = { TaskenTodayWidget.updateAll(applicationContext) },
-            attentionNotificationStore = AttentionNotificationStore(applicationContext),
-            notifyAttentionArrivals = { rows, serverId ->
-                MobileAttentionNotifications.notifyArrivals(applicationContext, rows, serverId)
-            },
         )
         setContent {
             TaskenTheme {
@@ -267,26 +263,10 @@ internal fun TodayApp(
     val feedPosts by todayViewModel.feedPosts.collectAsState()
     val proposalReviewOnline by todayViewModel.proposalReviewOnline.collectAsState()
     val proposalReviewState by todayViewModel.proposalReviewState.collectAsState()
-    val humanReviewOnline by todayViewModel.humanReviewOnline.collectAsState()
-    val humanReviewRequiresRePairing by todayViewModel.humanReviewRequiresRePairing.collectAsState()
-    val humanReviewState by todayViewModel.humanReviewState.collectAsState()
-    val attentionRows by todayViewModel.attention.collectAsState()
-    val attentionCounts by todayViewModel.attentionCounts.collectAsState()
-    val attentionFetchedAt by todayViewModel.attentionFetchedAt.collectAsState()
-    val attentionOnline by todayViewModel.attentionOnline.collectAsState()
-    val attentionRefreshing by todayViewModel.attentionRefreshing.collectAsState()
-    val attentionNewArrivals by todayViewModel.attentionNewArrivals.collectAsState()
-    val agentReplyState by todayViewModel.agentReplyState.collectAsState()
-    val aiReadyState by todayViewModel.aiReadyState.collectAsState()
-    val pendingSafeShare by todayViewModel.pendingSafeShare.collectAsState()
     val themes = themeCatalogState.themes
     val context = LocalContext.current
-    val attentionNotificationStore = remember(context) { AttentionNotificationStore(context) }
-    var attentionNotificationsEnabled by remember {
-        mutableStateOf(attentionNotificationStore.isEnabled())
-    }
     var notificationsEnabled by remember(context) {
-        mutableStateOf(MobileTaskNotifications.canPost(context))
+        mutableStateOf(TaskenNotifications.canPost(context))
     }
     var notificationPermissionDenied by rememberSaveable { mutableStateOf(false) }
     val captureDraftStore = remember(context) { MobileCaptureDraftStore(context.applicationContext) }
@@ -372,13 +352,8 @@ internal fun TodayApp(
         }
     }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        notificationsEnabled = MobileTaskNotifications.canPost(context)
+        notificationsEnabled = TaskenNotifications.canPost(context)
         notificationPermissionDenied = !granted
-    }
-    LaunchedEffect(pendingSafeShare, context) {
-        val share = pendingSafeShare ?: return@LaunchedEffect
-        context.startActivity(MobileSafeShare.chooserIntent(share))
-        todayViewModel.consumeSafeShare(share)
     }
     val requestSpeechRecognition: (Boolean) -> Unit = { append ->
         speechRequestDraftId = paneState.captureDraft.draftId
@@ -389,7 +364,7 @@ internal fun TodayApp(
             microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
-    // AIへの返信を話して書く。認識した文字は下書きへ足すだけで、送信は本人が押す。
+    // Feedへの返信を話して書く。認識した文字は下書きへ足すだけで、送信は本人が押す。
     var replySpeechState by remember(speechRecognizer) {
         mutableStateOf<ShortSpeechUiState>(ShortSpeechUiState.Idle(speechRecognizer.availableMode()))
     }
@@ -419,8 +394,8 @@ internal fun TodayApp(
         base = calculatePaneScaffoldDirective(adaptiveInfo),
         windowWidth = windowWidthDp,
     )
-    // Foldの展開幅では一覧と詳細を並べる（同じ閾値を詳細ペインの使い方にも使う）。
-    val attentionInDetailPane = scaffoldDirective.maxHorizontalPartitions > 1
+    // Foldの展開幅では一覧と詳細を並べ、下のタブの代わりに横のレールを出す。
+    val wideLayout = scaffoldDirective.maxHorizontalPartitions > 1
     val navigator = key(scaffoldDirective) {
         rememberListDetailPaneScaffoldNavigator(
             scaffoldDirective = scaffoldDirective,
@@ -510,7 +485,7 @@ internal fun TodayApp(
         )
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                notificationsEnabled = MobileTaskNotifications.canPost(context)
+                notificationsEnabled = TaskenNotifications.canPost(context)
                 if (notificationsEnabled) notificationPermissionDenied = false
                 todayViewModel.load()
             }
@@ -521,7 +496,7 @@ internal fun TodayApp(
             context.unregisterReceiver(dateReceiver)
         }
     }
-    LaunchedEffect(entryRequest, uiState, allTasks, attentionRows, attentionFetchedAt) {
+    LaunchedEffect(entryRequest, uiState, allTasks) {
         if (entryRequest.token == 0L || entryRequest.token == handledEntryToken) return@LaunchedEffect
         when (entryRequest) {
             is MobileEntryRequest.Capture -> {
@@ -552,25 +527,6 @@ internal fun TodayApp(
                 paneState.activeSection = AppSection.Today
                 navigator.navigateTo(ListDetailPaneScaffoldRole.List)
                 handledEntryToken = entryRequest.token
-            }
-            is MobileEntryRequest.Attention -> {
-                // 要対応の新着通知から、その判断へ移動する（#601）。
-                val row = attentionRows.firstOrNull { it.attentionId == entryRequest.attentionId }
-                if (row != null) {
-                    paneState.activeSection = AppSection.Feed
-                    paneState.openAttention(row.attentionId)
-                    todayViewModel.clearAttentionNewArrivals()
-                    if (attentionInDetailPane) {
-                        navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, row.attentionId)
-                    } else {
-                        navigator.navigateTo(ListDetailPaneScaffoldRole.List)
-                    }
-                    handledEntryToken = entryRequest.token
-                } else if (attentionFetchedAt != null) {
-                    // 既に解決済みの判断。開けなかったことを黙って飲み込まない。
-                    snackbarHostState.showSnackbar("この判断はもう要対応にありません。")
-                    handledEntryToken = entryRequest.token
-                }
             }
             MobileEntryRequest.None -> Unit
         }
@@ -693,29 +649,6 @@ internal fun TodayApp(
             ProposalReviewUiState.Idle, is ProposalReviewUiState.Reviewing -> Unit
         }
     }
-    LaunchedEffect(humanReviewState) {
-        when (val state = humanReviewState) {
-            is HumanReviewUiState.Applied -> {
-                snackbarHostState.showSnackbar(
-                    if (state.action == "accept") "Work Receiptを採ってTaskを完了しました。" else "AIへ返信しました。",
-                )
-                todayViewModel.resetHumanReviewState()
-            }
-            is HumanReviewUiState.Conflict -> {
-                snackbarHostState.showSnackbar(state.message)
-                todayViewModel.resetHumanReviewState()
-            }
-            is HumanReviewUiState.Rejected -> {
-                snackbarHostState.showSnackbar(state.message)
-                todayViewModel.resetHumanReviewState()
-            }
-            is HumanReviewUiState.Unavailable -> {
-                snackbarHostState.showSnackbar(state.message)
-                todayViewModel.resetHumanReviewState()
-            }
-            HumanReviewUiState.Idle, is HumanReviewUiState.Reviewing -> Unit
-        }
-    }
 
     val syncState = syncSummary(uiState, pendingCount, conflictCount, pendingCaptures.size, recoveredInputs.size)
     val selectSection: (AppSection) -> Unit = { section ->
@@ -735,17 +668,8 @@ internal fun TodayApp(
         speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
     }
     val sectionBadge: @Composable (AppSection) -> Unit = { section ->
-        // あなたの返事を待つ数。Desktopのbadgeと同じ意味で、新着だけの時は点で知らせる。
-        val needsYou = attentionCounts?.needsYou ?: 0
-        if (section == AppSection.Feed) {
-            when {
-                needsYou > 0 -> Badge(Modifier.testTag("ai-tab-badge").semantics { contentDescription = "対応待ち${needsYou}件" }) {
-                    Text(if (needsYou > 99) "99+" else needsYou.toString())
-                }
-                attentionNewArrivals.isNotEmpty() || (aiUnseen && !onAiSection) ->
-                    Badge(Modifier.testTag("ai-tab-badge"))
-            }
-        }
+        // まだ見ていないAIの動きがある時だけ、点で知らせる。
+        if (section == AppSection.Feed && aiUnseen && !onAiSection) Badge(Modifier.testTag("ai-tab-badge"))
     }
     val requestNotifications: (() -> Unit)? = if (android.os.Build.VERSION.SDK_INT >= 33) {
         {
@@ -767,15 +691,6 @@ internal fun TodayApp(
         { task -> workLogTaskId = task.id; workLogRecordId = null; workLogOpen = true }
     } else {
         null
-    }
-    val toggleFeedNotifications: () -> Unit = {
-        val next = !attentionNotificationsEnabled
-        attentionNotificationsEnabled = next
-        attentionNotificationStore.setEnabled(next)
-        // OS通知を出すには権限が要る。有効にした時点で一度だけ求める。
-        if (next && !notificationsEnabled && android.os.Build.VERSION.SDK_INT >= 33) {
-            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
     }
 
     Scaffold(
@@ -815,13 +730,13 @@ internal fun TodayApp(
             )
         },
         bottomBar = {
-            if (!attentionInDetailPane) {
+            if (!wideLayout) {
                 AppNavigationBar(active = paneState.activeSection, onSelect = selectSection, badge = sectionBadge)
             }
         },
     ) { padding ->
         Row(Modifier.fillMaxSize().padding(padding)) {
-        if (attentionInDetailPane) {
+        if (wideLayout) {
             AppNavigationRail(
                 active = paneState.activeSection,
                 onSelect = selectSection,
@@ -900,32 +815,10 @@ internal fun TodayApp(
                                 onRetryPairing = todayViewModel::retryPairing,
                                 onPair = todayViewModel::pair,
                                 onTaskSelected = onTaskSelected,
-                                attention = attentionRows,
-                                attentionCounts = attentionCounts,
-                                attentionFetchedAt = attentionFetchedAt,
-                                attentionOnline = attentionOnline,
-                                attentionRefreshing = attentionRefreshing,
-                                agentReplyState = agentReplyState,
-                                onRefreshAttention = todayViewModel::refreshAttention,
-                                onReplyToAgent = todayViewModel::replyToAgent,
-                                onResetAgentReply = todayViewModel::resetAgentReplyState,
-                                attentionInDetailPane = attentionInDetailPane,
-                                selectedAttentionId = paneState.selectedAttentionId,
-                                attentionNewArrivals = attentionNewArrivals,
+                                refreshing = refreshing,
+                                onRefresh = todayViewModel::refreshFeed,
                                 seenBefore = aiSeenBefore,
                                 replyDictation = replyDictation,
-                                onAttentionOpened = todayViewModel::clearAttentionNewArrivals,
-                                onAttentionSelected = { row ->
-                                    paneState.openAttention(row.attentionId)
-                                    coroutineScope.launch {
-                                        navigator.navigateTo(
-                                            ListDetailPaneScaffoldRole.Detail,
-                                            row.attentionId,
-                                        )
-                                        focusManager.clearFocus(force = true)
-                                        keyboardController?.hide()
-                                    }
-                                },
                             )
                             AppSection.Records -> RecordsListPane(
                                 repository = todayViewModel.recallRepository,
@@ -936,7 +829,7 @@ internal fun TodayApp(
                             )
                         }}
                         androidx.compose.animation.AnimatedVisibility(
-                            visible = !attentionInDetailPane,
+                            visible = !wideLayout,
                             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
                             enter = androidx.compose.animation.scaleIn(
                                 androidx.compose.animation.core.spring(dampingRatio = 0.6f, stiffness = 500f),
@@ -960,44 +853,7 @@ internal fun TodayApp(
                     val navigateToList: () -> Unit = {
                         coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
                     }
-                    val selectedAttention = paneState.selectedAttentionId?.let { id ->
-                        attentionRows.firstOrNull { it.attentionId == id }
-                    }
-                    // Desktopが返した一覧から消えた判断は、詳細に残さない。
-                    LaunchedEffect(paneState.selectedAttentionId, attentionRows) {
-                        if (paneState.selectedAttentionId != null && selectedAttention == null) {
-                            paneState.clearAttentionReply()
-                        }
-                    }
-                    // 正式に保存できたときだけ、回答と選択を閉じる。失敗時は入力を残す。
-                    LaunchedEffect(agentReplyState) {
-                        val applied = agentReplyState as? AgentReplyUiState.Applied
-                        if (applied != null && selectedAttention?.attentionId == applied.attentionId) {
-                            paneState.clearAttentionReply()
-                        }
-                    }
                     Column(Modifier.fillMaxSize()) {
-                    if (selectedAttention != null && attentionInDetailPane) {
-                        AttentionDetailPane(
-                            row = selectedAttention,
-                            body = paneState.attentionReplyBody,
-                            onBodyChange = { paneState.attentionReplyBody = it.take(10_000) },
-                            state = agentReplyState,
-                            online = attentionOnline,
-                            onSend = {
-                                todayViewModel.replyToAgent(
-                                    selectedAttention,
-                                    null,
-                                    paneState.attentionReplyBody,
-                                )
-                            },
-                            onOpenTask = selectedAttention.taskId?.let { taskId ->
-                                { paneState.selectedTaskId = taskId }
-                            },
-                            onBack = navigateToList,
-                            dictation = replyDictation,
-                        )
-                    } else {
                     if (localSearchTaskReturn != null) TextButton(onClick = { localSearchOpen = true; localSearchTaskReturn = null },
                         modifier = Modifier.testTag("local-search-return")) { Text("さがすへ戻る") }
                     Box(Modifier.weight(1f)) {
@@ -1011,10 +867,6 @@ internal fun TodayApp(
                         taskWorkProposals = taskWorkProposals.filter { it.taskId == task?.id },
                         proposalReviewOnline = proposalReviewOnline,
                         proposalReviewState = proposalReviewState,
-                        humanReviewOnline = humanReviewOnline,
-                        humanReviewRequiresRePairing = humanReviewRequiresRePairing,
-                        humanReviewState = humanReviewState,
-                        aiReadyState = aiReadyState,
                         themes = themes,
                         themeCatalogState = themeCatalogState,
                         onStateAction = todayViewModel::toggleTaskState,
@@ -1035,14 +887,11 @@ internal fun TodayApp(
                             todayViewModel.loadWorkReceipt(selectedTask.id, selectedReceiptId, force = true)
                         },
                         onProposalDecision = todayViewModel::reviewTaskWorkProposal,
-                        onHumanReview = todayViewModel::reviewTaskWork,
-                        onTaskAiReady = todayViewModel::setTaskAiReady,
                         onNavigateBack = if (task != null) navigateToList else null,
                         completionFeedbackEventId = completionFeedback
                             ?.takeIf { it.taskId == task?.id }
                             ?.eventId,
                     )
-                    }
                     }
                     }
                 }
@@ -1072,8 +921,6 @@ internal fun TodayApp(
             notificationsAllowed = notificationsEnabled,
             notificationPermissionDenied = notificationPermissionDenied,
             onRequestNotifications = requestNotifications,
-            feedNotificationsEnabled = attentionNotificationsEnabled,
-            onToggleFeedNotifications = toggleFeedNotifications,
             onOpenDirectAiSettings = { settingsOpen = false; directAiSettingsOpen = true },
             onRepair = { settingsOpen = false; todayViewModel.retryPairing() },
             onDismiss = { settingsOpen = false },
@@ -2072,39 +1919,13 @@ internal fun FeedListPane(
     onToggleFeedReaction: (MobileFeedPostDto, String) -> Unit = { _, _ -> },
     /** 返信（自分のメモ）を残す。 */
     onPostFeedReply: (MobileFeedPostDto, String) -> Unit = { _, _ -> },
-    attention: List<AttentionRow> = emptyList(),
-    attentionCounts: MobileAttentionCountsDto? = null,
-    attentionFetchedAt: String? = null,
-    attentionOnline: Boolean = false,
-    attentionRefreshing: Boolean = false,
-    agentReplyState: AgentReplyUiState = AgentReplyUiState.Idle,
-    onRefreshAttention: () -> Unit = {},
-    onReplyToAgent: (AttentionRow, String?, String) -> Unit = { _, _, _ -> },
-    onResetAgentReply: () -> Unit = {},
-    /** Foldの展開幅では詳細ペインへ開く（1列では行の直下へ置く）。 */
-    attentionInDetailPane: Boolean = false,
-    selectedAttentionId: String? = null,
-    onAttentionSelected: (AttentionRow) -> Unit = {},
-    /** 新しく現れた判断（#601）。既定はアプリ内で知らせる。 */
-    attentionNewArrivals: List<AttentionRow> = emptyList(),
-    onOpenNewArrival: (AttentionRow) -> Unit = {},
-    attentionNotificationsEnabled: Boolean = false,
-    onToggleAttentionNotifications: (() -> Unit)? = null,
-    onAttentionOpened: () -> Unit = {},
+    /** 引っ張って更新している間。 */
+    refreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
     /** 前回AIタブを見た時刻。これより新しい動きを新着として示す。 */
     seenBefore: java.time.Instant? = null,
     replyDictation: ReplyDictation? = null,
 ) {
-    // 回答の下書きは1列でも展開幅と同じ保存先（paneState）に置く。
-    // 面を移動しても、画面が作り直されても残り、正式に保存できたときだけ閉じる。
-    val inlineTarget =
-        if (attentionInDetailPane) {
-            null
-        } else {
-            selectedAttentionId?.let { id -> attention.firstOrNull { it.attentionId == id } }
-        }
-    // DesktopのFeedと同じく「すべて」と「対応待ち」を切り替える。AIの投稿も人の記録も同じ流れに置く。
-    var onlyNeedsYou by rememberSaveable { mutableStateOf(false) }
     var replyingToPostId by rememberSaveable { mutableStateOf<String?>(null) }
     feedPosts.firstOrNull { it.postId == replyingToPostId }?.let { target ->
         FeedReplySheet(
@@ -2118,26 +1939,9 @@ internal fun FeedListPane(
         )
     }
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            FilterChip(
-                selected = !onlyNeedsYou,
-                onClick = { onlyNeedsYou = false },
-                label = { Text("すべて") },
-                modifier = Modifier.testTag("feed-filter-all"),
-            )
-            FilterChip(
-                selected = onlyNeedsYou,
-                onClick = { onlyNeedsYou = true },
-                label = { Text("対応待ち") },
-                modifier = Modifier.testTag("feed-filter-needs-you"),
-            )
-        }
         PullToRefreshBox(
-            isRefreshing = attentionRefreshing,
-            onRefresh = { onRefreshAttention(); onRetry() },
+            isRefreshing = refreshing,
+            onRefresh = onRefresh,
             modifier = Modifier.weight(1f).testTag("ai-pull-refresh"),
         ) {
     when {
@@ -2148,7 +1952,6 @@ internal fun FeedListPane(
             Text("任せた仕事を読み込んでいます")
         }
         else -> {
-            // 要対応が0件でも見出しは出す。「取得できていない」と「0件」を利用者が区別できるようにする。
             run {
                 val listState = rememberLazyListState(
                     initialFirstVisibleItemIndex = paneState.aiListScrollIndex,
@@ -2163,71 +1966,19 @@ internal fun FeedListPane(
                     modifier = Modifier.fillMaxSize().testTag("ai-inbox-list"),
                     state = listState,
                     // 投稿は左右いっぱいに並べ、投稿どうしの空きは線だけにする。
-                    // 要対応のカードや見出しだけが、それぞれ左右12dpの余白を持つ。
                     contentPadding = PaddingValues(bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(0.dp),
                 ) {
-                    item(key = "section-attention") {
-                        Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                        AgentAttentionHeader(
-                            counts = attentionCounts,
-                            fetchedAt = attentionFetchedAt,
-                            online = attentionOnline,
-                            refreshing = attentionRefreshing,
-                            onRefresh = onRefreshAttention,
-                            newArrivals = attentionNewArrivals,
-                            onOpenNewArrival = { row ->
-                                onResetAgentReply()
-                                onAttentionOpened()
-                                onOpenNewArrival(row)
-                                onAttentionSelected(row)
-                            },
-                            notificationsEnabled = attentionNotificationsEnabled,
-                            onToggleNotifications = onToggleAttentionNotifications,
-                        )
-                        }
-                    }
-                    items(attention, key = { "attention-${it.attentionId}" }) { row ->
-                        Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                        AgentAttentionCard(
-                            row = row,
-                            selected = selectedAttentionId == row.attentionId,
-                            replyOpenBelow = inlineTarget?.attentionId == row.attentionId,
-                            onOpenReply = {
-                                onResetAgentReply()
-                                // 展開幅では詳細ペインへ、1列では行の直下へ開く。置き場所だけを変える。
-                                onAttentionSelected(row)
-                            },
-                            onOpenTask = { row.taskId?.let(onTaskSelected) },
-                        )
-                        }
-                    }
-                    if (inlineTarget != null) {
-                        val target = inlineTarget
-                        item(key = "attention-reply") {
-                            Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                            AgentReplyEditor(
-                                row = target,
-                                body = paneState.attentionReplyBody,
-                                onBodyChange = { paneState.attentionReplyBody = it.take(10_000) },
-                                state = agentReplyState,
-                                online = attentionOnline,
-                                onSend = { onReplyToAgent(target, null, paneState.attentionReplyBody) },
-                                onCancel = {
-                                    // 「閉じる」は破棄ではない。下書きは残す。
-                                    paneState.closeAttention()
-                                    onResetAgentReply()
-                                },
-                                dictation = replyDictation,
+                    val timeline = buildAiTimeline(tasks, proposals, feedPosts)
+                    if (timeline.isEmpty()) {
+                        item(key = "ai-timeline-empty") {
+                            Text(
+                                "まだ動きはありません",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp).testTag("ai-timeline-empty"),
                             )
-                            }
                         }
-                    }
-                    if (!onlyNeedsYou) item(key = "section-agent-counts") {
-                        Box(Modifier.padding(horizontal = 12.dp)) { AiCountsStrip(counts = attentionCounts) }
-                    }
-                    val timeline = if (onlyNeedsYou) emptyList() else buildAiTimeline(tasks, proposals, feedPosts)
-                    if (timeline.isNotEmpty()) {
+                    } else {
                         item(key = "section-ai-timeline") {
                             AiSectionTitle("最近の動き", Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp))
                         }
@@ -2338,476 +2089,6 @@ internal fun FeedListPane(
         }
     }
 }
-
-/**
- * 要対応の見出し（#601）。
- *
- * 件数はDesktopのbadgeと同じ意味で、**判断の数**。まだ読めていない間は
- * 「0件」と書かず、取得できていないことを示す。
- */
-@Composable
-private fun AgentAttentionHeader(
-    counts: MobileAttentionCountsDto?,
-    fetchedAt: String?,
-    online: Boolean,
-    refreshing: Boolean,
-    onRefresh: () -> Unit,
-    /** 新しく現れた判断（#601）。既定のアプリ内表示はここで知らせる。 */
-    newArrivals: List<AttentionRow> = emptyList(),
-    onOpenNewArrival: (AttentionRow) -> Unit = {},
-    notificationsEnabled: Boolean = false,
-    onToggleNotifications: (() -> Unit)? = null,
-) {
-    Column(modifier = Modifier.fillMaxWidth().testTag("attention-header")) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                if (counts == null) "対応待ち" else "対応待ち ${counts.needsYou}",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
-            TextButton(onClick = onRefresh, enabled = !refreshing, modifier = Modifier.testTag("attention-refresh")) {
-                Text(if (refreshing) "更新中" else "更新")
-            }
-        }
-        if (counts == null) {
-            Text(
-                "要対応をまだ取得できていません。",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                modifier = Modifier.testTag("attention-unavailable"),
-            )
-        } else if (counts.needsYou == 0) {
-            Text(
-                "対応待ちはありません。",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.testTag("attention-empty"),
-            )
-        }
-        if (counts != null && !online) {
-            Text(
-                "Desktopへ接続できません。表示は最後に取得した内容です。",
-                color = MaterialTheme.colorScheme.error,
-                fontSize = 12.sp,
-                modifier = Modifier.testTag("attention-stale"),
-            )
-        }
-        fetchedAt?.let { at ->
-            Text(
-                "最終取得 ${attentionTimeLabel(at)}",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-            )
-        }
-        // 新着は短く知らせ、押すとその判断へ移動する。行の本文はここへ写さない。
-        newArrivals.firstOrNull()?.let { first ->
-            TextButton(
-                onClick = { onOpenNewArrival(first) },
-                modifier = Modifier.testTag("attention-new-arrivals"),
-            ) {
-                Text("新しい対応待ち ${newArrivals.size}件")
-            }
-        }
-        onToggleNotifications?.let { toggle ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = notificationsEnabled,
-                    onCheckedChange = { toggle() },
-                    modifier = Modifier.testTag("attention-notifications-toggle"),
-                )
-                Text(
-                    "要対応の新着を通知",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-/** 作業中・開始待ちは要対応ではない。件数だけを別枠で示す。 */
-@Composable
-private fun AgentWorkCounts(counts: MobileAttentionCountsDto?) {
-    if (counts == null) return
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-        Text(
-            "作業中 ${counts.working}",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            "開始待ち ${counts.queued}",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-        )
-        Text(
-            "開始は未確認",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.sp,
-        )
-    }
-}
-
-@Composable
-private fun AgentAttentionCard(
-    row: AttentionRow,
-    selected: Boolean,
-    /** 直下に返信欄を開いている。入口を重ねて出さない。 */
-    replyOpenBelow: Boolean = false,
-    onOpenReply: () -> Unit,
-    onOpenTask: () -> Unit,
-) {
-    // あなたの番。AIからの投稿として見せ、問いかけは吹き出しで目立たせる。
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("attention-row-${row.attentionId}")
-            .semantics { role = Role.Button },
-        shape = RoundedCornerShape(16.dp),
-        // あなたの返事を待つ投稿。枠ではなく淡い面で、流れの中から見つけやすくする。
-        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-        border = if (selected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 14.dp, top = 12.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-        FeedAvatar(row.agentLabel ?: "AI")
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-                itemVerticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    row.agentLabel ?: "AI",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-                Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(50)) {
-                    Text(
-                        attentionKindLabel(row.kind),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            }
-            Text(row.headline, fontWeight = FontWeight.SemiBold)
-            row.taskTitle?.let { title ->
-                Text(title, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-            }
-            if (row.summary != row.headline) Text(row.summary, maxLines = 3, overflow = TextOverflow.Ellipsis)
-            if (row.questionOrAction.isNotBlank() && row.questionOrAction != row.summary) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    shape = RoundedCornerShape(topStart = 4.dp, topEnd = 12.dp, bottomEnd = 12.dp, bottomStart = 12.dp),
-                ) {
-                    Text(
-                        row.questionOrAction,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 4,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (row.canReply && !replyOpenBelow) {
-                    // 返信欄の入口。押すとその場で書き始められる（Xの返信欄と同じ手触り）。
-                    Surface(
-                        onClick = onOpenReply,
-                        shape = RoundedCornerShape(24.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 44.dp)
-                            .semantics { contentDescription = "回答する" }
-                            .testTag("attention-reply-open-${row.attentionId}"),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                "返信する…",
-                                modifier = Modifier.weight(1f),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            Icon(
-                                painterResource(R.drawable.ic_tabler_microphone),
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                    }
-                }
-                if (row.taskId != null) {
-                    TextButton(
-                        onClick = onOpenTask,
-                        modifier = Modifier.testTag("attention-open-task-${row.attentionId}"),
-                    ) {
-                        Text("Taskを開く")
-                    }
-                }
-            }
-        }
-        }
-    }
-}
-
-/**
- * 要対応の詳細（#601）。
- *
- * Foldの展開幅では一覧の隣（Detailペイン）に置き、1列では一覧からpushして開く。
- * 上部に見出しと状態、中央に質問と成果、下部に回答欄と主操作を置く。
- * 表示は Desktop が返した値をそのまま使い、画面側で状態を作り直さない。
- */
-@Composable
-internal fun AttentionDetailPane(
-    row: AttentionRow,
-    body: String,
-    onBodyChange: (String) -> Unit,
-    state: AgentReplyUiState,
-    online: Boolean,
-    onSend: () -> Unit,
-    onOpenTask: (() -> Unit)?,
-    onBack: (() -> Unit)?,
-    dictation: ReplyDictation? = null,
-) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp).testTag("attention-detail"),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-      // 読む部分だけをスクロールし、返信欄はキーボードの直上に残す。
-      Column(
-        modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-      ) {
-        if (onBack != null) {
-            TextButton(onClick = onBack, modifier = Modifier.testTag("attention-detail-back")) {
-                Text("一覧へ戻る")
-            }
-        }
-        Text(attentionKindLabel(row.kind), color = MaterialTheme.colorScheme.primary)
-        row.taskTitle?.let { title ->
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        }
-        Text(
-            row.headline,
-            modifier = Modifier.testTag("attention-detail-headline"),
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(row.questionOrAction, modifier = Modifier.testTag("attention-detail-question"))
-        row.agentLabel?.let { label ->
-            Text("実行者 $label", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
-        }
-        Text(
-            "Taskの版 ${row.taskVersion ?: 0}",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 12.sp,
-        )
-        if (onOpenTask != null) {
-            TextButton(onClick = onOpenTask, modifier = Modifier.testTag("attention-detail-open-task")) {
-                Text("Taskを開く")
-            }
-        }
-      }
-        AttentionReplyForm(
-            row = row,
-            body = body,
-            onBodyChange = onBodyChange,
-            state = state,
-            online = online,
-            onSend = onSend,
-            onCancel = null,
-            tagPrefix = "attention-detail",
-            dictation = dictation,
-        )
-    }
-}
-
-@Composable
-private fun AttentionReplyForm(
-    row: AttentionRow,
-    body: String,
-    onBodyChange: (String) -> Unit,
-    state: AgentReplyUiState,
-    online: Boolean,
-    onSend: () -> Unit,
-    onCancel: (() -> Unit)?,
-    tagPrefix: String,
-    /** 話して返す。認識した文字は下書きへ足し、送るのは本人が押した時だけ。 */
-    dictation: ReplyDictation? = null,
-    focusOnOpen: Boolean = false,
-) {
-    val sending = state is AgentReplyUiState.Replying
-    val currentBody by rememberUpdatedState(body)
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(row.attentionId, focusOnOpen) {
-        if (focusOnOpen) runCatching { focusRequester.requestFocus() }
-    }
-    Column(
-        modifier = Modifier.fillMaxWidth().testTag("$tagPrefix-reply-editor"),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        // 会話の返信欄。入力・音声・送信を1つの帯にまとめる。
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(start = 4.dp, end = 4.dp)) {
-                androidx.compose.material3.TextField(
-                    value = body,
-                    onValueChange = onBodyChange,
-                    modifier = Modifier.weight(1f).focusRequester(focusRequester).testTag("$tagPrefix-reply-text"),
-                    placeholder = { Text("${row.agentLabel ?: "AI"}に返信") },
-                    minLines = 1,
-                    maxLines = 6,
-                    enabled = !sending,
-                    colors = androidx.compose.material3.TextFieldDefaults.colors(
-                        focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                        disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                    ),
-                )
-                dictation?.let { voice ->
-                    val listening = voice.state is ShortSpeechUiState.Listening || voice.state is ShortSpeechUiState.Partial
-                    VoiceToolButton(
-                        speechState = voice.state,
-                        hasText = body.isNotBlank(),
-                        enabled = !sending && voice.state !is ShortSpeechUiState.Processing,
-                        onClick = {
-                            if (listening) {
-                                voice.stop()
-                            } else {
-                                voice.start { spoken ->
-                                    onBodyChange(if (currentBody.isBlank()) spoken else "${currentBody.trimEnd()} $spoken")
-                                }
-                            }
-                        },
-                        modifier = Modifier.testTag("$tagPrefix-reply-voice"),
-                    )
-                }
-                androidx.compose.material3.FilledIconButton(
-                    onClick = onSend,
-                    enabled = body.isNotBlank() && !sending && online,
-                    modifier = Modifier.padding(bottom = 4.dp).testTag("$tagPrefix-reply-send"),
-                ) {
-                    if (sending) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                    } else {
-                        Icon(
-                            painterResource(R.drawable.ic_tabler_arrow_up),
-                            contentDescription = "回答を送る",
-                        )
-                    }
-                }
-            }
-        }
-        if (!online) {
-            Text(
-                "Desktopへ接続してから回答してください。",
-                color = MaterialTheme.colorScheme.error,
-                fontSize = 12.sp,
-            )
-        }
-        when (state) {
-            is AgentReplyUiState.Applied -> Text(
-                "回答を送りました。${agentDisplayStateLabel(state.displayState)}",
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.testTag("$tagPrefix-reply-message"),
-            )
-            is AgentReplyUiState.Conflict -> Text(
-                state.message,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.testTag("$tagPrefix-reply-message"),
-            )
-            is AgentReplyUiState.Rejected -> Text(
-                state.message,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.testTag("$tagPrefix-reply-message"),
-            )
-            is AgentReplyUiState.Unavailable -> Text(
-                state.message,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.testTag("$tagPrefix-reply-message"),
-            )
-            else -> Unit
-        }
-        onCancel?.let { cancel ->
-            TextButton(
-                onClick = cancel,
-                enabled = !sending,
-                modifier = Modifier.testTag("$tagPrefix-reply-cancel"),
-            ) {
-                Text("閉じる")
-            }
-        }
-    }
-}
-
-@Composable
-private fun AgentReplyEditor(
-    row: AttentionRow,
-    body: String,
-    onBodyChange: (String) -> Unit,
-    state: AgentReplyUiState,
-    online: Boolean,
-    onSend: () -> Unit,
-    onCancel: () -> Unit,
-    dictation: ReplyDictation? = null,
-) {
-    // 質問は直上のカードに出ている。ここでは返信だけに集中させる。
-    AttentionReplyForm(
-        row = row,
-        body = body,
-        onBodyChange = onBodyChange,
-        state = state,
-        online = online,
-        onSend = onSend,
-        onCancel = onCancel,
-        // 一覧の行の直下は従来の test tag（attention-reply-*）を保つ。
-        tagPrefix = "attention",
-        dictation = dictation,
-        focusOnOpen = true,
-    )
-}
-
-internal fun attentionKindLabel(kind: AttentionKind): String = when (kind) {
-    AttentionKind.AnswerRequest -> "回答待ち"
-    AttentionKind.DecisionRequest -> "判断待ち"
-    AttentionKind.ReviewReport -> "成果確認"
-    AttentionKind.ProposalPending -> "変更案"
-    AttentionKind.Unknown -> "要確認"
-}
-
-/** Desktopが返した表示状態の言い換え。Android側で状態を作り直さない。 */
-internal fun agentDisplayStateLabel(displayState: String): String = when (displayState) {
-    "answered_resume_waiting" -> "agentの再開を待ちます。"
-    "working" -> "agentが作業中です。"
-    "review_waiting" -> "成果の確認待ちです。"
-    else -> "Desktopの状態を確認してください。"
-}
-
-internal fun attentionTimeLabel(value: String): String = runCatching {
-    java.time.OffsetDateTime.parse(value).atZoneSameInstant(java.time.ZoneId.systemDefault())
-}.map { at ->
-    "${at.monthValue}月${at.dayOfMonth}日 ${String.format("%02d:%02d", at.hour, at.minute)}"
-}.getOrElse { "時刻不明" }
 
 @Composable
 private fun GatewayErrorState(    state: TodayUiState.Error,
@@ -3192,10 +2473,6 @@ internal fun TodayDetailPane(
     taskWorkProposals: List<MobileTaskWorkProposal> = emptyList(),
     proposalReviewOnline: Boolean = false,
     proposalReviewState: ProposalReviewUiState = ProposalReviewUiState.Idle,
-    humanReviewOnline: Boolean = false,
-    humanReviewRequiresRePairing: Boolean = false,
-    humanReviewState: HumanReviewUiState = HumanReviewUiState.Idle,
-    aiReadyState: AiReadyUiState = AiReadyUiState.Idle,
     themes: List<MobileTheme> = emptyList(),
     themeCatalogState: MobileThemeCatalogState = if (themes.isEmpty()) {
         MobileThemeCatalogState.Loading()
@@ -3215,8 +2492,6 @@ internal fun TodayDetailPane(
     onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
     onWorkReceiptRetry: (MobileTask, String) -> Unit = { _, _ -> },
     onProposalDecision: (MobileTaskWorkProposal, String) -> Unit = { _, _ -> },
-    onHumanReview: (MobileTask, String, String?) -> Unit = { _, _, _ -> },
-    onTaskAiReady: (MobileTask, Boolean) -> Unit = { _, _ -> },
     onNavigateBack: (() -> Unit)? = null,
     displayZoneId: ZoneId = ZoneId.systemDefault(),
     completionFeedbackEventId: Long? = null,
@@ -3377,15 +2652,6 @@ internal fun TodayDetailPane(
                     }
                 }
             }
-            val aiOptionsAvailable = task.workState in setOf("not_delegated", "ready_for_agent")
-            val isAiReady = task.workState == "ready_for_agent"
-            val aiReadyBusy = when (aiReadyState) {
-                is AiReadyUiState.Updating -> aiReadyState.taskId == task.id
-                is AiReadyUiState.Conflict -> aiReadyState.taskId == task.id
-                is AiReadyUiState.Rejected -> aiReadyState.taskId == task.id
-                is AiReadyUiState.Unavailable -> aiReadyState.taskId == task.id
-                else -> false
-            }
             // よく使う操作は同じ大きさのボタンで横に並べる。文で説明せず、絵と短い語で示す。
             Row(
                 modifier = Modifier.fillMaxWidth().testTag("task-quick-actions"),
@@ -3400,29 +2666,6 @@ internal fun TodayDetailPane(
                 if (task.themeId != null && onReadThemeContext != null) {
                     TaskQuickAction(R.drawable.ic_tabler_target, "Theme", { onReadThemeContext(task.themeId) }, Modifier.weight(1f).testTag("task-theme-context"))
                 }
-                if (aiOptionsAvailable) {
-                    // 押すたびに Ready ⇔ 解除。パネルを開く一手は要らない。
-                    TaskQuickAction(
-                        R.drawable.ic_tabler_sparkles,
-                        if (isAiReady) "解除" else "AI Ready",
-                        {
-                            if (!aiReadyBusy && !task.pending && task.conflict == null &&
-                                task.state !in setOf("done", "cancelled")
-                            ) {
-                                onTaskAiReady(task, !isAiReady)
-                            }
-                        },
-                        Modifier.weight(1f).testTag("task-ai-options-toggle"),
-                        selected = isAiReady,
-                    )
-                }
-            }
-            if (aiReadyBusy) {
-                TaskAiReadyToggle(
-                    task = task,
-                    state = aiReadyState,
-                    onChange = onTaskAiReady,
-                )
             }
             if (task.pending) {
                 Surface(
@@ -3691,17 +2934,6 @@ internal fun TodayDetailPane(
                             }
                             WorkReceiptDetailUiState.Idle -> Unit
                         }
-                        if (task.workState in setOf("needs_human_review", "reported_done", "blocked")) {
-                            TaskWorkHumanReviewCard(
-                                task = task,
-                                receipt = receipt,
-                                detailState = workReceiptDetailState,
-                                online = humanReviewOnline,
-                                requiresRePairing = humanReviewRequiresRePairing,
-                                reviewState = humanReviewState,
-                                onReview = onHumanReview,
-                            )
-                        }
                     }
                 }
             }
@@ -3818,135 +3050,6 @@ private val localTimestampFormatter: DateTimeFormatter =
 internal fun formatLocalTimestamp(value: String, zoneId: ZoneId = ZoneId.systemDefault()): String =
     runCatching { Instant.parse(value).atZone(zoneId).format(localTimestampFormatter) }
         .getOrDefault(value)
-
-@Composable
-private fun TaskAiReadyToggle(
-    task: MobileTask,
-    state: AiReadyUiState,
-    onChange: (MobileTask, Boolean) -> Unit,
-) {
-    val isReady = task.workState == "ready_for_agent"
-    val updating = when (state) {
-        is AiReadyUiState.Updating -> state.taskId == task.id
-        else -> false
-    }
-    val message = when (state) {
-        is AiReadyUiState.Conflict -> state.takeIf { it.taskId == task.id }?.message
-        is AiReadyUiState.Rejected -> state.takeIf { it.taskId == task.id }?.message
-        is AiReadyUiState.Unavailable -> state.takeIf { it.taskId == task.id }?.message
-        else -> null
-    }
-    Card(
-        modifier = Modifier.fillMaxWidth().testTag("task-ai-ready-${task.id}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("AI Ready", fontWeight = FontWeight.Bold)
-                    Text("AIに渡せる状態", color = MaterialTheme.colorScheme.onSecondaryContainer)
-                }
-                val actionLabel = if (isReady) "AI Readyを解除" else "AI Readyにする"
-                Button(
-                    onClick = { onChange(task, !isReady) },
-                    enabled = !updating && !task.pending && task.conflict == null &&
-                        task.state !in setOf("done", "cancelled"),
-                    modifier = Modifier
-                        .heightIn(min = 48.dp)
-                        .semantics {
-                            contentDescription = actionLabel
-                            stateDescription = if (isReady) "AIが対応可能" else "自分が対応"
-                        }
-                        .testTag("task-ai-ready-toggle-${task.id}"),
-                ) { Text(actionLabel) }
-            }
-            when {
-                updating -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CircularProgressIndicator(modifier = Modifier.padding(2.dp))
-                    Text("AI Readyを変更中")
-                }
-                message != null -> Text(message, color = MaterialTheme.colorScheme.error)
-            }
-        }
-    }
-}
-
-@Composable
-private fun TaskWorkHumanReviewCard(
-    task: MobileTask,
-    receipt: MobileWorkReceiptSummary,
-    detailState: WorkReceiptDetailUiState,
-    online: Boolean,
-    requiresRePairing: Boolean,
-    reviewState: HumanReviewUiState,
-    onReview: (MobileTask, String, String?) -> Unit,
-) {
-    var reviewNote by rememberSaveable(task.id) { mutableStateOf("") }
-    val reviewing = reviewState is HumanReviewUiState.Reviewing && reviewState.pending.taskId == task.id
-    val liveDetail = detailState as? WorkReceiptDetailUiState.Available
-    val verifiedLatest = liveDetail?.detail?.id == receipt.id && !liveDetail.fromCache
-    val blocked = task.workState == "blocked"
-    val canReview = online && verifiedLatest && task.version > 0 && !task.pending && task.conflict == null && !reviewing
-    Card(
-        modifier = Modifier.fillMaxWidth().testTag("human-review-${task.id}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(if (blocked) "AIへ情報を返す" else "作業結果を確認", fontWeight = FontWeight.Bold)
-            when {
-                requiresRePairing -> Text(
-                    "この権限では判断できません。Desktopで新しいコードを発行して再ペアリングしてください。",
-                    color = MaterialTheme.colorScheme.secondary,
-                )
-                !online -> Text("Offline cache · Desktop接続時に判断できます", color = MaterialTheme.colorScheme.secondary)
-                !verifiedLatest -> Text("最新のWork Receipt詳細を読み込んでから判断してください。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                task.pending -> Text("送信待ちの変更を同期してから判断してください。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                task.conflict != null -> Text("Task競合を解決してから判断してください。", color = MaterialTheme.colorScheme.error)
-            }
-            OutlinedTextField(
-                value = reviewNote,
-                onValueChange = { if (it.length <= 2_000) reviewNote = it },
-                modifier = Modifier.fillMaxWidth().testTag("human-review-note-${task.id}"),
-                label = { Text(if (blocked) "必要な情報" else "差し戻し理由") },
-                enabled = canReview,
-                minLines = 2,
-                maxLines = 5,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (!blocked) {
-                    Button(
-                        onClick = { onReview(task, "accept", null) },
-                        enabled = canReview,
-                        modifier = Modifier.testTag("human-review-accept-${task.id}"),
-                    ) {
-                        Text(if (reviewing && reviewState.pending.action == "accept") "処理中" else "採って完了")
-                    }
-                }
-                TextButton(
-                    onClick = { onReview(task, "return", reviewNote) },
-                    enabled = canReview && reviewNote.trim().isNotEmpty(),
-                    modifier = Modifier.testTag("human-review-return-${task.id}"),
-                ) {
-                    Text(
-                        if (reviewing && reviewState.pending.action == "return") {
-                            "送信中"
-                        } else if (blocked) {
-                            "返信する"
-                        } else {
-                            "差し戻す"
-                        },
-                    )
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun TaskWorkProposalReviewCard(
