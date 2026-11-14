@@ -1000,10 +1000,19 @@ class AndroidMobileTaskRepository(
 
     internal suspend fun recoverInterruptedOutbox(): Int = outbox.recoverInterruptedSending()
 
+    /** How the last synchronizeIfPaired ended; the background workers decide when to run again from it. */
+    internal var lastSyncOutcome: MobileSyncOutcome = MobileSyncOutcome.RetrySoon
+        private set
+
+    /** True only when everything was sent and read; lastSyncOutcome tells the rest apart. */
     internal suspend fun synchronizeIfPaired(): Boolean {
+        lastSyncOutcome = MobileSyncOutcome.RetrySoon
         val configuration = store.configuration()
         val token = store.readToken()
-        if (configuration.origin.isBlank() || token == null) return true
+        if (configuration.origin.isBlank() || token == null) {
+            lastSyncOutcome = MobileSyncOutcome.Settled
+            return true
+        }
         return try {
             val serverId = confirmRemoteAndApplyBootstrap(configuration.origin, token)
             val drained = outbox.send(serverId) { envelope ->
@@ -1019,9 +1028,11 @@ class AndroidMobileTaskRepository(
                 MobileThemeRefreshOutcome.Success,
                 MobileThemeRefreshOutcome.Unsupported -> true
             }
-            themesSettled && !drained.retryPending
+            lastSyncOutcome = mobileSyncOutcome(drained, readSettled = themesSettled)
+            lastSyncOutcome == MobileSyncOutcome.Settled
         } catch (error: MobileOutboxServerMismatchException) {
             Log.w(MOBILE_GATEWAY_LOG_TAG, "Background sync refused a different Desktop", error)
+            lastSyncOutcome = MobileSyncOutcome.Settled
             true
         } catch (error: CancellationException) {
             throw error

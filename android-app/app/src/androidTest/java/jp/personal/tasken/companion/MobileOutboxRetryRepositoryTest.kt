@@ -105,6 +105,8 @@ class MobileOutboxRetryRepositoryTest {
             )
 
             assertFalse(repository.synchronizeIfPaired())
+            // Only A's own failure is left: the workers must not back off and hold back the next operation.
+            assertEquals(MobileSyncOutcome.CommandsWaiting, repository.lastSyncOutcome)
 
             assertEquals(listOf(renameA, completeB), sentCommands)
             // A receipt resets the sync cursor, so the read after the commands is a fresh bootstrap.
@@ -122,6 +124,78 @@ class MobileOutboxRetryRepositoryTest {
             assertEquals(renameA, dao.task("task-a")?.optimisticCommandId)
         } finally {
             store.clearToken()
+        }
+    }
+
+    @Test
+    fun answerDecidesWhetherOnlyThisCommandFailedOrTheDesktopWasNotReached() = runBlocking {
+        data class Case(val name: String, val answer: GatewayHttpResponse, val desktopReached: Boolean)
+        val cases = listOf(
+            // 429 asks this device to slow down: nothing else this round, and no read.
+            Case("429", GatewayHttpResponse(429, ""), desktopReached = false),
+            // A 200 that is not JSON is not the Desktop (a captive portal, for example).
+            Case("200 HTML", GatewayHttpResponse(200, "<html>Wi-Fi login</html>"), desktopReached = false),
+            // An unreadable receipt that names the confirmed Desktop came from it.
+            Case("200 own serverId", GatewayHttpResponse(200, """{"ok":true,"meta":${meta()},"data":{}}"""),
+                desktopReached = true),
+        )
+        cases.forEach { case ->
+            tearDown()
+            setUp()
+            seedTask("task-a", version = 3, title = "A")
+            seedTask("task-b", version = 5, title = "B")
+            val renameA = outbox.enqueueUpdateTitle("task-a", "A2")
+            tick()
+            val completeB = requireNotNull(outbox.enqueueComplete("task-b").commandId)
+            val store = MobileGatewayConnectionStore(context)
+            store.clearToken()
+            store.save("https://gateway.test", "c".repeat(43))
+            val sentCommands = mutableListOf<String>()
+            val requestedPaths = mutableListOf<String>()
+            try {
+                val repository = AndroidMobileTaskRepository(
+                    context = context,
+                    store = store,
+                    database = database,
+                    scheduleOutboxOnStart = false,
+                    httpClient = MobileGatewayHttpClient { _, path, _, body, _ ->
+                        requestedPaths += path.substringBefore('?')
+                        when {
+                            path.startsWith("/v1/bootstrap") -> GatewayHttpResponse(
+                                200,
+                                page("tasks", listOf(taskJson("task-a", 3, "A"), taskJson("task-b", 5, "B"))),
+                            )
+                            path == "/v1/commands" -> {
+                                val commandId = Json.parseToJsonElement(requireNotNull(body)).jsonObject
+                                    .getValue("commandId").jsonPrimitive.content
+                                sentCommands += commandId
+                                if (commandId == renameA) case.answer
+                                else GatewayHttpResponse(200, receipt(commandId, taskJson("task-b", 6, "B", "done")))
+                            }
+                            else -> GatewayHttpResponse(404, "")
+                        }
+                    },
+                )
+
+                assertFalse(case.name, repository.synchronizeIfPaired())
+
+                val readAfterCommands = requestedPaths.drop(requestedPaths.lastIndexOf("/v1/commands") + 1)
+                    .any { it == "/v1/bootstrap" || it == "/v1/sync" }
+                assertEquals(case.name, OutboxState.RetryWait, dao.outbox(renameA)?.state)
+                assertEquals(case.name, 1, dao.outbox(renameA)?.attemptCount)
+                if (case.desktopReached) {
+                    assertEquals(case.name, listOf(renameA, completeB), sentCommands)
+                    assertTrue(case.name, readAfterCommands)
+                    assertEquals(case.name, MobileSyncOutcome.CommandsWaiting, repository.lastSyncOutcome)
+                } else {
+                    assertEquals(case.name, listOf(renameA), sentCommands)
+                    assertFalse(case.name, readAfterCommands)
+                    assertEquals(case.name, OutboxState.Pending, dao.outbox(completeB)?.state)
+                    assertEquals(case.name, MobileSyncOutcome.RetrySoon, repository.lastSyncOutcome)
+                }
+            } finally {
+                store.clearToken()
+            }
         }
     }
 

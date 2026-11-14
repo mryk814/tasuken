@@ -132,7 +132,7 @@ class MobileOutboxRetryTest {
         }
 
         assertEquals(ids.take(MOBILE_OUTBOX_FAILURES_IN_ROW_LIMIT), sent)
-        assertEquals(MobileOutboxDrainResult(retryPending = true, connectionFailed = false), result)
+        assertEquals(MobileOutboxDrainResult(retryPending = true, connectionFailed = false, triedAll = false), result)
         assertEquals(4, dao.outboxCount())
         ids.take(MOBILE_OUTBOX_FAILURES_IN_ROW_LIMIT).forEach {
             val command = requireNotNull(dao.outbox(it))
