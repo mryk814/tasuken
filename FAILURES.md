@@ -19,6 +19,14 @@
 - 直し方: 先後は dependsOnCommandId の連なりの先頭どうしで比べるようにした（`MobileOutboxOrder.kt`）。
 - 再発防止: 関数の横にコメントを書き、`MobileOutboxOrderTest` に「同じ時刻の子が親を止めない」試験を足した。命令の先後を比べる時は、createdAt を時刻の順として信じない。
 
+## 2026-11-14 Today Mini を外したら、smoke の付箋の窓が読み込みの 10 秒で2回続けて落ちた（#755 束1）
+
+- しようとしたこと: 束1（Today Mini・Tasken Root などを切る）の後に `smoke:desktop:focused` を流す。PC はほかのセッションで重かった。
+- 起きたこと: 2回続けて `sticky memo smoke load timeout`（付箋の窓の `did-finish-load` を 10 秒待つ）で exit 1。同じ PC・同じ時間帯に、切る前の commit を別の worktree で build して流すと通った。上限を 60 秒にして測ると 3.3 秒で読めて、smoke は全部通った。
+- 原因: 推測。切る前は smoke の途中で Today Mini の窓を先に開いていたので、付箋は2つ目の切り離し窓だった。今は付箋が最初の切り離し窓になり、renderer の初回の読み込みの重さを付箋が負う。PC が重いと 10 秒を超える。
+- 直し方: 付箋の読み込みの待ちを 30 秒にした（`src/main/index.ts` の該当行にコメント）。
+- 再発防止: 固定の秒数の待ちが重さに弱い形は、上の記録と同じく #748（読み込みの完了を待つ形に変える）で直す。記録だけ。
+
 ## 2026-11-14 v0.1.89 の Windows release が、Release の時だけ流れる smoke の古い文で落ちた
 
 - しようとしたこと: #736（ナビの言葉の日本語化）と #741 を入れた後、v0.1.89 のタグを push して Windows release を流す。
