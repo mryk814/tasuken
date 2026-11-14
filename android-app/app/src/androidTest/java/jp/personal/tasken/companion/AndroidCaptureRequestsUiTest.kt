@@ -97,66 +97,21 @@ class AndroidCaptureRequestsUiTest {
         composeRule.runOnIdle { assertTrue(stopped) }
     }
 
-    @Test fun directSettingsRequireConsentAndKeepFailedInputThenSaveDisableAndDelete() {
-        val store = DirectCaptureSettingsStore(ApplicationProvider.getApplicationContext())
-        store.clear()
-        val current = mutableStateOf(store.settings())
-        try {
-            composeRule.setContent {
-                TaskenTheme {
-                    Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp)) {
-                        DirectCaptureSettingsControls(current.value, store, true) { current.value = it }
-                    }
-                }
+    @Test fun addSheetOffersNoAiOrganizing() {
+        composeRule.setContent {
+            TaskenTheme {
+                CaptureTaskSheet(draft = MobileCaptureDraft.fresh(text = "明日の会議で測定結果を報告する"),
+                    state = CaptureUiState.Idle, speechState = ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.OnDevice),
+                    themes = emptyList(), themeCatalogState = MobileThemeCatalogState.Loading(),
+                    onDraftChanged = {}, onThemeSelected = {}, onKindSelected = {},
+                    onSubmit = {}, onStartVoice = {}, onStopVoice = {}, onDismiss = {})
             }
-            composeRule.onNodeWithTag("capture-direct-ai-settings").performClick()
-            composeRule.onNodeWithTag("direct-ai-model").performTextReplacement("fixture-model")
-            composeRule.onNodeWithTag("direct-ai-key").performScrollTo().performTextReplacement("fixture-secret")
-            composeRule.onNodeWithTag("direct-ai-consent").assertIsOff()
-            screenshot("06-settings-before-consent")
-            composeRule.onNodeWithTag("direct-ai-save").performScrollTo().performClick()
-            composeRule.waitUntil { store.settings().hasApiKey }
-            assertFalse(store.settings().enabled)
-            composeRule.onNodeWithTag("capture-direct-ai-settings").performScrollTo().performClick()
-            assertEquals("", composeRule.onNodeWithTag("direct-ai-key").fetchSemanticsNode().config[SemanticsProperties.InputText].text)
-            composeRule.onNodeWithTag("direct-ai-key").performTextReplacement("invalid\nkey")
-            composeRule.onNodeWithTag("direct-ai-consent").performScrollTo().performClick()
-            composeRule.onNodeWithTag("direct-ai-save").performScrollTo().performClick()
-            composeRule.waitUntil { composeRule.onAllNodesWithTag("direct-ai-error").fetchSemanticsNodes().isNotEmpty() }
-            assertEquals("invalid\nkey", composeRule.onNodeWithTag("direct-ai-key").fetchSemanticsNode().config[SemanticsProperties.InputText].text)
-            screenshot("07-settings-failure-input-retained")
-            composeRule.onNodeWithTag("direct-ai-key").performScrollTo().performTextReplacement("")
-            composeRule.onNodeWithTag("direct-ai-save").performScrollTo().performClick()
-            composeRule.waitUntil { store.settings().enabled }
-            screenshot("08-settings-enabled")
-            composeRule.onNodeWithTag("capture-direct-ai-settings").performScrollTo().performClick()
-            composeRule.onNodeWithTag("direct-ai-disable").performScrollTo().performClick()
-            composeRule.waitUntil { !store.settings().enabled }
-            composeRule.onNodeWithTag("capture-direct-ai-settings").performScrollTo().performClick()
-            composeRule.onNodeWithTag("direct-ai-delete").performScrollTo().performClick()
-            composeRule.waitUntil { !store.settings().hasApiKey }
-        } finally { store.clear() }
-    }
-
-    @Test fun addSheetKeepsSettingsOutOfTheCaptureFlow() {
-        val store = DirectCaptureSettingsStore(ApplicationProvider.getApplicationContext())
-        store.clear()
-        try {
-            composeRule.setContent {
-                TaskenTheme {
-                    CaptureTaskSheet(draft = MobileCaptureDraft.fresh(text = "明日の会議で測定結果を報告する"),
-                        state = CaptureUiState.Idle, speechState = ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.OnDevice),
-                        themes = emptyList(), themeCatalogState = MobileThemeCatalogState.Loading(),
-                        onDraftChanged = {}, onThemeSelected = {}, onKindSelected = {}, onOrganize = { error("No inference in settings test") },
-                        onSubmit = {}, onStartVoice = {}, onStopVoice = {}, onDismiss = {})
-                }
-            }
-            // PCなし整理の設定はAIタブの単独シートへ移し、追加フローには出さない。
-            composeRule.onNodeWithTag("capture-direct-ai-settings").assertDoesNotExist()
-            composeRule.onNodeWithTag("capture-ai-destination").assertDoesNotExist()
-            composeRule.onNodeWithTag("capture-kind-capture").assertDoesNotExist()
-            screenshot("12-add-sheet-without-ai-settings")
-        } finally { store.clear() }
+        }
+        // 入力の AI 整理と、端末から直接の AI 設定はスマホから外した（#755 束9a）。
+        composeRule.onNodeWithTag("capture-organize").assertDoesNotExist()
+        composeRule.onNodeWithTag("capture-direct-ai-settings").assertDoesNotExist()
+        composeRule.onNodeWithTag("capture-kind-capture").assertDoesNotExist()
+        screenshot("12-add-sheet-without-ai-organizing")
     }
 
     private fun screenshot(name: String) {

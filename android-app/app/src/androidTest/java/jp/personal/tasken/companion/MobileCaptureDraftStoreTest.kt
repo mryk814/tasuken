@@ -28,27 +28,35 @@ class MobileCaptureDraftStoreTest {
         MobileCaptureDraftStore(context).clearUndoTarget()
     }
 
+    /**
+     * 入力の AI 整理はスマホから外した（#755 束9a）。前の版が整理の途中で残した下書きは、断らずに読み、
+     * 整理する前の本人の入力と Theme に戻して開く。
+     */
     @Test
-    fun restoresEightCandidateEditsAndExcludedSlotsWithStableSaveIds() {
-        val original = "研究の詳しい原文".repeat(500)
-        val draft = MobileCaptureDraft.fresh(text = original).withOrganizations(
-            List(8) { MobileCaptureOrganization("候補 $it") },
-        ).let { initial ->
-            initial.withEditedOrganizations(initial.allOrganizations().mapIndexed { index, item ->
-                when (index) {
-                    0 -> item.copy(excluded = true)
-                    1 -> item.copy(themeId = "research", endDate = "2026-09-20",
-                        checklist = listOf("確認", "記録"), supplement = "詳細を保持")
-                    else -> item
-                }
-            })
-        }
-        org.junit.Assert.assertTrue(MobileCaptureDraftStore(context).save(MobileCaptureDraftSnapshot(draft, true)))
-        val loaded = requireNotNull(MobileCaptureDraftStore(context).load()).draft
-        assertEquals(draft, loaded)
-        assertEquals(original, loaded.originalText)
-        assertEquals("${draft.draftId}:task:1", loaded.organizedTaskDrafts().first().draftId)
-        assertEquals(draft.organizedTaskDrafts(), loaded.organizedTaskDrafts())
+    fun organizedDraftFromOldVersionReopensAsTheOriginalInput() {
+        val savedAt = Instant.parse("2026-11-14T10:00:00Z")
+        val legacy = """
+            {"schemaVersion":1,"savedAt":"$savedAt","captureOpen":true,"draftId":"draft-organized",
+            "text":"AIがつけた題","kind":"task","projectId":"theme-ai","source":"android_app",
+            "speechRecognitionMode":null,"speechLanguage":null,"speechConfidence":null,"speechSourceAudioAvailable":false,
+            "sharedMimeType":null,"createdAt":"2026-11-14T09:59:00Z",
+            "organization":{"title":"AIがつけた題","themeId":"theme-ai","checklist":["確認"],"supplement":"補足","warnings":[],
+              "plannedStartTime":"16:30","plannedDurationMinutes":60,"plannedTimeSupported":true,"excluded":false},
+            "additionalOrganizations":[{"title":"次の候補","checklist":[],"supplement":"","warnings":[],"excluded":true}],
+            "originalText":"本人が話した長い原文","speechCapturedAt":null,"speechTimeZone":null,
+            "originalThemeId":"theme-mine","photoFileNames":[]}
+        """.trimIndent()
+        check(
+            context.getSharedPreferences("tasken-mobile-input-recovery", Context.MODE_PRIVATE)
+                .edit().putString("capture-draft-v1", legacy).commit(),
+        )
+
+        val loaded = requireNotNull(MobileCaptureDraftStore(context, now = { savedAt.plusSeconds(60) }).load())
+
+        assertEquals("本人が話した長い原文", loaded.draft.text)
+        assertEquals("theme-mine", loaded.draft.projectId)
+        assertEquals("draft-organized", loaded.draft.draftId)
+        assertEquals(true, loaded.captureOpen)
     }
 
     @Test
@@ -85,23 +93,6 @@ class MobileCaptureDraftStoreTest {
         val store = MobileCaptureDraftStore(context)
         org.junit.Assert.assertTrue(store.save(MobileCaptureDraftSnapshot(draft, true)))
         assertEquals(draft, MobileCaptureDraftStore(context).load()?.draft)
-    }
-
-    @Test
-    fun restoresAdoptedOrganizationAndOriginalWithStableChecklistIds() {
-        val draft = MobileCaptureDraft.fresh(text = "原文を失わず残す").withOrganizations(listOf(
-            MobileCaptureOrganization("整理したタイトル", checklist = listOf("最初に確認する"), supplement = "補足",
-                plannedStartTime = "16:30", plannedDurationMinutes = 60, plannedTimeSupported = true),
-            MobileCaptureOrganization("次のTask", plannedDurationMinutes = 30, plannedTimeSupported = true),
-        )).withText("確認して修正したタイトル")
-        org.junit.Assert.assertTrue(MobileCaptureDraftStore(context).save(MobileCaptureDraftSnapshot(draft, true)))
-        val restored = requireNotNull(MobileCaptureDraftStore(context).load()).draft
-        assertEquals(draft, restored)
-        assertEquals(draft.organizationChecklistItems(), restored.organizationChecklistItems())
-        assertEquals(draft.organizationDescription(), restored.organizationDescription())
-        val incomplete = draft.withEditedOrganizations(listOf(draft.organization!!.copy(plannedStartTime = "16:")) + draft.additionalOrganizations)
-        org.junit.Assert.assertTrue(MobileCaptureDraftStore(context).save(MobileCaptureDraftSnapshot(incomplete, true)))
-        assertEquals(incomplete, MobileCaptureDraftStore(context).load()?.draft)
     }
 
     @Test

@@ -156,87 +156,6 @@ sealed interface ProposalReviewUiState {
     data class Error(val proposalId: String, val message: String) : ProposalReviewUiState
 }
 
-sealed interface MobileHumanReviewResult {
-    data class Applied(val taskId: String, val action: String) : MobileHumanReviewResult
-    data class Conflict(val taskId: String, val message: String) : MobileHumanReviewResult
-    data class Rejected(val taskId: String, val message: String) : MobileHumanReviewResult
-    data class Unavailable(val taskId: String, val message: String) : MobileHumanReviewResult
-}
-
-/**
- * 保存済みの要対応（#601）。
- * `counts` が `null` の間は**まだ読めていない**。0件と混同しない。
- */
-data class MobileAttentionSnapshot(
-    val items: List<AttentionRow>,
-    val counts: MobileAttentionCountsDto?,
-    val truncated: Boolean,
-    val fetchedAt: String?,
-    /** どのDesktopの要対応か。新着通知の記録を分ける（#601）。 */
-    val serverId: String = "",
-)
-
-sealed interface MobileAgentReplyResult {
-    /** Desktopへ保存された。`displayState` はDesktopの導出結果をそのまま持つ。 */
-    data class Applied(val attentionId: String, val taskId: String, val displayState: String) :
-        MobileAgentReplyResult
-    data class Conflict(val attentionId: String, val message: String) : MobileAgentReplyResult
-    data class Rejected(val attentionId: String, val message: String) : MobileAgentReplyResult
-    data class Unavailable(val attentionId: String, val message: String) : MobileAgentReplyResult
-}
-
-/** 回答の送信状況（#601）。未送信・保留と正式成功を区別する。 */
-sealed interface AgentReplyUiState {
-    data object Idle : AgentReplyUiState
-    data class Replying(val attentionId: String) : AgentReplyUiState
-    /** `displayState` はDesktopが返した表示状態。画面側で「回答済み」を作り直さない。 */
-    data class Applied(val attentionId: String, val displayState: String) : AgentReplyUiState
-    data class Conflict(val attentionId: String, val message: String) : AgentReplyUiState
-    data class Rejected(val attentionId: String, val message: String) : AgentReplyUiState
-    data class Unavailable(val attentionId: String, val message: String) : AgentReplyUiState
-}
-
-data class MobileHumanReviewPending(
-    val taskId: String,
-    val action: String,
-)
-
-sealed interface HumanReviewUiState {
-    data object Idle : HumanReviewUiState
-    data class Reviewing(val pending: MobileHumanReviewPending) : HumanReviewUiState
-    data class Applied(val taskId: String, val action: String) : HumanReviewUiState
-    data class Conflict(val taskId: String, val message: String) : HumanReviewUiState
-    data class Rejected(val taskId: String, val message: String) : HumanReviewUiState
-    data class Unavailable(val taskId: String, val message: String) : HumanReviewUiState
-}
-
-sealed interface TaskDelegationUiState {
-    data object Idle : TaskDelegationUiState
-    data class PreviewLoading(val taskId: String) : TaskDelegationUiState
-    data class PreviewAvailable(val preview: MobileTaskContextPreview) : TaskDelegationUiState
-    data class Delegating(val taskId: String) : TaskDelegationUiState
-    data class Applied(val taskId: String) : TaskDelegationUiState
-    data class Conflict(val taskId: String, val message: String) : TaskDelegationUiState
-    data class Rejected(val taskId: String, val message: String) : TaskDelegationUiState
-    data class Unavailable(val taskId: String, val message: String) : TaskDelegationUiState
-}
-
-sealed interface MobileAiReadyResult {
-    data class Applied(val taskId: String, val enabled: Boolean) : MobileAiReadyResult
-    data class Conflict(val taskId: String, val message: String) : MobileAiReadyResult
-    data class Rejected(val taskId: String, val message: String) : MobileAiReadyResult
-    data class Unavailable(val taskId: String, val message: String) : MobileAiReadyResult
-}
-
-sealed interface AiReadyUiState {
-    data object Idle : AiReadyUiState
-    data class Updating(val taskId: String, val enabled: Boolean) : AiReadyUiState
-    data class Applied(val taskId: String, val enabled: Boolean) : AiReadyUiState
-    data class Conflict(val taskId: String, val message: String) : AiReadyUiState
-    data class Rejected(val taskId: String, val message: String) : AiReadyUiState
-    data class Unavailable(val taskId: String, val message: String) : AiReadyUiState
-}
-
 sealed interface MobileWorkReceiptLoadResult {
     data class Available(
         val detail: MobileWorkReceiptDetail,
@@ -385,7 +304,6 @@ sealed interface CaptureUiState {
         val entityId: String,
         val kind: MobileCaptureKind,
         val completionBehavior: CaptureCompletionBehavior = CaptureCompletionBehavior.Close,
-        val additionalEntityIds: List<String> = emptyList(),
     ) : CaptureUiState
     data class Error(val message: String) : CaptureUiState
 }
@@ -410,22 +328,12 @@ class TodayViewModel(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val refreshExternalProjection: () -> Unit = {},
     private val today: () -> java.time.LocalDate = java.time.LocalDate::now,
-    /** 要対応の新着通知の設定と記録（#601）。UI側から注入する。 */
-    private val attentionNotificationStore: AttentionNotificationStore? = null,
-    /** OS通知を出す処理。設定が有効なときだけ呼ぶ。 */
-    private val notifyAttentionArrivals: ((List<AttentionRow>, String) -> Unit)? = null,
 ) : ViewModel() {
     val workLogRepository: MobileWorkLogRepository? get() = repository as? MobileWorkLogRepository
     val recallRepository: MobileRecallRepository? get() = repository as? MobileRecallRepository
     val relatedDocumentsRepository: MobileRelatedDocumentsRepository? get() = repository as? MobileRelatedDocumentsRepository
     val themeContextRepository: MobileThemeContextRepository? get() = repository as? MobileThemeContextRepository
     val localSearchRepository: MobileLocalSearchRepository? get() = repository as? MobileLocalSearchRepository
-    suspend fun organizeCapture(draft: MobileCaptureDraft): List<MobileCaptureOrganization> =
-        kotlinx.coroutines.withContext(ioDispatcher) {
-            val gateway = repository as? MobileGatewayRepository
-                ?: error("Desktopへ接続するとAI整理を利用できます。")
-            gateway.organizeCapture(draft)
-        }
     private val mutableUiState = MutableStateFlow<TodayUiState>(TodayUiState.Loading)
     val uiState: StateFlow<TodayUiState> = mutableUiState.asStateFlow()
     private val mutableAgentSessions = MutableStateFlow<List<MobileAgentSessionDto>>(emptyList())
@@ -467,46 +375,18 @@ class TodayViewModel(
     val proposalRefreshing: StateFlow<Boolean> = mutableProposalRefreshing.asStateFlow()
     private val mutableProposalReviewState = MutableStateFlow<ProposalReviewUiState>(ProposalReviewUiState.Idle)
     val proposalReviewState: StateFlow<ProposalReviewUiState> = mutableProposalReviewState.asStateFlow()
-    private val mutableHumanReviewOnline = MutableStateFlow(false)
-    val humanReviewOnline: StateFlow<Boolean> = mutableHumanReviewOnline.asStateFlow()
-    private val mutableHumanReviewRequiresRePairing = MutableStateFlow(false)
-    val humanReviewRequiresRePairing: StateFlow<Boolean> = mutableHumanReviewRequiresRePairing.asStateFlow()
-    private val mutableHumanReviewState = MutableStateFlow<HumanReviewUiState>(HumanReviewUiState.Idle)
-    val humanReviewState: StateFlow<HumanReviewUiState> = mutableHumanReviewState.asStateFlow()
-    private val mutableAttention = MutableStateFlow<List<AttentionRow>>(emptyList())
-    val attention: StateFlow<List<AttentionRow>> = mutableAttention.asStateFlow()
     private val mutableFeedPosts = MutableStateFlow<List<MobileFeedPostDto>>(emptyList())
     val feedPosts: StateFlow<List<MobileFeedPostDto>> = mutableFeedPosts.asStateFlow()
     private val mutableFeedMessages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     /** 反応・返信が受け付けられなかった理由。一時的な通知として見せる。 */
     val feedMessages: SharedFlow<String> = mutableFeedMessages.asSharedFlow()
     private val mutableRoutines = MutableStateFlow<MobileRoutinesDataDto?>(null)
-    /** 続けること・手入れ（#454）。取れなかったときは前回の内容を残す。 */
+    /** 続けること（#454）。取れなかったときは前回の内容を残す。 */
     val routines: StateFlow<MobileRoutinesDataDto?> = mutableRoutines.asStateFlow()
     private val mutableRoutineSavingId = MutableStateFlow<String?>(null)
     val routineSavingId: StateFlow<String?> = mutableRoutineSavingId.asStateFlow()
-    private val mutableAttentionCounts = MutableStateFlow<MobileAttentionCountsDto?>(null)
-    val attentionCounts: StateFlow<MobileAttentionCountsDto?> = mutableAttentionCounts.asStateFlow()
-    private val mutableAttentionFetchedAt = MutableStateFlow<String?>(null)
-    val attentionFetchedAt: StateFlow<String?> = mutableAttentionFetchedAt.asStateFlow()
-    private val mutableAttentionOnline = MutableStateFlow(false)
-    val attentionOnline: StateFlow<Boolean> = mutableAttentionOnline.asStateFlow()
-    private val mutableAttentionRefreshing = MutableStateFlow(false)
-    val attentionRefreshing: StateFlow<Boolean> = mutableAttentionRefreshing.asStateFlow()
-    /** 新しく現れた判断（#601）。アプリ内表示に使い、利用者が見たら消す。 */
-    private val mutableAttentionNewArrivals = MutableStateFlow<List<AttentionRow>>(emptyList())
-    val attentionNewArrivals: StateFlow<List<AttentionRow>> = mutableAttentionNewArrivals.asStateFlow()
-    private val mutableAgentReplyState = MutableStateFlow<AgentReplyUiState>(AgentReplyUiState.Idle)
-    val agentReplyState: StateFlow<AgentReplyUiState> = mutableAgentReplyState.asStateFlow()
-    private val mutableTaskDelegationState = MutableStateFlow<TaskDelegationUiState>(TaskDelegationUiState.Idle)
-    val taskDelegationState: StateFlow<TaskDelegationUiState> = mutableTaskDelegationState.asStateFlow()
-    private val mutableAiReadyState = MutableStateFlow<AiReadyUiState>(AiReadyUiState.Idle)
-    val aiReadyState: StateFlow<AiReadyUiState> = mutableAiReadyState.asStateFlow()
-    private val mutablePendingSafeShare = MutableStateFlow<MobileSafeShareDto?>(null)
-    val pendingSafeShare: StateFlow<MobileSafeShareDto?> = mutablePendingSafeShare.asStateFlow()
     private var workReceiptLoadJob: Job? = null
     private var proposalRefreshJob: Job? = null
-    private var attentionRefreshJob: Job? = null
     private var feedRefreshJob: Job? = null
     private var routineRefreshJob: Job? = null
     private var cacheJob: Job? = null
@@ -553,13 +433,6 @@ class TodayViewModel(
                 ) { posts, pending -> applyPendingFeedActions(posts, pending) }
                     .collect { posts -> mutableFeedPosts.value = posts }
             }
-            viewModelScope.launch(ioDispatcher) {
-                offlineRepository.observeCachedAttention().collect { snapshot ->
-                    mutableAttention.value = snapshot.items
-                    mutableAttentionCounts.value = snapshot.counts
-                    mutableAttentionFetchedAt.value = snapshot.fetchedAt
-                }
-            }
         }
     }
 
@@ -593,11 +466,6 @@ class TodayViewModel(
         val result = withContext(ioDispatcher) { repository.loadToday() }
         if (generation != connectionGeneration.get() || pairingFormOpen) return
         updateAgentSessions(result)
-        val gatewayConfiguration = (repository as? MobileGatewayRepository)?.configuration()
-        mutableHumanReviewOnline.value = result is MobileTodayResult.Available &&
-            gatewayConfiguration?.canReviewWorkReceipts() == true
-        mutableHumanReviewRequiresRePairing.value = gatewayConfiguration?.paired == true &&
-            !gatewayConfiguration.canReviewWorkReceipts()
         refreshExternalProjection()
         var projectedCache = false
         if (offlineRepository != null) {
@@ -619,12 +487,11 @@ class TodayViewModel(
             applyResult(result)
         }
         refreshProposals(result !is MobileTodayResult.PairingRequired)
-        refreshAttentionQueue(result !is MobileTodayResult.PairingRequired)
         refreshFeedPosts(result !is MobileTodayResult.PairingRequired)
         refreshRoutines(result !is MobileTodayResult.PairingRequired)
     }
 
-    /** 続けること・手入れの取り直し（#454）。失敗しても前回の内容を残す。 */
+    /** 続けることの取り直し（#454）。失敗しても前回の内容を残す。 */
     private fun refreshRoutines(canConnect: Boolean) {
         routineRefreshJob?.cancel()
         val gateway = repository as? MobileGatewayRepository
@@ -652,11 +519,6 @@ class TodayViewModel(
             return
         }
         recordRoutine(habit.habitId, action)
-    }
-
-    fun recordMaintenance(item: MobileRoutineMaintenanceDto) {
-        val date = mutableRoutines.value?.date ?: return
-        recordRoutine(item.maintenanceId, MobileRoutineContract.maintenanceAction(item, date))
     }
 
     private fun recordRoutine(id: String, action: MobileRoutineActionDto) {
@@ -687,7 +549,7 @@ class TodayViewModel(
     }
 
     /**
-     * Feed投稿の取り直し。要対応とは独立に走らせ、失敗しても保存済みの投稿は保持する。
+     * Feed投稿の取り直し。失敗しても保存済みの投稿は保持する。
      * 結果は保存済みの投稿の観測（observeCachedFeed）経由で画面へ届く。
      */
     private fun refreshFeedPosts(canConnect: Boolean) {
@@ -707,74 +569,8 @@ class TodayViewModel(
         }
     }
 
-    /**
-     * 要対応の取り直し（#601）。Proposal一覧とは独立に走らせ、
-     * 失敗しても読み込み済みの一覧は保持する。
-     */
-    private fun refreshAttentionQueue(canConnect: Boolean) {
-        attentionRefreshJob?.cancel()
-        mutableAttentionOnline.value = false
-        val gateway = repository as? MobileGatewayRepository
-        if (!canConnect || gateway == null) {
-            mutableAttentionRefreshing.value = false
-            return
-        }
-        mutableAttentionRefreshing.value = true
-        attentionRefreshJob = viewModelScope.launch(ioDispatcher) {
-            val online = try {
-                gateway.refreshAttention()
-            } catch (error: CancellationException) {
-                throw error
-            } catch (_: Exception) {
-                false
-            }
-            currentCoroutineContext().ensureActive()
-            mutableAttentionOnline.value = online
-            mutableAttentionRefreshing.value = false
-            if (online) {
-                currentCoroutineContext().ensureActive()
-                recordNewAttentionArrivals()
-                // ホーム画面のウィジェットにも、AIが待っている数を反映する。
-                refreshExternalProjection()
-            }
-        }
-    }
-
-    /**
-     * 新しく現れた判断を拾う（#601）。
-     *
-     * 通知は**新規発生だけ**を候補にし、同じ判断の再送では出さない。
-     * アプリ内表示（新着の件数）は常に出す。OS通知は設定が有効なときだけ出す。
-     */
-    private suspend fun recordNewAttentionArrivals() {
-        val offlineRepository = repository as? MobileOfflineTaskRepository ?: return
-        val snapshot = try {
-            offlineRepository.cachedAttentionSnapshot()
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            return
-        }
-        val store = attentionNotificationStore ?: return
-        val serverId = snapshot.serverId.ifBlank { return }
-        val arrivals = AttentionNotificationStore.newArrivals(
-            rows = snapshot.items,
-            knownIds = store.knownIds(serverId),
-        )
-        store.replaceKnownIds(serverId, snapshot.items.map { it.attentionId })
-        if (arrivals.isEmpty()) return
-        mutableAttentionNewArrivals.value = arrivals
-        if (!store.isEnabled()) return
-        notifyAttentionArrivals?.invoke(arrivals, serverId)
-    }
-
-    /** 利用者が新着を見た（または開いた）ときに消す。 */
-    fun clearAttentionNewArrivals() {
-        mutableAttentionNewArrivals.value = emptyList()
-    }
-
-    fun refreshAttention() {
-        refreshAttentionQueue(canConnect = true)
+    /** Feed の引っ張って更新。 */
+    fun refreshFeed() {
         refreshFeedPosts(canConnect = true)
     }
 
@@ -817,67 +613,6 @@ class TodayViewModel(
         }
     }
 
-    fun replyToAgent(item: AttentionRow, choiceId: String?, body: String) {
-        viewModelScope.launch { replyToAgentNow(item, choiceId, body) }
-    }
-
-    /**
-     * 短い返答を送る（#601）。Taskは変えず、回答Receiptだけが増える。
-     * 送れなかったことを成功として扱わず、保留・競合・拒否をそれぞれ示す。
-     */
-    internal suspend fun replyToAgentNow(item: AttentionRow, choiceId: String?, body: String) {
-        val normalizedBody = body.trim()
-        if (!item.canReply || item.requestId == null || item.taskId == null || item.taskVersion == null) {
-            mutableAgentReplyState.value = AgentReplyUiState.Rejected(
-                item.attentionId,
-                "この判断には回答できません。要対応を取り直してください。",
-            )
-            return
-        }
-        if (normalizedBody.isEmpty()) {
-            mutableAgentReplyState.value = AgentReplyUiState.Rejected(item.attentionId, "回答を入力してください。")
-            return
-        }
-        if (!mutableAttentionOnline.value) {
-            mutableAgentReplyState.value = AgentReplyUiState.Unavailable(
-                item.attentionId,
-                "Desktopへ接続してから回答してください。",
-            )
-            return
-        }
-        val gateway = repository as? MobileGatewayRepository
-        if (gateway == null) {
-            mutableAgentReplyState.value = AgentReplyUiState.Unavailable(
-                item.attentionId,
-                "この環境では回答できません。",
-            )
-            return
-        }
-        mutableAgentReplyState.value = AgentReplyUiState.Replying(item.attentionId)
-        when (val result = withContext(ioDispatcher) { gateway.replyToAgent(item, choiceId, normalizedBody) }) {
-            is MobileAgentReplyResult.Applied -> {
-                mutableAttentionOnline.value = true
-                mutableAgentReplyState.value = AgentReplyUiState.Applied(result.attentionId, result.displayState)
-                refreshExternalProjection()
-            }
-            is MobileAgentReplyResult.Conflict -> {
-                mutableAttentionOnline.value = true
-                mutableAgentReplyState.value = AgentReplyUiState.Conflict(result.attentionId, result.message)
-            }
-            is MobileAgentReplyResult.Rejected -> {
-                mutableAttentionOnline.value = true
-                mutableAgentReplyState.value = AgentReplyUiState.Rejected(result.attentionId, result.message)
-            }
-            is MobileAgentReplyResult.Unavailable -> {
-                mutableAttentionOnline.value = false
-                mutableAgentReplyState.value = AgentReplyUiState.Unavailable(result.attentionId, result.message)
-            }
-        }
-    }
-
-    fun resetAgentReplyState() {
-        mutableAgentReplyState.value = AgentReplyUiState.Idle
-    }
 
     private fun refreshProposals(canConnect: Boolean) {
         proposalRefreshJob?.cancel()
@@ -971,10 +706,6 @@ class TodayViewModel(
         cachedUnavailable = null
         applyResult(result)
         refreshProposals(result is MobileTodayResult.Available)
-        refreshAttentionQueue(result is MobileTodayResult.Available)
-        val configuration = gateway.configuration()
-        mutableHumanReviewOnline.value = result is MobileTodayResult.Available && configuration.canReviewWorkReceipts()
-        mutableHumanReviewRequiresRePairing.value = configuration.paired && !configuration.canReviewWorkReceipts()
     }
 
     fun retryPairing() {
@@ -982,13 +713,8 @@ class TodayViewModel(
         connectionGeneration.incrementAndGet()
         pairingFormOpen = true
         proposalRefreshJob?.cancel()
-        attentionRefreshJob?.cancel()
         mutableProposalRefreshing.value = false
         mutableProposalReviewOnline.value = false
-        mutableAttentionRefreshing.value = false
-        mutableAttentionOnline.value = false
-        mutableHumanReviewOnline.value = false
-        mutableHumanReviewRequiresRePairing.value = false
         cachedPairingRequired = null
         cachedUnavailable = null
         applyResult(gateway.retryPairing())
@@ -1042,145 +768,6 @@ class TodayViewModel(
         mutableProposalReviewState.value = ProposalReviewUiState.Idle
     }
 
-    fun reviewTaskWork(task: MobileTask, action: String, reviewNote: String? = null) {
-        viewModelScope.launch { reviewTaskWorkNow(task, action, reviewNote) }
-    }
-
-    internal suspend fun reviewTaskWorkNow(task: MobileTask, action: String, reviewNote: String? = null) {
-        if (action !in setOf("accept", "return")) return
-        val receipt = task.latestWorkReceipt
-        if (receipt == null || task.version <= 0) {
-            mutableHumanReviewState.value = HumanReviewUiState.Conflict(task.id, "最新のTaskとWork Receiptを同期してから判断してください。")
-            return
-        }
-        val normalizedNote = reviewNote?.trim()
-        if (action == "return" && normalizedNote.isNullOrEmpty()) {
-            mutableHumanReviewState.value = HumanReviewUiState.Rejected(task.id, "差し戻しまたは返信の内容を入力してください。")
-            return
-        }
-        if (!mutableHumanReviewOnline.value) {
-            val message = if (mutableHumanReviewRequiresRePairing.value) {
-                "この権限ではWork Receiptを判断できません。Desktopで新しいコードを発行して再ペアリングしてください。"
-            } else {
-                "Desktopへ接続してからWork Receiptを判断してください。"
-            }
-            mutableHumanReviewState.value = HumanReviewUiState.Unavailable(task.id, message)
-            return
-        }
-        val gateway = repository as? MobileGatewayRepository
-        if (gateway == null) {
-            mutableHumanReviewState.value = HumanReviewUiState.Unavailable(task.id, "この環境ではWork Receiptを判断できません。")
-            return
-        }
-        mutableHumanReviewState.value = HumanReviewUiState.Reviewing(MobileHumanReviewPending(task.id, action))
-        when (val result = withContext(ioDispatcher) { gateway.reviewTaskWork(task, action, normalizedNote) }) {
-            is MobileHumanReviewResult.Applied -> {
-                mutableHumanReviewOnline.value = true
-                mutableHumanReviewState.value = HumanReviewUiState.Applied(result.taskId, result.action)
-            }
-            is MobileHumanReviewResult.Conflict -> {
-                mutableHumanReviewOnline.value = true
-                mutableHumanReviewState.value = HumanReviewUiState.Conflict(result.taskId, result.message)
-            }
-            is MobileHumanReviewResult.Rejected -> {
-                mutableHumanReviewOnline.value = true
-                mutableHumanReviewState.value = HumanReviewUiState.Rejected(result.taskId, result.message)
-            }
-            is MobileHumanReviewResult.Unavailable -> {
-                mutableHumanReviewOnline.value = false
-                mutableHumanReviewState.value = HumanReviewUiState.Unavailable(result.taskId, result.message)
-            }
-        }
-    }
-
-    fun resetHumanReviewState() {
-        mutableHumanReviewState.value = HumanReviewUiState.Idle
-    }
-
-    fun setTaskAiReady(task: MobileTask, enabled: Boolean) {
-        viewModelScope.launch { setTaskAiReadyNow(task, enabled) }
-    }
-
-    internal suspend fun setTaskAiReadyNow(task: MobileTask, enabled: Boolean) {
-        if (task.pending || task.conflict != null) {
-            mutableAiReadyState.value = AiReadyUiState.Conflict(
-                task.id,
-                "このTaskの同期を解決してからAI Readyを変更してください。",
-            )
-            return
-        }
-        val gateway = repository as? MobileGatewayRepository
-        if (gateway == null) {
-            mutableAiReadyState.value = AiReadyUiState.Unavailable(
-                task.id,
-                "この環境ではAI Readyを変更できません。",
-            )
-            return
-        }
-        mutableAiReadyState.value = AiReadyUiState.Updating(task.id, enabled)
-        when (val result = withContext(ioDispatcher) { gateway.setTaskAiReady(task, enabled) }) {
-            is MobileAiReadyResult.Applied -> {
-                mutableAiReadyState.value = AiReadyUiState.Applied(result.taskId, result.enabled)
-            }
-            is MobileAiReadyResult.Conflict -> {
-                mutableAiReadyState.value = AiReadyUiState.Conflict(result.taskId, result.message)
-            }
-            is MobileAiReadyResult.Rejected -> {
-                mutableAiReadyState.value = AiReadyUiState.Rejected(result.taskId, result.message)
-            }
-            is MobileAiReadyResult.Unavailable -> {
-                mutableAiReadyState.value = AiReadyUiState.Unavailable(result.taskId, result.message)
-            }
-        }
-    }
-
-    internal suspend fun previewTaskContextNow(task: MobileTask) {
-        val gateway = repository as? MobileGatewayRepository
-        if (gateway == null) {
-            mutableTaskDelegationState.value = TaskDelegationUiState.Unavailable(task.id, "この環境ではAI委任を利用できません。")
-            return
-        }
-        mutableTaskDelegationState.value = TaskDelegationUiState.PreviewLoading(task.id)
-        mutableTaskDelegationState.value = when (val result = withContext(ioDispatcher) { gateway.previewTaskContext(task) }) {
-            is MobileTaskContextPreviewResult.Available -> TaskDelegationUiState.PreviewAvailable(result.preview)
-            is MobileTaskContextPreviewResult.Unavailable -> TaskDelegationUiState.Unavailable(result.taskId, result.message)
-        }
-    }
-
-    internal suspend fun delegateTaskNow(task: MobileTask, expectedResult: String?, instruction: String?) {
-        val preview = (mutableTaskDelegationState.value as? TaskDelegationUiState.PreviewAvailable)?.preview
-        if (preview == null || preview.taskId != task.id || preview.taskVersion != task.version) {
-            mutableTaskDelegationState.value = TaskDelegationUiState.Conflict(task.id, "Context Previewを確認してから委任してください。")
-            return
-        }
-        val gateway = repository as? MobileGatewayRepository
-        if (gateway == null) {
-            mutableTaskDelegationState.value = TaskDelegationUiState.Unavailable(task.id, "この環境ではAI委任を利用できません。")
-            return
-        }
-        mutableTaskDelegationState.value = TaskDelegationUiState.Delegating(task.id)
-        when (val result = withContext(ioDispatcher) { gateway.delegateTask(task, preview, expectedResult, instruction) }) {
-            is MobileTaskDelegationResult.Applied -> {
-                mutableTaskDelegationState.value = TaskDelegationUiState.Applied(result.taskId)
-                mutablePendingSafeShare.value = result.safeShare
-            }
-            is MobileTaskDelegationResult.Conflict -> mutableTaskDelegationState.value =
-                TaskDelegationUiState.Conflict(result.taskId, result.message)
-            is MobileTaskDelegationResult.Rejected -> mutableTaskDelegationState.value =
-                TaskDelegationUiState.Rejected(result.taskId, result.message)
-            is MobileTaskDelegationResult.Unavailable -> mutableTaskDelegationState.value =
-                TaskDelegationUiState.Unavailable(result.taskId, result.message)
-        }
-    }
-
-    fun consumeSafeShare(share: MobileSafeShareDto) {
-        if (mutablePendingSafeShare.value == share) mutablePendingSafeShare.value = null
-    }
-
-    fun resetTaskDelegationState() {
-        mutableTaskDelegationState.value = TaskDelegationUiState.Idle
-    }
-
     fun loadWorkReceipt(taskId: String, receiptId: String, force: Boolean = false) {
         val current = mutableWorkReceiptDetailState.value
         if (!force && current is WorkReceiptDetailUiState.Available && current.detail.id == receiptId) return
@@ -1222,23 +809,14 @@ class TodayViewModel(
         completionBehavior: CaptureCompletionBehavior = CaptureCompletionBehavior.Close,
     ) {
         val entityLabel = if (draft.kind == MobileCaptureKind.Task) "Task" else "Capture"
-        val drafts = if (draft.kind == MobileCaptureKind.Task) draft.organizedTaskDrafts() else listOf(draft)
-        if (drafts.isEmpty()) {
-            mutableCaptureState.value = CaptureUiState.Error("追加する候補を選んでください。")
-            return
-        }
-        val normalizedDrafts = drafts.map { if (it.kind == MobileCaptureKind.Task) it.withText(it.text.trim()) else it }
-        if (normalizedDrafts.any { it.text.isBlank() }) {
+        val normalizedDraft = if (draft.kind == MobileCaptureKind.Task) draft.withText(draft.text.trim()) else draft
+        if (normalizedDraft.text.isBlank()) {
             mutableCaptureState.value = CaptureUiState.Error("${entityLabel}の内容を入力してください。")
             return
         }
         val textLimit = if (draft.kind == MobileCaptureKind.Task) MOBILE_TASK_TITLE_MAX_LENGTH else MOBILE_CAPTURE_TEXT_MAX_LENGTH
-        if (normalizedDrafts.any { it.text.length > textLimit }) {
+        if (normalizedDraft.text.length > textLimit) {
             mutableCaptureState.value = CaptureUiState.Error("${entityLabel}は${textLimit}文字以内で入力してください。全文は保持しています。")
-            return
-        }
-        if (normalizedDrafts.any { runCatching { it.organization?.validate() }.isFailure }) {
-            mutableCaptureState.value = CaptureUiState.Error("整理案の日付・予定時刻・所要時間・チェック項目を確認してから追加してください。")
             return
         }
         val offlineRepository = repository as? MobileOfflineTaskRepository
@@ -1247,21 +825,13 @@ class TodayViewModel(
             return
         }
         mutableCaptureState.value = try {
-            val entityIds = withContext(ioDispatcher) {
-                if (draft.kind == MobileCaptureKind.Task) offlineRepository.enqueueCreateTasks(normalizedDrafts)
-                else normalizedDrafts.map { normalizedDraft ->
-                    when (normalizedDraft.kind) {
-                        MobileCaptureKind.Task -> offlineRepository.enqueueCreateTask(normalizedDraft)
-                        MobileCaptureKind.Capture -> offlineRepository.enqueueCreateCapture(normalizedDraft)
-                    }
+            val entityId = withContext(ioDispatcher) {
+                when (normalizedDraft.kind) {
+                    MobileCaptureKind.Task -> offlineRepository.enqueueCreateTask(normalizedDraft)
+                    MobileCaptureKind.Capture -> offlineRepository.enqueueCreateCapture(normalizedDraft)
                 }
             }
-            CaptureUiState.Queued(
-                entityId = entityIds.first(),
-                kind = draft.kind,
-                completionBehavior = completionBehavior,
-                additionalEntityIds = entityIds.drop(1),
-            )
+            CaptureUiState.Queued(entityId = entityId, kind = draft.kind, completionBehavior = completionBehavior)
         } catch (_: Exception) {
             CaptureUiState.Error("${entityLabel}を保存できませんでした。入力を残したまま再試行してください。")
         }
@@ -1273,36 +843,6 @@ class TodayViewModel(
 
     fun undoCreatedCapture(entityId: String, kind: MobileCaptureKind) {
         viewModelScope.launch { undoCreatedCaptureNow(entityId, kind) }
-    }
-
-    fun undoCreatedCaptures(entityIds: List<String>) {
-        if (entityIds.isEmpty()) return
-        viewModelScope.launch {
-            val offlineRepository = repository as? MobileOfflineTaskRepository
-            if (offlineRepository == null) {
-                mutableTaskActionState.value = TaskActionUiState.Error(
-                    entityIds.first(),
-                    "この環境ではTask追加を元に戻せません。",
-                )
-                return@launch
-            }
-            mutableTaskActionState.value = TaskActionUiState.Saving(entityIds.first())
-            mutableTaskActionState.value = try {
-                val results = withContext(ioDispatcher) {
-                    entityIds.asReversed().map { offlineRepository.undoCreateTask(it) }
-                }
-                TaskActionUiState.Queued(
-                    taskId = entityIds.first(),
-                    requiresSync = results.any(MobileUndoCreateResult::requiresSync),
-                    message = "${entityIds.size}件のTask追加を元に戻しました。",
-                )
-            } catch (error: Exception) {
-                TaskActionUiState.Error(
-                    entityIds.first(),
-                    error.message ?: "Task追加を元に戻せませんでした。",
-                )
-            }
-        }
     }
 
     internal suspend fun undoCreatedCaptureNow(entityId: String, kind: MobileCaptureKind) {
@@ -1664,8 +1204,6 @@ class TodayViewModel(
 class TodayViewModelFactory(
     private val repository: MobileTaskRepository,
     private val refreshExternalProjection: () -> Unit = {},
-    private val attentionNotificationStore: AttentionNotificationStore? = null,
-    private val notifyAttentionArrivals: ((List<AttentionRow>, String) -> Unit)? = null,
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -1673,8 +1211,6 @@ class TodayViewModelFactory(
         return TodayViewModel(
             repository = repository,
             refreshExternalProjection = refreshExternalProjection,
-            attentionNotificationStore = attentionNotificationStore,
-            notifyAttentionArrivals = notifyAttentionArrivals,
         ) as T
     }
 }
@@ -1700,24 +1236,8 @@ class TodayPaneState(
     aiListScrollOffset: Int = 0,
     taskScheduleFilter: TaskScheduleFilter = TaskScheduleFilter.All,
     taskThemeId: String? = null,
-    /** 詳細ペインで開いている要対応（Foldの展開幅）。 */
-    selectedAttentionId: String? = null,
-    attentionReplyBody: String = "",
-    /** 下書きが属する判断。旧い保存状態では選択中の判断から復元する。 */
-    attentionDraftId: String? = selectedAttentionId,
 ) {
     var selectedTaskId by mutableStateOf(selectedTaskId)
-    var selectedAttentionId by mutableStateOf(selectedAttentionId)
-    /**
-     * 詳細ペインで書いている回答。ペインを移動しても消さない
-     * （正式に保存できたときだけ [clearAttentionReply] で閉じる）。
-     */
-    var attentionReplyBody by mutableStateOf(attentionReplyBody)
-    /**
-     * いま持っている下書きが属する判断。別の判断を開いたときに混ざらないようにする
-     * （「閉じる」では消さない。正式に保存できたときだけ消す）。
-     */
-    private var attentionDraftId: String? = attentionDraftId
     var listScrollIndex by mutableIntStateOf(listScrollIndex)
         private set
     var listScrollOffset by mutableIntStateOf(listScrollOffset)
@@ -1775,30 +1295,6 @@ class TodayPaneState(
     fun recordAiScroll(index: Int, offset: Int) {
         aiListScrollIndex = index.coerceAtLeast(0)
         aiListScrollOffset = offset.coerceAtLeast(0)
-    }
-
-    /**
-     * 詳細ペインまたは1列の回答欄で、回答する判断を選ぶ。
-     *
-     * 同じ判断を開き直したときは下書きを残し、**別の判断へ移ったときは下書きを捨てる**。
-     * 質問を取り違えたまま送る事故を防ぐ（下書きは判断ごとに持ち越さない）。
-     */
-    fun openAttention(attentionId: String) {
-        if (attentionDraftId != null && attentionDraftId != attentionId) attentionReplyBody = ""
-        selectedAttentionId = attentionId
-        attentionDraftId = attentionId
-    }
-
-    /** 回答欄を閉じる。下書きは残す（「閉じる」は破棄ではない）。 */
-    fun closeAttention() {
-        selectedAttentionId = null
-    }
-
-    /** 正式に保存できたときだけ、回答と選択を閉じる。失敗時は入力を残す。 */
-    fun clearAttentionReply() {
-        selectedAttentionId = null
-        attentionReplyBody = ""
-        attentionDraftId = null
     }
 
     fun openCapture(
@@ -1888,18 +1384,11 @@ class TodayPaneState(
         captureDraft.share?.mimeType,
         taskScheduleFilter.name,
         taskThemeId,
-        captureDraft.organization?.let { kotlinx.serialization.json.Json.encodeToString(MobileCaptureOrganization.serializer(), it) },
-        captureDraft.originalText,
+        // 26・27 は入力の AI 整理（#755 束9a で外した）が使っていた。並びを保つため空けておく。
+        null,
+        null,
         captureDraft.speech?.capturedAt,
         captureDraft.speech?.timeZone,
-        captureDraft.originalThemeId,
-        kotlinx.serialization.json.Json.encodeToString(
-            kotlinx.serialization.builtins.ListSerializer(MobileCaptureOrganization.serializer()),
-            captureDraft.additionalOrganizations,
-        ),
-        selectedAttentionId,
-        attentionReplyBody,
-        attentionDraftId,
     )
 
     companion object {
@@ -1930,16 +1419,6 @@ class TodayPaneState(
                         null
                     },
                 createdAt = saved.getOrNull(19) as? String ?: java.time.Instant.now().toString(),
-                organization = (saved.getOrNull(26) as? String)?.let {
-                    kotlinx.serialization.json.Json.decodeFromString(MobileCaptureOrganization.serializer(), it)
-                },
-                originalText = saved.getOrNull(27) as? String,
-                originalThemeId = saved.getOrNull(30) as? String,
-                additionalOrganizations = (saved.getOrNull(31) as? String)?.let {
-                    kotlinx.serialization.json.Json.decodeFromString(
-                        kotlinx.serialization.builtins.ListSerializer(MobileCaptureOrganization.serializer()), it,
-                    )
-                }.orEmpty(),
             ),
             captureOpen = saved.getOrNull(4) as? Boolean ?: false,
             captureVoiceStartRequested = saved.getOrNull(20) as? Boolean ?: false,
@@ -1959,17 +1438,11 @@ class TodayPaneState(
                 ?.let { runCatching { TaskScheduleFilter.valueOf(it) }.getOrNull() }
                 ?: TaskScheduleFilter.All,
             taskThemeId = saved.getOrNull(25) as? String,
-            selectedAttentionId = saved.getOrNull(32) as? String,
-            attentionReplyBody = saved.getOrNull(33) as? String ?: "",
-            // 旧い保存状態には下書きの所属が無い。選択中の判断から復元する。
-            attentionDraftId = saved.getOrNull(34) as? String ?: saved.getOrNull(32) as? String,
         )
     }
 }
 
 interface MobileGatewayRepository : MobileTaskRepository {
-    suspend fun organizeCapture(draft: MobileCaptureDraft): List<MobileCaptureOrganization> =
-        error("このDesktopではAI整理を利用できません。Desktopを更新してください。")
     fun configuration(): MobileGatewayConfiguration
     fun pair(origin: String, pairingCode: String): MobileTodayResult
     fun retryPairing(): MobileTodayResult
@@ -1983,15 +1456,6 @@ interface MobileGatewayRepository : MobileTaskRepository {
         proposal.id,
         "このDesktopではProposal判断を利用できません。",
     )
-    suspend fun reviewTaskWork(
-        task: MobileTask,
-        action: String,
-        reviewNote: String?,
-    ): MobileHumanReviewResult = MobileHumanReviewResult.Unavailable(
-        task.id,
-        "このDesktopではWork Receipt判断を利用できません。",
-    )
-    suspend fun refreshAttention(): Boolean = false
     /** Feed投稿の取り直し。窓口を持たないDesktopでは、保存済みの投稿を残して失敗を返す。 */
     suspend fun refreshFeed(): Boolean = false
     /**
@@ -2004,32 +1468,11 @@ interface MobileGatewayRepository : MobileTaskRepository {
         MobileFeedActionResult.Unavailable("このDesktopでは返信を保存できません。")
     /** 送信待ちを送る。受け付けられなかった分の理由を返す（成功・接続できなかった分は返さない）。 */
     suspend fun flushFeedActions(): List<String> = emptyList()
-    /** 続けること・手入れ（#454）。窓口を持たないDesktopや接続できないときはnull。 */
+    /** 続けること（#454）。窓口を持たないDesktopや接続できないときはnull。 */
     suspend fun fetchRoutines(date: String): MobileRoutinesDataDto? = null
-    /** 続けること・手入れの記録。Desktopへ直接送り、送れなければ記録しない。 */
+    /** 続けることの記録。Desktopへ直接送り、送れなければ記録しない。 */
     suspend fun recordRoutine(action: MobileRoutineActionDto): MobileRoutineActionResult =
         MobileRoutineActionResult.Failed("このDesktopでは記録できません。Desktopを更新してください。")
-    suspend fun replyToAgent(
-        item: AttentionRow,
-        choiceId: String?,
-        body: String,
-    ): MobileAgentReplyResult = MobileAgentReplyResult.Unavailable(
-        item.attentionId,
-        "このDesktopではagentへ回答できません。",
-    )
-    suspend fun setTaskAiReady(task: MobileTask, enabled: Boolean): MobileAiReadyResult =
-        MobileAiReadyResult.Unavailable(task.id, "このDesktopではAI Readyを変更できません。")
-    suspend fun previewTaskContext(task: MobileTask): MobileTaskContextPreviewResult =
-        MobileTaskContextPreviewResult.Unavailable(task.id, "このDesktopではContext Previewを利用できません。")
-    suspend fun delegateTask(
-        task: MobileTask,
-        preview: MobileTaskContextPreview,
-        expectedResult: String?,
-        instruction: String?,
-    ): MobileTaskDelegationResult = MobileTaskDelegationResult.Unavailable(
-        task.id,
-        "このDesktopではAI委任を利用できません。",
-    )
 }
 
 interface MobileOfflineTaskRepository {
@@ -2045,18 +1488,11 @@ interface MobileOfflineTaskRepository {
     }
     fun observeCachedTaskWorkProposals(): Flow<List<MobileTaskWorkProposal>> =
         kotlinx.coroutines.flow.flowOf(emptyList())
-    fun observeCachedAttention(): Flow<MobileAttentionSnapshot> =
-        kotlinx.coroutines.flow.flowOf(
-            MobileAttentionSnapshot(items = emptyList(), counts = null, truncated = false, fetchedAt = null),
-        )
     /** 保存済みのFeed投稿（新しい順）。AIの投稿も自分の投稿も同じ流れで読む。 */
     fun observeCachedFeed(): Flow<List<MobileFeedPostDto>> = kotlinx.coroutines.flow.flowOf(emptyList())
     /** まだDesktopへ届いていないFeedへの書き込み。保存済みの投稿へ重ねて見せる。 */
     fun observePendingFeedActions(): Flow<List<MobileFeedActionEnvelopeDto>> =
         kotlinx.coroutines.flow.flowOf(emptyList())
-    /** 保存済みの要対応を一度だけ読む。新着の判定に使う（#601）。 */
-    suspend fun cachedAttentionSnapshot(): MobileAttentionSnapshot =
-        observeCachedAttention().first()
     fun observePendingCount(): Flow<Int>
     fun observePendingCaptures(): Flow<List<MobilePendingCapture>> = kotlinx.coroutines.flow.flowOf(emptyList())
     suspend fun retryPendingCapture(commandId: String): Boolean = false
@@ -2065,13 +1501,6 @@ interface MobileOfflineTaskRepository {
         draft: MobileCaptureDraft,
         todayDate: java.time.LocalDate? = java.time.LocalDate.now(),
     ): String
-    suspend fun enqueueCreateTasks(
-        drafts: List<MobileCaptureDraft>,
-        todayDate: java.time.LocalDate? = java.time.LocalDate.now(),
-    ): List<String> {
-        require(drafts.size == 1) { "この環境では複数のTaskを一度に追加できません。" }
-        return listOf(enqueueCreateTask(drafts.single(), todayDate))
-    }
     suspend fun enqueueCreateCapture(draft: MobileCaptureDraft): String =
         error("この環境ではCaptureを追加できません。")
     suspend fun undoCreateTask(taskId: String): MobileUndoCreateResult =

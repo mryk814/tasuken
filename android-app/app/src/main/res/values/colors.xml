@@ -9,6 +9,4 @@
     <color name="tasken_widget_on_primary">#FFFFFF</color>
     <color name="tasken_widget_on_primary_container">#6E2530</color>
     <!-- AI の印（藍）。design-standard/tokens.json の aiBg / aiStrong。端末の配色（v31）では上書きしない。 -->
-    <color name="tasken_widget_ai_container">#E3E8F3</color>
-    <color name="tasken_widget_on_ai_container">#243C72</color>
 </resources>

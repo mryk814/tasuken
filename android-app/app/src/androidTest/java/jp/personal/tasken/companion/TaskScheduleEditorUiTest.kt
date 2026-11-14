@@ -278,13 +278,10 @@ class TaskScheduleEditorUiTest {
         openScheduleEditor()
         composeRule.onNodeWithTag("schedule-start-date").performScrollTo()
         capture("02-schedule-editor-dates")
-        composeRule.onNodeWithTag("schedule-start-time").performScrollTo()
-        capture("03-schedule-editor-time")
-        composeRule.onNodeWithTag("schedule-time-picker-open").performClick()
-        composeRule.onNodeWithTag("schedule-time-picker").assertExists()
-        capture("04-schedule-time-picker")
-        composeRule.onNodeWithText("決定").performClick()
-        composeRule.onNodeWithTag("schedule-start-time").assertTextContains("09:30")
+        composeRule.onNodeWithTag("schedule-duration").performScrollTo()
+        capture("03-schedule-editor-duration")
+        // 開始時刻の欄はスマホから外した（#755 束9a）。
+        composeRule.onNodeWithTag("schedule-start-time").assertDoesNotExist()
     }
 
     private fun capture(name: String) {

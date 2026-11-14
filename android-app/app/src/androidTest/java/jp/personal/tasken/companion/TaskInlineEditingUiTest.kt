@@ -27,33 +27,32 @@ import org.junit.Test
 class TaskInlineEditingUiTest {
     @get:Rule val composeRule = createComposeRule()
 
-    @Test fun pendingScheduleRetainsTimeAndDurationAcrossCloseRecreationAndFailure() {
+    @Test fun pendingScheduleRetainsDurationAcrossCloseRecreationAndFailure() {
         val restoration = StateRestorationTester(composeRule)
         var submitted: MobileTaskScheduleDraft? = null
         val action = mutableStateOf<TaskActionUiState>(TaskActionUiState.Idle)
         restoration.setContent {
             TaskenTheme {
                 Surface(Modifier.fillMaxSize().safeDrawingPadding()) {
-                    TodayDetailPane(task().copy(pending = true, canEditPendingTask = true), action.value,
+                    // 開始時刻の欄はスマホから外した（#755 束9a）。Desktop が持つ値は変えずに送り返す。
+                    TodayDetailPane(task().copy(pending = true, canEditPendingTask = true, plannedStartTime = "09:30"), action.value,
                         onStateAction = {}, onScheduleUpdate = { _, draft -> submitted = draft })
                 }
             }
         }
         composeRule.onNodeWithTag("schedule-edit-toggle").performScrollTo().performClick()
-        composeRule.onNodeWithTag("schedule-start-time").performScrollTo().performTextReplacement("09:30")
+        composeRule.onNodeWithTag("schedule-start-time").assertDoesNotExist()
         composeRule.onNodeWithTag("schedule-duration").performScrollTo().performTextReplacement("45")
         composeRule.onNodeWithTag("schedule-edit-toggle").performScrollTo().performClick()
         restoration.emulateSavedInstanceStateRestore()
         composeRule.onNodeWithTag("schedule-edit-toggle").performScrollTo().performClick()
-        composeRule.onNodeWithTag("schedule-start-time").assertTextContains("09:30")
         composeRule.onNodeWithTag("schedule-duration").assertTextContains("45")
         composeRule.waitUntil(timeoutMillis = 2_000) { submitted != null }
         composeRule.runOnIdle {
             assertEquals(MobileTaskScheduleDraft(null, null, null, "09:30", 45), submitted)
             action.value = TaskActionUiState.Error("inline", "端末へ保存できませんでした")
         }
-        composeRule.onNodeWithTag("schedule-start-time").performScrollTo().assertTextContains("09:30")
-        composeRule.onNodeWithTag("schedule-duration").assertTextContains("45")
+        composeRule.onNodeWithTag("schedule-duration").performScrollTo().assertTextContains("45")
         capture("pending-schedule-time-draft")
     }
 

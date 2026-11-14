@@ -87,7 +87,7 @@ class TaskStateActionUiTest {
 
         listOf("needs_human_review", "reported_done", "blocked").forEach { state ->
             composeRule.runOnIdle { workState.value = state }
-            composeRule.onNodeWithText("Work Receiptを確認").assertIsDisplayed().assertIsNotEnabled()
+            composeRule.onNodeWithText("PCで確認").assertIsDisplayed().assertIsNotEnabled()
         }
     }
 

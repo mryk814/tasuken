@@ -10,6 +10,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 
 data class MobileCaptureDraftSnapshot(
     val draft: MobileCaptureDraft,
@@ -63,7 +64,7 @@ class MobileCaptureDraftStore(
 
     fun restoreRecoveredInput(id: String): MobileCaptureDraftSnapshot? = synchronized(StorageLock) {
         val current = load()
-        if (current != null && (current.draft.text.isNotEmpty() || !current.draft.originalText.isNullOrEmpty())) return null
+        if (current != null && current.draft.text.isNotEmpty()) return null
         val entry = recoveredInputs().firstOrNull { it.id == id } ?: return null
         val draft = entry.snapshot?.draft?.copy(draftId = UUID.randomUUID().toString())
             ?: MobileCaptureDraft.fresh(text = entry.raw, now = now)
@@ -115,7 +116,7 @@ class MobileCaptureDraftStore(
 
     fun save(snapshot: MobileCaptureDraftSnapshot): Boolean = synchronized(StorageLock) {
         if (!preserveBeforeReplacing()) return false
-        if (!snapshot.captureOpen && snapshot.draft.text.isEmpty() && snapshot.draft.originalText.isNullOrEmpty()) {
+        if (!snapshot.captureOpen && snapshot.draft.text.isEmpty()) {
             return clear()
         }
         return runCatching {
@@ -197,8 +198,13 @@ private data class StoredCaptureDraftSnapshot(
     val speechSourceAudioAvailable: Boolean = false,
     val sharedMimeType: String? = null,
     val createdAt: String,
-    val organization: MobileCaptureOrganization? = null,
-    val additionalOrganizations: List<MobileCaptureOrganization> = emptyList(),
+    /**
+     * 入力の AI 整理（#755 束9a で外した）の案と、整理する前の入力。前の版が書いた下書きにだけ残る。
+     * 読み捨てずに受け取り、整理の途中の下書きは、整理する前の本人の入力と Theme に戻して開く。
+     * 新しい版は書かない。
+     */
+    val organization: JsonElement? = null,
+    val additionalOrganizations: List<JsonElement> = emptyList(),
     val originalText: String? = null,
     val speechCapturedAt: String? = null,
     val speechTimeZone: String? = null,
@@ -208,12 +214,13 @@ private data class StoredCaptureDraftSnapshot(
     fun toSnapshot(): MobileCaptureDraftSnapshot {
         val captureKind = MobileCaptureKind.entries.single { it.wireValue == kind }
         val captureSource = MobileCaptureSource.entries.single { it.wireValue == source }
+        val organized = organization != null
         return MobileCaptureDraftSnapshot(
             draft = MobileCaptureDraft(
                 draftId = draftId,
-                text = text,
+                text = if (organized) originalText ?: text else text,
                 kind = captureKind,
-                projectId = projectId,
+                projectId = if (organized) originalThemeId else projectId,
                 source = captureSource,
                 speech = speechRecognitionMode?.let { recognitionMode ->
                     MobileSpeechProvenance(
@@ -229,10 +236,6 @@ private data class StoredCaptureDraftSnapshot(
                 },
                 share = sharedMimeType?.let(::MobileShareProvenance),
                 createdAt = createdAt,
-                organization = organization,
-                additionalOrganizations = additionalOrganizations,
-                originalText = originalText,
-                originalThemeId = originalThemeId,
                 photos = photoFileNames.map(::MobileCapturePhoto),
             ),
             captureOpen = captureOpen,
@@ -257,10 +260,6 @@ private data class StoredCaptureDraftSnapshot(
                 speechSourceAudioAvailable = draft.speech?.sourceAudioAvailable ?: false,
                 sharedMimeType = draft.share?.mimeType,
                 createdAt = draft.createdAt,
-                organization = draft.organization,
-                additionalOrganizations = draft.additionalOrganizations,
-                originalText = draft.originalText,
-                originalThemeId = draft.originalThemeId,
                 speechCapturedAt = draft.speech?.capturedAt,
                 speechTimeZone = draft.speech?.timeZone,
                 photoFileNames = draft.photos.map { it.fileName },

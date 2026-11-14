@@ -281,48 +281,6 @@ internal fun AiSeenDivider(modifier: Modifier = Modifier) {
     }
 }
 
-/** 作業中・開始待ちは要対応ではない。件数だけを小さな札で並べる。 */
-@Composable
-internal fun AiCountsStrip(counts: MobileAttentionCountsDto?) {
-    if (counts == null) return
-    FlowRow(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        itemVerticalAlignment = Alignment.CenterVertically,
-    ) {
-        AiCountChip("作業中 ${counts.working}", active = counts.working > 0)
-        AiCountChip("開始待ち ${counts.queued}", active = false)
-        Text(
-            "開始は未確認",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
-private fun AiCountChip(text: String, active: Boolean) {
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (active) Box(Modifier.size(6.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
-            Text(
-                text,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
 @Composable
 internal fun AiSectionTitle(text: String, modifier: Modifier = Modifier) {
     Text(

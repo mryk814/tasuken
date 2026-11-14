@@ -2,7 +2,6 @@ package jp.personal.tasken.companion
 
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ScheduleFormattingTest {
@@ -17,27 +16,15 @@ class ScheduleFormattingTest {
     }
 
     @Test
-    fun summary_names_point_deadline_and_range_and_appends_time() {
-        assertEquals("予定なし", scheduleSummaryText(null, null, null, null, today))
-        assertEquals("8月24日（月）", scheduleSummaryText(LocalDate.of(2026, 8, 24), null, null, null, today))
-        assertEquals("8月30日（日）まで", scheduleSummaryText(null, LocalDate.of(2026, 8, 30), null, null, today))
+    fun summary_names_point_deadline_and_range_and_appends_duration() {
+        assertEquals("予定なし", scheduleSummaryText(null, null, null, today))
+        assertEquals("8月24日（月）", scheduleSummaryText(LocalDate.of(2026, 8, 24), null, null, today))
+        assertEquals("8月30日（日）まで", scheduleSummaryText(null, LocalDate.of(2026, 8, 30), null, today))
         assertEquals(
-            "8月24日（月） 〜 8月30日（日）・9:30から 45分",
-            scheduleSummaryText(LocalDate.of(2026, 8, 24), LocalDate.of(2026, 8, 30), "09:30", 45, today),
+            "8月24日（月） 〜 8月30日（日）・45分",
+            scheduleSummaryText(LocalDate.of(2026, 8, 24), LocalDate.of(2026, 8, 30), 45, today),
         )
-        assertEquals("1時間30分", scheduleSummaryText(null, null, null, 90, today))
-    }
-
-    @Test
-    fun time_input_accepts_common_spellings() {
-        assertEquals("09:30", normalizePlannedTimeInput("930"))
-        assertEquals("09:30", normalizePlannedTimeInput("0930"))
-        assertEquals("09:30", normalizePlannedTimeInput("9:30"))
-        assertEquals("13:05", normalizePlannedTimeInput("13時05分"))
-        assertEquals("09:00", normalizePlannedTimeInput("9時"))
-        assertEquals("09:30", normalizePlannedTimeInput("９：３０"))
-        assertNull(normalizePlannedTimeInput("25:00"))
-        assertNull(normalizePlannedTimeInput("朝"))
+        assertEquals("1時間30分", scheduleSummaryText(null, null, 90, today))
     }
 
     @Test

@@ -195,12 +195,9 @@ class MobileCaptureRecoveryStoreTest {
     }
 
     @Test
-    fun whitespaceAndOrganizationOriginalAreNotClearedByClosedEditor() {
+    fun whitespaceIsNotClearedByClosedEditor() {
         val whitespace = snapshot("  \n").copy(captureOpen = false)
         assertTrue(store().save(whitespace))
         assertEquals(whitespace, store().load())
-        val original = snapshot("").let { it.copy(draft = it.draft.copy(originalText = "原文"), captureOpen = false) }
-        assertTrue(store().save(original))
-        assertEquals(original, store().load())
     }
 }

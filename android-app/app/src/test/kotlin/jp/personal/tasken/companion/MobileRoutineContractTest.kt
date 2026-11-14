@@ -7,7 +7,7 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** 続けること・手入れ（#454）の読み出しと記録の契約。 */
+/** 続けること（#454）の読み出しと記録の契約。手入れはスマホから外した（#755 束9a）。 */
 class MobileRoutineContractTest {
     private val meta = """{"apiVersion":1,"schemaVersion":7,"serverId":"desktop-home","serverRevision":7,"generatedAt":"2026-10-06T09:00:00.000Z","truncated":false}"""
 
@@ -33,8 +33,16 @@ class MobileRoutineContractTest {
         val data = MobileRoutineContract.decode(body).data
 
         assertEquals("今週1/3回", data.habits.single().weekLabel)
-        assertTrue(data.maintenances.single().overdue)
         assertFalse(data.isEmpty)
+    }
+
+    @Test
+    fun maintenancesFromTheCurrentGatewayAreReadButNotShown() {
+        // 束9b で Gateway が手入れを返さなくなるまでは届く。断らずに受け、Today には出さない。
+        val data = MobileRoutineContract.decode(body).data.copy(habits = emptyList())
+
+        assertEquals(1, data.maintenances.size)
+        assertTrue(data.isEmpty)
     }
 
     @Test
@@ -56,19 +64,6 @@ class MobileRoutineContractTest {
         )
         assertFalse(json.contains("maintenanceId"))
         assertFalse(json.contains("null"))
-    }
-
-    @Test
-    fun maintenanceRecordCarriesOnlyTheItemAndDate() {
-        val item = MobileRoutineContract.decode(body).data.maintenances.single()
-        val json = MobileRoutineContract.encode(envelope(MobileRoutineContract.maintenanceAction(item, "2026-10-06")))
-
-        assertTrue(
-            json.contains(
-                "\"action\":{\"name\":\"RecordMaintenance\",\"performedOn\":\"2026-10-06\",\"maintenanceId\":\"maint-filter\"}",
-            ),
-        )
-        assertFalse(json.contains("sequence"))
     }
 
     @Test

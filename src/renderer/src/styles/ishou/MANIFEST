@@ -1,4 +1,5 @@
 # kotoba の意匠の写し。ここで直さず、kotoba の ishou/ で直してから kotoba-copy -set ishou で写し直す
 set	ishou
-commit	eaf4ffa1dd581ddd8c96d89da0540ee37c77b1dc
-file	tokens.css	a2a2f9c367c3067cdac50df83704e0bfb7971c8eb5d75569c108bbb50c74bfeb
+commit	2e4206e0f2bceb5b7ec9980b48b3e4619d4f72f7
+file	offline.css	40d08ba151a5e30c6c01a1f46cb2f3e37d3ba1354771d62289c98c07cccdd6ee
+file	tokens.css	7d190065e8302916f7b1494f6c6cf46ea798176616ec39837c81949394a27056

@@ -19,9 +19,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 /**
- * 続けること（Habit）と手入れ（Maintenance）をTodayに出すread model（#454）。
+ * 続けること（Habit）をTodayに出すread model（#454）。
  *
  * 進み具合と目安はDesktopが導出したものをそのまま見せ、Androidでは再計算しない。
  * Habitは「今日N回・今週n/m回」だけで、連続日数や達成率は出さない。
@@ -42,26 +43,16 @@ data class MobileRoutineHabitDto(
 )
 
 @Serializable
-data class MobileRoutineMaintenanceDto(
-    val maintenanceId: String,
-    val label: String,
-    /** `due_soon`（7日以内）または `overdue`（目安を過ぎた）。目安の超過はTaskの期限違反ではない。 */
-    val state: String,
-    val dueLabel: String,
-    val nextDueOn: String,
-    val lastPerformedOn: String? = null,
-    val intervalDays: Int? = null,
-) {
-    val overdue: Boolean get() = state == "overdue"
-}
-
-@Serializable
 data class MobileRoutinesDataDto(
     val date: String,
     val habits: List<MobileRoutineHabitDto> = emptyList(),
-    val maintenances: List<MobileRoutineMaintenanceDto> = emptyList(),
+    /**
+     * 手入れはスマホから外した（#755 束9a）。Gateway が返さなくなる（束9b）までは届くので、
+     * 未知 field として断らずに受け取り、中身は見ない。
+     */
+    val maintenances: List<JsonObject> = emptyList(),
 ) {
-    val isEmpty: Boolean get() = habits.isEmpty() && maintenances.isEmpty()
+    val isEmpty: Boolean get() = habits.isEmpty()
 }
 
 @Serializable
@@ -73,12 +64,11 @@ data class MobileRoutinesResponseDto(
 
 @Serializable
 data class MobileRoutineActionDto(
-    /** `RecordHabitEntry` または `RecordMaintenance`。使わない項目は送らない。 */
+    /** `RecordHabitEntry`。使わない項目は送らない。 */
     val name: String,
     val performedOn: String,
     val habitId: String? = null,
     val sequence: Int? = null,
-    val maintenanceId: String? = null,
 )
 
 @Serializable
@@ -132,9 +122,6 @@ object MobileRoutineContract {
             sequence = sequence,
         )
     }
-
-    fun maintenanceAction(item: MobileRoutineMaintenanceDto, date: String): MobileRoutineActionDto =
-        MobileRoutineActionDto(name = "RecordMaintenance", performedOn = date, maintenanceId = item.maintenanceId)
 }
 
 /** 記録の結果。 */
@@ -147,7 +134,7 @@ sealed interface MobileRoutineActionResult {
 }
 
 /**
- * Todayの「続けること」「手入れ」。どちらも1件もなければ何も出さない。
+ * Todayの「続けること」。1件もなければ何も出さない。
  * 記録はDesktopへ直接送る（接続できないときは記録しない）。
  */
 @Composable
@@ -155,7 +142,6 @@ internal fun TodayRoutinesSection(
     routines: MobileRoutinesDataDto,
     savingId: String?,
     onRecordHabit: (MobileRoutineHabitDto) -> Unit,
-    onRecordMaintenance: (MobileRoutineMaintenanceDto) -> Unit,
 ) {
     if (routines.isEmpty) return
     Column(Modifier.fillMaxWidth().padding(top = 8.dp).testTag("today-routines")) {
@@ -165,27 +151,11 @@ internal fun TodayRoutinesSection(
                 RoutineRow(
                     title = habit.title,
                     detail = "${habit.scheduleLabel} · ${habit.todayLabel} · ${habit.weekLabel}",
-                    detailEmphasis = false,
                     actionLabel = "1回記録",
                     actionDescription = "${habit.title}を1回記録",
                     enabled = savingId == null && habit.nextSequence != null,
                     onAction = { onRecordHabit(habit) },
                     tag = "routine-habit-${habit.habitId}",
-                )
-            }
-        }
-        if (routines.maintenances.isNotEmpty()) {
-            Text("手入れ", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 12.dp))
-            routines.maintenances.forEach { item ->
-                RoutineRow(
-                    title = item.label,
-                    detail = item.dueLabel,
-                    detailEmphasis = item.overdue,
-                    actionLabel = "やった",
-                    actionDescription = "${item.label}をやったと記録",
-                    enabled = savingId == null,
-                    onAction = { onRecordMaintenance(item) },
-                    tag = "routine-maintenance-${item.maintenanceId}",
                 )
             }
         }
@@ -196,7 +166,6 @@ internal fun TodayRoutinesSection(
 private fun RoutineRow(
     title: String,
     detail: String,
-    detailEmphasis: Boolean,
     actionLabel: String,
     actionDescription: String,
     enabled: Boolean,
@@ -213,7 +182,7 @@ private fun RoutineRow(
             Text(
                 detail,
                 style = MaterialTheme.typography.labelMedium,
-                color = if (detailEmphasis) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         FilledTonalButton(

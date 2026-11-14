@@ -8,6 +8,4 @@
     <color name="tasken_widget_primary_container">#2F1E21</color>
     <color name="tasken_widget_on_primary">#2A1215</color>
     <color name="tasken_widget_on_primary_container">#F4D9DC</color>
-    <color name="tasken_widget_ai_container">#1D2638</color>
-    <color name="tasken_widget_on_ai_container">#B3C3E8</color>
 </resources>

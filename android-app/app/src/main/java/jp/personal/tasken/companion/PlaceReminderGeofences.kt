@@ -65,7 +65,7 @@ internal object PlaceReminderGeofences {
         !playServicesAvailable(context) -> PlaceReminderReadiness.NoPlayServices
         !hasForegroundLocation(context) -> PlaceReminderReadiness.NoLocationPermission
         !hasBackgroundLocation(context) -> PlaceReminderReadiness.NoBackgroundLocation
-        !MobileTaskNotifications.canPost(context) -> PlaceReminderReadiness.NoNotificationPermission
+        !TaskenNotifications.canPost(context) -> PlaceReminderReadiness.NoNotificationPermission
         else -> PlaceReminderReadiness.Ready
     }
 
@@ -186,7 +186,7 @@ internal object PlaceReminderNotifications {
         dao: MobileLocalDao,
         taskId: String,
         now: LocalDateTime,
-        canPost: Boolean = MobileTaskNotifications.canPost(context),
+        canPost: Boolean = TaskenNotifications.canPost(context),
         scheduleRefit: (String, LocalDateTime) -> Unit = { id, at -> PlaceReminderWork.scheduleRefit(context, id, at) },
     ): Boolean {
         val task = dao.task(taskId)

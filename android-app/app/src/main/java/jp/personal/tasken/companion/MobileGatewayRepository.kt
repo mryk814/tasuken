@@ -52,11 +52,7 @@ private const val MOBILE_HUMAN_REVIEW_SCOPE = "mobile:human-review"
 private const val MOBILE_CONTEXT_READ_SCOPE = "mobile:context-read"
 private const val MOBILE_CAPTURE_WRITE_SCOPE = "mobile:capture-write"
 
-/** 要対応の取得上限。Desktop側の上限と同じ値を使う。 */
-private const val ATTENTION_PAGE_SIZE = 50
 private const val FEED_PAGE_SIZE = 50
-
-private fun aiReadyPatch(enabled: Boolean) = buildJsonObject { put("aiReady", enabled) }
 
 private val SUPPORTED_MOBILE_SCOPES = setOf(
     "mobile:read",
@@ -73,12 +69,6 @@ data class MobileGatewayConfiguration(
     val paired: Boolean,
     val scopes: Set<String> = emptySet(),
 )
-
-fun MobileGatewayConfiguration.canReviewWorkReceipts(): Boolean =
-    paired && MOBILE_HUMAN_REVIEW_SCOPE in scopes
-
-/** agentへの回答もWork Receipt判断と同じ `mobile:human-review` scope を使う（#601）。 */
-fun MobileGatewayConfiguration.canReplyToAgent(): Boolean = canReviewWorkReceipts()
 
 fun MobileGatewayConfiguration.canReadTaskContext(): Boolean =
     paired && MOBILE_CONTEXT_READ_SCOPE in scopes
@@ -235,8 +225,7 @@ class AndroidMobileTaskRepository(
     private val httpClient: MobileGatewayHttpClient? = null,
     private val themeNow: () -> Instant = Instant::now,
     private val processInstanceId: String = MOBILE_PROCESS_INSTANCE_ID,
-    private val directCaptureHttpClient: DirectCaptureHttpClient? = null,
-) : MobileGatewayRepository, MobileOfflineTaskRepository, MobileWorkLogRepository, MobileWorkLogOrganizationRepository, MobileRecallRepository, MobileRelatedDocumentsRepository, MobileThemeContextRepository, MobileLocalSearchRepository {
+) : MobileGatewayRepository, MobileOfflineTaskRepository, MobileWorkLogRepository, MobileRecallRepository, MobileRelatedDocumentsRepository, MobileThemeContextRepository, MobileLocalSearchRepository {
     private val json = Json { ignoreUnknownKeys = false }
     private val dao = database.mobileDao()
     private val localSearch = MobileLocalSearchReader(database, store.observeOwnerReadAccess())
@@ -244,7 +233,6 @@ class AndroidMobileTaskRepository(
     override suspend fun localSearchCapture(id: String) = localSearch.localSearchCapture(id)
     private val outbox = MobileOutbox(context.applicationContext, dao, store::deviceId)
     private val photoStore = MobileCapturePhotoStore(context.applicationContext)
-    private val directCaptureSettings = DirectCaptureSettingsStore(context.applicationContext)
     private val workLogOutbox = MobileWorkLogOutbox(dao, store::deviceId, { MobileOutboxScheduler.enqueue(context) })
     private val recallReader = MobileRecallReader(dao) { path ->
         val configuration = store.configuration()
@@ -287,55 +275,14 @@ class AndroidMobileTaskRepository(
     }
 
     override fun observeWorkLogs(): Flow<List<MobileWorkLog>> =
-        combine(dao.observeWorkLogs(), dao.observeSyncState(), dao.observeWorkLogOrganizations()) { records, state, organizations ->
-            records.filter { it.record.serverId == state?.serverId }.map { record -> MobileWorkLog(record.record, record.command, organizations.firstOrNull { it.sourceId == record.record.id && it.serverId == state?.serverId }) }
+        combine(dao.observeWorkLogs(), dao.observeSyncState()) { records, state ->
+            records.filter { it.record.serverId == state?.serverId }.map { record -> MobileWorkLog(record.record, record.command) }
         }
 
     override suspend fun recordWorkLog(draft: MobileWorkLogDraft): String = workLogOutbox.record(draft)
     override suspend fun deleteWorkLog(id: String) = workLogOutbox.delete(id)
     override suspend fun restoreWorkLog(id: String) = workLogOutbox.restore(id)
     override suspend fun retryWorkLog(id: String) = workLogOutbox.retry(id)
-
-    override suspend fun discardWorkLogOrganization(id: String) = dao.discardWorkLogOrganization(id)
-    override suspend fun adoptWorkLogOrganization(id: String) = workLogOutbox.adoptOrganization(id)
-
-    override suspend fun organizeWorkLog(id: String) {
-        val configuration = store.configuration()
-        val token = requireNotNull(store.readToken()) { "Desktopへ接続してください。原文は保存済みです。" }
-        val expected = dao.beginWorkLogOrganization(id, java.util.UUID.randomUUID().toString(), java.time.Instant.now().toString())
-        try {
-            val response = gatewayRequest(configuration.origin, "/v1/work-log-organization", "POST", buildJsonObject {
-                put("sourceId", id); put("sourceVersion", expected.sourceVersion)
-            }.toString(), token)
-            require(response.status in 200..299)
-            val result = MobileWorkLogContract.json.decodeFromString<MobileWorkLogOrganizationResponse>(response.body)
-            require(result.ok && result.meta.serverId == expected.serverId && result.meta.apiVersion == TASKEN_MOBILE_API_VERSION && result.meta.schemaVersion == TASKEN_MOBILE_SCHEMA_VERSION)
-            require(result.data.sourceId == id && result.data.sourceVersion == expected.sourceVersion)
-            require(dao.completeWorkLogOrganization(expected, result.data.proposal))
-        } catch (error: CancellationException) { throw error }
-        catch (_: Exception) { throw IllegalStateException("整理できませんでした。Desktopの記録・AI設定・接続を確認して再試行してください。原文は保存済みです。") }
-    }
-
-    override suspend fun createWorkLogNextAction(id: String, index: Int) {
-        dao.enqueueCreateBatch {
-            val value = requireNotNull(dao.workLogOrganization(id))
-            val record = requireNotNull(dao.workLog(id))
-            require(value.serverId == dao.syncState()?.serverId && value.state == "adopted" && !record.deleted && record.serverVersion == value.sourceVersion)
-            val proposal = requireNotNull(value.proposal()).also { it.validate(record.body) }
-            val quote = proposal.nextActions[index]
-            val created = value.createdTaskIndices.split(',').mapNotNull(String::toIntOrNull).toSet()
-            if (index in created) return@enqueueCreateBatch emptyList()
-            val taskId = outbox.enqueueCreate(
-                draftId = "${value.generationId}:action:$index", title = quote, projectId = record.themeId,
-                todayDate = null,
-                description = "AI整理から選んで追加。元の作業記録: $id / version ${value.sourceVersion}\n原文引用:\n$quote",
-                scheduleAfterEnqueue = false,
-            )
-            dao.upsertWorkLogOrganization(value.copy(createdTaskIndices = (created + index).sorted().joinToString(",")))
-            listOf(taskId)
-        }
-        MobileOutboxScheduler.enqueue(context)
-    }
 
     override suspend fun refreshWorkLog(id: String) {
         val record = requireNotNull(dao.workLog(id))
@@ -410,41 +357,6 @@ class AndroidMobileTaskRepository(
 
     override fun observePendingCount(): Flow<Int> = outbox.observePendingCount()
 
-    /**
-     * 保存済みの要対応（#601）。Desktopが返した並びと意味をそのまま使う。
-     * 件数が `null` の間は「まだ読めていない」であり、0件とは違う。
-     */
-    override fun observeCachedAttention(): Flow<MobileAttentionSnapshot> =
-        combine(
-            dao.observeAttention(),
-            dao.observeAttentionState(),
-            dao.observeSyncState(),
-        ) { items, state, syncState ->
-            val serverId = syncState?.serverId
-            val current = state?.takeIf { it.serverId == serverId }
-            MobileAttentionSnapshot(
-                items = items
-                    .filter { it.serverId == serverId }
-                    .mapNotNull { cached ->
-                        runCatching { cached.toRow() }
-                            .onFailure { error ->
-                                Log.w(MOBILE_GATEWAY_LOG_TAG, "Discarding an invalid cached attention", error)
-                            }
-                            .getOrNull()
-                    },
-                counts = current?.let {
-                    MobileAttentionCountsDto(
-                        needsYou = it.needsYou,
-                        working = it.working,
-                        queued = it.queued,
-                    )
-                },
-                truncated = current?.truncated == true,
-                fetchedAt = current?.fetchedAt,
-                serverId = serverId ?: "",
-            )
-        }
-
     /** 保存済みのFeed投稿。Desktopが返した並び（新しい順）をそのまま使う。 */
     override fun observeCachedFeed(): Flow<List<MobileFeedPostDto>> =
         combine(dao.observeFeed(), dao.observeSyncState()) { posts, syncState ->
@@ -486,123 +398,10 @@ class AndroidMobileTaskRepository(
             draftId = draft.draftId,
             createdAt = draft.createdAt,
             provenance = draft.toTaskCreationProvenanceDto(),
-            description = draft.organizationDescription(),
-            checklistItems = draft.organizationChecklistItems(),
-            schedule = draft.organizationSchedule(),
-            plannedStartTime = draft.organization?.plannedStartTime,
-            plannedDurationMinutes = draft.organization?.plannedDurationMinutes,
             photos = photos,
         )
         photoStore.deletePhotos(photoNames)
         return taskId
-    }
-
-    override suspend fun enqueueCreateTasks(drafts: List<MobileCaptureDraft>, todayDate: LocalDate?): List<String> {
-        val photoNamesByDraftId = drafts.associate { draft ->
-            draft.draftId to draft.photos.map { it.fileName }
-        }
-        val photosByDraftId = photoNamesByDraftId.mapValues { (_, photoNames) ->
-            if (photoNames.isEmpty()) emptyList() else photoStore.encodePhotos(photoNames)
-        }
-        val ids = outbox.enqueueCreateTasks(drafts, todayDate, photosByDraftId)
-        photoStore.deletePhotos(photoNamesByDraftId.values.flatten())
-        return ids
-    }
-
-    override suspend fun organizeCapture(draft: MobileCaptureDraft): List<MobileCaptureOrganization> {
-        val directSettings = directCaptureSettings.settings()
-        if (directSettings.enabled) {
-            val themes = dao.themeCatalog().toMobileThemeCatalogState().themes
-                .sortedByDescending { it.id == draft.projectId }.take(200)
-            val photos = if (draft.photos.isEmpty()) emptyList() else photoStore.encodePhotos(draft.photos.map { it.fileName })
-            return organizeCaptureDirectly(directSettings, { directCaptureSettings.apiKey(directSettings) }, draft, themes, photos,
-                directCaptureHttpClient ?: AndroidDirectCaptureHttpClient())
-        }
-        val configuration = store.configuration()
-        val token = store.readToken()
-        require(configuration.origin.isNotBlank() && token != null) { "Desktopへ接続するとAI整理を利用できます。" }
-        val text = draft.originalText ?: draft.text
-        require(text.isNotBlank() && text.length <= 12000) { "AI整理は12000文字以内で利用できます。元の入力は保持しています。" }
-        val photoNames = draft.photos.map { it.fileName }
-        val photos = if (photoNames.isEmpty()) emptyList() else photoStore.encodePhotos(photoNames)
-        try {
-            fun requestBody(batch: Boolean, plannedTime: Boolean = false) = buildJsonObject {
-                    if (plannedTime) put("includePlannedTime", true)
-                    if (batch) put("maxTasks", 8)
-                    put("text", text)
-                    put("capturedAt", draft.speech?.capturedAt ?: draft.createdAt)
-                    put("timeZone", draft.speech?.timeZone ?: java.time.ZoneId.systemDefault().id)
-                    put("themeId", draft.projectId?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)
-                    if (photos.isNotEmpty()) {
-                        put("images", kotlinx.serialization.json.JsonArray(photos.map { photo ->
-                            buildJsonObject {
-                                put("reference_id", photo.referenceId)
-                                put("file_name", photo.fileName)
-                                put("media_type", photo.mediaType)
-                                put("data_base64", photo.dataBase64)
-                            }
-                        }))
-                    }
-                }.toString()
-            var response = gatewayRequest(configuration.origin, "/v1/capture-organization", "POST", requestBody(true, true), token)
-            fun rejectedNewFields() = response.status == 400 && runCatching {
-                json.parseToJsonElement(response.body).jsonObject["error"]?.jsonObject
-                    ?.get("code")?.jsonPrimitive?.content == "validation_failed"
-            }.getOrDefault(false)
-            // 写真付きは旧Desktopでは受理できない。写真を落として再送すると
-            // LLMが画像を見ない整理になるため、フォールバックせず案内する。
-            if (photos.isNotEmpty() && rejectedNewFields()) {
-                error("このDesktopは写真付きのAI整理に対応していません。Desktopを更新してから再試行してください。写真なしなら通常の追加はそのまま使えます。")
-            }
-            if (rejectedNewFields()) {
-                response = gatewayRequest(configuration.origin, "/v1/capture-organization", "POST", requestBody(true), token)
-            }
-            // Older Desktop versions reject the new field before inference. Retry their single-task contract only.
-            if (rejectedNewFields()) {
-                response = gatewayRequest(configuration.origin, "/v1/capture-organization", "POST", requestBody(false), token)
-            }
-            if (response.status !in 200..299) {
-                error(when (response.status) {
-                    401, 403 -> "AI整理の接続権限を確認してください。通常の追加はそのまま使えます。"
-                    404, 503 -> "DesktopのAI整理設定と接続を確認してください。通常の追加はそのまま使えます。"
-                    429 -> "AI整理が混み合っています。少し待って再試行してください。"
-                    else -> "AI整理できませんでした。Desktopの設定を確認して再試行してください。"
-                })
-            }
-            val root = json.parseToJsonElement(response.body).jsonObject
-            val data = root.getValue("data").jsonObject
-            val plannedTimeCapability = data["plannedTimeSupported"]
-            require(plannedTimeCapability == null || plannedTimeCapability == kotlinx.serialization.json.JsonPrimitive(true))
-            val plannedTimeSupported = plannedTimeCapability != null
-            val proposals = (data["proposals"]?.jsonArray ?: listOf(data.getValue("proposal")))
-                .map {
-                    val fields = it.jsonObject
-                    require("plannedTimeSupported" !in fields)
-                    if (plannedTimeSupported) {
-                        require("plannedStartTime" in fields && "plannedDurationMinutes" in fields)
-                        val time = fields.getValue("plannedStartTime")
-                        val duration = fields.getValue("plannedDurationMinutes")
-                        require(time == kotlinx.serialization.json.JsonNull || time.jsonPrimitive.isString)
-                        require(duration == kotlinx.serialization.json.JsonNull || !duration.jsonPrimitive.isString)
-                    } else {
-                        require("plannedStartTime" !in fields && "plannedDurationMinutes" !in fields)
-                    }
-                    json.decodeFromJsonElement(MobileCaptureOrganization.serializer(), it)
-                        .copy(plannedTimeSupported = plannedTimeSupported)
-                }
-            require(proposals.isNotEmpty() && proposals.size <= 8)
-            proposals.forEach(MobileCaptureOrganization::validate)
-            val sharedWarnings = data["warnings"]?.jsonArray.orEmpty().map { it.jsonPrimitive.content }
-            require(sharedWarnings.size <= 10 && sharedWarnings.all { it.isNotBlank() && it.length <= 500 })
-            return if (sharedWarnings.isEmpty()) proposals else listOf(
-                proposals.first().copy(warnings = (sharedWarnings + proposals.first().warnings).distinct().take(10)),
-            ) + proposals.drop(1)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            // Provider payloads and credentials must never reach the UI or logs.
-            throw IllegalStateException("AI整理を利用できません。DesktopのAI設定・接続を確認して再試行してください。元の入力は保持しています。")
-        }
     }
 
     override suspend fun undoCreateTask(taskId: String): MobileUndoCreateResult = outbox.undoCreate(taskId)
@@ -782,17 +581,7 @@ class AndroidMobileTaskRepository(
             require(response.status == 200) { "Task Work Proposal request failed with HTTP ${response.status}" }
             val decoded = MobileProposalContract.decodeList(response.body)
             if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-            val previousProposalIds = dao.taskWorkProposals(expectedServerId).mapTo(mutableSetOf()) { it.id }
-            val deliveries = decoded.data.proposals
-                .filterNot { it.id in previousProposalIds }
-                .map { dao.pendingProposalNotification(expectedServerId, it, decoded.meta.generatedAt) }
-            dao.replaceTaskWorkProposalsAndQueueNotifications(
-                serverId = expectedServerId,
-                proposals = decoded.data.proposals.map { it.toCache(decoded.meta) },
-                deliveries = deliveries,
-                observedAt = decoded.meta.generatedAt,
-            )
-            deliverPendingTaskNotifications()
+            dao.replaceTaskWorkProposals(decoded.data.proposals.map { it.toCache(decoded.meta) })
             true
         } catch (error: CancellationException) {
             throw error
@@ -914,201 +703,6 @@ class AndroidMobileTaskRepository(
                 proposal.id,
                 "Proposalを判断できませんでした。DesktopとTailscale接続を確認してください。",
             )
-        }
-    }
-
-    override suspend fun reviewTaskWork(
-        task: MobileTask,
-        action: String,
-        reviewNote: String?,
-    ): MobileHumanReviewResult {
-        require(action in setOf("accept", "return"))
-        val receipt = task.latestWorkReceipt
-            ?: return MobileHumanReviewResult.Conflict(task.id, "最新のWork Receiptを同期してから判断してください。")
-        if (task.version <= 0) {
-            return MobileHumanReviewResult.Conflict(task.id, "最新のTaskを同期してから判断してください。")
-        }
-        val normalizedNote = reviewNote?.trim()
-        if (action == "return" && normalizedNote.isNullOrEmpty()) {
-            return MobileHumanReviewResult.Conflict(task.id, "差し戻しまたは返信の内容を入力してください。")
-        }
-        val expectedServerId = dao.syncState()?.serverId
-            ?: return MobileHumanReviewResult.Unavailable(task.id, "Taskを同期してからWork Receiptを判断してください。")
-        val configuration = store.configuration()
-        val token = store.readToken()
-        if (configuration.origin.isBlank() || token == null) {
-            return MobileHumanReviewResult.Unavailable(task.id, "Desktopへ接続してからWork Receiptを判断してください。")
-        }
-        if (!configuration.canReviewWorkReceipts()) {
-            return MobileHumanReviewResult.Unavailable(
-                task.id,
-                "この権限ではWork Receiptを判断できません。Desktopで新しいコードを発行して再ペアリングしてください。",
-            )
-        }
-        return try {
-            val clientDeviceId = store.deviceId()
-            val commandId = humanReviewCommandId(
-                clientDeviceId = clientDeviceId,
-                serverId = expectedServerId,
-                taskId = task.id,
-                expectedTaskVersion = task.version,
-                receiptId = receipt.id,
-                action = action,
-                normalizedReviewNote = if (action == "return") normalizedNote else null,
-            )
-            val createdEnvelope = MobileTaskWorkReviewEnvelopeDto(
-                apiVersion = TASKEN_MOBILE_API_VERSION,
-                schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
-                requestId = UUID.randomUUID().toString(),
-                commandId = commandId,
-                idempotencyKey = commandId,
-                clientDeviceId = clientDeviceId,
-                issuedAt = Instant.now().toString(),
-                taskId = task.id,
-                expectedTaskVersion = task.version,
-                receiptId = receipt.id,
-                action = action,
-                reviewNote = if (action == "return") normalizedNote else null,
-            )
-            val pending = dao.pendingHumanReviewOrInsert(
-                PendingHumanReviewEntity(
-                    commandId = commandId,
-                    serverId = expectedServerId,
-                    taskId = task.id,
-                    envelopeJson = MobileHumanReviewContract.encode(createdEnvelope),
-                    createdAt = Instant.now().toString(),
-                ),
-            )
-            require(pending.serverId == expectedServerId && pending.taskId == task.id) {
-                "Pending Work Receipt review belongs to another Desktop or Task"
-            }
-            val envelope = MobileHumanReviewContract.decodeEnvelope(pending.envelopeJson)
-            require(
-                envelope.commandId == commandId &&
-                    envelope.idempotencyKey == commandId &&
-                    envelope.clientDeviceId == clientDeviceId &&
-                    envelope.taskId == task.id &&
-                    envelope.expectedTaskVersion == task.version &&
-                    envelope.receiptId == receipt.id &&
-                    envelope.action == action &&
-                    envelope.reviewNote == if (action == "return") normalizedNote else null
-            ) { "Pending Work Receipt review identity does not match the request" }
-            val response = gatewayRequest(
-                origin = configuration.origin,
-                path = "/v1/work-reviews",
-                method = "POST",
-                body = pending.envelopeJson,
-                accessToken = token,
-            )
-            if (response.status == 401) {
-                val confirmed = isConfirmedGatewayUnauthorized(response, expectedServerId)
-                if (confirmed) store.clearTokenIfMatches(token)
-                return MobileHumanReviewResult.Unavailable(
-                    task.id,
-                    if (confirmed) {
-                        "接続が失効しました。新しいコードで再接続してください。"
-                    } else {
-                        "Desktopへ接続できませんでした。接続を確認して再試行してください。"
-                    },
-                )
-            }
-            if (response.status == 409) {
-                val error = MobileTaskCommandContract.decodeError(response.body)
-                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-                require(error.error.code in setOf("work_review_task_conflict", "work_review_receipt_conflict")) {
-                    "Unexpected Work Receipt review conflict code: ${error.error.code}"
-                }
-                dao.deletePendingHumanReview(commandId)
-                runCatching { synchronize(configuration.origin, token, expectedServerId) }
-                return MobileHumanReviewResult.Conflict(task.id, error.error.message)
-            }
-            if (response.status == 403 || response.status == 400 || response.status == 404) {
-                val error = MobileTaskCommandContract.decodeError(response.body)
-                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-                dao.deletePendingHumanReview(commandId)
-                return MobileHumanReviewResult.Rejected(task.id, error.error.message)
-            }
-            require(response.status == 200) { "Task work review failed with HTTP ${response.status}" }
-            val decoded = MobileHumanReviewContract.decode(response.body)
-            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-            require(
-                decoded.data.commandId == commandId &&
-                    decoded.data.task.id == task.id &&
-                    decoded.data.receiptId == receipt.id &&
-                    decoded.data.action == action
-            ) { "Task work review identity does not match the request" }
-            dao.applyHumanReviewSuccess(commandId, decoded.data.task.toCache())
-            runCatching { synchronize(configuration.origin, token, expectedServerId) }
-                .onFailure { error -> Log.w(MOBILE_GATEWAY_LOG_TAG, "Task sync after Work Receipt review failed", error) }
-            MobileHumanReviewResult.Applied(task.id, action)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: MobileOutboxServerMismatchException) {
-            MobileHumanReviewResult.Unavailable(task.id, "接続先Desktopが変わりました。再接続してください。")
-        } catch (error: Exception) {
-            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Work Receipt review failed", error)
-            MobileHumanReviewResult.Unavailable(
-                task.id,
-                "Work Receiptを判断できませんでした。DesktopとTailscale接続を確認してください。",
-            )
-        }
-    }
-
-    override suspend fun refreshAttention(): Boolean {
-        val configuration = store.configuration()
-        val token = store.readToken()
-        if (configuration.origin.isBlank() || token == null) return false
-        return refreshAttention(configuration.origin, token)
-    }
-
-    private suspend fun refreshAttention(origin: String, accessToken: String): Boolean {
-        val expectedServerId = dao.syncState()?.serverId ?: return false
-        return try {
-            val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
-            val response = gatewayRequest(
-                origin = origin,
-                path = "/v1/attention?apiVersion=$TASKEN_MOBILE_API_VERSION" +
-                    "&schemaVersion=$TASKEN_MOBILE_SCHEMA_VERSION&requestId=$requestId&limit=$ATTENTION_PAGE_SIZE",
-                method = "GET",
-                body = null,
-                accessToken = accessToken,
-            )
-            if (response.status == 401) {
-                if (isConfirmedGatewayUnauthorized(response, expectedServerId)) {
-                    store.clearTokenIfMatches(accessToken)
-                }
-                return false
-            }
-            require(response.status == 200) { "Attention request failed with HTTP ${response.status}" }
-            val decoded = MobileAttentionContract.decode(response.body)
-            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-            // Desktopの並びをそのまま保存する。Android側で並べ替えない。
-            val items = decoded.data.attention.mapIndexed { position, item ->
-                runCatching { item.toCacheEntity(expectedServerId, position, decoded.meta.generatedAt) }
-                    .onFailure { error ->
-                        Log.w(MOBILE_GATEWAY_LOG_TAG, "Skipping an unreadable attention item", error)
-                    }
-                    .getOrNull()
-            }.filterNotNull()
-            dao.replaceAttention(
-                serverId = expectedServerId,
-                items = items,
-                state = AttentionStateEntity(
-                    serverId = expectedServerId,
-                    needsYou = decoded.data.counts.needsYou,
-                    working = decoded.data.counts.working,
-                    queued = decoded.data.counts.queued,
-                    truncated = decoded.data.truncated,
-                    generatedAt = decoded.meta.generatedAt,
-                    fetchedAt = Instant.now().toString(),
-                ),
-            )
-            true
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile attention refresh failed", error)
-            false
         }
     }
 
@@ -1404,456 +998,7 @@ class AndroidMobileTaskRepository(
         }
     }
 
-    /**
-     * agentの質問への短い返答（#601）。
-     *
-     * 送信前にpendingへ保存し、同じcommandIdで再送する。応答を失っても回答は増えない。
-     * 競合（回答済み・Task更新）はローカルのpendingを捨て、要対応を取り直して収束させる。
-     */
-    override suspend fun replyToAgent(item: AttentionRow, choiceId: String?, body: String): MobileAgentReplyResult {
-        val attentionId = item.attentionId
-        val taskId = item.taskId ?: return MobileAgentReplyResult.Unavailable(attentionId, "Taskが同期されていません。")
-        val questionId = item.requestId
-            ?: return MobileAgentReplyResult.Rejected(attentionId, "この質問には回答できません。")
-        val taskVersion = item.taskVersion
-            ?: return MobileAgentReplyResult.Rejected(attentionId, "Taskを同期してから回答してください。")
-        val replyBody = body.trim()
-        if (replyBody.isEmpty()) return MobileAgentReplyResult.Rejected(attentionId, "回答を入力してください。")
-        if (!item.canReply) return MobileAgentReplyResult.Rejected(attentionId, "この判断には回答できません。")
-        val expectedServerId = dao.syncState()?.serverId
-            ?: return MobileAgentReplyResult.Unavailable(attentionId, "Taskを同期してから回答してください。")
-        val configuration = store.configuration()
-        val token = store.readToken()
-        if (configuration.origin.isBlank() || token == null) {
-            return MobileAgentReplyResult.Unavailable(attentionId, "Desktopへ接続してから回答してください。")
-        }
-        if (!configuration.canReplyToAgent()) {
-            return MobileAgentReplyResult.Unavailable(
-                attentionId,
-                "この権限では回答できません。Desktopで新しいコードを発行して再ペアリングしてください。",
-            )
-        }
-        return try {
-            val clientDeviceId = store.deviceId()
-            val commandId = agentReplyCommandId(
-                clientDeviceId = clientDeviceId,
-                serverId = expectedServerId,
-                taskId = taskId,
-                questionId = questionId,
-                expectedTaskVersion = taskVersion,
-                normalizedBody = replyBody,
-                choiceId = choiceId,
-            )
-            val createdEnvelope = MobileAgentReplyEnvelopeDto(
-                apiVersion = TASKEN_MOBILE_API_VERSION,
-                schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
-                requestId = UUID.randomUUID().toString(),
-                commandId = commandId,
-                idempotencyKey = commandId,
-                clientDeviceId = clientDeviceId,
-                issuedAt = Instant.now().toString(),
-                taskId = taskId,
-                questionId = questionId,
-                body = replyBody,
-                choiceId = choiceId,
-                expectedTaskVersion = taskVersion,
-            )
-            val pending = dao.pendingAgentReplyOrInsert(
-                PendingAgentReplyEntity(
-                    commandId = commandId,
-                    serverId = expectedServerId,
-                    taskId = taskId,
-                    questionId = questionId,
-                    attentionId = attentionId,
-                    envelopeJson = MobileAgentReplyContract.encode(createdEnvelope),
-                    createdAt = Instant.now().toString(),
-                ),
-            )
-            require(
-                pending.serverId == expectedServerId &&
-                    pending.taskId == taskId &&
-                    pending.questionId == questionId &&
-                    pending.attentionId == attentionId
-            ) { "Pending agent reply belongs to another Desktop or question" }
-            val envelope = MobileAgentReplyContract.decodeEnvelope(pending.envelopeJson)
-            require(
-                envelope.commandId == commandId &&
-                    envelope.idempotencyKey == commandId &&
-                    envelope.clientDeviceId == clientDeviceId &&
-                    envelope.taskId == taskId &&
-                    envelope.questionId == questionId &&
-                    envelope.expectedTaskVersion == taskVersion &&
-                    envelope.body == replyBody &&
-                    envelope.choiceId == choiceId
-            ) { "Pending agent reply identity does not match the request" }
-            val response = gatewayRequest(
-                origin = configuration.origin,
-                path = "/v1/agent-replies",
-                method = "POST",
-                body = pending.envelopeJson,
-                accessToken = token,
-            )
-            if (response.status == 401) {
-                val confirmed = isConfirmedGatewayUnauthorized(response, expectedServerId)
-                if (confirmed) store.clearTokenIfMatches(token)
-                return MobileAgentReplyResult.Unavailable(
-                    attentionId,
-                    if (confirmed) {
-                        "接続が失効しました。新しいコードで再接続してください。"
-                    } else {
-                        "Desktopへ接続できませんでした。接続を確認して再試行してください。"
-                    },
-                )
-            }
-            if (response.status == 409) {
-                val error = MobileTaskCommandContract.decodeError(response.body)
-                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-                require(error.error.code == "entity_conflict") {
-                    "Unexpected agent reply conflict code: ${error.error.code}"
-                }
-                // 回答済みか、Taskが動いたか。どちらも要対応を取り直せば収束する。
-                dao.deletePendingAgentReply(commandId)
-                runCatching { refreshAttention(configuration.origin, token) }
-                    .onFailure { error -> Log.w(MOBILE_GATEWAY_LOG_TAG, "Attention refresh after conflict failed", error) }
-                MobileAgentReplyResult.Conflict(attentionId, error.error.message)
-            } else if (response.status == 403 || response.status == 400 || response.status == 404) {
-                val error = MobileTaskCommandContract.decodeError(response.body)
-                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-                dao.deletePendingAgentReply(commandId)
-                MobileAgentReplyResult.Rejected(attentionId, error.error.message)
-            } else {
-                require(response.status == 200) { "Agent reply failed with HTTP ${response.status}" }
-                val decoded = MobileAgentReplyContract.decode(response.body)
-                if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-                require(
-                    decoded.data.commandId == commandId &&
-                        decoded.data.taskId == taskId &&
-                        decoded.data.questionId == questionId
-                ) { "Agent reply identity does not match the request" }
-                dao.applyAgentReplySuccess(commandId, expectedServerId, attentionId)
-                runCatching { refreshAttention(configuration.origin, token) }
-                    .onFailure { error -> Log.w(MOBILE_GATEWAY_LOG_TAG, "Attention refresh after reply failed", error) }
-                MobileAgentReplyResult.Applied(attentionId, taskId, decoded.data.displayState)
-            }
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: MobileOutboxServerMismatchException) {
-            MobileAgentReplyResult.Unavailable(attentionId, "接続先Desktopが変わりました。再接続してください。")
-        } catch (error: Exception) {
-            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile agent reply failed", error)
-            MobileAgentReplyResult.Unavailable(
-                attentionId,
-                "回答を送れませんでした。DesktopとTailscale接続を確認してください。",
-            )
-        }
-    }
-
-    override suspend fun setTaskAiReady(task: MobileTask, enabled: Boolean): MobileAiReadyResult {
-        val currentReady = task.workState == "ready_for_agent"
-        if (task.state in setOf("done", "cancelled") || task.workState !in setOf(null, "not_delegated", "ready_for_agent")) {
-            return MobileAiReadyResult.Conflict(
-                task.id,
-                "AI Readyは未着手のTaskだけ変更できます。現在の作業状態を確認してください。",
-            )
-        }
-        if (currentReady == enabled) return MobileAiReadyResult.Applied(task.id, enabled)
-        if (task.version <= 0 || task.pending || task.conflict != null) {
-            return MobileAiReadyResult.Conflict(task.id, "Taskを同期してからAI Readyを変更してください。")
-        }
-        val expectedServerId = dao.syncState()?.serverId
-            ?: return MobileAiReadyResult.Unavailable(task.id, "Taskを同期してからAI Readyを変更してください。")
-        val configuration = store.configuration()
-        val token = store.readToken()
-        if (configuration.origin.isBlank() || token == null) {
-            return MobileAiReadyResult.Unavailable(task.id, "Desktopへ接続してからAI Readyを変更してください。")
-        }
-        if (!configuration.paired || "mobile:task-write" !in configuration.scopes) {
-            return MobileAiReadyResult.Unavailable(
-                task.id,
-                "この端末にはTask更新の権限がありません。Desktopで再ペアリングしてください。",
-            )
-        }
-        return try {
-            val commandId = UUID.randomUUID().toString()
-            val envelope = MobileTaskUpdateEnvelopeDto(
-                apiVersion = TASKEN_MOBILE_API_VERSION,
-                schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
-                requestId = UUID.randomUUID().toString(),
-                commandId = commandId,
-                idempotencyKey = commandId,
-                clientDeviceId = store.deviceId(),
-                issuedAt = Instant.now().toString(),
-                command = MobileTaskUpdateCommandDto(
-                    name = "UpdateTask",
-                    taskId = task.id,
-                    expectedVersion = task.version,
-                    changes = aiReadyPatch(enabled),
-                    base = aiReadyPatch(currentReady),
-                ),
-            )
-            val response = gatewayRequest(
-                origin = configuration.origin,
-                path = "/v1/commands",
-                method = "POST",
-                body = MobileTaskCommandContract.encode(envelope),
-                accessToken = token,
-            )
-            if (response.status == 401) {
-                val confirmed = isConfirmedGatewayUnauthorized(response, expectedServerId)
-                if (confirmed) store.clearTokenIfMatches(token)
-                return MobileAiReadyResult.Unavailable(
-                    task.id,
-                    if (confirmed) {
-                        "ペアリングが失効しました。Desktopで新しいコードを発行して再ペアリングしてください。"
-                    } else {
-                        "Desktopへ接続できませんでした。接続を確認して再試行してください。"
-                    },
-                )
-            }
-            if (response.status == 409) {
-                val error = MobileTaskCommandContract.decodeError(response.body)
-                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-                require(error.error.code in setOf("version_conflict", "task_state_conflict")) {
-                    "Unexpected AI Ready conflict code: ${error.error.code}"
-                }
-                runCatching { synchronize(configuration.origin, token, expectedServerId) }
-                return MobileAiReadyResult.Conflict(task.id, error.error.message)
-            }
-            if (response.status == 400 || response.status == 403 || response.status == 404) {
-                val error = MobileTaskCommandContract.decodeError(response.body)
-                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-                return MobileAiReadyResult.Rejected(task.id, error.error.message)
-            }
-            require(response.status == 200) { "AI Ready update failed with HTTP ${response.status}" }
-            val decoded = MobileTaskCommandContract.decodeReceipt(response.body)
-            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-            require(decoded.data.commandId == commandId && decoded.data.task.id == task.id) {
-                "AI Ready response identity does not match the request"
-            }
-            dao.applyTaskCommandSuccess(decoded.data.task.toCache())
-            runCatching { synchronize(configuration.origin, token, expectedServerId) }
-                .onFailure { error -> Log.w(MOBILE_GATEWAY_LOG_TAG, "Task sync after AI Ready update failed", error) }
-            MobileAiReadyResult.Applied(task.id, enabled)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: MobileOutboxServerMismatchException) {
-            MobileAiReadyResult.Unavailable(task.id, "接続先のDesktopが変わりました。再接続してください。")
-        } catch (error: Exception) {
-            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile AI Ready update failed", error)
-            MobileAiReadyResult.Unavailable(
-                task.id,
-                "AI Readyを変更できませんでした。DesktopとTailscale接続を確認してください。",
-            )
-        }
-    }
-
-    override suspend fun previewTaskContext(task: MobileTask): MobileTaskContextPreviewResult {
-        if (task.version <= 0) return MobileTaskContextPreviewResult.Unavailable(
-            task.id,
-            "最新のTaskを同期してからContext Previewを開いてください。",
-        )
-        val expectedServerId = dao.syncState()?.serverId
-            ?: return MobileTaskContextPreviewResult.Unavailable(task.id, "Taskを同期してからContext Previewを開いてください。")
-        val configuration = store.configuration()
-        val token = store.readToken()
-        if (configuration.origin.isBlank() || token == null) {
-            return MobileTaskContextPreviewResult.Unavailable(task.id, "Desktopへ接続してからContext Previewを開いてください。")
-        }
-        if (!configuration.canReadTaskContext()) {
-            return MobileTaskContextPreviewResult.Unavailable(
-                task.id,
-                "この端末にはContext Previewの権限がありません。Desktopで新しいコードを発行して再ペアリングしてください。",
-            )
-        }
-        return try {
-            val requestId = URLEncoder.encode(UUID.randomUUID().toString(), Charsets.UTF_8.name())
-            val taskId = URLEncoder.encode(task.id, Charsets.UTF_8.name())
-            val response = gatewayRequest(
-                origin = configuration.origin,
-                path = "/v1/task-context-preview?apiVersion=$TASKEN_MOBILE_API_VERSION" +
-                    "&schemaVersion=$TASKEN_MOBILE_SCHEMA_VERSION&requestId=$requestId&taskId=$taskId",
-                method = "GET",
-                body = null,
-                accessToken = token,
-            )
-            if (response.status == 401) {
-                val confirmed = isConfirmedGatewayUnauthorized(response, expectedServerId)
-                if (confirmed) store.clearTokenIfMatches(token)
-                return MobileTaskContextPreviewResult.Unavailable(
-                    task.id,
-                    if (confirmed) "ペアリングが失効しました。Desktopで新しいコードを発行して再ペアリングしてください。"
-                    else "Desktopへ接続できません。接続を確認して再試行してください。",
-                )
-            }
-            if (response.status == 403) return MobileTaskContextPreviewResult.Unavailable(
-                task.id,
-                "この端末にはContext Previewの権限がありません。Desktopで新しいコードを発行して再ペアリングしてください。",
-            )
-            if (response.status == 404) return MobileTaskContextPreviewResult.Unavailable(
-                task.id,
-                "Context Previewを利用できません。Desktopを更新して再試行してください。",
-            )
-            require(response.status == 200) { "Task context preview failed with HTTP ${response.status}" }
-            val decoded = MobileTaskDelegationContract.decodePreview(response.body)
-            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-            val preview = MobileTaskDelegationContract.toPreview(decoded)
-            require(preview.taskId == task.id && preview.taskVersion == task.version) {
-                "Task context preview identity does not match the selected Task"
-            }
-            MobileTaskContextPreviewResult.Available(preview)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: MobileOutboxServerMismatchException) {
-            MobileTaskContextPreviewResult.Unavailable(task.id, "接続先のDesktopが変わりました。再ペアリングして再試行してください。")
-        } catch (error: Exception) {
-            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Task context preview failed", error)
-            MobileTaskContextPreviewResult.Unavailable(
-                task.id,
-                "Context Previewを取得できませんでした。Desktopとの接続を確認して再試行してください。",
-            )
-        }
-    }
-
-    override suspend fun delegateTask(
-        task: MobileTask,
-        preview: MobileTaskContextPreview,
-        expectedResult: String?,
-        instruction: String?,
-    ): MobileTaskDelegationResult {
-        val normalizedResult = normalizeDelegationInput(expectedResult)
-        val normalizedInstruction = normalizeDelegationInput(instruction)
-        if (preview.taskId != task.id || preview.taskVersion != task.version || preview.fingerprint.isBlank()) {
-            return MobileTaskDelegationResult.Conflict(task.id, "Context Previewが古くなりました。内容を確認し直してから委任してください。")
-        }
-        val expectedServerId = dao.syncState()?.serverId
-            ?: return MobileTaskDelegationResult.Unavailable(task.id, "Taskを同期してから委任してください。")
-        val configuration = store.configuration()
-        val token = store.readToken()
-        if (configuration.origin.isBlank() || token == null) {
-            return MobileTaskDelegationResult.Unavailable(task.id, "Desktopへ接続してから委任してください。")
-        }
-        if (!configuration.paired || "mobile:task-write" !in configuration.scopes) {
-            return MobileTaskDelegationResult.Unavailable(
-                task.id,
-                "この端末には委任権限がありません。Desktopで新しいコードを発行して再ペアリングしてください。",
-            )
-        }
-        return try {
-            val actorId = store.deviceId()
-            val commandId = taskDelegationCommandId(
-                clientDeviceId = actorId,
-                serverId = expectedServerId,
-                taskId = task.id,
-                expectedTaskVersion = task.version,
-                fingerprint = preview.fingerprint,
-                expectedResult = normalizedResult,
-                instruction = normalizedInstruction,
-            )
-            val created = MobileTaskDelegationEnvelopeDto(
-                apiVersion = TASKEN_MOBILE_API_VERSION,
-                schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
-                requestId = UUID.randomUUID().toString(),
-                commandId = commandId,
-                taskId = task.id,
-                expectedTaskVersion = task.version,
-                agent = "hermes",
-                expectedResult = normalizedResult,
-                instruction = normalizedInstruction,
-                issuedAt = Instant.now().toString(),
-                actorId = actorId,
-                contextFingerprint = preview.fingerprint,
-            )
-            val pending = dao.pendingTaskDelegationOrInsert(
-                PendingTaskDelegationEntity(
-                    commandId = commandId,
-                    serverId = expectedServerId,
-                    taskId = task.id,
-                    contextFingerprint = preview.fingerprint,
-                    envelopeJson = MobileTaskDelegationContract.encode(created),
-                    createdAt = Instant.now().toString(),
-                ),
-            )
-            require(
-                pending.serverId == expectedServerId && pending.taskId == task.id &&
-                    pending.contextFingerprint == preview.fingerprint
-            ) { "Pending delegation belongs to another Desktop, Task, or Context Preview" }
-            pending.successJson?.let { saved ->
-                val replay = MobileTaskDelegationContract.decodeDelegation(saved)
-                require(replay.data.commandId == commandId && replay.data.task.id == task.id)
-                return MobileTaskDelegationResult.Applied(task.id, replay.data.safeShare)
-            }
-            val envelope = MobileTaskDelegationContract.decodeEnvelope(pending.envelopeJson)
-            require(
-                envelope.commandId == commandId && envelope.taskId == task.id &&
-                    envelope.expectedTaskVersion == task.version && envelope.agent == "hermes" &&
-                    envelope.contextFingerprint == preview.fingerprint && envelope.actorId == actorId
-            ) { "Pending delegation identity does not match the request" }
-            val response = gatewayRequest(
-                origin = configuration.origin,
-                path = "/v1/task-delegations",
-                method = "POST",
-                body = pending.envelopeJson,
-                accessToken = token,
-            )
-            if (response.status == 401) {
-                val confirmed = isConfirmedGatewayUnauthorized(response, expectedServerId)
-                if (confirmed) store.clearTokenIfMatches(token)
-                return MobileTaskDelegationResult.Unavailable(
-                    task.id,
-                    if (confirmed) "ペアリングが失効しました。Desktopで新しいコードを発行して再ペアリングしてください。"
-                    else "Desktopへ接続できません。接続を確認して再試行してください。",
-                )
-            }
-            if (response.status == 409) {
-                val error = MobileTaskCommandContract.decodeError(response.body)
-                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-                return MobileTaskDelegationResult.Conflict(
-                    task.id,
-                    when (error.error.code) {
-                        "context_stale" -> "Context Previewが古くなりました。もう一度内容を確認してから委任してください。"
-                        "version_conflict" -> "Taskが更新されました。Context Previewを確認し直して再試行してください。"
-                        "idempotency_conflict" -> "同じ委任IDに別の内容が紐付いています。入力を確認してから再試行してください。"
-                        else -> error.error.message
-                    },
-                )
-            }
-            if (response.status == 400 || response.status == 403 || response.status == 404) {
-                val error = MobileTaskCommandContract.decodeError(response.body)
-                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-                return MobileTaskDelegationResult.Rejected(task.id, error.error.message)
-            }
-            require(response.status == 200) { "Task delegation failed with HTTP ${response.status}" }
-            val decoded = MobileTaskDelegationContract.decodeDelegation(response.body)
-            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-            require(decoded.data.commandId == commandId && decoded.data.task.id == task.id) {
-                "Task delegation response identity does not match the request"
-            }
-            dao.applyTaskDelegationSuccess(commandId, decoded.data.task.toCache(), response.body)
-            MobileTaskDelegationResult.Applied(task.id, decoded.data.safeShare)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: MobileOutboxServerMismatchException) {
-            MobileTaskDelegationResult.Unavailable(task.id, "接続先のDesktopが変わりました。再ペアリングして再試行してください。")
-        } catch (error: Exception) {
-            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Task delegation failed", error)
-            MobileTaskDelegationResult.Unavailable(
-                task.id,
-                "委任を確認できませんでした。入力は保持されています。Desktopとの接続を確認して再試行してください。",
-            )
-        }
-    }
-
     internal suspend fun recoverInterruptedOutbox(): Int = outbox.recoverInterruptedSending()
-
-    internal suspend fun deliverPendingTaskNotifications() {
-        try {
-            MobileTaskNotifications.drain(context.applicationContext, dao)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            Log.w(MOBILE_GATEWAY_LOG_TAG, "Task notification delivery failed; sync remains successful", error)
-        }
-    }
 
     internal suspend fun synchronizeIfPaired(): Boolean {
         val configuration = store.configuration()
@@ -1981,7 +1126,6 @@ class AndroidMobileTaskRepository(
                     sendMobileCommand(configuration.origin, token, serverId, envelope)
                 }
                 synchronize(configuration.origin, token, serverId)
-                deliverPendingTaskNotifications()
                 try {
                     refreshThemes(configuration.origin, token)
                 } catch (error: Exception) {
@@ -2284,6 +1428,7 @@ class AndroidMobileTaskRepository(
             val commandName = Json.parseToJsonElement(envelopeJson)
                 .jsonObject.getValue("command").jsonObject.getValue("name").jsonPrimitive.content
             val captureCommand = commandName in setOf("CreateCapture", "DeleteCapture")
+            // AdoptWorkLogOrganization は、前の版が送信待ちに残した命令だけ（#755 束9a で新しくは作らない）。
             val workLogCommand = commandName in setOf("RecordWorkLog", "DeleteWorkLog", "RestoreWorkLog", "AdoptWorkLogOrganization")
             val response = gatewayRequest(
                 origin = origin,
@@ -2387,7 +1532,7 @@ class AndroidMobileTaskRepository(
         try {
             connection.requestMethod = method
             connection.connectTimeout = REQUEST_TIMEOUT_MS
-            connection.readTimeout = if (path in setOf("/v1/capture-organization", "/v1/work-log-organization")) 35_000 else REQUEST_TIMEOUT_MS
+            connection.readTimeout = REQUEST_TIMEOUT_MS
             connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept", "application/json")
             connection.setRequestProperty("X-Tasken-Ai-Origin", "1")
