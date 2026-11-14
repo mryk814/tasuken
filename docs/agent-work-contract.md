@@ -303,7 +303,7 @@ Desktopと同じ導出を、Android用のread modelとして渡す。**Android�
   版が古い場合と回答済みの場合は `entity_conflict`（409）を返し、**成功として返さない**。
 - 応答を失った再送は、同じ `commandId` なら同じ結果、別 `commandId` でも同じ内容なら `no_change` を返し、回答を増やさない。
 - 回答Receiptの `provenance.reported_via` は呼び出し元のsource（`mobile` / `main_ui` など）を記録し、Desktopからの回答と取り違えない。
-- mobile向けの射影は `src/main/gateway/mobile/attentionProjection.ts`、Core側の読み出しは `taskenCoreRuntime.ts` の `readAttention` / `replyToAgentRequest`。
+- mobile向けの射影（`attentionProjection.ts`）と、Core側の読み出し・回答の口（`readAttention` / `replyToAgentRequest`）は、#755 束9b で外した。
 
 #### Androidの画面（#601）
 
@@ -380,8 +380,6 @@ Foldの目視は `output/android-attention/fold-attention-detail.png`（2076×21
 | `src/main/services/applicationCommandService.ts`        | Taskの現在参照の更新、Receiptへの引き継ぎ、質問の有効性確認、人の返答                             |
 | `src/main/repositories/domain.mjs`                      | 保存時の形式検証（UUID・範囲・`receipt_kind`）                                                    |
 | `src/main/mcp/server.mjs`                               | agent向けの入力schema                                                                             |
-| `src/main/gateway/mobile/attentionProjection.ts`        | 要対応のmobile向け射影（上限・truncated・件数）（#601）                                           |
-| `src/main/composition/taskenCoreRuntime.ts`             | 要対応の読み出しと回答の受理（`readAttention` / `replyToAgentRequest`）                           |
 | Android `MobileAttentionDto.kt` / `MobileLocalStore.kt` | 要対応の契約・キャッシュ・回答の保留（#601）                                                      |
 | Android `MainActivity.kt` / `TodayViewModel`            | 要対応の一覧と回答欄。表示と入力だけを持つ（#601）                                                |
 | Desktop UI / Android                                    | read modelを表示するだけ。**独自の状態導出を増やさない**                                          |
