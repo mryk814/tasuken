@@ -62,6 +62,7 @@
   --iro-kaki-strong:       #9c4f26; /* 紙の上で 5.2、白い字が 5.9 */
   --iro-enji:              #8A2F3B; /* えんじ。紙の上で 7.3 */
   --iro-yamabuki-cha:      #7d6312; /* 山吹茶（道具の一色。決まり、2026-11-14）。紙の上で 5.1、白い字が 5.7 */
+  --iro-nando:             #26758f; /* 納戸色（道具の一色。決まり、2026-11-14）。紙の上で 4.6 */
 
   /* 例: :root { --color-tool: var(--iro-enji); --color-tool-strong: var(--iro-enji); } */
 }
