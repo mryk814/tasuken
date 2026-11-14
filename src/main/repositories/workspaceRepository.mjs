@@ -18,7 +18,7 @@ import {
 import { DATA_HEALTH_STATE_SCHEMA, normalizeDataHealthState } from "../../shared/dataHealth.mjs";
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { migratePublishedFeedNotes } from "./feedPostMigration.mjs";
-import { assertSyncPacket } from "./syncPacketContract.mjs";
+import { assertSyncPacket, isRetiredSyncPacket } from "./syncPacketContract.mjs";
 import {
   isPersonalDefaultTheme,
   isThemeDeletable,
@@ -1225,6 +1225,37 @@ export class WorkspaceDatabase {
    * 常設の既定Theme「個人業務」を1件だけ用意する（#282）。
    * 起動のたびに呼ばれるので、存在すれば何もしない。既存データは書き換えない。
    */
+  /**
+   * 同じAIの同じ会話のAIの作業（消した物も含む）。同じ作業を2回数えないための判定に使う（#751）。
+   * 種類の全件を読まずに、会話のIDで絞る。
+   */
+  listAgentWorkRecordsForSession(clientKind, sourceSessionId) {
+    return this.db
+      .prepare(
+        `SELECT * FROM entities
+         WHERE entity_type = 'agent_work_record'
+           AND json_extract(data_json, '$.client_kind') = ?
+           AND json_extract(data_json, '$.source_session_id') = ?
+         ORDER BY json_extract(data_json, '$.ended_at')`,
+      )
+      .all(String(clientKind), String(sourceSessionId))
+      .map(parseRow);
+  }
+
+  /** 書き手がsince以降に書いたAIの作業の件数（消した物も含む）。1日の上限に使う。 */
+  countAgentWorkRecordsWrittenSince(writtenBy, since) {
+    return Number(
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS count FROM entities
+           WHERE entity_type = 'agent_work_record'
+             AND json_extract(data_json, '$.written_by') = ?
+             AND created_at >= ?`,
+        )
+        .get(String(writtenBy), String(since))?.count || 0,
+    );
+  }
+
   ensurePersonalDefaultTheme() {
     const plan = planPersonalDefaultTheme(this.list("theme"), now());
     if (!plan.create) return null;
@@ -1397,6 +1428,10 @@ export class WorkspaceDatabase {
         // better-sqlite3のtransactionは入れ子でsavepointになるので、復元もこのtransactionに入る。
         restore: (type, id) => this.restore(type, id),
         get: (type, id, includeDeleted = false) => this.get(type, id, includeDeleted),
+        listAgentWorkRecordsForSession: (clientKind, sourceSessionId) =>
+          this.listAgentWorkRecordsForSession(clientKind, sourceSessionId),
+        countAgentWorkRecordsWrittenSince: (writtenBy, since) =>
+          this.countAgentWorkRecordsWrittenSince(writtenBy, since),
         save: (type, entity, options = {}) => this.saveWithinTransaction(type, entity, options),
         saveMany: (operations) =>
           operations.map((operation) => {
@@ -1427,6 +1462,10 @@ export class WorkspaceDatabase {
     const existing = dedupedExisting || this.get(type, id, true);
     if (type === "work_receipt" && existing)
       throw new Error("Work Receiptはappend-onlyです。既存Receiptを更新できません。");
+    // AIの作業は1回だけ書き、書き換えない（#751）。直したい時は新しい1件を書く。
+    // 消した印と戻すのはremove・restoreが別の道で付け外しする。
+    if (type === "agent_work_record" && existing)
+      throw new Error("AIの作業の記録は書き換えられません。直す時は新しい1件を書いてください。");
     const persistedId = existing?.id || id;
     const canAggregateActivity =
       type === "change_event" &&
@@ -2690,6 +2729,9 @@ export class WorkspaceDatabase {
 
   applySyncPacket(packet) {
     assertSyncPacket(packet, this.workspaceId);
+    // 空の差分（retired）。移行で中身を抜いた送信済みの差分で、連番を埋めるためだけにある（#751）。
+    // 中身が無いので何も書かずに受け、呼び手が連番を進める。記録の削除は各端末の移行が手元で行う。
+    if (isRetiredSyncPacket(packet)) return { status: "retired", entity: null };
     const transaction = this.db.transaction(() => {
       const type = packet.entityType;
       const id = String(packet.entityId);

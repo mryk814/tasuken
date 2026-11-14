@@ -33,6 +33,7 @@ export const WORKSPACE_ARRAY_KEYS: (keyof WorkspaceData)[] = [
   "repository_contexts",
   "working_copies",
   "agent_sessions",
+  "agent_work_records",
   "sketches",
   "work_receipts",
   "habits",

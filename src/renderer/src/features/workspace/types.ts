@@ -290,6 +290,8 @@ export interface WorkspaceData {
   repository_contexts?: BaseRecord[];
   working_copies: BaseRecord[];
   agent_sessions: BaseRecord[];
+  /** AIの作業（#751）。画面で読むのは後の変更。 */
+  agent_work_records: BaseRecord[];
   work_receipts: WorkReceipt[];
   waitings: BaseRecord[];
   plan_nodes: BaseRecord[];

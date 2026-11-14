@@ -411,6 +411,20 @@ export {
 export { taskAgentState, type TaskAgentState } from "./agentReadiness.ts";
 export { aiTaskStartRequestSchema, type AiTaskStartRequest } from "./aiTaskStart.ts";
 export {
+  AGENT_WORK_BASES,
+  AGENT_WORK_RECORD_LIMITS,
+  AGENT_WORK_STATUSES,
+  agentWorkRecordFieldsSchema,
+  agentWorkRecordPublicSchema,
+  normalizeAgentWorkRecord,
+  recordAgentWorkRequestSchema,
+  recordAgentWorkResponseSchema,
+  type AgentWorkRecordFields,
+  type AgentWorkRecordPublic,
+  type RecordAgentWorkRequest,
+  type RecordAgentWorkResponse,
+} from "./agentWorkRecord.ts";
+export {
   PROPOSALS_PROFILE_CONTENT_KINDS,
   PROPOSALS_PROFILE_REPOSITORY_TASK_KINDS,
 } from "./proposalsProfile.ts";

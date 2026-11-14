@@ -211,6 +211,20 @@ const definitions = /** @type {const} */ ([
     requiredFields: ["started_at", "status", "client_kind"],
   },
   {
+    // AI の作業（#751）。AI が自分の 1 回の作業を要約した 1 件。1 回だけ書き、書き換えない。
+    // 来歴（change_event）を取らない（保存 1 回 = 同期の差分 1 つ）。欄は contracts/task/agentWorkRecord.ts。
+    type: "agent_work_record",
+    collectionKey: "agent_work_records",
+    domainCollectionKey: "agent_work_records",
+    label: "AI work",
+    iconKey: "robot",
+    projection: "canonical",
+    themePolicy: "none",
+    themeField: null,
+    requiredFields: ["ended_at", "client_kind", "summary", "status", "basis", "written_by"],
+    changeHistory: false,
+  },
+  {
     type: "capture_entry",
     collectionKey: "capture_entrys",
     domainCollectionKey: "capture_entries",
@@ -455,8 +469,8 @@ function parseUpdatePayload(type, payload) {
 /** @type {readonly EntityDefinition[]} */
 export const entityDefinitions = Object.freeze(
   definitions.map(
-    /** @param {{ type: RegistryEntityType, collectionKey: string, domainCollectionKey?: string | null, label: string, iconKey: string, projection: "legacy" | "canonical", themePolicy: "none" | "optional" | "required", themeField: string | null, legacyThemeFields?: readonly string[], requiredFields: readonly string[] }} definition */
-    (definition) =>
+    /** @param {{ type: RegistryEntityType, collectionKey: string, domainCollectionKey?: string | null, label: string, iconKey: string, projection: "legacy" | "canonical", themePolicy: "none" | "optional" | "required", themeField: string | null, legacyThemeFields?: readonly string[], requiredFields: readonly string[], changeHistory?: boolean }} definition */
+    ({ changeHistory, ...definition }) =>
       Object.freeze({
         ...definition,
         requiredFields: Object.freeze([...definition.requiredFields]),
@@ -471,7 +485,11 @@ export const entityDefinitions = Object.freeze(
           themeField: definition.themeField,
           legacyThemeFields: Object.freeze([...(definition.legacyThemeFields || [])]),
         }),
-        activityPolicy: Object.freeze({ tracked: true, projection: definition.projection }),
+        // tracked: false の種類は来歴（change_event）を作らない。repository が保存の時に断る。
+        activityPolicy: Object.freeze({
+          tracked: changeHistory !== false,
+          projection: definition.projection,
+        }),
       }),
   ),
 );
@@ -557,6 +575,14 @@ export function domainCollectionKeyForEntityType(type) {
 /** @param {RegistryEntityType} type @returns {readonly string[]} */
 export function requiredFieldsForEntityType(type) {
   return entityDefinition(type).requiredFields;
+}
+
+/**
+ * その種類の変更が来歴（change_event）を持つか。知らない種類は持つとみなす（来歴の側の検査に任せる）。
+ * @param {string} type @returns {boolean}
+ */
+export function entityKeepsChangeHistory(type) {
+  return definitionsByType.get(type)?.activityPolicy.tracked !== false;
 }
 
 /** @param {RegistryEntityType} type @returns {string | null} */

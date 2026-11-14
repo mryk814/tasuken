@@ -132,17 +132,19 @@ export function buildBootstrapWorkspace() {
     ...metadata(note.source || "legacy"),
   }));
 
-  const links = initialNotes.filter((note) => note.url).map((note) => ({
-    id: id("link", note.id),
-    title: note.title,
-    url: note.url,
-    link_type: "other",
-    theme_id: note.theme || null,
-    item_id: null,
-    note_id: id("note", note.id),
-    description: note.body || "",
-    ...metadata("legacy"),
-  }));
+  const links = initialNotes
+    .filter((note) => note.url)
+    .map((note) => ({
+      id: id("link", note.id),
+      title: note.title,
+      url: note.url,
+      link_type: "other",
+      theme_id: note.theme || null,
+      item_id: null,
+      note_id: id("note", note.id),
+      description: note.body || "",
+      ...metadata("legacy"),
+    }));
 
   return {
     themes,
@@ -165,6 +167,7 @@ export function buildBootstrapWorkspace() {
     ai_proposals: [],
     working_copies: [],
     agent_sessions: [],
+    agent_work_records: [],
   };
 }
 
@@ -190,6 +193,7 @@ export function emptyWorkspace() {
     ai_proposals: [],
     working_copies: [],
     agent_sessions: [],
+    agent_work_records: [],
     plan_revisions: [],
     meta: {},
   };

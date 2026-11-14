@@ -25,6 +25,15 @@ export function assertSyncPacket(packet, workspaceId) {
   }
 }
 
+/**
+ * 空の差分（retired）か。移行で畳んだ記録の送信済みの差分は、行を消すと連番が欠けて受け手が止まるので、
+ * 封筒（連番・change ID・端末・種類・ID）だけを残し、中身を抜いて `retired: true` を付ける（#751）。
+ * 受け手は中身を何も書かずに受け、連番だけを進める。
+ */
+export function isRetiredSyncPacket(packet) {
+  return isPlainObject(packet) && packet.retired === true;
+}
+
 function checkSyncPacket(packet, workspaceId) {
   if (
     !isPlainObject(packet) ||
@@ -34,6 +43,20 @@ function checkSyncPacket(packet, workspaceId) {
     throw new Error("同期差分の形式が不正です。");
   }
   if (packet.workspaceId !== workspaceId) throw new Error("別のWorkspaceの同期差分です。");
+  if (isRetiredSyncPacket(packet)) {
+    // 中身を持たないことを確かめる。中身を持つ差分に印だけ付けて取り込みを飛ばすことはさせない。
+    // 種類はこの版が知らなくてもよい（畳んだ種類が後の版で登録から消えても、受け手が止まらない）。
+    if (
+      packet.entity !== undefined ||
+      typeof packet.entityType !== "string" ||
+      !packet.entityType ||
+      typeof packet.entityId !== "string" ||
+      !packet.entityId
+    ) {
+      throw new Error("空の同期差分の形式が不正です。");
+    }
+    return;
+  }
   assertEntityType(packet.entityType);
   if (
     !isPlainObject(packet.entity) ||

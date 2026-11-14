@@ -17,10 +17,12 @@ import {
 import {
   assertEntityPayload,
   assertEntityType as assertRegistryEntityType,
+  entityKeepsChangeHistory,
   entityTypes,
   requiredFieldsForEntityType,
 } from "../../shared/entityRegistry.mjs";
 import { normalizeTaskAssignment as normalizeTaskAssignmentInModule } from "../modules/task/public.ts";
+import { normalizeAgentWorkRecord } from "../../shared/contracts/task/public.ts";
 
 export const workspaceEntityTypes = entityTypes;
 
@@ -148,7 +150,10 @@ const entityRefTypes = new Set([
   "sketch",
   "artifact",
 ]);
-const changeEventEntityTypes = new Set(entityTypes.filter((type) => type !== "change_event"));
+// 来歴を取らない種類（AI の作業など、entityRegistry の changeHistory: false）の来歴は保存させない。
+const changeEventEntityTypes = new Set(
+  entityTypes.filter((type) => type !== "change_event" && entityKeepsChangeHistory(type)),
+);
 const changeTypes = new Set([
   "created",
   "updated",
@@ -435,6 +440,7 @@ export function validateEntity(type, input) {
   if (type === "repository_context") normalizeRepositoryContext(input);
   if (type === "working_copy") normalizeWorkingCopy(input);
   if (type === "agent_session") normalizeAgentSession(input);
+  if (type === "agent_work_record") normalizeAgentWorkRecord(input);
   if (type === "theme" || type === "project" || type === "task")
     normalizeRepositoryLinkFields(type, input);
 
@@ -1050,6 +1056,12 @@ export function normalizeEntity(type, input) {
       if (!(key in safeRecord)) delete normalized[key];
     }
     Object.assign(normalized, safeRecord);
+  }
+  if (type === "agent_work_record") {
+    // 決まった欄だけを残す（知らない欄を保存しない）。
+    const record = normalizeAgentWorkRecord(normalized);
+    for (const key of Object.keys(normalized)) if (!(key in record)) delete normalized[key];
+    Object.assign(normalized, record);
   }
   if (type === "work_receipt" && normalized.external_references != null) {
     normalized.external_references = normalizeExternalReferences(normalized.external_references);

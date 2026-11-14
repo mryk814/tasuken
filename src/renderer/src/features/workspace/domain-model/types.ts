@@ -483,6 +483,8 @@ export interface WorkspaceDomain {
   repository_contexts: RepositoryContext[];
   working_copies: WorkingCopy[];
   agent_sessions: AgentSession[];
+  /** AIの作業（#751）。1回の作業を要約した1件。 */
+  agent_work_records: Array<Record<string, unknown> & { id: string }>;
   capture_entries: CaptureEntry[];
   tasks: Task[];
   waitings: Waiting[];
