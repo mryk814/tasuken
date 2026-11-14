@@ -262,7 +262,7 @@ export function createTaskenMcpServer(options = {}) {
       instructions: `${
         readOnly
           ? "Tasken is read-only; use the listed bounded context and detail tools. No writes or Proposals are exposed."
-          : "Tasken manages work and knowledge. Check tasken.get_capabilities before writes when listed; Core may still refuse them. Proposals stay unofficial until human adoption; done reports never complete Tasks. Feed posts/replies and report_work records appear immediately. Direct create_* tools need the user's grant (on Desktop, a Tasken setting; get_capabilities shows it); start_task_work claims only AI Ready Tasks.Reuse idempotency_key with identical content on retries and use dry_run for validation. Read tasken://guide/{feed_post,note_article,work_report,proposals} for details; never expose secrets or publish outside Tasken."
+          : "Tasken manages work and knowledge. Check tasken.get_capabilities before writes when listed; Core may still refuse them. Proposals stay unofficial until human adoption; done reports never complete Tasks. Feed posts/replies appear immediately. Direct create_* tools need the user's grant (on Desktop, a Tasken setting; get_capabilities shows it); start_task_work claims only AI Ready Tasks.Reuse idempotency_key with identical content on retries and use dry_run for validation. Read tasken://guide/{feed_post,note_article,work_report,proposals} for details; never expose secrets or publish outside Tasken."
       }${sourceInstruction}`,
     },
   );
