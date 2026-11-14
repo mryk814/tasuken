@@ -292,12 +292,19 @@ const api: ResearchDeskApi = {
     executeBatch: (envelopes) => ipcRenderer.invoke(IPC.applicationCommandBatch, envelopes),
   },
   snapshots: {
-    exportFile: () => ipcRenderer.invoke(IPC.snapshotExport),
     inspectFile: () => ipcRenderer.invoke(IPC.snapshotInspect),
     applyImport: (token, decisions) => ipcRenderer.invoke(IPC.snapshotApply, token, decisions),
     automaticStatus: () => ipcRenderer.invoke(IPC.automaticSnapshotStatus),
     configureAutomatic: (config) => ipcRenderer.invoke(IPC.automaticSnapshotConfigure, config),
     runAutomatic: () => ipcRenderer.invoke(IPC.automaticSnapshotRun),
+  },
+  backups: {
+    list: () => ipcRenderer.invoke(IPC.backupList),
+    chooseFile: () => ipcRenderer.invoke(IPC.backupChooseFile),
+    preview: (token) => ipcRenderer.invoke(IPC.backupPreview, token),
+    restore: (token) => ipcRenderer.invoke(IPC.backupRestore, token),
+    lastRestore: () => ipcRenderer.invoke(IPC.backupLastRestore),
+    dismissLastRestore: () => ipcRenderer.invoke(IPC.backupDismissLastRestore),
   },
   sharedSync: {
     status: () => ipcRenderer.invoke(IPC.sharedSyncStatus),

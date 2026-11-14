@@ -5,6 +5,7 @@ import {
   ipcMain,
   Menu,
   net,
+  dialog,
   safeStorage,
   session as electronSession,
   shell,
@@ -47,7 +48,11 @@ import {
   readMcpPackageSmokeLaunchOptions,
   runMcpPackageSmokeVerifyOnly,
 } from "./composition/taskenDesktopComposition.ts";
-import { WorkspaceDatabase, inspectWorkspaceBackup } from "./repositories/workspaceRepository.mjs";
+import {
+  WorkspaceDatabase,
+  inspectWorkspaceBackup,
+  prepareRestoredCopy,
+} from "./repositories/workspaceRepository.mjs";
 import { BatchTranscriptionRepository } from "./repositories/batchTranscriptionRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
 import { AiProposalAcceptanceService } from "./services/aiProposalAcceptanceService";
@@ -55,6 +60,8 @@ import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import { runRetiredOutputCleanupOnce } from "./services/retiredOutputCleanup.mjs";
 import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBackup";
+import { applyPendingRestore, cancelStagedRestore } from "./services/workspaceRestore";
+import { WorkspaceRestoreController } from "./services/workspaceRestoreController";
 import { applyEmbeddedAiRetirementMigration } from "./services/embeddedAiRetirementMigration";
 import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
 import type { Entity } from "../shared/types/workspace";
@@ -152,6 +159,8 @@ let smokeQuitWatchdog: ReturnType<typeof setTimeout> | null = null;
 let smokeQuitStickyWindow: BrowserWindow | null = null;
 const readyMainWindows = new WeakSet<BrowserWindow>();
 let appQuitApproved = false;
+/** 「控えから戻す」の準備が済み、終了して起動し直すところ。終了できなければ準備を取りやめる。 */
+let restoreRelaunchPending = false;
 let appFlushPending = false;
 const pendingAppFlushes = new Map<
   string,
@@ -2262,6 +2271,13 @@ async function startDesktopApp(): Promise<void> {
   setPerformanceDiagnosticsWriter((line) => logMain("info", "performance", line));
   installMainPerformanceDiagnostics();
   registerAttachmentProtocol();
+  // 「控えから戻す」の準備が済んでいれば、DBを開く前に差し替える（workspaceRestore.ts）。
+  // 結果は設定の画面と起動時の知らせで本人に見せる。
+  applyPendingRestore({
+    userDataPath: app.getPath("userData"),
+    inspect: (filePath) => inspectWorkspaceBackup(filePath),
+    log: (level, message, error) => logMain(level, "workspace-restore", message, error),
+  });
   workspaceRepository = new WorkspaceDatabase(
     path.join(app.getPath("userData"), "research-desk.sqlite"),
   );
@@ -2362,10 +2378,44 @@ async function startDesktopApp(): Promise<void> {
       inspectBackup: (filePath) => inspectWorkspaceBackup(filePath),
     },
     defaultDirectory: path.join(app.getPath("userData"), "Backups"),
+    attachmentDirectory: path.join(app.getPath("userData"), "attachments"),
     enabled: workspaceRepository.getPreference("automaticSnapshotBackupEnabled") !== false,
     directory: String(workspaceRepository.getPreference("automaticSnapshotBackupDirectory") || ""),
     generations: Number(workspaceRepository.getPreference("automaticSnapshotBackupGenerations")),
     log: (level, message, error) => logMain(level, "automatic-snapshot", message, error),
+  });
+  const backupService = automaticSnapshotBackup;
+  const workspaceRestore = new WorkspaceRestoreController({
+    userDataPath: app.getPath("userData"),
+    backupDirectory: () => backupService.status().directory,
+    database: {
+      entityCount: () => backupDatabase.entityCount(),
+      userEntityCount: () => backupDatabase.userEntityCount(),
+      workspaceId: () => backupDatabase.workspaceId,
+      syncEnabled: () => backupDatabase.getPreference("sharedSyncEnabled") === true,
+      backupTo: (filePath, shouldAbort) => backupDatabase.backupTo(filePath, shouldAbort),
+    },
+    inspect: (filePath) => inspectWorkspaceBackup(filePath),
+    prepare: (filePath) => prepareRestoredCopy(filePath),
+    chooseFile: async (defaultDirectory) => {
+      const result = await dialog.showOpenDialog({
+        title: "戻す控えを選ぶ",
+        defaultPath: defaultDirectory,
+        properties: ["openFile"],
+        filters: [{ name: "Taskenの控え", extensions: ["sqlite"] }],
+      });
+      return result.canceled ? "" : result.filePaths[0] || "";
+    },
+    flush: async () =>
+      (
+        await Promise.all(
+          rendererWindowsForAppFlush().map((window) => requestRendererFlush(window)),
+        )
+      ).every(Boolean),
+    relaunch: () => {
+      restoreRelaunchPending = true;
+      app.quit();
+    },
   });
   registerWebArtifactProtocol(workspaceService);
   agentLogSyncService = workspaceService;
@@ -2401,6 +2451,7 @@ async function startDesktopApp(): Promise<void> {
     workspaceRepository,
     workspaceService,
     automaticSnapshotBackup,
+    workspaceRestore,
     sharedFolderSyncService,
     new CalendarService(app.getPath("userData"), safeStorage, fetch, (url) =>
       shell.openExternal(url),
@@ -2570,6 +2621,11 @@ app.on("before-quit", (event) => {
       appFlushPending = false;
       if (results.some((ok) => !ok)) {
         console.warn("終了前flushが完了しなかったため、アプリを終了しませんでした。");
+        // 終了しないまま使い続けると、次の起動で、戻す前の控えより後の変更ごと差し替わる。
+        if (restoreRelaunchPending) {
+          restoreRelaunchPending = false;
+          cancelStagedRestore(app.getPath("userData"));
+        }
         return;
       }
       await desktopComposition?.stopSafely((error) =>
@@ -2579,6 +2635,15 @@ app.on("before-quit", (event) => {
       // 作成途中のバックアップは止めて一時ファイルを片付ける（数百MBの作りかけを残さない）。
       await automaticSnapshotBackup?.cancel();
       appQuitApproved = true;
+      // portable版は展開先のexeで動いているので、起動し直す先は元のexeにする。
+      // TASKEN_NO_RELAUNCH は画面の確認用（確認の台本が自分で起動し直す）。
+      if (restoreRelaunchPending && process.env.TASKEN_NO_RELAUNCH !== "1") {
+        app.relaunch(
+          process.env.PORTABLE_EXECUTABLE_FILE
+            ? { execPath: process.env.PORTABLE_EXECUTABLE_FILE }
+            : undefined,
+        );
+      }
       app.quit();
     },
   );

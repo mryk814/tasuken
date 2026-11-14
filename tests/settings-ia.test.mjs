@@ -51,10 +51,12 @@ test("Settings exposes automatic generational backups and keeps manual recovery 
   assert.match(settings, /configureAutomaticSnapshot/);
   assert.match(settings, /runAutomaticSnapshot/);
   assert.match(settings, /min="1"\s*max="20"/);
-  assert.match(settings, /今すぐ作成/);
-  assert.match(settings, /手動の移行・復元/);
-  assert.match(settings, /バックアップを書き出す/);
-  assert.match(settings, /バックアップを読み込む/);
+  // 手動の操作は「控えを今すぐ作る」と「控えから戻す」の2つ（#752）。
+  assert.match(settings, /控えと復元/);
+  assert.match(settings, /控えを今すぐ作る/);
+  assert.match(settings, /控えから戻す/);
+  assert.match(settings, /<RestoreBackupDialog/);
+  assert.doesNotMatch(settings, /手動の移行・復元|バックアップを書き出す/);
   assert.match(
     styles,
     /@container page \(max-width: 960px\)[\s\S]*?\.settings-grid \{\s*grid-template-columns: minmax\(0, 1fr\);/,

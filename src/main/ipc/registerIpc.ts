@@ -4,6 +4,7 @@ import { IPC } from "../../shared/ipc/contracts";
 import { entityTypes, type Entity, type EntityType } from "../../shared/types/workspace";
 import type { WorkspaceService } from "../services/workspaceService";
 import type { AutomaticSnapshotBackupService } from "../services/automaticSnapshotBackup";
+import type { WorkspaceRestoreController } from "../services/workspaceRestoreController";
 import type { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
 import type { CalendarService } from "../services/calendarService";
 import type { ApplicationCommandService } from "../services/applicationCommandService";
@@ -232,6 +233,7 @@ export function registerIpc(
   repository: WorkspaceRepository,
   service: WorkspaceService,
   automaticSnapshotBackup: AutomaticSnapshotBackupService,
+  workspaceRestore: WorkspaceRestoreController,
   sharedSync: SharedFolderSyncService,
   calendar: CalendarService,
   applicationCommands: ApplicationCommandService,
@@ -818,7 +820,6 @@ export function registerIpc(
     notifyCommandApplied(receipts, event.sender.id);
     return receipts.map(projectCommandReceiptForRenderer);
   });
-  ipcMain.handle(IPC.snapshotExport, () => service.exportSnapshot());
   ipcMain.handle(IPC.snapshotInspect, async () =>
     projectSnapshotInspectForRenderer(await service.inspectSnapshot()),
   );
@@ -841,6 +842,12 @@ export function registerIpc(
     return automaticSnapshotBackup.configure(normalized);
   });
   ipcMain.handle(IPC.automaticSnapshotRun, () => automaticSnapshotBackup.run("manual"));
+  ipcMain.handle(IPC.backupList, () => workspaceRestore.list());
+  ipcMain.handle(IPC.backupChooseFile, () => workspaceRestore.chooseFile());
+  ipcMain.handle(IPC.backupPreview, (_event, token) => workspaceRestore.preview(requireId(token)));
+  ipcMain.handle(IPC.backupRestore, (_event, token) => workspaceRestore.restore(requireId(token)));
+  ipcMain.handle(IPC.backupLastRestore, () => workspaceRestore.lastOutcome());
+  ipcMain.handle(IPC.backupDismissLastRestore, () => workspaceRestore.dismissOutcome());
   ipcMain.handle(IPC.sharedSyncStatus, () => sharedSync.status());
   ipcMain.handle(IPC.sharedSyncConfigure, (_event, directory) =>
     sharedSync.configure(requireText(directory, "同期フォルダ")),

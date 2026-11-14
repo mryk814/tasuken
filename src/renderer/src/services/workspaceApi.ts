@@ -361,9 +361,6 @@ export const workspaceApi = {
   ackNoteWindowFlush(requestId: string, ok: boolean) {
     return desktopApi().app.ackNoteWindowFlush(requestId, ok);
   },
-  exportSnapshot() {
-    return desktopApi().snapshots.exportFile();
-  },
   inspectSnapshot() {
     return desktopApi().snapshots.inspectFile();
   },
@@ -380,6 +377,24 @@ export const workspaceApi = {
   },
   runAutomaticSnapshot() {
     return desktopApi().snapshots.runAutomatic();
+  },
+  listBackups() {
+    return desktopApi().backups.list();
+  },
+  chooseBackupFile() {
+    return desktopApi().backups.chooseFile();
+  },
+  previewBackup(token: string) {
+    return desktopApi().backups.preview(token);
+  },
+  restoreBackup(token: string) {
+    return desktopApi().backups.restore(token);
+  },
+  lastRestore() {
+    return desktopApi().backups.lastRestore();
+  },
+  dismissLastRestore() {
+    return desktopApi().backups.dismissLastRestore();
   },
   sharedSyncStatus() {
     return desktopApi().sharedSync.status();

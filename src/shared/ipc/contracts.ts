@@ -232,12 +232,17 @@ export const IPC = {
   workLogRecord: "work-log:record",
   entityRemove: "entity:remove",
   entityRestore: "entity:restore",
-  snapshotExport: "snapshot:export",
   snapshotInspect: "snapshot:inspect",
   snapshotApply: "snapshot:apply",
   automaticSnapshotStatus: "automatic-snapshot:status",
   automaticSnapshotConfigure: "automatic-snapshot:configure",
   automaticSnapshotRun: "automatic-snapshot:run",
+  backupList: "backup:list",
+  backupChooseFile: "backup:choose-file",
+  backupPreview: "backup:preview",
+  backupRestore: "backup:restore",
+  backupLastRestore: "backup:last-restore",
+  backupDismissLastRestore: "backup:dismiss-last-restore",
   sharedSyncStatus: "shared-sync:status",
   sharedSyncConfigure: "shared-sync:configure",
   sharedSyncDisable: "shared-sync:disable",
@@ -586,6 +591,55 @@ export interface AutomaticSnapshotBackupStatus extends AutomaticSnapshotBackupCo
   skippedReason: string;
 }
 
+/** 保存先にある控え1つ。場所はMainが持ち、Rendererは札（token）で指す。 */
+export interface WorkspaceBackupEntry {
+  token: string;
+  fileName: string;
+  createdAt: string;
+  sizeBytes: number;
+  /** auto: 自動または「控えを今すぐ作る」。before-restore: 戻す前に自動で作った控え。 */
+  kind: "auto" | "before-restore";
+}
+
+export interface WorkspaceBackupList {
+  directory: string;
+  backups: WorkspaceBackupEntry[];
+}
+
+/** 戻す前に本人へ見せる、控えの中身と今の比較。 */
+export interface WorkspaceRestorePreview {
+  token: string;
+  filePath: string;
+  createdAt: string;
+  sizeBytes: number;
+  entityCount: number;
+  currentEntityCount: number;
+  /** 別の作業台（作り直したDBや別の端末）の控えなら false。 */
+  sameWorkspace: boolean;
+  /** 控えの隣に画像と写真の写しがあるか。 */
+  attachmentsInBackup: boolean;
+  /** 今、端末間同期が有効か。戻すと止まる。 */
+  syncEnabled: boolean;
+}
+
+export type WorkspaceRestoreChoice =
+  { canceled: true } | { canceled: false; preview: WorkspaceRestorePreview };
+
+/** 前回の「控えから戻す」の結果。起動し直した後に本人へ見せる。 */
+export interface WorkspaceRestoreOutcome {
+  status: "restored" | "failed";
+  at: string;
+  sourcePath: string;
+  entityCount: number;
+  /** 戻す前のDBの控え。空の作業台から戻した時は ""。 */
+  previousBackupPath: string;
+  syncStopped: boolean;
+  attachmentsRestored: number;
+  attachmentsInBackup: boolean;
+  /** 失敗の理由（本人向け）。失敗した時、データは戻す前のまま。 */
+  error: string;
+}
+
 /** アプリ内ビューア用のローカルファイル読み取り結果。 */
 export type FilePreviewReadResult =
   | { ok: true; kind: "image"; dataUrl: string; mimeType: string; filePath: string }
@@ -834,7 +888,6 @@ export interface ResearchDeskApi {
     executeBatch(envelopes: CommandEnvelope[]): Promise<CommandReceipt[]>;
   };
   snapshots: {
-    exportFile(): Promise<{ canceled: boolean; filePath?: string }>;
     inspectFile(): Promise<SnapshotInspectResult>;
     // decisionsは「change.key -> action」の対応表。配列ではなくオブジェクトで渡す。
     applyImport(token: string, decisions: Record<string, string>): Promise<Workspace>;
@@ -843,6 +896,15 @@ export interface ResearchDeskApi {
       config: AutomaticSnapshotBackupConfig,
     ): Promise<AutomaticSnapshotBackupStatus>;
     runAutomatic(): Promise<AutomaticSnapshotBackupStatus>;
+  };
+  backups: {
+    list(): Promise<WorkspaceBackupList>;
+    chooseFile(): Promise<WorkspaceRestoreChoice>;
+    preview(token: string): Promise<WorkspaceRestorePreview>;
+    /** 今のデータを控え、戻す準備をして、起動し直す。 */
+    restore(token: string): Promise<void>;
+    lastRestore(): Promise<WorkspaceRestoreOutcome | null>;
+    dismissLastRestore(): Promise<void>;
   };
   sharedSync: {
     status(): Promise<SharedSyncStatus>;

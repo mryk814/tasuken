@@ -243,6 +243,7 @@ export function WorkspaceApp() {
   const [drawerFormDirty, setDrawerFormDirty] = useState(false);
   const drawerAutosavePromise = useRef<Promise<boolean> | null>(null);
   const updateCheckStarted = useRef(false);
+  const restoreOutcomeChecked = useRef(false);
   /** 実行中Focusのtask id（#316）。global shortcutから最新値を読むため。 */
   const activeFocusTaskIdRef = useRef<string>("");
   const activityAutoExportRunning = useRef(false);
@@ -498,6 +499,22 @@ export function WorkspaceApp() {
       canceled = true;
       window.clearTimeout(timer);
     };
+  }, [loadState, setToast]);
+
+  // 「控えから戻す」で起動し直した後は、結果（戻した件数・戻す前の控えの場所）が出ている
+  // 設定の画面へ戻る。本人が閉じるまで、結果はそこに残る。
+  useEffect(() => {
+    if (loadState !== "success" || restoreOutcomeChecked.current) return;
+    restoreOutcomeChecked.current = true;
+    workspaceApi
+      .lastRestore()
+      .then((outcome) => {
+        if (!outcome) return;
+        window.location.hash = "settings/advanced";
+        if (outcome.status === "restored") setToast("控えから戻しました。", "success");
+        else setToast(outcome.error, "danger");
+      })
+      .catch(() => {});
   }, [loadState, setToast]);
 
   useEffect(() => {

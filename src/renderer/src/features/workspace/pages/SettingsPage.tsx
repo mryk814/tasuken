@@ -7,6 +7,7 @@ import type {
   AutomaticSnapshotBackupStatus,
   McpBridgeInfo,
   SharedSyncStatus,
+  WorkspaceRestoreOutcome,
 } from "../../../../../shared/ipc/contracts";
 import type {
   MobileGatewayDiagnostics,
@@ -21,6 +22,7 @@ import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types
 import { todayIso as todayIsoDate } from "../domain-model/scheduleSemantics";
 import { entityTitle } from "../lib/domain";
 import { Button, IntegrationStatus, PageHeader } from "../components/common";
+import { RestoreBackupDialog } from "../components/RestoreBackupDialog";
 import { CaptureOrganizerSettings } from "../components/CaptureOrganizerSettings";
 import {
   DIRECT_SHORTCUT_DEFINITIONS,
@@ -105,6 +107,8 @@ export function SettingsPage({
   );
   const [automaticBackupError, setAutomaticBackupError] = useState("");
   const [automaticBackupReloadToken, setAutomaticBackupReloadToken] = useState(0);
+  const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
+  const [restoreOutcome, setRestoreOutcome] = useState<WorkspaceRestoreOutcome | null>(null);
   const [mobileGateway, setMobileGateway] = useState<MobileGatewayDiagnostics | null>(null);
   const [mobileGatewayState, setMobileGatewayState] = useState<"loading" | "error" | "success">(
     "loading",
@@ -419,18 +423,16 @@ export function SettingsPage({
     }
   }
 
-  async function exportSnapshot() {
-    setBusy(true);
-    try {
-      const result = await workspaceApi.exportSnapshot();
-      if (!result.canceled) setToast("作業台Snapshotを書き出しました。");
-    } catch (error) {
-      setToast(
-        `Snapshotを書き出せませんでした。${error instanceof Error ? error.message : String(error)}`,
-      );
-    } finally {
-      setBusy(false);
-    }
+  useEffect(() => {
+    workspaceApi
+      .lastRestore()
+      .then(setRestoreOutcome)
+      .catch(() => {});
+  }, []);
+
+  async function dismissRestoreOutcome() {
+    setRestoreOutcome(null);
+    await workspaceApi.dismissLastRestore().catch(() => {});
   }
 
   async function chooseAutomaticBackupDirectory() {
@@ -481,7 +483,7 @@ export function SettingsPage({
       } else if (status.skippedReason) {
         setToast(status.skippedReason, "info");
       } else {
-        setToast("バックアップを作成しました。", "success");
+        setToast("控えを作りました。", "success");
       }
     } catch (error) {
       setToast(
@@ -861,6 +863,78 @@ export function SettingsPage({
               </label>
             </section>
             <section
+              className="panel settings-form"
+              hidden={activeSection !== "advanced"}
+              aria-labelledby="backup-restore-title"
+            >
+              <h2 id="backup-restore-title">控えと復元</h2>
+              {restoreOutcome ? (
+                <div
+                  className={`restore-outcome${restoreOutcome.status === "failed" ? " failed" : ""}`}
+                  role="status"
+                >
+                  {restoreOutcome.status === "restored" ? (
+                    <>
+                      <p>
+                        控えから戻しました（{restoreOutcome.entityCount.toLocaleString("ja-JP")}{" "}
+                        件）。
+                      </p>
+                      {restoreOutcome.previousBackupPath ? (
+                        <p>戻す前のデータ: {restoreOutcome.previousBackupPath}</p>
+                      ) : null}
+                      {restoreOutcome.syncStopped ? (
+                        <p>端末間同期を止めました。再開は「Sync」で行います。</p>
+                      ) : null}
+                    </>
+                  ) : (
+                    <p>{restoreOutcome.error}</p>
+                  )}
+                  <button type="button" className="text-button" onClick={dismissRestoreOutcome}>
+                    閉じる
+                  </button>
+                </div>
+              ) : null}
+              <dl className="settings-meta-list">
+                <div>
+                  <dt>最新の控え</dt>
+                  <dd>{backupTime(automaticBackupStatus?.lastSuccessAt || "")}</dd>
+                </div>
+              </dl>
+              <div className="settings-action-row">
+                <Button
+                  variant="primary"
+                  disabled={automaticBackupBusy || !automaticBackupDirectory}
+                  onClick={runAutomaticBackup}
+                >
+                  {automaticBackupBusy ? "処理中" : "控えを今すぐ作る"}
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={automaticBackupBusy}
+                  onClick={() => setRestoreDialogOpen(true)}
+                >
+                  控えから戻す
+                </Button>
+                {automaticBackupDirectory ? (
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={openAutomaticBackupDirectory}
+                  >
+                    フォルダを開く
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={busy}
+                  onClick={inspectSnapshot}
+                >
+                  以前のZIPを読み込む
+                </button>
+              </div>
+            </section>
+            <section
               className="panel settings-form automatic-backup-panel"
               hidden={activeSection !== "advanced"}
             >
@@ -872,7 +946,7 @@ export function SettingsPage({
                 />
               </div>
               <p className="field-help">
-                起動の30秒後にデータベースの写しを作り、古いものから入れ替えます。空の作業台は保存しません。
+                起動の30秒後に、記録と画像・写真の控えを作り、古いものから入れ替えます。空の作業台は保存しません。
               </p>
               <label className="toggle">
                 自動で作成
@@ -948,36 +1022,6 @@ export function SettingsPage({
                   onClick={saveAutomaticBackup}
                 >
                   {automaticBackupBusy ? "処理中" : "設定を保存"}
-                </Button>
-                <Button
-                  variant="secondary"
-                  disabled={automaticBackupBusy || !automaticBackupDirectory}
-                  onClick={runAutomaticBackup}
-                >
-                  今すぐ作成
-                </Button>
-                {automaticBackupDirectory ? (
-                  <button
-                    type="button"
-                    className="text-button"
-                    onClick={openAutomaticBackupDirectory}
-                  >
-                    フォルダを開く
-                  </button>
-                ) : null}
-              </div>
-            </section>
-            <section className="panel settings-form" hidden={activeSection !== "advanced"}>
-              <h2>手動の移行・復元</h2>
-              <p className="field-help">
-                別端末への移行や任意時点への復元にはZIP形式のSnapshotを使います。
-              </p>
-              <div className="settings-action-row">
-                <Button variant="secondary" disabled={busy} onClick={exportSnapshot}>
-                  バックアップを書き出す
-                </Button>
-                <Button variant="secondary" disabled={busy} onClick={inspectSnapshot}>
-                  バックアップを読み込む
                 </Button>
               </div>
             </section>
@@ -1095,7 +1139,7 @@ export function SettingsPage({
                   <p className="field-help">参加し直すときの手順</p>
                   <ol className="field-help">
                     <li>1. データがある端末で「差分を再公開」し、OneDriveの同期完了を待つ。</li>
-                    <li>2. 作り直す端末のデータを「手動の移行・復元」から書き出す。</li>
+                    <li>2. 作り直す端末で「Advanced」の「控えを今すぐ作る」を押す。</li>
                     <li>3. 作り直す端末で同期を「停止」し、Taskenを終了する。</li>
                     <li>4. 作り直す端末の %APPDATA%\tasken を削除せず名前変更で退避する。</li>
                     <li>5. 空のTaskenで同じ同期フォルダを選び、「今すぐ同期」する。</li>
@@ -1105,9 +1149,6 @@ export function SettingsPage({
                     は消さないでください。SQLite本体も共有フォルダへ置きません。
                   </p>
                   <div className="settings-action-row">
-                    <Button variant="secondary" disabled={busy} onClick={exportSnapshot}>
-                      バックアップを書き出す
-                    </Button>
                     <Button
                       variant="secondary"
                       disabled={syncBusy || !syncStatus?.directory}
@@ -1523,6 +1564,8 @@ export function SettingsPage({
           ))}
         </section>
       )}
+      {/* 設定フォームの label の並び（2列）を受けないよう、フォームの外に置く。 */}
+      <RestoreBackupDialog open={restoreDialogOpen} close={() => setRestoreDialogOpen(false)} />
       {snapshotPreview && activeSection === "advanced" && (
         <section className="panel snapshot-preview">
           <div className="section-heading">

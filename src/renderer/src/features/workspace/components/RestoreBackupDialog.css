@@ -1,0 +1,171 @@
+.restore-backup-dialog {
+  margin: auto;
+  width: min(520px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  padding: var(--space-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.restore-backup-dialog[open] {
+  display: grid;
+  gap: var(--space-4);
+}
+.restore-backup-dialog::backdrop {
+  background: rgb(0 0 0 / 35%);
+}
+.restore-backup-dialog h2 {
+  margin: 0;
+}
+.restore-backup-list {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.restore-backup-list legend {
+  padding: 0 0 var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+.restore-backup-list .text-button {
+  justify-self: start;
+}
+.restore-backup-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.restore-backup-option:has(input:checked) {
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle-bg);
+}
+.restore-backup-option-size {
+  margin-left: auto;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+.restore-backup-option-path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.restore-backup-tag {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+.restore-backup-preview {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-subtle);
+}
+.restore-backup-compare {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+  margin: 0;
+}
+.restore-backup-compare dt {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+}
+.restore-backup-compare dd {
+  margin: 0;
+  font-size: var(--text-lg, 18px);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-medium);
+}
+.restore-backup-compare dd.restore-backup-compare-note {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-weight: normal;
+}
+.restore-backup-compare-arrow {
+  align-self: center;
+  color: var(--color-text-secondary);
+}
+.restore-backup-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: restore-step;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+.restore-backup-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  counter-increment: restore-step;
+}
+.restore-backup-steps li::before {
+  content: counter(restore-step);
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+}
+.restore-backup-caution {
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-warning-bd);
+  border-left-width: 4px;
+  border-radius: var(--radius-md);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-strong);
+  font-size: var(--text-sm);
+}
+.restore-backup-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.restore-outcome {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-info-bd);
+  border-left-width: 4px;
+  border-radius: var(--radius-md);
+  background: var(--color-info-bg);
+  color: var(--color-info-strong);
+  font-size: var(--text-sm);
+}
+.restore-outcome.failed {
+  border-color: var(--color-danger-bd);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-strong);
+}
+.restore-outcome p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.restore-outcome .text-button {
+  justify-self: start;
+  min-height: 28px;
+  padding: 0 var(--space-1);
+}

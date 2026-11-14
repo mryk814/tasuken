@@ -151,7 +151,7 @@ import {
   assertGeneratedCanonicalPath,
 } from "./canonicalPath.mjs";
 import { buildMermaidPptxBuffer } from "./mermaidPowerPointService";
-import { createSnapshot, readSnapshot } from "./snapshotService.mjs";
+import { readSnapshot } from "./snapshotService.mjs";
 import { discoverThemeFolderLocation, ensureThemeFolderLocation } from "./themeFolderLocation.mjs";
 import { rejectGenericAudioArtifact, rejectGenericVideoArtifact } from "../mediaCapturePersistence";
 import { artifactOpenTarget } from "../../shared/artifactLinks.mjs";
@@ -3834,18 +3834,6 @@ export class WorkspaceService {
           )
         : undefined,
     });
-  }
-
-  async exportSnapshot(): Promise<{ canceled: boolean; filePath?: string }> {
-    const date = localDateIso();
-    const result = await dialog.showSaveDialog({
-      title: "Workspace Snapshotを書き出す",
-      defaultPath: `workspace_export_${date}.zip`,
-      filters: [{ name: "Tasken Snapshot", extensions: ["zip"] }],
-    });
-    if (result.canceled || !result.filePath) return { canceled: true };
-    createSnapshot(this.repository.loadWorkspace(true)).writeZip(result.filePath);
-    return { canceled: false, filePath: result.filePath };
   }
 
   async inspectSnapshot() {
