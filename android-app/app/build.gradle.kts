@@ -96,6 +96,8 @@ android {
         add(rootProject.file("../contracts/mobile/v1").absolutePath)
         add(rootProject.file("../design-standard").absolutePath)
         add(rootProject.file("../fixtures").absolutePath)
+        // 共通の辞書の写し（kotoba/MANIFEST と kotoba/dict）を KotobaTest が読む。
+        add(rootProject.file("../src/shared/searchdict").absolutePath)
     }
     sourceSets.getByName("androidTest").assets.srcDir(file("schemas"))
 }
@@ -136,6 +138,42 @@ dependencies {
 
 ksp {
     arg("room.schemaLocation", file("schemas").absolutePath)
+}
+
+/**
+ * 共通の辞書の写し（リポジトリの src/shared/searchdict/kotoba）の dict の各 tsv を、Java の資源として APK と
+ * 単体試験に入れる。写しは Desktop と同じ 1 か所だけで、Android 用の二つ目の写しは持たない。
+ * 資源の一覧は Android では列挙できないので、files.txt に名前を書く（LocalSearchDictionary が読む）。
+ */
+abstract class KotobaDictionaryResources : DefaultTask() {
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.NAME_ONLY)
+    abstract val dictionary: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val outputDirectory: DirectoryProperty
+
+    @TaskAction
+    fun write() {
+        val target = outputDirectory.get().asFile.resolve("jp/personal/tasken/companion/kotoba")
+        target.deleteRecursively()
+        target.mkdirs()
+        val files = dictionary.files.filter { it.isFile }.sortedBy { it.name }
+        if (files.isEmpty()) throw GradleException("共通の辞書の写し（src/shared/searchdict/kotoba/dict/*.tsv）がありません")
+        files.forEach { it.copyTo(target.resolve(it.name)) }
+        target.resolve("files.txt").writeText(files.joinToString("\n", postfix = "\n") { it.name })
+    }
+}
+
+val kotobaDictionaryResources = tasks.register<KotobaDictionaryResources>("kotobaDictionaryResources") {
+    dictionary.from(rootProject.fileTree("../src/shared/searchdict/kotoba/dict") { include("*.tsv") })
+    outputDirectory.set(layout.buildDirectory.dir("generated/kotoba/resources"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.resources?.addGeneratedSourceDirectory(kotobaDictionaryResources, KotobaDictionaryResources::outputDirectory)
+    }
 }
 
 val taskenReleasePackagingTasks = setOf(

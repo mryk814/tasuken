@@ -18,7 +18,8 @@ import kotlinx.serialization.json.Json
  * Searches only what the device already holds in its Room caches; there is no search-only DB or index.
  * Room's change notifications trigger a new search, so a change or deletion in the existing caches shows
  * up without a second copy to keep in sync. Terms are matched literally (Japanese, `%`, `_` and quotes
- * included), and an invalid date or an over-long term is reported, never silently truncated.
+ * included), and also by their other spellings in the shared dictionary, listed after the literal hits.
+ * An invalid date or an over-long term is reported, never silently truncated.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 internal class MobileLocalSearchReader(
@@ -93,12 +94,18 @@ internal class MobileLocalSearchReader(
             latest.filterValues { !it.second }.keys, fetched, partial)
     }
 
-    private data class Candidate(val hit: MobileLocalSearchHit, val matched: Boolean, val version: Int, val pending: Boolean, val fetchedAt: String)
+    private data class Candidate(val hit: MobileLocalSearchHit, val matched: LocalSearchMatch?, val version: Int, val pending: Boolean, val fetchedAt: String)
+
+    // 書いたままの語で当たった記録を先に、ほかの書き方でだけ当たった記録を後に。それぞれの中は新しい日付から。
+    private val localSearchOrder = compareBy<Candidate> { it.matched?.ordinal ?: Int.MAX_VALUE }
+        .thenByDescending { it.hit.date }.thenBy { it.hit.kind.ordinal }.thenBy { it.hit.sourceId }
 
     private suspend fun search(request: MobileLocalSearchRequest): MobileLocalSearchPage {
         val server = local.syncState()?.serverId ?: return MobileLocalSearchPage(request, error = "Desktopへ一度接続すると端末に保存した記録を検索できます。")
         val zone = ZoneId.of(request.timezone)
-        val terms = localSearchTerms(request.query)
+        // 共通の辞書でほかの書き方（引越し → 引っ越し）にも当てる。抜粋は書いたままの語、なければほかの書き方の所から。
+        val query = localSearchQuery(request.query)
+        val terms = query.excerptTerms
         val authority = authority(server, request.timezone)
         val pending = dao.pendingCommandIds(server).toSet()
         val candidates = mutableMapOf<Pair<MobileLocalSearchKind, String>, Candidate>()
@@ -107,7 +114,7 @@ internal class MobileLocalSearchReader(
 
         fun add(hit: MobileLocalSearchHit, body: String, version: Int = 0, isPending: Boolean = false, fetchedAt: String = "") {
             val key = hit.kind to hit.sourceId
-            val candidate = Candidate(hit, matchesLocalSearch(body, terms), version, isPending, fetchedAt)
+            val candidate = Candidate(hit, query.match(body), version, isPending, fetchedAt)
             val previous = candidates[key]
             if (previous == null) candidates[key] = candidate
             else {
@@ -180,10 +187,10 @@ internal class MobileLocalSearchReader(
         val all = candidates.values.toList()
         val hits = all.filter { candidate ->
             val hit = candidate.hit
-            candidate.matched && (request.themeId == null || hit.themeIds.any { (it ?: "") == request.themeId }) &&
+            candidate.matched != null && (request.themeId == null || hit.themeIds.any { (it ?: "") == request.themeId }) &&
                 (request.fromDate.isEmpty() || hit.date >= request.fromDate) &&
                 (request.toDate.isEmpty() || hit.date.isNotEmpty() && hit.date <= request.toDate)
-        }.map { it.hit }.sortedWith(compareByDescending<MobileLocalSearchHit> { it.date }.thenBy { it.kind.ordinal }.thenBy { it.sourceId })
+        }.sortedWith(localSearchOrder).map { it.hit }
         val noteIds = all.filter { it.hit.kind == MobileLocalSearchKind.Note }.map { it.hit.sourceId }.toSet()
         val unfetched = links.values.filter { it.type == "note" && it.status == "available" && it.id !in noteIds }
             .map { it.id }.distinct().size
