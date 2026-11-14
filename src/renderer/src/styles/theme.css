@@ -1,8 +1,8 @@
 /*
  * Theme詳細の面（計画フェーズ4: ThemeとNotes）。
  *
- * Themeは「概要／タスク／投稿／Notes」の一面ずつを開き、Repository・AI Pack・
- * Context Previewのような技術設定は概要の「連携と設定」へ畳む。
+ * Themeは「概要／タスク／投稿／Notes」の一面ずつを開き、Repositoryのような技術設定は
+ * 概要の「連携と設定」へ畳む。
  * 投稿とNotesはTheme IDで既存データを絞り込むだけで、FeedやNoteの正本は複製しない。
  *
  * 見た目の実値は design-standard/tokens.css を正本にする。

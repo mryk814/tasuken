@@ -10,7 +10,7 @@ import {
   type DailyContextPlan,
   type DailyContextPublishResult,
 } from "../../shared/dailyContext";
-import { assertSafeThemeChildPath } from "./themeAiPackPublisher.mjs";
+import { assertSafeThemeChildPath } from "./themeFolderLocation.mjs";
 import { writeAtomicTextFile } from "./atomicText.mjs";
 import { buildPublicSourceIndexes } from "../../shared/publicSourceProjection";
 import type { DailyContextFreshness } from "../../shared/dailyContextAuto";

@@ -365,26 +365,6 @@ export function registerIpc(
     service.configureDailyContextAuto(config),
   );
   ipcMain.handle(IPC.dailyContextAutoRetry, () => service.retryDailyContextAuto());
-  ipcMain.handle(IPC.themeAiPackStatus, (_event, themeId) =>
-    service.getThemeAiPackStatus(requireId(themeId)),
-  );
-  ipcMain.handle(IPC.themeAiPackPreview, (_event, themeId) =>
-    service.getThemeAiPackPreview(requireId(themeId)),
-  );
-  ipcMain.handle(IPC.themeAiPackPublish, (_event, request) => {
-    const result = service.publishThemeAiPack(request);
-    const change = {
-      themeId: result.themeId,
-      contentHash: result.contentHash,
-      state: result.state,
-      dirty: result.dirty,
-    };
-    publishIpc(IPC.themeAiPackChanged, change);
-    return result;
-  });
-  ipcMain.handle(IPC.themeAiPackOpenFolder, (_event, themeId) =>
-    service.openThemeAiPackFolder(requireId(themeId)),
-  );
   ipcMain.handle(IPC.conversationContextPreview, (_event, request) =>
     service.getConversationContextPreview(request),
   );

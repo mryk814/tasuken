@@ -55,18 +55,6 @@ export const DATA_HEALTH_RULES = Object.freeze([
     fixActions: ["settings", "source_entity"],
   },
   {
-    id: "ai_pack_anomaly",
-    label: "AI Pack を更新できません",
-    severity: "error",
-    fixActions: ["theme_ai_pack", "settings"],
-  },
-  {
-    id: "ai_pack_stale",
-    label: "AI Pack の更新が必要です",
-    severity: "warning",
-    fixActions: ["theme_ai_pack"],
-  },
-  {
     id: "isolated_entity",
     label: "関連を持たない Knowledge entity です",
     severity: "info",
@@ -93,14 +81,6 @@ const SUMMARY_TYPES = new Set([
   "sketch",
 ]);
 const BODY_FIELDS = ["body_markdown", "body", "description", "summary", "text"];
-const TERMINAL_PACK_STATES = new Set([
-  "recovery_required",
-  "root_unavailable",
-  "identity_conflict",
-  "failed_retryable",
-  "needs_root",
-]);
-const STALE_PACK_STATES = new Set(["dirty", "missing", "current_with_warning", "stale_preview"]);
 const CANONICAL_ANOMALY_STATES = new Set([
   "unavailable",
   "file_ahead",
@@ -393,24 +373,6 @@ function globalIssues(workspace, entries, options) {
       ),
     );
   }
-  for (const statusValue of array(options.themeAiPackStatuses)) {
-    const status = object(statusValue);
-    if (!TERMINAL_PACK_STATES.has(text(status.state)) && !STALE_PACK_STATES.has(text(status.state)))
-      continue;
-    const themeId = text(status.themeId);
-    const state = text(status.state);
-    const ruleId = TERMINAL_PACK_STATES.has(state) ? "ai_pack_anomaly" : "ai_pack_stale";
-    issues.push(
-      issue(
-        ruleId,
-        { type: "project", id: themeId },
-        themeId,
-        `AI Packは${state}です。ThemeのAI Packを確認してください。`,
-        state,
-        { state },
-      ),
-    );
-  }
   return issues;
 }
 
@@ -483,7 +445,6 @@ export class DataHealthEvaluator {
         entry.deleted_at,
       ]),
       object(workspace.canonical_root_status),
-      array(options.themeAiPackStatuses).map((entry) => [entry.themeId, entry.state]),
       entries.map(({ type, record }) => [type, record.id, recordTitle(record)]),
     ]);
     if (this.globalCache.signature !== globalSignature) {

@@ -4,7 +4,7 @@ import path from "node:path";
 import { markdownSignature } from "../../shared/canonicalMarkdown.mjs";
 import { CONVERSATION_CONTEXT_DIRECTORY } from "../../shared/conversationContext.mjs";
 import { writeAtomicTextFile } from "./atomicText.mjs";
-import { assertSafeThemeChildPath } from "./themeAiPackPublisher.mjs";
+import { assertSafeThemeChildPath } from "./themeFolderLocation.mjs";
 
 export const CONVERSATION_CONTEXT_OPERATION_SCHEMA = "tasken-conversation-context-operation/v1";
 const MAX_CONTEXT_BYTES = 512 * 1024;

@@ -18,7 +18,6 @@ export const STORAGE_SUBFOLDERS = {
   notes: "Notes",
   artifacts: "Artifacts",
   exports: "Exports",
-  ai_pack: "AI Pack",
   activity: "Activity",
 };
 

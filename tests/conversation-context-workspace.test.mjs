@@ -15,6 +15,7 @@ import {
   removeConversationContextFile,
 } from "../src/main/services/conversationContextPublisher.mjs";
 import { markdownSignature } from "../src/shared/canonicalMarkdown.mjs";
+import { buildThemeFolderManifest, THEME_FOLDER_MANIFEST } from "../src/shared/storageResolver.mjs";
 
 async function importWorkspaceService() {
   const outputDirectory = mkdtempSync(
@@ -148,7 +149,7 @@ function publishRequest(preview) {
   };
 }
 
-test("Viewer previewから明示公開し、stable path・selected turns・AI Pack参照・unchanged skipを保つ", () => {
+test("Viewer previewから明示公開し、stable path・selected turns・unchanged skipを保つ", () => {
   const item = createFixture("tasken-conversation-context-publish");
   try {
     const now = "2026-08-09T03:00:00.000Z";
@@ -190,10 +191,8 @@ test("Viewer previewから明示公開し、stable path・selected turns・AI Pa
     assert.match(fileBody, /schema: tasken-conversation-context\/v1/);
     assert.doesNotMatch(fileBody, /raw output must stay local/);
 
-    const meetingsPath = path.join(item.syncRoot, "Themes", "CONV", "AI Pack", "03 Meetings.md");
-    const meetings = fs.readFileSync(meetingsPath, "utf8");
-    assert.match(meetings, /theme:theme-context:AI Context\/Conversations\//);
-    assert.doesNotMatch(meetings, /Question one|Answer two|raw output/);
+    // AI Packは#755 束2で外した。会話の公開はAI Packのフォルダーを作らない。
+    assert.equal(fs.existsSync(path.join(item.syncRoot, "Themes", "CONV", "AI Pack")), false);
 
     const mtime = fs.statSync(filePath).mtimeMs;
     const current = service.getConversationContextPreview({
@@ -318,13 +317,6 @@ test("通常Resource保存は公開bindingを保持し、Theme変更後は旧公
       true,
       "theme reassignment must not orphan the old publication",
     );
-    for (const themeId of ["theme-context", "theme-next"]) {
-      const meetings = service
-        .getThemeAiPackPreview(themeId)
-        .files.find((file) => file.name === "03 Meetings.md").content;
-      assert.doesNotMatch(meetings, /theme:theme-context:AI Context\/Conversations/);
-      assert.doesNotMatch(meetings, /theme:theme-next:AI Context\/Conversations/);
-    }
 
     const removed = service.removeConversationContext({ conversationId: "conversation-context" });
     assert.equal(removed.themeId, "theme-context", "removal uses the publish-time Theme binding");
@@ -438,12 +430,13 @@ test("AI Context child junctionを拒否し、raw pathを返さずreceiptを残�
       item.userDataPath,
       () => "2026-08-09T03:00:00.000Z",
     );
-    const packPreview = service.getThemeAiPackPreview("theme-context");
-    service.publishThemeAiPack({
-      themeId: "theme-context",
-      expectedContentHash: packPreview.contentHash,
-    });
+    // 以前はAI Packの公開でTheme folderを作っていた（#755 束2で外した）。markerだけを置く。
     const themeFolder = path.join(item.syncRoot, "Themes", "CONV");
+    fs.mkdirSync(themeFolder, { recursive: true });
+    fs.writeFileSync(
+      path.join(themeFolder, THEME_FOLDER_MANIFEST),
+      `${JSON.stringify(buildThemeFolderManifest({ themeId: "theme-context", displayName: "Context" }))}\n`,
+    );
     const outside = path.join(item.userDataPath, "outside");
     fs.mkdirSync(outside);
     fs.symlinkSync(outside, path.join(themeFolder, "AI Context"), "junction");

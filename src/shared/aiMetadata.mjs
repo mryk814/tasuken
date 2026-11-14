@@ -2,7 +2,7 @@
  * 全EntityでAIへ渡す文脈を同じ意味で扱うための共通metadata契約（#294）。
  *
  * 本文schemaは統一しない。概要・鮮度・根拠・出典だけをEntity間で揃え、
- * MCP・AI Pack・Context Previewが同じ判定関数を通るようにする。
+ * MCP・Context Previewが同じ判定関数を通るようにする。
  *
  * 保存フィールドは `ai_` 前置き。既存の `summary`（status_update）や
  * `source`（永続化層の由来）と衝突させないため、Issue本文の名称をそのまま使わない。

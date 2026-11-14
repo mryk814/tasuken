@@ -126,7 +126,7 @@ test("managed media preserves personal Inbox semantics and normal Theme ID-marke
     workspace,
     /!themeId \|\| themeId === PERSONAL_DEFAULT_THEME_ID[\s\S]{0,160}resolveThemeContentDirectory\(themeId, "artifacts"/,
   );
-  assert.match(workspace, /const discovered = discoverThemeAiPackLocation\(/);
+  assert.match(workspace, /const discovered = discoverThemeFolderLocation\(/);
   // 解決できない理由ごとに次の操作を書き分ける。全部同じ文言へ潰さない（#383）。
   assert.match(
     workspace,

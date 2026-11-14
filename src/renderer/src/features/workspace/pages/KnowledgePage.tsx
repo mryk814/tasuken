@@ -61,7 +61,6 @@ const HEALTH_ENTITY_TYPES = [
 const FIX_ACTION_LABELS: Record<string, string> = {
   source_entity: "元Entityを確認",
   settings: "設定を確認",
-  theme_ai_pack: "ThemeのAI Packを確認",
 };
 
 function nodeOrigin(node: KnowledgeNode): string {

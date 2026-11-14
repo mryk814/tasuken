@@ -3,10 +3,8 @@ import { buildAiEntityHeader } from "./aiMetadata.mjs";
 
 export const CONVERSATION_CONTEXT_SCHEMA = "tasken-conversation-context/v1";
 export const CONVERSATION_CONTEXT_PUBLICATION_SCHEMA = "tasken-conversation-context-publication/v1";
-// "AI Pack/Conversations" には置かない。Theme AI Pack は固定 7 ファイルだけを staging swap し、
-// 余分なファイルを拒否する原子的な projection なので、動的な会話ファイルをその配下に置くと
-// 検証で拒否されるか、次回の更新で消える。
-// Theme AI Pack 側は、公開済み projection への参照と要約だけを持ち、会話本文は複製しない。
+// 会話は Theme folder の "AI Context/Conversations" にだけ書く。以前の Theme AI Pack（#755 束2 で外した）の
+// 出力済みのフォルダー "AI Pack" が同期先に残っていても、そこには触れない。
 export const CONVERSATION_CONTEXT_DIRECTORY = "AI Context/Conversations";
 export const CONVERSATION_CONTEXT_SCOPES = ["full", "selected_turns"];
 
@@ -440,23 +438,5 @@ export function buildConversationContextPlan({
     summary: text(header.summary),
     freshness: text(header.freshness) || "unknown",
     authority: text(header.authority) || "imported",
-  };
-}
-
-export function publicationForThemeAiPack(entity) {
-  const publication = normalizeConversationContextPublication(
-    entity?.conversation_context_publication,
-  );
-  if (!publication || publication.status !== "published") return null;
-  const legacyThemeId = text(entity?.theme_id || entity?.project_id);
-  const themeId = publication.theme_id || legacyThemeId;
-  const storageRootId = publication.storage_root_id || (themeId ? `theme:${themeId}` : "");
-  if (!themeId || storageRootId !== `theme:${themeId}`) return null;
-  return {
-    published: true,
-    title: text(entity?.title),
-    theme_id: themeId,
-    storage_root_id: storageRootId,
-    relative_path: publication.relative_path,
   };
 }
