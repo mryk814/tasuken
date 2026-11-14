@@ -52,7 +52,7 @@ internal fun MobilePendingCaptureDialog(
     onRetry: suspend (String) -> Boolean,
     onDismiss: () -> Unit,
     initialSelectedId: String? = null,
-    title: String = "送信待ちのCapture",
+    title: String = "未送信のCapture",
 ) {
     var selectedId by rememberSaveable { mutableStateOf(initialSelectedId) }
     var retrying by remember { mutableStateOf(false) }
@@ -68,7 +68,7 @@ internal fun MobilePendingCaptureDialog(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (selected == null) {
-                    if (entries.isEmpty()) Text("送信待ちのCaptureはありません。送信済みの本文はDesktopで読めます。")
+                    if (entries.isEmpty()) Text("未送信のCaptureはありません。届いた本文はDesktopで読めます。")
                     LazyColumn(Modifier.heightIn(max = 340.dp).testTag("pending-capture-list")) {
                         items(entries, key = { it.commandId }) { entry ->
                             TextButton(
@@ -77,7 +77,7 @@ internal fun MobilePendingCaptureDialog(
                             ) {
                                 Column(Modifier.fillMaxWidth()) {
                                     Text(entry.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    Text(if (entry.canRetry) "送信の確認が必要" else "送信待ち", style = MaterialTheme.typography.labelSmall)
+                                    Text(if (entry.canRetry) "受け取られなかった" else "未送信", style = MaterialTheme.typography.labelSmall)
                                 }
                             }
                         }
@@ -101,13 +101,13 @@ internal fun MobilePendingCaptureDialog(
                                 retrying = true
                                 scope.launch {
                                     notice = if (runCatching { onRetry(selected.commandId) }.getOrDefault(false)) {
-                                        "同じCaptureを再送します。"
-                                    } else "再送を開始できませんでした。原文は保持しています。"
+                                        "同じCaptureを送り直します。"
+                                    } else "送り直しを始められませんでした。原文は保持しています。"
                                     retrying = false
                                 }
                             },
                             modifier = Modifier.fillMaxWidth().testTag("pending-capture-retry"),
-                        ) { Text(if (retrying) "再送を準備中" else "再送する") }
+                        ) { Text(if (retrying) "送り直す準備中" else "送り直す") }
                     }
                     notice?.let { Text(it) }
                 }

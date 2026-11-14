@@ -71,7 +71,7 @@ class TodayOfflineUiTest {
             refreshing.value = false
             state.value = TodayUiState.Cached(tasks, SYNCED_AT, "PCへの接続を確認できませんでした。", TodayUiState.CachedRecovery.Reload)
         }
-        composeRule.onNodeWithText("端末に保存済み").assertIsDisplayed()
+        composeRule.onNodeWithTag("today-copy-stamp").assertIsDisplayed()
         composeRule.onNodeWithText("PCへの接続を確認できませんでした。").assertIsDisplayed()
         assertEquals(bounds, composeRule.onNodeWithText(task(20).title).getBoundsInRoot())
         capture("03-offline")
@@ -111,7 +111,7 @@ class TodayOfflineUiTest {
             state.value = TodayUiState.Cached(emptyList(), SYNCED_AT, "接続をやり直してください。", TodayUiState.CachedRecovery.RePair)
         }
         composeRule.onNodeWithText("今日のタスクはありません").assertIsDisplayed()
-        composeRule.onNodeWithText("再接続").assertIsDisplayed()
+        composeRule.onNodeWithText("つなぎ直す").assertIsDisplayed()
         capture("07-synced-empty")
     }
 

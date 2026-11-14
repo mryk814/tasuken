@@ -140,13 +140,13 @@ class TodayDelightUiTest {
                 }
             }
         }
-        composeRule.onNodeWithText("端末に保存済み").assertIsDisplayed()
+        composeRule.onNodeWithTag("today-copy-stamp").assertIsDisplayed()
         composeRule.onNodeWithText("PCへの接続を確認できませんでした。").assertIsDisplayed()
         capture("05-offline")
         composeRule.runOnIdle {
             state.value = TodayUiState.Cached(sampleTasks(), SYNCED_AT, "Desktopとの接続をやり直してください。", TodayUiState.CachedRecovery.RePair)
         }
-        composeRule.onNodeWithText("再接続").assertIsDisplayed()
+        composeRule.onNodeWithText("つなぎ直す").assertIsDisplayed()
         capture("06-repair")
     }
 

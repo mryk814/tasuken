@@ -479,7 +479,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
 
         internal fun statusText(snapshot: TaskenWidgetSnapshot): String = when {
             snapshot.conflictCount > 0 -> "競合 ${snapshot.conflictCount}件"
-            snapshot.pendingCount > 0 -> "送信待ち ${snapshot.pendingCount}件"
+            snapshot.pendingCount > 0 -> "未送信 ${snapshot.pendingCount}件"
             snapshot.lastSuccessfulSyncAt == null -> "未同期"
             else -> ""
         }

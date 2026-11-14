@@ -154,7 +154,7 @@ class FeedPostsUiTest {
         // 送信待ちの返信があるスレッドは、最初から開いて自分の返信が並んだことを見せる。
         composeRule.onNodeWithText("先に温度を見る").assertIsDisplayed()
         composeRule.onNodeWithText("25℃で問題ありません。").assertIsDisplayed()
-        composeRule.onNodeWithText("送信待ち").assertIsDisplayed()
+        composeRule.onNodeWithText("未送信").assertIsDisplayed()
         composeRule.onNodeWithTag("feed-post-thread-toggle-own-1").performClick()
         composeRule.onNodeWithText("先に温度を見る").assertDoesNotExist()
         composeRule.onNodeWithText("返信 3件を見る").assertIsDisplayed()

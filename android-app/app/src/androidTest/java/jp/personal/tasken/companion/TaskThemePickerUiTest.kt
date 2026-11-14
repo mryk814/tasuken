@@ -205,9 +205,9 @@ class TaskThemePickerUiTest {
         }
 
         composeRule.onNodeWithTag("task-theme-picker")
-            .assert(hasStateDescription("オフラインのTheme一覧を使用中"))
+            .assert(hasStateDescription("Theme一覧の写しを使用中"))
         composeRule.onNodeWithText("Personal").performClick()
-        composeRule.onNodeWithText("Theme一覧はオフラインです。変更は送信待ちになります。").assertExists()
+        composeRule.onNodeWithText("Theme一覧は写しです。変更は未送信になります。").assertExists()
         composeRule.runOnIdle { assertEquals("theme-personal", submittedThemeId) }
     }
 

@@ -2,6 +2,15 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-14 `emulator-5554` が試験用の AVD ではなく、Compose の画面の試験が全部 espresso で落ちた
+
+- しようとしたこと: つながらない時の見せ方（割印と日付印）の画面を、`ANDROID_SERIAL=emulator-5554` で androidTest から撮る。
+- 起きたこと: どの試験も `NoSuchMethodException: android.hardware.input.InputManager.getInstance []`（`Espresso.onIdle`）で落ちた。5554 で動いていたのは Pixel_8（API 35）ではなく、別の AVD（API 37）だった。Pixel_8 を `-read-only -port 5556` で起こすと、1 回目は snapshot の読み込みで落ちた（`error while loading state for instance 0x0 of device 'kvm-tpr-opt'`、`WHPX: Unexpected VP exit code 4`）。起動後も、試験の途中でアプリが ART の JIT の SIGSEGV（`art::jit::Jit::CompileMethodInternal`）で 1 回落ちた。
+- 原因: 今の espresso は API 37 で消えた `InputManager.getInstance` を呼ぶ。5554 は「エミュレータである」ことしか保証しない。snapshot は、別の描画の設定で保存された物を読み取り専用の起動が読めなかった。JIT の落ちは不明（流し直すと通る）。
+- 直し方: `emulator -avd Pixel_8 -read-only -port 5556 -no-snapshot` で冷たく起こし、`ANDROID_SERIAL=emulator-5556` で流した。
+- 再発防止: 記録だけ。流す前に `adb -s <serial> emu avd name` と `getprop ro.build.version.sdk` で、相手が Pixel_8（API 35）かを確かめる。本人の実機に入れないための決まりは「実機でない serial を必ず付ける」で、番号は 5554 に限らない。
+- 同じ作業で分かったこと: `TodayOfflineUiTest.completionKeepsTheTaskInPlaceAndDoesNotSelectTheNextRow` は、この作業の前のコミット（v0.1.91）でも同じ所（完了の丸を押した後の読み上げの語）で落ちる。この作業では直していない。
+
 ## 2026-11-14 `npm run ci` の最後の smoke が「10 秒以内に閉じる」だけで 6 回中 5 回落ちた
 
 - しようとしたこと: #755 の束 3・束 9a を main に入れる前に `npm run ci` を流す。PC はほかの作業で CPU 90% 前後。

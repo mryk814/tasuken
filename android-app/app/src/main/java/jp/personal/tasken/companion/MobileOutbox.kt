@@ -10,6 +10,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import java.time.Duration
@@ -21,6 +22,8 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -750,7 +753,7 @@ class MobileOutbox(
         require(task.conflictCommandId == commandId)
         val previousCommand = requireNotNull(dao.outbox(commandId))
         val serverId = currentServerId()
-        require(previousCommand.serverId == serverId) { "接続先が変わったため、この競合は再送できません。" }
+        require(previousCommand.serverId == serverId) { "接続先が変わったため、この競合は送り直せません。" }
         val replacementId = UUID.randomUUID().toString()
         val requestId = UUID.randomUUID().toString()
         val issuedAt = now().toString()
@@ -909,7 +912,7 @@ class MobileOutbox(
     }
 
     suspend fun recoverInterruptedSending(): Int =
-        dao.recoverInterruptedSending("送信中にAndroidプロセスが終了したため再送します。")
+        dao.recoverInterruptedSending("送信の途中でアプリが止まりました。")
 
     private data class ReceiptExpectation(
         val taskId: String,
@@ -1446,6 +1449,25 @@ object MobileOutboxScheduler {
             request,
         )
     }
+
+    /**
+     * 次に自動で送る時刻（エポックのミリ秒。分からなければ null）。同期の画面の「次は 12:45」に使う。
+     * 命令ごとの次の時刻は DB に持たず、送信を動かしている WorkManager の予定（失敗の後の待ちと、15 分ごとの定期）から読む。
+     * 通信の条件が満たされない間は、この時刻が来ても動かない。過ぎた時刻は画面の側で出さない。
+     */
+    fun observeNextRunAt(context: Context): Flow<Long?> = runCatching {
+        val manager = WorkManager.getInstance(context.applicationContext)
+        combine(
+            manager.getWorkInfosForUniqueWorkFlow(UniqueWorkName),
+            manager.getWorkInfosForUniqueWorkFlow(PeriodicWorkName),
+        ) { outbox, periodic -> nextRunAt(outbox + periodic) }
+    }.getOrElse { flowOf(null) }
+
+    internal fun nextRunAt(works: List<WorkInfo>): Long? = works
+        .filter { it.state == WorkInfo.State.ENQUEUED }
+        .map { it.nextScheduleTimeMillis }
+        .filter { it != Long.MAX_VALUE }
+        .minOrNull()
 
     fun ensurePeriodicSync(context: Context) {
         val request = PeriodicWorkRequestBuilder<MobileBackgroundSyncWorker>(15, TimeUnit.MINUTES)

@@ -315,7 +315,7 @@ private fun FeedActionButton(
     }
 }
 
-/** スレッドの1件。自分のメモもAIの返答も同じ形で並べ、届いていない返信だけ「送信待ち」を添える。 */
+/** スレッドの1件。自分のメモもAIの返答も同じ形で並べ、届いていない返信だけ「未送信」を添える。 */
 @Composable
 private fun FeedReplyItem(reply: MobileFeedReplyDto) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -331,11 +331,12 @@ private fun FeedReplyItem(reply: MobileFeedReplyDto) {
                     )
                 }
                 if (reply.pending) {
+                    // 未送信は朱の割印（半分の印）で示す。浅葱（進行中の色）は使わない。
+                    OflWari(scale = 0.5f, description = null)
                     Text(
-                        "送信待ち",
+                        "未送信",
                         style = MaterialTheme.typography.labelMedium,
-                        // 小さな文字なので、線と印の色（tertiary。地の上で 3.6）でなく文字の濃さ（5.5）を使う。
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.testTag("feed-reply-pending-${reply.replyId}"),
                     )
                 }

@@ -1,6 +1,7 @@
 package jp.personal.tasken.companion
 
 import android.content.Context
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,14 +17,15 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -33,23 +36,29 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /** 下部タブとレールの並び。Desktopの呼び方（Task・Feed）に揃える。 */
 internal fun sectionLabel(section: AppSection): String = when (section) {
@@ -66,73 +75,142 @@ internal fun sectionIcon(section: AppSection): Int = when (section) {
     AppSection.Records -> R.drawable.ic_tabler_notebook
 }
 
+/** 受け取られなかった物の一つ。[taskId] があれば、その Task を開いて決める。無ければ入力の一覧を開く。 */
+internal data class SyncReturned(val title: String, val reason: String, val taskId: String? = null)
+
 /**
- * 同期の様子を1つの印にまとめる。押すと中身（未反映・要確認・未送信の入力）を開く。
- * 正常な間は緑の点だけ、対応が要るときだけ件数を出す。
+ * 同期の様子。未送信は、理由で三つに分ける（送信の列の state と 1 対 1）。
+ * - つながったら送る（[waiting]）: pending・sending・retry_wait。待てば自分で送る。
+ * - 直すと送れる（[fixable]）: 上と同じ命令でも、この端末の登録が切れている間（[needsRepair]）は本人がつなぎ直すまで送れない。
+ *   それと、PC の版が古くて受け取れなかった入力（rejected のうち capability_unavailable）。
+ * - 受け取られなかった（[returned]）: conflict と、それ以外の rejected（後ろで止まっている blocked も同じ Task に含む）。
+ *   捨てずに端末に残し、本人が開いて決める。
  */
 internal data class SyncSummary(
     val connected: Boolean,
     val needsRepair: Boolean,
     val lastSyncedAt: String?,
     val message: String?,
-    val pending: Int,
-    val conflicts: Int,
+    val waiting: Int,
+    val retry: MobileSendRetry?,
+    val nextSendAt: Long?,
+    val fixable: Int,
+    val fixReason: String?,
+    val returned: List<SyncReturned>,
     val unsentCaptures: Int,
     val recoveredInputs: Int,
 ) {
-    val attentionCount: Int get() = conflicts + unsentCaptures + recoveredInputs
-    val healthy: Boolean get() = connected && pending == 0 && attentionCount == 0
+    /** 上の帯の「割印＋数」。端末に残った入力（回復した下書き）も、本人が入れてまだ届いていない物として数える。 */
+    val unsent: Int get() = waiting + fixable + returned.size + recoveredInputs
+    val healthy: Boolean get() = connected && unsent == 0
+}
+
+internal fun MobileTask.toSyncReturned(): SyncReturned? = when {
+    conflict != null -> SyncReturned(title, "PC で先に変わっていました", id)
+    heldChanges.any { it.rejected } -> SyncReturned(title, heldChanges.first { it.rejected }.reason, id)
+    else -> null
 }
 
 internal fun syncSummary(
     uiState: TodayUiState,
     pending: Int?,
-    conflicts: Int?,
-    unsentCaptures: Int,
+    tasks: List<MobileTask>,
+    captures: List<MobilePendingCapture>,
     recoveredInputs: Int,
-): SyncSummary = SyncSummary(
-    connected = uiState is TodayUiState.Success || uiState is TodayUiState.Empty,
-    needsRepair = uiState is TodayUiState.PairingRequired ||
-        (uiState as? TodayUiState.Cached)?.recovery == TodayUiState.CachedRecovery.RePair,
-    lastSyncedAt = when (uiState) {
-        is TodayUiState.Success -> uiState.generatedAt
-        is TodayUiState.Cached -> uiState.generatedAt
-        else -> null
-    }?.takeIf { it.isNotBlank() },
-    message = when (uiState) {
+    retry: MobileSendRetry? = null,
+    nextSendAt: Long? = null,
+): SyncSummary {
+    val needsRepair = uiState is TodayUiState.PairingRequired ||
+        (uiState as? TodayUiState.Cached)?.recovery == TodayUiState.CachedRecovery.RePair
+    val message = when (uiState) {
         is TodayUiState.Cached -> uiState.message
         is TodayUiState.Error -> uiState.message
+        is TodayUiState.PairingRequired -> uiState.message
         else -> null
-    },
-    pending = pending ?: 0,
-    conflicts = conflicts ?: 0,
-    unsentCaptures = unsentCaptures,
-    recoveredInputs = recoveredInputs,
-)
+    }?.takeIf { it.isNotBlank() }
+    val shown = when (uiState) {
+        is TodayUiState.Success -> uiState.tasks
+        is TodayUiState.Cached -> uiState.tasks
+        else -> emptyList()
+    }
+    val sendable = pending ?: 0
+    val oldPcCaptures = captures.count { it.needsFix }
+    return SyncSummary(
+        connected = uiState is TodayUiState.Success || uiState is TodayUiState.Empty,
+        needsRepair = needsRepair,
+        lastSyncedAt = when (uiState) {
+            is TodayUiState.Success -> uiState.generatedAt
+            is TodayUiState.Cached -> uiState.generatedAt
+            else -> null
+        }?.takeIf { it.isNotBlank() },
+        message = message,
+        waiting = if (needsRepair) 0 else sendable,
+        retry = retry.takeUnless { needsRepair },
+        nextSendAt = nextSendAt.takeUnless { needsRepair },
+        fixable = (if (needsRepair) sendable else 0) + oldPcCaptures,
+        fixReason = when {
+            needsRepair -> message ?: "この端末の登録が切れました"
+            oldPcCaptures > 0 -> "PC の Tasken が古く、受け取れない入力があります"
+            else -> null
+        },
+        returned = (tasks + shown).distinctBy { it.id }.mapNotNull(MobileTask::toSyncReturned) +
+            captures.filter { it.canRetry && !it.needsFix }.map {
+                SyncReturned(it.text.lineSequence().firstOrNull().orEmpty().take(40), "PC が受け取りませんでした")
+            },
+        unsentCaptures = captures.size,
+        recoveredInputs = recoveredInputs,
+    )
+}
 
+/**
+ * 上の帯の同期の印。未送信がある間は「割印＋数」、受け取られなかった物だけなら「戻」、
+ * つながらないだけなら電波なしの絵、何も無ければ緑の点。押すと理由の三つの一覧を開く。
+ */
 @Composable
 internal fun SyncStatusButton(summary: SyncSummary, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val dark = scheme.surface.luminanceIsDark()
+    val onlyReturned = summary.returned.isNotEmpty() && summary.unsent == summary.returned.size
     val description = when {
-        summary.healthy -> "同期済み"
-        summary.attentionCount > 0 -> "同期の確認 ${summary.attentionCount}件"
-        summary.pending > 0 -> "PCへ未反映 ${summary.pending}件"
-        else -> "PCに接続していません"
+        summary.healthy -> "同期 届いています"
+        onlyReturned -> "同期 受け取られなかった ${summary.unsent}"
+        summary.unsent > 0 -> "同期 未送信 ${summary.unsent}"
+        summary.needsRepair -> "同期 つなぎ直しが要ります"
+        else -> "同期 つながらない"
     }
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier.testTag("open-sync-status").semantics { contentDescription = description },
+    Row(
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .widthIn(min = 48.dp)
+            .clip(CircleShape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .testTag("open-sync-status")
+            .clearAndSetSemantics { contentDescription = description }
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
     ) {
-        BadgedBox(badge = {
-            when {
-                summary.attentionCount > 0 -> Badge(containerColor = scheme.error) { Text("${summary.attentionCount}") }
-                summary.pending > 0 -> Badge(containerColor = scheme.secondary) { Text("${summary.pending}") }
-                summary.healthy -> Box(Modifier.size(8.dp).background(taskenSuccessColor(dark), CircleShape))
-                else -> Box(Modifier.size(8.dp).background(scheme.error, CircleShape))
+        when {
+            summary.unsent > 0 -> {
+                Icon(painterResource(R.drawable.ic_tabler_cloud), contentDescription = null)
+                Spacer(Modifier.size(4.dp))
+                if (onlyReturned) OflModo(description = null) else OflWari(scale = 0.8f, description = null)
+                Text(
+                    "${summary.unsent}",
+                    style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
             }
-        }) {
-            Icon(painterResource(R.drawable.ic_tabler_cloud), contentDescription = null)
+            summary.healthy -> BadgedBox(badge = { Box(Modifier.size(8.dp).background(taskenSuccessColor(dark), CircleShape)) }) {
+                Icon(painterResource(R.drawable.ic_tabler_cloud), contentDescription = null)
+            }
+            summary.needsRepair -> {
+                Icon(painterResource(R.drawable.ic_tabler_cloud), contentDescription = null)
+                Spacer(Modifier.size(4.dp))
+                OflBang(description = null)
+            }
+            else -> OflNowave(Modifier.size(24.dp), color = scheme.onSurfaceVariant)
         }
     }
 }
@@ -140,6 +218,25 @@ internal fun SyncStatusButton(summary: SyncSummary, onClick: () -> Unit) {
 private fun Color.luminanceIsDark(): Boolean =
     (0.2126f * red + 0.7152f * green + 0.0722f * blue) < 0.5f
 
+private val SYNC_CLOCK: DateTimeFormatter = DateTimeFormatter.ofPattern("H:mm")
+
+private fun clockLabel(at: Instant, zone: ZoneId = ZoneId.systemDefault()): String = SYNC_CLOCK.withZone(zone).format(at)
+
+/** 「4回送った・最後 12:31」。試した記録が無ければ null。 */
+internal fun retrySummaryLabel(retry: MobileSendRetry?, zone: ZoneId = ZoneId.systemDefault()): String? {
+    if (retry == null || retry.attempts <= 0) return null
+    val last = parseInstantOrNull(retry.lastAttemptAt)?.let { "・最後 ${clockLabel(it, zone)}" }.orEmpty()
+    return "${retry.attempts}回送った$last"
+}
+
+/** 「次は 12:45」。予定が分からない時と、過ぎた時刻（通信が戻るのを待っている）は出さない。 */
+internal fun nextSendLabel(nextSendAt: Long?, now: Long = System.currentTimeMillis(), zone: ZoneId = ZoneId.systemDefault()): String? =
+    nextSendAt?.takeIf { it > now }?.let { "次は ${clockLabel(Instant.ofEpochMilli(it), zone)}" }
+
+/**
+ * 同期の一覧。見出しの右に、最後に届いた時刻の日付印。未送信は理由の三つの行に分け、理由ごとに印を変える。
+ * 割印だけ＝つながったら送る、割印＋「!」＝直すと送れる、「戻」＝受け取られなかった。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SyncStatusSheet(
@@ -150,40 +247,117 @@ internal fun SyncStatusSheet(
     onOpenUnsentCaptures: () -> Unit,
     onOpenRecoveredInputs: () -> Unit,
     onDismiss: () -> Unit,
+    onOpenReturned: (SyncReturned) -> Unit = {},
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         SheetColumn(Modifier.testTag("sync-status-sheet")) {
-            Text("同期", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            StatusRow(
-                icon = if (summary.connected) R.drawable.ic_tabler_circle_check else R.drawable.ic_tabler_alert_triangle,
-                tone = if (summary.connected) StatusTone.Good else StatusTone.Warn,
-                title = when {
-                    summary.connected -> "PCと同期しています"
-                    summary.needsRepair -> "PCとの接続をやり直してください"
-                    else -> "端末に保存した内容を表示しています"
-                },
-                detail = summary.message ?: summary.lastSyncedAt?.let { "最終同期 ${formatLocalTimestamp(it)}" },
-            )
-            StatusRow(
-                icon = R.drawable.ic_tabler_arrow_up,
-                tone = if (summary.pending > 0) StatusTone.Info else StatusTone.Good,
-                title = "PCへ未反映",
-                value = "${summary.pending}件",
-                detail = if (summary.pending > 0) "接続すると自動で送ります。" else null,
-                modifier = Modifier.testTag("sync-pending"),
-            )
-            StatusRow(
-                icon = R.drawable.ic_tabler_alert_triangle,
-                tone = if (summary.conflicts > 0) StatusTone.Warn else StatusTone.Good,
-                title = "要確認（競合）",
-                value = "${summary.conflicts}件",
-                detail = if (summary.conflicts > 0) "該当するTaskを開いて、どちらを残すか選びます。" else null,
-                modifier = Modifier.testTag("sync-conflicts"),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 56.dp)) {
+                Text("同期", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                if (!summary.connected && !summary.needsRepair) {
+                    Spacer(Modifier.size(12.dp))
+                    OflNowave()
+                    Text(
+                        "つながらない",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 4.dp).testTag("sync-disconnected"),
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                parseInstantOrNull(summary.lastSyncedAt)?.let { at ->
+                    Text(
+                        stampAgeLabel(at),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = 8.dp),
+                    )
+                    OflStamp("届いた", at, modifier = Modifier.testTag("sync-arrived-stamp"))
+                }
+            }
+            // つながらない理由は、送り直しの行があればそこに出る。無い時だけ、ここに一行で出す。
+            val retryLine = retrySummaryLabel(summary.retry)
+            if (!summary.connected && !summary.needsRepair && summary.message != null && summary.retry?.reason == null) {
+                Text(summary.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (summary.unsent > 0) {
+                Text(
+                    "未送信 ${summary.unsent}",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(top = 4.dp).testTag("sync-unsent-count"),
+                )
+            }
+            if (summary.waiting > 0) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                ReasonRow(
+                    mark = { OflWari(description = null) },
+                    title = "つながったら送る",
+                    count = summary.waiting,
+                    modifier = Modifier.testTag("sync-pending"),
+                ) {
+                    listOfNotNull(retryLine, summary.retry?.reason).joinToString(" ").takeIf { it.isNotBlank() }?.let { ReasonDetail(it) }
+                    nextSendLabel(summary.nextSendAt)?.let { ReasonDetail(it) }
+                }
+            }
+            if (summary.fixable > 0 || summary.needsRepair) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                ReasonRow(
+                    mark = {
+                        if (summary.fixable > 0) OflWari(description = null)
+                        OflBang(Modifier.padding(start = if (summary.fixable > 0) 4.dp else 0.dp), description = null)
+                    },
+                    title = if (summary.fixable > 0) "直すと送れる" else "つなぎ直すと届きます",
+                    count = summary.fixable.takeIf { it > 0 },
+                    modifier = Modifier.testTag("sync-fix"),
+                ) {
+                    summary.fixReason?.let { ReasonDetail(it, strong = true) }
+                    if (summary.needsRepair) {
+                        ToolButton(onClick = onRepair, modifier = Modifier.testTag("sync-repair")) {
+                            Text("つなぎ直す", fontWeight = FontWeight.Bold)
+                        }
+                    } else {
+                        ToolButton(onClick = onOpenUnsentCaptures, modifier = Modifier.testTag("sync-fix-open")) {
+                            Text("開いて送り直す", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+            if (summary.returned.isNotEmpty()) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                ReasonRow(
+                    mark = { OflModo(description = null) },
+                    title = "受け取られなかった",
+                    count = summary.returned.size,
+                    modifier = Modifier.testTag("sync-conflicts"),
+                ) {
+                    // 多い時は先の三つまで。残りは、開いた先（Task の一覧の「戻」の印）で見つかる。
+                    summary.returned.take(3).forEachIndexed { index, item ->
+                        Text(
+                            "「${item.title}」",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = if (index == 0) 0.dp else 8.dp),
+                        )
+                        ReasonDetail(item.reason, strong = true)
+                        ToolButton(
+                            onClick = { if (item.taskId != null) onOpenReturned(item) else onOpenUnsentCaptures() },
+                            modifier = Modifier.testTag("sync-returned-open-$index"),
+                        ) { Text("開いて決める", fontWeight = FontWeight.Bold) }
+                    }
+                    if (summary.returned.size > 3) ReasonDetail("ほか ${summary.returned.size - 3}")
+                }
+            }
+            if (summary.unsentCaptures > 0 || summary.recoveredInputs > 0) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            }
             if (summary.unsentCaptures > 0) {
                 StatusRow(
                     icon = R.drawable.ic_tabler_send,
-                    tone = StatusTone.Warn,
+                    tone = StatusTone.Info,
                     title = "未送信の入力",
                     value = "${summary.unsentCaptures}件",
                     onClick = onOpenUnsentCaptures,
@@ -193,17 +367,14 @@ internal fun SyncStatusSheet(
             if (summary.recoveredInputs > 0) {
                 StatusRow(
                     icon = R.drawable.ic_tabler_refresh,
-                    tone = StatusTone.Warn,
-                    title = "回復済み入力",
+                    tone = StatusTone.Info,
+                    title = "端末に残った入力",
                     value = "${summary.recoveredInputs}件",
                     onClick = onOpenRecoveredInputs,
                     modifier = Modifier.testTag("open-input-recovery"),
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (summary.needsRepair) {
-                    TextButton(onClick = onRepair, modifier = Modifier.testTag("sync-repair")) { Text("再接続") }
-                }
                 Spacer(Modifier.weight(1f))
                 Button(
                     onClick = onSyncNow,
@@ -211,13 +382,77 @@ internal fun SyncStatusSheet(
                     modifier = Modifier.heightIn(min = 48.dp).testTag("sync-now"),
                 ) {
                     Icon(painterResource(R.drawable.ic_tabler_refresh), contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text(if (refreshing) "確認中" else "今すぐ同期", modifier = Modifier.padding(start = 6.dp))
+                    Text(
+                        when {
+                            refreshing -> "確かめています"
+                            summary.waiting > 0 -> "今すぐ送る"
+                            else -> "今すぐ同期"
+                        },
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
                 }
             }
         }
     }
 }
 
+/** 理由の一行。左に印（幅をそろえる）、題と数、その下に理由と押す物。 */
+@Composable
+private fun ReasonRow(
+    mark: @Composable () -> Unit,
+    title: String,
+    count: Int?,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Row(
+        modifier = modifier.fillMaxWidth().padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(Modifier.width(60.dp).heightIn(min = 30.dp), verticalAlignment = Alignment.CenterVertically) { mark() }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.heightIn(min = 30.dp)) {
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+                count?.let {
+                    Text(
+                        "$it",
+                        style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+            content()
+        }
+    }
+}
+
+/** 理由の行に添える、押せる物。道具の一色（アプリの主の色）は押せる物だけに使う。 */
+@Composable
+private fun ToolButton(onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+        modifier = modifier.padding(top = 6.dp).heightIn(min = 44.dp),
+        content = content,
+    )
+}
+
+@Composable
+private fun ReasonDetail(text: String, strong: Boolean = false) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = if (strong) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
 /**
  * 設定を1か所へ集める。通知の許可と接続をここから開く。
  */
@@ -250,7 +485,7 @@ internal fun AppSettingsSheet(
             StatusRow(
                 icon = R.drawable.ic_tabler_link,
                 tone = StatusTone.Info,
-                title = "PCとの接続をやり直す",
+                title = "PC とつなぎ直す",
                 detail = "Pairing codeを入れ直します",
                 value = "開く",
                 onClick = onRepair,

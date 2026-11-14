@@ -130,7 +130,7 @@ internal fun MobileWorkLogSheet(
                                     record.taskId?.let { id -> Text("Task: ${tasks.firstOrNull { it.id == id }?.title ?: id}") }
                                     item.errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                                     if (item.pending?.state == OutboxState.Rejected || item.pending?.state == OutboxState.RetryWait) {
-                                        TextButton(onClick = { action { repository.retryWorkLog(record.id) } }, enabled = !busy) { Text("再送する") }
+                                        TextButton(onClick = { action { repository.retryWorkLog(record.id) } }, enabled = !busy) { Text("送り直す") }
                                     }
                                     if (item.pending?.state == OutboxState.Rejected && record.serverVersion == null && (record.taskId != null || record.themeId != null)) {
                                         TextButton(onClick = {

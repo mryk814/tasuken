@@ -103,13 +103,13 @@ internal object MobileWorkLogContract {
 /** A display cache of the Desktop Note, including the locally accepted input before sync. */
 data class MobileWorkLog(val record: WorkLogCacheEntity, val pending: OutboxCommandEntity?) {
     val status: String get() = when (pending?.state) {
-        OutboxState.Rejected -> "端末に保存済み・送信を確認してください"
-        OutboxState.Sending -> "端末に保存済み・送信中"
+        OutboxState.Rejected -> "受け取られなかった・本文は端末にあります"
+        OutboxState.Sending -> "未送信・送っています"
         null -> if (record.deleted) "削除済み" else if (record.serverVersion == null) "端末に保存済み" else "Desktopに保存済み"
         else -> when (pending.commandName) {
-            "DeleteWorkLog" -> "本文を保持しています・削除の送信待ち"
-            "RestoreWorkLog" -> "本文を保持しています・復元の送信待ち"
-            else -> "端末に保存済み・送信待ち"
+            "DeleteWorkLog" -> "本文を保持しています・削除は未送信"
+            "RestoreWorkLog" -> "本文を保持しています・復元は未送信"
+            else -> "未送信"
         }
     }
     val errorMessage: String? get() = pending?.lastError?.let { encoded ->

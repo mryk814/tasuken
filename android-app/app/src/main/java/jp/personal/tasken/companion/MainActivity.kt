@@ -254,7 +254,6 @@ internal fun TodayApp(
     val pendingCaptures by todayViewModel.pendingCaptures.collectAsState()
     val taskActionState by todayViewModel.taskActionState.collectAsState()
     val pendingCount by todayViewModel.pendingCount.collectAsState()
-    val conflictCount by todayViewModel.conflictCount.collectAsState()
     val allTasks by todayViewModel.allTasks.collectAsState()
     val previousPlaces = remember(allTasks) { previousPlaceReminders(allTasks) }
     val themeCatalogState by todayViewModel.themeCatalogState.collectAsState()
@@ -600,7 +599,7 @@ internal fun TodayApp(
             is TaskActionUiState.ConflictResolved -> {
                 val resolved = taskActionState as TaskActionUiState.ConflictResolved
                 snackbarHostState.showSnackbar(
-                    if (resolved.keptLocal) "この端末の変更を再送します。" else "Desktopの状態を採りました。",
+                    if (resolved.keptLocal) "この端末の変更を送り直します。" else "Desktopの状態を採りました。",
                 )
                 todayViewModel.resetTaskActionState()
             }
@@ -627,7 +626,10 @@ internal fun TodayApp(
         }
     }
 
-    val syncState = syncSummary(uiState, pendingCount, conflictCount, pendingCaptures.size, recoveredInputs.size)
+    val sendRetry by todayViewModel.sendRetry.collectAsState()
+    val nextSendFlow = remember(context) { MobileOutboxScheduler.observeNextRunAt(context) }
+    val nextSendAt by nextSendFlow.collectAsState(initial = null)
+    val syncState = syncSummary(uiState, pendingCount, allTasks, pendingCaptures, recoveredInputs.size, sendRetry, nextSendAt)
     val selectSection: (AppSection) -> Unit = { section ->
         paneState.selectSection(section)
         coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
@@ -891,6 +893,13 @@ internal fun TodayApp(
             onOpenUnsentCaptures = { syncSheetOpen = false; pendingCapturesOpen = true },
             onOpenRecoveredInputs = { syncSheetOpen = false; recoveryOpen = true },
             onDismiss = { syncSheetOpen = false },
+            onOpenReturned = { item ->
+                syncSheetOpen = false
+                item.taskId?.let { taskId ->
+                    paneState.selectedTaskId = taskId
+                    coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, taskId) }
+                }
+            },
         )
     }
     if (settingsOpen) {
@@ -1576,15 +1585,18 @@ private fun CachedTaskBanner(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Text("端末に保存済み", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                 Text(state.message, style = MaterialTheme.typography.bodySmall)
+            }
+            // いつの写しかは、丸い日付印と横の古さで言う（「端末に保存済み」「最終同期」の文は出さない）。
+            parseInstantOrNull(state.generatedAt)?.let { at ->
                 Text(
-                    state.generatedAt.takeIf { it.isNotBlank() }
-                        ?.let { "最終同期 ${formatLocalTimestamp(it)}" }
-                        ?: "同期実績なし",
-                    style = MaterialTheme.typography.labelSmall,
+                    stampAgeLabel(at),
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp),
                 )
+                OflStamp("写し", at, scale = 0.8f, modifier = Modifier.testTag("cached-copy-stamp"))
             }
             TextButton(
                 onClick = if (state.recovery == TodayUiState.CachedRecovery.RePair) onRetryPairing else onRetry,
@@ -1593,7 +1605,7 @@ private fun CachedTaskBanner(
                 Text(
                     when {
                         refreshing -> "確認中"
-                        state.recovery == TodayUiState.CachedRecovery.RePair -> "再接続"
+                        state.recovery == TodayUiState.CachedRecovery.RePair -> "つなぎ直す"
                         else -> "再読み込み"
                     },
                 )
@@ -2048,6 +2060,9 @@ internal fun TodayTaskList(
             val rowHaptics = LocalHapticFeedback.current
             val selected = task.id == paneState.selectedTaskId
             val rowShape = segmentShape(index, tasks.size)
+            // 受け取られなかった（PC が断った・先に変わっていた）物は「戻」、まだ届いていない物は行の端の割印。
+            val returned = task.conflict != null || task.heldChanges.isNotEmpty()
+            val unsent = task.pending && !returned
             val addedTint = rememberJustAddedTint(task.id in justAddedIds)
             Surface(
                 shape = rowShape,
@@ -2072,6 +2087,7 @@ internal fun TodayTaskList(
                         onTaskSelected(task.id)
                     },
             ) {
+              Box {
               Column {
                 // 長押しのメニュー。スワイプと同じ操作を、指を払わなくても選べるようにする。
                 DropdownMenu(
@@ -2116,7 +2132,8 @@ internal fun TodayTaskList(
                     )
                 }
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                    // 割印を付ける行は、右に 20dp の余白を取り、字や押す所と重ねない。
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = if (unsent) 20.dp else 4.dp, top = 6.dp, bottom = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -2147,37 +2164,23 @@ internal fun TodayTaskList(
                                 verticalArrangement = Arrangement.spacedBy(2.dp),
                             ) {
                                 TaskThemeLabel(task.themeId, themes)
-                                if (task.conflict != null || requiresWorkReceipt) {
-                                val conflict = task.conflict != null
-                                Surface(
-                                    color = if (conflict) {
-                                        MaterialTheme.colorScheme.errorContainer
-                                    } else {
-                                        taskenAiColors().aiBg
-                                    },
-                                    shape = RoundedCornerShape(7.dp),
-                                ) {
+                                if (returned) {
+                                    // 印（行の右の「戻」）が言うことを、読み上げと小さな字でも言う。
                                     Text(
-                                        if (conflict) "競合" else "要確認",
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        color = if (conflict) {
-                                            MaterialTheme.colorScheme.onErrorContainer
-                                        } else {
-                                            taskenAiColors().aiStrong
-                                        },
+                                        "受け取られなかった",
+                                        modifier = Modifier.padding(vertical = 4.dp).testTag("task-returned-${task.id}"),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontSize = 11.sp,
                                     )
-                                }
-                            }
-                            if (task.pending) {
+                                } else if (requiresWorkReceipt) {
                                 Surface(
-                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    color = taskenAiColors().aiBg,
                                     shape = RoundedCornerShape(7.dp),
                                 ) {
                                     Text(
-                                        "送信待ち",
+                                        "要確認",
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        color = taskenAiColors().aiStrong,
                                         fontSize = 11.sp,
                                     )
                                 }
@@ -2212,6 +2215,7 @@ internal fun TodayTaskList(
                             Icon(painterResource(R.drawable.ic_tabler_sun), contentDescription = "今日の予定に追加")
                         }
                     }
+                    if (returned) OflModo(description = null)
                     TaskCompletionControl(
                         checked = task.state == "done",
                         onCheckedChange = { onTaskStateAction(task) },
@@ -2224,6 +2228,10 @@ internal fun TodayTaskList(
                             ?.eventId,
                     )
                 }
+              }
+              if (unsent) {
+                  OflWariEdge(Modifier.align(Alignment.CenterEnd).testTag("task-unsent-${task.id}"))
+              }
               }
             }
             }
@@ -2501,25 +2509,28 @@ internal fun TodayDetailPane(
                 }
             }
             if (task.pending) {
+                // 未送信は割印、受け取られなかった物は「戻」。枠は実線（点線は候補だけ）。
+                val held = task.heldChanges.isNotEmpty()
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.fillMaxWidth().testTag("task-send-state"),
+                    color = MaterialTheme.colorScheme.surface,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                     shape = MaterialTheme.shapes.medium,
                 ) {
-                    Column(
+                    Row(
                         modifier = Modifier.fillMaxWidth().padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Text(
-                            if (task.heldChanges.isNotEmpty()) "変更の確認が必要" else "送信待ち",
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            if (task.heldChanges.isNotEmpty()) "保持している変更を確認してください。" else "Desktopへの送信を待っています。",
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                        if (held) OflModo(description = null) else OflWari(description = null)
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(if (held) "受け取られなかった" else "未送信", fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (held) "下の変更を確かめて、決めてください。" else "つながったら送ります。",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
                 }
             }
@@ -2588,7 +2599,7 @@ internal fun TodayDetailPane(
                             Button(
                                 onClick = { onConflictResolution(task, true) },
                                 enabled = actionState !is TaskActionUiState.Saving,
-                            ) { Text(if (task.heldChanges.isEmpty()) "この端末を採る" else "この端末と後続変更を再送") }
+                            ) { Text(if (task.heldChanges.isEmpty()) "この端末を採る" else "この端末と後続変更を送り直す") }
                             TextButton(
                                 onClick = { onConflictResolution(task, false) },
                                 enabled = actionState !is TaskActionUiState.Saving,
@@ -2653,7 +2664,7 @@ internal fun TodayDetailPane(
                     actionState !is TaskActionUiState.Saving,
                 stateDescription = when {
                     task.canEditPendingCreate -> "この端末に保存してから送信します"
-                    task.pending && (task.canEditPendingChecklist || task.canEditPendingTask) -> "送信待ちの変更へ追記できます"
+                    task.pending && (task.canEditPendingChecklist || task.canEditPendingTask) -> "未送信の変更へ追記できます"
                     task.pending -> "同期後に変更"
                     task.conflict != null -> "競合を解決してから変更"
                     actionState is TaskActionUiState.Saving -> "保存中"
@@ -2671,14 +2682,14 @@ internal fun TodayDetailPane(
                 enabled = (!task.pending || task.canEditPendingCreate || task.canEditPendingTask) && task.conflict == null && actionState !is TaskActionUiState.Saving,
                 stateDescription = when {
                     task.canEditPendingCreate -> "この端末に保存してから送信します"
-                    task.canEditPendingTask -> "送信待ちの変更へ追記できます"
+                    task.canEditPendingTask -> "未送信の変更へ追記できます"
                     task.pending -> "同期後に変更"
                     task.conflict != null -> "競合を解決してから変更"
                     actionState is TaskActionUiState.Saving -> "保存中"
                     themeCatalogState is MobileThemeCatalogState.Loading -> {
                         if (themes.isEmpty()) "Theme一覧を読み込み中" else "Theme一覧を更新中"
                     }
-                    themeCatalogState is MobileThemeCatalogState.Stale -> "オフラインのTheme一覧を使用中"
+                    themeCatalogState is MobileThemeCatalogState.Stale -> "Theme一覧の写しを使用中"
                     themeCatalogState is MobileThemeCatalogState.Unsupported -> "このDesktopではTheme編集を利用できません"
                     themeCatalogState is MobileThemeCatalogState.Error -> "Theme一覧を取得できません"
                     themes.isEmpty() -> "利用できるThemeがありません"
@@ -2692,7 +2703,7 @@ internal fun TodayDetailPane(
                     actionState !is TaskActionUiState.Saving,
                 stateDescription = when {
                     task.canEditPendingCreate -> "この端末に保存してから送信します"
-                    task.canEditPendingTask -> "送信待ちの変更へ追記できます"
+                    task.canEditPendingTask -> "未送信の変更へ追記できます"
                     task.pending -> "同期後に変更"
                     task.conflict != null -> "競合を解決してから変更"
                     actionState is TaskActionUiState.Saving -> "保存中"
@@ -2707,7 +2718,7 @@ internal fun TodayDetailPane(
                 enabled = (!task.pending || task.canEditPendingCreate || task.canEditPendingTask) && task.conflict == null &&
                     actionState !is TaskActionUiState.Saving,
                 stateDescription = when {
-                    task.pending -> "送信待ち"
+                    task.pending -> "未送信"
                     task.conflict != null -> "競合を解決してから変更"
                     else -> null
                 },
@@ -3674,7 +3685,7 @@ private fun TaskThemePicker(
     val helperText = when (catalogState) {
         is MobileThemeCatalogState.Loading -> null
         is MobileThemeCatalogState.Available -> if (themes.isEmpty()) "利用できるThemeがありません。" else null
-        is MobileThemeCatalogState.Stale -> "Theme一覧はオフラインです。変更は送信待ちになります。"
+        is MobileThemeCatalogState.Stale -> "Theme一覧は写しです。変更は未送信になります。"
         is MobileThemeCatalogState.Unsupported -> "Desktopを更新するとThemeを変更できます。"
         is MobileThemeCatalogState.Error -> "接続を確認して再試行してください。"
     }

@@ -353,6 +353,8 @@ class TodayViewModel(
     private val taskCompletionFeedbackSequence = AtomicLong()
     private val mutablePendingCount = MutableStateFlow<Int?>(null)
     val pendingCount: StateFlow<Int?> = mutablePendingCount.asStateFlow()
+    private val mutableSendRetry = MutableStateFlow<MobileSendRetry?>(null)
+    val sendRetry: StateFlow<MobileSendRetry?> = mutableSendRetry.asStateFlow()
     private val mutableConflictCount = MutableStateFlow<Int?>(null)
     val conflictCount: StateFlow<Int?> = mutableConflictCount.asStateFlow()
     private val mutableAllTasks = MutableStateFlow<List<MobileTask>>(emptyList())
@@ -410,6 +412,9 @@ class TodayViewModel(
             }
             viewModelScope.launch(ioDispatcher) {
                 offlineRepository.observeConflictCount().collect { mutableConflictCount.value = it }
+            }
+            viewModelScope.launch(ioDispatcher) {
+                offlineRepository.observeSendRetry().collect { mutableSendRetry.value = it }
             }
             viewModelScope.launch(ioDispatcher) {
                 offlineRepository.observeAllCachedTasks().collect { mutableAllTasks.value = it.toList() }
@@ -1495,6 +1500,8 @@ interface MobileOfflineTaskRepository {
         kotlinx.coroutines.flow.flowOf(emptyList())
     fun observePendingCount(): Flow<Int>
     fun observePendingCaptures(): Flow<List<MobilePendingCapture>> = kotlinx.coroutines.flow.flowOf(emptyList())
+    /** 送り直しを待っている命令のまとめ（無ければ null）。 */
+    fun observeSendRetry(): Flow<MobileSendRetry?> = kotlinx.coroutines.flow.flowOf(null)
     suspend fun retryPendingCapture(commandId: String): Boolean = false
     fun observeConflictCount(): Flow<Int> = kotlinx.coroutines.flow.flowOf(0)
     suspend fun enqueueCreateTask(

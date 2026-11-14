@@ -424,6 +424,11 @@ class AndroidMobileTaskRepository(
     override suspend fun undoCreateCapture(captureId: String): MobileUndoCreateResult =
         outbox.undoCapture(captureId)
 
+    override fun observeSendRetry(): Flow<MobileSendRetry?> =
+        combine(dao.observeRetryingOutbox(), dao.observeSyncState()) { commands, state ->
+            commands.filter { it.serverId == state?.serverId }.toSendRetry()
+        }
+
     override fun observePendingCaptures(): Flow<List<MobilePendingCapture>> =
         combine(dao.observePendingCaptures(), dao.observeSyncState()) { commands, state ->
             commands.filter { it.serverId == state?.serverId }.mapNotNull(OutboxCommandEntity::toPendingCapture)
@@ -659,7 +664,7 @@ class AndroidMobileTaskRepository(
                 return MobileProposalReviewResult.Unavailable(
                     proposal.id,
                     if (confirmed) {
-                        "接続が失効しました。新しいコードで再接続してください。"
+                        "接続が失効しました。新しいコードでつなぎ直してください。"
                     } else {
                         "Desktopへ接続できませんでした。接続を確認して再試行してください。"
                     },
@@ -1474,14 +1479,14 @@ class AndroidMobileTaskRepository(
                     } else if (captureCommand) {
                         val receipt = MobileCaptureCommandContract.decodeReceipt(response.body)
                         if (receipt.meta.serverId != expectedServerId) {
-                            MobileCommandSendResult.Retry("Desktopの識別情報が送信前と一致しません。再接続してください。")
+                            MobileCommandSendResult.Retry("PC の識別情報が送信前と一致しません。つなぎ直してください。")
                         } else {
                             MobileCommandSendResult.CaptureApplied(receipt)
                         }
                     } else {
                         val receipt = MobileTaskCommandContract.decodeReceipt(response.body)
                         if (receipt.meta.serverId != expectedServerId) {
-                            MobileCommandSendResult.Retry("Desktopの識別情報が送信前と一致しません。再接続してください。")
+                            MobileCommandSendResult.Retry("PC の識別情報が送信前と一致しません。つなぎ直してください。")
                         } else {
                             MobileCommandSendResult.Applied(receipt)
                         }
@@ -1492,16 +1497,16 @@ class AndroidMobileTaskRepository(
                     if (confirmed) store.clearTokenIfMatches(accessToken)
                     MobileCommandSendResult.Retry(
                         if (confirmed) {
-                            "接続が失効しました。新しいコードで再接続してください。"
+                            "接続が失効しました。新しいコードでつなぎ直してください。"
                         } else {
-                            "Desktopへ送信できませんでした。自動で再送します。"
+                            "PC へ送れませんでした。"
                         },
                     )
                 }
                 response.status == 409 -> {
                     val error = MobileTaskCommandContract.decodeError(response.body)
                     if (error.meta.serverId != expectedServerId) {
-                        MobileCommandSendResult.Retry("Desktopの識別情報が送信前と一致しません。再接続してください。")
+                        MobileCommandSendResult.Retry("PC の識別情報が送信前と一致しません。つなぎ直してください。")
                     } else if (!workLogCommand && error.error.code == "version_conflict") {
                         MobileCommandSendResult.Conflict(error)
                     } else {
@@ -1515,23 +1520,23 @@ class AndroidMobileTaskRepository(
                 // 429 asks this device to slow down, so nothing else is sent this round. A 408 or 5xx comes
                 // right after the bootstrap read succeeded, so it is taken as this command's failure.
                 response.status == 429 ->
-                    MobileCommandSendResult.Retry("Desktopへ送信できませんでした。自動で再送します。")
+                    MobileCommandSendResult.Retry("PC へ送れませんでした。")
                 response.status == 408 || response.status >= 500 ->
                     MobileCommandSendResult.Retry(
-                        "Desktopが操作を処理できませんでした（HTTP ${response.status}）。自動で再送します。",
+                        "PC が操作を処理できませんでした（HTTP ${response.status}）。",
                         serverReached = true,
                     )
                 else -> {
                     val error = runCatching { MobileTaskCommandContract.decodeError(response.body) }.getOrNull()
                     if (error != null && error.meta.serverId != expectedServerId) {
-                        MobileCommandSendResult.Retry("Desktopの識別情報が送信前と一致しません。再接続してください。")
+                        MobileCommandSendResult.Retry("PC の識別情報が送信前と一致しません。つなぎ直してください。")
                     } else {
                         MobileCommandSendResult.Rejected(
                             code = error?.error?.code ?: "http_${response.status}",
                             message = if (workLogCommand && error?.error?.code == "forbidden") {
-                                "本文は端末に保存済みです。Desktopを更新し、新しいコードで再接続してから再送してください。"
+                                "本文は端末に残してあります。Desktopを更新し、新しいコードでつなぎ直してから送り直してください。"
                             } else if (workLogCommand && error?.error?.code in setOf("validation_failed", "version_mismatch", "capability_unavailable")) {
-                                "本文は端末に保存済みです。Desktopの対応状況と選択した参照を確認して再送してください。"
+                                "本文は端末に残してあります。Desktopの対応状況と選択した参照を確かめて送り直してください。"
                             } else error?.error?.message ?: "Desktopが操作を受理しませんでした。",
                             retryable = error?.error?.retryable ?: false,
                         )
@@ -1543,9 +1548,9 @@ class AndroidMobileTaskRepository(
             // A body naming the confirmed Desktop came from it: only this command's answer was unreadable.
             // Anything else (no answer, or a captive portal page) means the Desktop was not reached.
             if (answered?.let { namesServer(it.body, expectedServerId) } == true) {
-                MobileCommandSendResult.Retry("Desktopの応答を読み取れませんでした。自動で再送します。", serverReached = true)
+                MobileCommandSendResult.Retry("PC の応答を読み取れませんでした。", serverReached = true)
             } else {
-                MobileCommandSendResult.Retry("Desktopへ接続できませんでした。自動で再送します。")
+                MobileCommandSendResult.Retry("PC につながりません。")
             }
         }
     }

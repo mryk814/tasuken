@@ -56,6 +56,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
@@ -88,7 +89,7 @@ internal fun todayProgress(tasks: List<MobileTask>): TodayProgress {
 
 /**
  * Todayの冒頭。今日の仕事の残りを主役にし、正常な同期状態は小さな表示へまとめる。
- * 端末保存のみ・再接続が必要な状態は、理由と復旧操作を常に見える位置に残す。
+ * 写しを見せている間は、見出しの右に日付印（いつの写しか）を出し、理由と復旧操作を常に見える位置に残す。
  */
 @Composable
 internal fun TodayProgressHeader(
@@ -144,12 +145,13 @@ internal fun TodayProgressHeader(
                     )
                 }
             }
-            // 正常な同期は上部の雲の印に任せる。端末保存だけの間は、理由と復旧をここにも残す。
+            // 正常な同期は上部の雲の印に任せる。写しを見せている間は、いつの写しかを日付印で示す。
             if (cached != null) {
-                TodaySyncPill(
+                TodayCopyStamp(
                     cached = cached,
                     refreshing = refreshing,
                     generatedAt = generatedAt,
+                    collapsed = collapsed,
                     onClick = if (cached.recovery == TodayUiState.CachedRecovery.RePair) onRetryPairing else onRetry,
                 )
             }
@@ -212,64 +214,53 @@ private fun TodayProgressBar(progress: TodayProgress) {
     }
 }
 
-/** 正常時は一行の小さな状態。押すと再読み込み（引っぱって更新と同じ）。 */
+/**
+ * 写しを見せている間だけ、見出しの右に出す日付印。丸い印が「いつの写しか」を言い、横の文が古さを言う。
+ * 押すと確かめ直す（つなぎ直しが要る時は、その入口）。印は行の高さ（48）からはみ出して描き、一覧の位置を動かさない。
+ */
 @Composable
-private fun TodaySyncPill(
-    cached: TodayUiState.Cached?,
+private fun TodayCopyStamp(
+    cached: TodayUiState.Cached,
     refreshing: Boolean,
     generatedAt: String,
+    collapsed: Boolean,
     onClick: () -> Unit,
 ) {
-    val dark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
-    val dot = when {
-        refreshing -> MaterialTheme.colorScheme.tertiary
-        cached != null -> MaterialTheme.colorScheme.onSurfaceVariant
-        generatedAt.isNotBlank() -> taskenSuccessColor(dark)
-        else -> MaterialTheme.colorScheme.outline
-    }
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.surfaceContainer,
+    val at = parseInstantOrNull(generatedAt)
+    val rePair = cached.recovery == TodayUiState.CachedRecovery.RePair
+    val scale = if (collapsed) 0.8f else 1f
+    Row(
         modifier = Modifier
             .heightIn(min = 48.dp)
-            .clip(RoundedCornerShape(50))
-            .clickable(enabled = !refreshing, onClickLabel = if (cached?.recovery == TodayUiState.CachedRecovery.RePair) "再接続" else "再読み込み", onClick = onClick),
+            .clickable(enabled = !refreshing, onClickLabel = if (rePair) "つなぎ直す" else "確かめ直す", onClick = onClick)
+            .testTag("today-copy-stamp")
+            .padding(start = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Box(Modifier.size(8.dp).clip(CircleShape).background(dot))
-            Column {
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                // 時刻が分からない写しは、印を作れないので語だけで言う。
+                at?.let { stampAgeLabel(it) } ?: "写し",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+            if (rePair) {
                 Text(
-                    when {
-                        cached != null -> "端末に保存済み"
-                        refreshing -> "PCと同期中"
-                        generatedAt.isNotBlank() -> "PC同期済み"
-                        else -> "同期状態未確認"
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
+                    "つなぎ直す",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                 )
-                if (cached?.recovery == TodayUiState.CachedRecovery.RePair) {
-                    Text(
-                        "再接続",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                    )
-                } else {
-                    Text(
-                        generatedAt.takeIf { it.isNotBlank() }?.let { "最終同期 ${formatLocalTimestamp(it).substringAfter(' ')}" }
-                            ?: "最終同期 未確認",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                    )
-                }
+            }
+        }
+        if (at != null) {
+            // 印は行より高い。はみ出す分は上へ逃がし、下の進み具合の数字と重ねない。
+            Box(Modifier.size(width = 56.dp * scale, height = 48.dp), contentAlignment = Alignment.Center) {
+                OflStamp("写し", at, scale = scale, modifier = Modifier.offset(y = (-4).dp * scale))
             }
         }
     }

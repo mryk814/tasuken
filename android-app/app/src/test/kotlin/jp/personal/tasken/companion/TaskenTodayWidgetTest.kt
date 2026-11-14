@@ -108,7 +108,7 @@ class TaskenTodayWidgetTest {
         )
 
         assertEquals("競合 1件", TaskenTodayWidget.statusText(snapshot(pending = 2, conflict = 1)))
-        assertEquals("送信待ち 2件", TaskenTodayWidget.statusText(snapshot(pending = 2)))
+        assertEquals("未送信 2件", TaskenTodayWidget.statusText(snapshot(pending = 2)))
         assertEquals("未同期", TaskenTodayWidget.statusText(snapshot()))
         assertEquals("", TaskenTodayWidget.statusText(snapshot(syncedAt = "2026-08-22T00:00:00Z")))
     }
@@ -124,7 +124,7 @@ class TaskenTodayWidgetTest {
         )
 
         assertEquals("未完了 6件", TaskenTodayWidget.headerStatusLine(synced))
-        assertEquals("未完了 6件 ・ 送信待ち 1件", TaskenTodayWidget.headerStatusLine(synced.copy(pendingCount = 1)))
+        assertEquals("未完了 6件 ・ 未送信 1件", TaskenTodayWidget.headerStatusLine(synced.copy(pendingCount = 1)))
         assertEquals("未同期", TaskenTodayWidget.headerStatusLine(synced.copy(totalTaskCount = 0, lastSuccessfulSyncAt = null)))
         assertEquals("", TaskenTodayWidget.headerStatusLine(synced.copy(totalTaskCount = 0)))
     }

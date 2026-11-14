@@ -18,6 +18,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
@@ -89,7 +90,8 @@ class TaskListContextUiTest {
 
         composeRule.onNodeWithText(tasks[0].title).assertIsDisplayed()
         composeRule.onNodeWithText(themes[0].title, substring = true).assertIsDisplayed()
-        composeRule.onNodeWithText("送信待ち").assertIsDisplayed()
+        // 未送信は言葉の札でなく、行の端の割印で示す。
+        composeRule.onNodeWithTag("task-unsent-${tasks[1].id}", useUnmergedTree = true).assertIsDisplayed()
         composeRule.onNodeWithContentDescription("${tasks[1].title}は同期後に操作").assertIsNotEnabled()
         capture("06-task-list-context-light")
         composeRule.onNodeWithContentDescription("${tasks[0].title}を完了").performClick()
@@ -145,7 +147,7 @@ class TaskListContextUiTest {
 
         composeRule.onNodeWithText("未完了").assertIsDisplayed()
         composeRule.onNodeWithText("保存済みTaskを表示中です。Desktopへ再接続してください。").assertIsDisplayed()
-        composeRule.onNodeWithText("再接続").assertIsDisplayed()
+        composeRule.onNodeWithText("つなぎ直す").assertIsDisplayed()
         composeRule.onNodeWithText("未着手 Task").assertIsDisplayed()
         composeRule.onNodeWithText("進行中 Task").assertIsDisplayed()
         composeRule.onNodeWithText("待機中 Task").assertIsDisplayed()
