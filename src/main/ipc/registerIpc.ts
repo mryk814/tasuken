@@ -436,6 +436,7 @@ export function registerIpc(
     service.writeClipboardImage(payload),
   );
   ipcMain.handle(IPC.clipboardWriteSvg, (_event, payload) => service.writeClipboardSvg(payload));
+  ipcMain.handle(IPC.clipboardWriteRecordCounts, () => service.writeClipboardRecordCounts());
   ipcMain.handle(IPC.fileOpen, (_event, filePath) =>
     service.openPath(requireText(filePath, "開くファイル")),
   );

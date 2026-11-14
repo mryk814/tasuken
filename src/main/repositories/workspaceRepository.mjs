@@ -728,6 +728,21 @@ export class WorkspaceDatabase {
     };
   }
 
+  // 種類ごとの数と日付だけを返す。data_json と id は読まない（#755 束 0a）。
+  countRecordsByType() {
+    return this.db
+      .prepare(
+        `SELECT entity_type AS type,
+                SUM(deleted_at IS NULL) AS count,
+                SUM(deleted_at IS NOT NULL) AS deleted,
+                MAX(created_at) AS lastCreatedAt
+           FROM entities
+          GROUP BY entity_type
+          ORDER BY entity_type`,
+      )
+      .all();
+  }
+
   getDailyContextAutoState() {
     const row = this.db
       .prepare("SELECT value FROM workspace_meta WHERE key = 'daily_context_auto_state'")

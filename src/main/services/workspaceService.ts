@@ -115,6 +115,7 @@ import {
   previewThemeM365,
 } from "../../shared/aiContextPreview.mjs";
 import { DataHealthEvaluator, normalizeDataHealthState } from "../../shared/dataHealth.mjs";
+import { formatRecordCountsMarkdown, type RecordCountRow } from "./recordCounts.mjs";
 import {
   CONVERSATION_CONTEXT_PUBLICATION_SCHEMA,
   buildConversationContextPlan,
@@ -307,6 +308,7 @@ interface WorkspaceRepository {
   setDailyContextAutoState(state: DailyContextAutoState): void;
   getDailyContextDeviceObservations(): DailyContextDeviceObservation[];
   getDataHealthState(): unknown;
+  countRecordsByType(): RecordCountRow[];
   setDataHealthState(expectedRevision: number, value: unknown): unknown;
   get(type: string, id: string, includeDeleted?: boolean): Record<string, unknown> | null;
   list(type: string, includeDeleted?: boolean): Array<Record<string, unknown>>;
@@ -3567,6 +3569,16 @@ export class WorkspaceService {
 
   async writeClipboard(text: unknown): Promise<boolean> {
     await clipboard.writeText(String(text));
+    return true;
+  }
+
+  async writeClipboardRecordCounts(): Promise<boolean> {
+    clipboard.writeText(
+      formatRecordCountsMarkdown(this.repository.countRecordsByType(), {
+        version: app.getVersion(),
+        generatedAt: new Date().toISOString(),
+      }),
+    );
     return true;
   }
 

@@ -169,6 +169,7 @@ export const IPC = {
   clipboardWriteHtml: "clipboard:write-html",
   clipboardWriteImage: "clipboard:write-image",
   clipboardWriteSvg: "clipboard:write-svg",
+  clipboardWriteRecordCounts: "clipboard:write-record-counts",
   fileOpen: "file:open",
   fileShowInFolder: "file:show-in-folder",
   filePathExists: "file:path-exists",
@@ -887,6 +888,7 @@ export interface ResearchDeskApi {
     writeHtml(payload: { html: string; text: string }): Promise<boolean>;
     writeImage(payload: ImageClipboardRequest): Promise<boolean>;
     writeSvg(payload: MermaidSvgClipboardRequest): Promise<MermaidSvgClipboardResult>;
+    writeRecordCounts(): Promise<boolean>;
   };
   files: {
     openPath(filePath: string): Promise<{ ok: boolean; error?: string }>;

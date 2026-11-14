@@ -7,6 +7,7 @@ import test from "node:test";
 
 import { build } from "esbuild";
 
+import { formatRecordCountsMarkdown } from "../src/main/services/recordCounts.mjs";
 import { createSnapshot, readSnapshot } from "../src/main/services/snapshotService.mjs";
 import { SharedFolderSyncService } from "../src/main/services/sharedFolderSync.mjs";
 import { validateEntity } from "../src/main/repositories/domain.mjs";
@@ -1013,4 +1014,86 @@ test("snapshot duplicate creates a separate id and update requires local record"
     () => fakeRepository([newChange]).repo.applySnapshot({}, { "item:new-item": "update" }),
     /updateは実行できません/,
   );
+});
+
+const RECORD_COUNT_MARK = "HIMITSU-MARK";
+
+test("記録の数の表は、種類・件数・削除済み・最後に作られた日だけで、中身と ID を出さない (#755)", () => {
+  const directory = fs.mkdtempSync(
+    path.join(os.tmpdir(), `tasken-record-counts-${RECORD_COUNT_MARK}-`),
+  );
+  const db = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
+  try {
+    db.save("theme", { id: `theme-${RECORD_COUNT_MARK}`, name: `${RECORD_COUNT_MARK} のテーマ` });
+    const ids = [];
+    for (const [index, day] of ["2026-03-01", "2026-03-05", "2026-03-03"].entries()) {
+      const task = db.save("task", {
+        id: `task-${RECORD_COUNT_MARK}-${index}`,
+        title: `${RECORD_COUNT_MARK} の題名 ${index}`,
+        description: `${RECORD_COUNT_MARK} の本文`,
+        state: "todo",
+        priority: "normal",
+        project_id: `theme-${RECORD_COUNT_MARK}`,
+        created_at: `${day}T09:00:00.000Z`,
+      });
+      ids.push(task.id);
+    }
+    db.save("note", {
+      id: `note-${RECORD_COUNT_MARK}`,
+      title: `${RECORD_COUNT_MARK} のノート`,
+      body_markdown: `${RECORD_COUNT_MARK} の本文\n\n![](C:/Users/${RECORD_COUNT_MARK}/picture.png)`,
+      project_id: `theme-${RECORD_COUNT_MARK}`,
+      created_at: "2026-04-02T23:30:00.000Z",
+    });
+    db.remove("task", ids[2]);
+
+    const rows = db.countRecordsByType();
+    // Repository の時点で、種類・数・日付の 4 つ以外を持ち出さない。
+    for (const row of rows) {
+      assert.deepEqual(Object.keys(row).sort(), ["count", "deleted", "lastCreatedAt", "type"]);
+    }
+    assert.equal(JSON.stringify(rows).includes(RECORD_COUNT_MARK), false);
+    const byType = Object.fromEntries(rows.map((row) => [row.type, row]));
+    assert.deepEqual(byType.task, {
+      type: "task",
+      count: 2,
+      deleted: 1,
+      lastCreatedAt: "2026-03-05T09:00:00.000Z",
+    });
+    assert.equal(byType.note.count, 1);
+    assert.equal(byType.note.deleted, 0);
+    assert.ok(byType.theme.count >= 1);
+    // 表の合計が、表を通さずに数えた全件と合う（種類の取りこぼしが無い）。
+    const total = db.db.prepare("SELECT COUNT(*) AS n FROM entities").get().n;
+    assert.ok(total >= 5);
+    assert.equal(
+      rows.reduce((sum, row) => sum + row.count + row.deleted, 0),
+      total,
+    );
+
+    const markdown = formatRecordCountsMarkdown(rows, {
+      version: "9.9.9",
+      generatedAt: "2026-11-14T00:00:00.000Z",
+    });
+    assert.ok(rows.length >= 3);
+    const lines = markdown.trim().split("\n");
+    assert.equal(lines.length, rows.length + 4);
+    assert.ok(lines.includes("| task | 2 | 1 | 2026-03-05 |"));
+    assert.ok(lines.includes("| note | 1 | 0 | 2026-04-02 |"));
+    assert.match(lines[0], /9\.9\.9/);
+
+    // 題名・本文・ID・パス・Theme の名前・Workspace と端末の ID が出ない。
+    assert.equal(markdown.includes(RECORD_COUNT_MARK), false);
+    const meta = db.getMeta();
+    for (const secret of [meta.workspaceId, meta.deviceId, directory, os.userInfo().username]) {
+      assert.equal(markdown.includes(String(secret)), false);
+    }
+    // 行は「種類の名前 | 数 | 数 | 日付」の形だけ。
+    for (const line of lines.slice(4)) {
+      assert.match(line, /^\| [a-z_]+ \| \d+ \| \d+ \| (\d{4}-\d{2}-\d{2}|-) \|$/);
+    }
+  } finally {
+    db.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });

@@ -183,6 +183,9 @@ export const workspaceApi = {
   copySvg(payload: MermaidSvgClipboardRequest) {
     return desktopApi().clipboard.writeSvg(payload);
   },
+  copyRecordCounts() {
+    return desktopApi().clipboard.writeRecordCounts();
+  },
   openPath(filePath: string) {
     return desktopApi().files.openPath(filePath);
   },

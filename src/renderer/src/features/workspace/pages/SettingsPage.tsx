@@ -468,6 +468,18 @@ export function SettingsPage({
     }
   }
 
+  async function copyRecordCounts() {
+    try {
+      await workspaceApi.copyRecordCounts();
+      setToast("記録の数を写しました。", "success");
+    } catch (error) {
+      setToast(
+        `記録の数を写せませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    }
+  }
+
   async function exportSnapshot() {
     setBusy(true);
     try {
@@ -1072,6 +1084,15 @@ export function SettingsPage({
                 </Button>
                 <Button variant="secondary" disabled={busy} onClick={inspectSnapshot}>
                   バックアップを読み込む
+                </Button>
+              </div>
+            </section>
+            <section className="panel settings-form" hidden={activeSection !== "advanced"}>
+              <h2>記録の数</h2>
+              <p className="field-help">種類ごとの件数と日付だけを写します。中身は含みません。</p>
+              <div className="settings-action-row">
+                <Button variant="secondary" onClick={copyRecordCounts}>
+                  記録の数を写す
                 </Button>
               </div>
             </section>
