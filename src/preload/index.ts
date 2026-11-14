@@ -61,13 +61,6 @@ const api: ResearchDeskApi = {
     get: (query) => ipcRenderer.invoke(IPC.dataHealthGet, query),
     setState: (request) => ipcRenderer.invoke(IPC.dataHealthSetState, request),
   },
-  dailyContext: {
-    preview: (selection) => ipcRenderer.invoke(IPC.dailyContextPreview, selection),
-    publish: (request) => ipcRenderer.invoke(IPC.dailyContextPublish, request),
-    autoStatus: () => ipcRenderer.invoke(IPC.dailyContextAutoStatus),
-    configureAuto: (config) => ipcRenderer.invoke(IPC.dailyContextAutoConfigure, config),
-    retryAuto: () => ipcRenderer.invoke(IPC.dailyContextAutoRetry),
-  },
   conversationContext: {
     preview: (request) => ipcRenderer.invoke(IPC.conversationContextPreview, request),
     publish: (request) => ipcRenderer.invoke(IPC.conversationContextPublish, request),
