@@ -121,7 +121,7 @@ function workspace(t) {
 function seed(ws) {
   ws.state.repository.save("note", { id: "note-1", title: "控えた時のノート", body_markdown: "a" });
   ws.state.repository.save("note", { id: "note-2", title: "後で消すノート", body_markdown: "b" });
-  ws.state.repository.save("task", { id: "task-1", title: "控えた時のTask", state: "todo" });
+  ws.state.repository.save("note", { id: "note-keep", title: "控えた時の題", body_markdown: "k" });
   ws.writeAttachment("markdown-images", "11111111-1111-4111-8111-111111111111.png", "note image");
   ws.writeAttachment("capture-images", "capture-1-photo.jpg", "captured photo");
 }
@@ -150,7 +150,10 @@ test("控えから戻すと、再起動の後に件数と添付が控えた時�
   // 控えた後に、記録を足す・消す。添付も足す・失う。
   ws.state.repository.save("note", { id: "note-3", title: "控えの後に足した", body_markdown: "c" });
   ws.state.repository.remove("note", "note-2");
-  ws.state.repository.save("task", { id: "task-1", title: "控えの後に変えた", state: "done" });
+  ws.state.repository.save("note", {
+    ...ws.state.repository.get("note", "note-keep"),
+    title: "控えの後に変えた",
+  });
   ws.writeAttachment("markdown-images", "22222222-2222-4222-8222-222222222222.png", "added later");
   fs.rmSync(ws.attachment("capture-images", "capture-1-photo.jpg"));
   const countBeforeRestore = ws.state.repository.entityCount();
@@ -175,7 +178,7 @@ test("控えから戻すと、再起動の後に件数と添付が控えた時�
   assert.deepEqual(ids(restored, "note"), noteIdsAtBackup);
   assert.equal(restored.get("note", "note-2").deleted_at, null);
   assert.equal(restored.get("note", "note-3"), null);
-  assert.equal(restored.get("task", "task-1").title, "控えた時のTask");
+  assert.equal(restored.get("note", "note-keep").title, "控えた時の題");
   // 失った添付が戻る。控えの後に足した添付は消さない。
   assert.equal(
     fs.readFileSync(ws.attachment("capture-images", "capture-1-photo.jpg"), "utf8"),
@@ -400,7 +403,7 @@ test("同期している端末で控えから戻すと、同期が止まる。�
   await syncFor(ws.state.repository).configure(shared);
   const backupPath = await ws.backup();
   // 控えの後の変更も、共有フォルダへ公開済み。
-  ws.state.repository.save("task", { id: "task-2", title: "控えの後に公開した", state: "todo" });
+  ws.state.repository.save("note", { id: "note-published", title: "控えの後に公開した" });
   await syncFor(ws.state.repository).syncNow();
   const deviceDirectory = path.join(shared, "devices", ws.state.repository.deviceId);
   const published = () =>
@@ -424,7 +427,7 @@ test("同期している端末で控えから戻すと、同期が止まる。�
   // 同期フォルダの場所は覚えたまま（本人が再開を決められる）。
   assert.equal(restored.getPreference("sharedSyncDirectory"), shared);
   const sync = syncFor(restored);
-  restored.save("task", { id: "task-3", title: "戻した後の変更", state: "todo" });
+  restored.save("note", { id: "note-after", title: "戻した後の変更" });
   assert.equal((await sync.syncNow()).state, "off");
   assert.deepEqual(published(), publishedBefore);
 

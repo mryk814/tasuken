@@ -225,6 +225,16 @@
       "issue": 629,
       "expiresAt": "2026-11-30",
       "removalCondition": "Move the Session projection and Proposal detail behind the Workspace public feature API."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "tests/workspace-restore.test.mjs",
+      "target": "workspace-repository",
+      "reason": "#752 restore drill needs the production SQLite database in a temporary userData to verify that a backup copy replaces the live file, that counts match after reopening, and that a failed swap leaves the live database intact. This adds no runtime repository consumer and opens no production data.",
+      "owner": "issue-752-sqlite-backup-restore",
+      "issue": 752,
+      "expiresAt": "2026-11-30",
+      "removalCondition": "Use the public temporary-database fixture factory once available."
     }
   ]
 }
