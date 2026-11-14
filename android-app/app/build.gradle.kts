@@ -53,8 +53,8 @@ android {
         applicationId = "jp.personal.tasken.companion"
         minSdk = 26
         targetSdk = 36
-        versionCode = 75
-        versionName = "0.1.90"
+        versionCode = 76
+        versionName = "0.1.91"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
