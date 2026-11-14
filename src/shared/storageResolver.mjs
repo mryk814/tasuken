@@ -89,7 +89,8 @@ export function resolveStorageLocation({
 
   const themeRoot = String(themeStorageRoot || "").trim();
   // Theme専用ルート配下でも標準サブフォルダはTaskenが作る。利用者に構成を作らせない。
-  if (themeRoot) return { status: "ok", root: themeRoot, segments: [subfolder], source: "theme_override" };
+  if (themeRoot)
+    return { status: "ok", root: themeRoot, segments: [subfolder], source: "theme_override" };
 
   const base = String(syncRoot || "").trim();
   if (!base) return { status: "needs_root" };
