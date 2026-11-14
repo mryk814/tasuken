@@ -7,8 +7,6 @@ import test from "node:test";
 
 import { build } from "esbuild";
 
-import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
-
 // 手入れの画面を外す前に、記録を 1 件ずつ Markdown に書き出せるようにする（#755 束9b）。
 
 async function loadExport() {
@@ -26,12 +24,13 @@ async function loadExport() {
 
 async function withDatabase(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "tasken-maintenance-export-"));
-  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
-  database.loadWorkspace();
-  t.after(async () => {
-    database.db.close();
-    await rm(directory, { recursive: true, force: true });
-  });
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  // WorkspaceDatabase.list と同じ形（種類ごとの配列）。削除済みも混ぜ、書き出しの側で除くことを見る。
+  const records = [];
+  const database = {
+    save: (type, entity) => records.push({ type, entity }),
+    list: (type) => records.filter((record) => record.type === type).map((record) => record.entity),
+  };
   return { directory, database };
 }
 
@@ -63,6 +62,13 @@ function seed(database) {
     note: "汚れ|多め",
     recorded_at: "2026-10-31T09:00:00.000Z",
   });
+  database.save("maintenance_entry", {
+    id: "maintenance-entry:maintenance-filter:2026-08-31",
+    maintenance_id: "maintenance-filter",
+    performed_on: "2026-08-31",
+    recorded_at: "2026-08-31T09:00:00.000Z",
+    deleted_at: "2026-09-01T00:00:00.000Z",
+  });
   database.save("maintenance", {
     id: "maintenance-ph",
     title: "pH計 / 校正",
@@ -74,8 +80,8 @@ function seed(database) {
     title: "古い棚 / 整理",
     target: "古い棚",
     action: "整理",
+    deleted_at: "2026-09-01T00:00:00.000Z",
   });
-  database.remove("maintenance", "maintenance-gone");
 }
 
 test("削除していない手入れを 1 件ずつ、記録と一緒に読める Markdown にする", async (t) => {
@@ -104,6 +110,7 @@ test("削除していない手入れを 1 件ずつ、記録と一緒に読め�
     "| 2026-10-31 | 2026-11-30 | 汚れ\\|多め |\n| 2026-09-30 | 2026-10-30 | — |",
   ])
     assert.ok(filter.includes(line), line);
+  assert.doesNotMatch(filter, /2026-08-31/u, "消した記録は書かない");
   const ph = documents.find((document) => document.id === "maintenance-ph").markdown;
   assert.match(ph, /## 行った記録\n\n記録はありません。\n$/u);
   assert.doesNotMatch(ph, /## メモ|Theme:/u);
