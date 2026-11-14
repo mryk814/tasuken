@@ -186,7 +186,7 @@ NASの開始専用権限は`task.start_work`です。本人の個人業務のAI 
 - ToDo: 未完了、Inbox、期限超過、日程未確定の整理
 - Timeline: テーマ横断の長期ガントとマイルストーン一覧
 - Themes / Notes（URL・コメントを含む）/ Waiting
-- Context / Agent連携: MCP・Context Preview / Pack、外部AgentからのProposal差分確認、JSON / YAML / Markdownの書き出し
+- Context / Agent連携: MCP、外部AgentからのProposal差分確認、JSON / YAML / Markdownの書き出し
 - 自動バックアップ: 起動後に正本データベースの写しを作り、確かめてから世代を入れ替える
 - Theme Status / Plan Revision / 情報源管理 / Settings
 - Knowledge / Context Graph / MCP: 既存Knowledge・Relationの診断、read-only context、Preview必須のSafe Write Proposal。Context GraphとAI ContextはKnowledge画面の手動整理に依存しない

@@ -50,7 +50,7 @@ flowchart LR
 
   subgraph REUSE[Recall & AI / 再利用する]
     ACTIVITY[Activity Event Index]
-    CONTEXT[AI Context Preview / Pack]
+    CONTEXT[Context Pack]
     MCP[MCP / Coding Agent]
     PROPOSAL[Agent Desk / Proposal Review]
     GRAPH[Provenance / Context Graph]
@@ -123,7 +123,6 @@ flowchart TB
     PTIMELINE[Timeline]
     PTHEME[Theme Overview]
     PACTIVITY[Activity Markdown / JSON]
-    PAIPACK[AI Pack]
     PMCP[MCP Context]
     PHEALTH[Data Health / Knowledge Diagnostic]
   end
@@ -136,8 +135,6 @@ flowchart TB
   NOTE --> PTHEME
   ARTE --> PTHEME
   EVENT --> PACTIVITY
-  EVENT --> PAIPACK
-  RELATION --> PAIPACK
   RELATION --> PMCP
   TASKE --> PMCP
   NOTE --> PMCP
@@ -210,7 +207,7 @@ URL、本文、ファイル、会話ログを一つの曖昧な「関連資料�
 ### AI cluster
 
 ```text
-Agent Desk / Agent Desk / Feed / MCP / Agent Session / AI Pack / Context Preview
+Agent Desk / Agent Desk / Feed / MCP / Agent Session
 ```
 
 - Agent Desk: 書き込み案の人間確認（今後の表示名は Agent Desk）
@@ -218,8 +215,6 @@ Agent Desk / Agent Desk / Feed / MCP / Agent Session / AI Pack / Context Preview
 - Feed: 変化と判断を流し読みする任意入口。既定画面にはせず、独立した正本DBを作らない
 - MCP: 外部AgentへのContext提供と安全なProposal受領
 - Agent Session: 外部AgentのIntent・Outcome・Work Receipt・残作業
-- AI Pack: OneDrive向けProjection
-- Context Preview: 渡す内容の確認
 
 同じAI機能ではなく、AI境界の異なる段階。
 
