@@ -25,12 +25,6 @@ internal fun scheduleDateLabel(date: LocalDate, today: LocalDate = LocalDate.now
     return if (relative == null) base else "$base $relative"
 }
 
-/** 「09:30」→「9:30」。形式外はそのまま返す。 */
-internal fun plannedTimeLabel(value: String): String =
-    Regex("""^(\d{2}):(\d{2})$""").matchEntire(value)
-        ?.let { "${it.groupValues[1].toInt()}:${it.groupValues[2]}" }
-        ?: value
-
 /** 「45分」「1時間」「1時間30分」。 */
 internal fun durationLabel(minutes: Int): String = when {
     minutes < 60 -> "${minutes}分"
@@ -39,27 +33,12 @@ internal fun durationLabel(minutes: Int): String = when {
 }
 
 /**
- * 打ちやすい書き方をHH:mmへ揃える。「930」「0930」「9:30」「9時30分」「9時」を受け付ける。
- * 解釈できなければnull（入力欄は元の文字を保ったままエラーを示す）。
+ * 予定欄を閉じているときの1行。日付の形（実施日・期限・期間）に合わせて言い分ける。
+ * 開始時刻はスマホから外した（#755 束9a）ので出さない。
  */
-internal fun normalizePlannedTimeInput(raw: String): String? {
-    val text = raw.trim()
-        .replace('：', ':')
-        .replace(Regex("""[０-９]""")) { (it.value[0] - '０' + '0'.code).toChar().toString() }
-    val match = Regex("""^(\d{1,2})(?::|時)?(\d{2})?分?$""").matchEntire(text)
-        ?: Regex("""^(\d{1,2})(\d{2})$""").matchEntire(text)
-        ?: return null
-    val hour = match.groupValues[1].toInt()
-    val minute = match.groupValues.getOrNull(2)?.takeIf { it.isNotEmpty() }?.toInt() ?: 0
-    if (hour !in 0..23 || minute !in 0..59) return null
-    return "%02d:%02d".format(hour, minute)
-}
-
-/** 予定欄を閉じているときの1行。日付の形（実施日・期限・期間）に合わせて言い分ける。 */
 internal fun scheduleSummaryText(
     startDate: LocalDate?,
     endDate: LocalDate?,
-    plannedStartTime: String?,
     plannedDurationMinutes: Int?,
     today: LocalDate = LocalDate.now(),
 ): String {
@@ -69,10 +48,8 @@ internal fun scheduleSummaryText(
         endDate == null || endDate == startDate -> scheduleDateLabel(startDate, today)
         else -> "${scheduleDateLabel(startDate, today)} 〜 ${scheduleDateLabel(endDate, today)}"
     }
-    val time = plannedStartTime?.takeIf { it.isNotBlank() }?.let { "${plannedTimeLabel(it)}から" }
     val duration = plannedDurationMinutes?.let(::durationLabel)
-    val clock = listOfNotNull(time, duration).joinToString(" ").takeIf { it.isNotEmpty() }
-    return listOfNotNull(dates, clock).joinToString("・").ifEmpty { "予定なし" }
+    return listOfNotNull(dates, duration).joinToString("・").ifEmpty { "予定なし" }
 }
 
 /** 日付欄の下に出す近い候補。今日・明日・次の月曜。 */
