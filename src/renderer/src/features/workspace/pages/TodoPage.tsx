@@ -886,7 +886,6 @@ export function TodoPage({
                 ? PERSONAL_DEFAULT_THEME_ID
                 : canonicalThemeId(taskFilters.themeId, { defaultPersonal: true })!
             }
-            repositoryContexts={data.repository_contexts || []}
             proposals={domain.ai_proposals}
             receipts={data.work_receipts}
             saveEntities={saveEntities}

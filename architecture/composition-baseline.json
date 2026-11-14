@@ -27,12 +27,6 @@
       "moduleDependencies": 2
     },
     {
-      "file": "src/renderer/src/root.tsx",
-      "lines": 11,
-      "imports": 4,
-      "moduleDependencies": 1
-    },
-    {
       "file": "src/renderer/src/App.tsx",
       "lines": 9,
       "imports": 1,

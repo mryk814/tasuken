@@ -39,12 +39,13 @@ async function connect(t, options = {}) {
 
 // 書き込みは #703 で change_task・undo_change・decide_proposal・edit_note の4つ増えた（Desktopの直接の
 // 書き込み）。本人が設定で無効にしていても一覧には出す（接続し直さずに使えるように）ので、その分だけ予算を広げた。
-test("discovery budgets: default read=16, write=28, core=6; legacy aliases require opt-in", async (t) => {
+// 旧名3道具を外した（#755）ので、legacy の組は空。名前は受けるが、一覧は all と同じ 28 のまま。
+test("discovery budgets: default read=16, write=28, core=6; legacy adds nothing", async (t) => {
   for (const [label, options, count, budget] of [
     ["read-only", { readOnly: true }, 16, 11000],
     ["all", { readOnly: false }, 28, 36000],
     ["core", { readOnly: true, env: { TASKEN_MCP_TOOLSETS: "core" } }, 6, 6000],
-    ["legacy", { readOnly: false, toolsets: ["all", "legacy"] }, 31, 51000],
+    ["legacy", { readOnly: false, toolsets: ["all", "legacy"] }, 28, 36000],
   ]) {
     const client = await connect(t, options);
     const { tools } = await client.listTools();
@@ -108,7 +109,8 @@ test("toolset parsing rejects invalid input instead of silently publishing all t
   }
 });
 
-test("report_work produces exactly the old normalized Core request for each status", async (t) => {
+// 旧名3道具と比べていた試験。旧名は外した（#755）ので、status から Core の action へ写すことだけを見る。
+test("report_work maps each status to the Core action without sending status", async (t) => {
   const requests = [];
   const client = await connect(t, {
     readOnly: false,
@@ -120,10 +122,15 @@ test("report_work produces exactly the old normalized Core request for each stat
       },
     },
   });
-  for (const [status, alias, action] of [
-    ["progress", "append_work_receipt", "append_receipt"],
-    ["done", "report_task_done", "report_done"],
-    ["blocked", "report_task_blocked", "report_blocked"],
+  for (const retired of ["append_work_receipt", "report_task_done", "report_task_blocked"])
+    assert.equal(
+      (await client.listTools()).tools.some(({ name }) => name === `tasken.${retired}`),
+      false,
+    );
+  for (const [status, action] of [
+    ["progress", "append_receipt"],
+    ["done", "report_done"],
+    ["blocked", "report_blocked"],
   ]) {
     const args = {
       task_id: randomUUID(),
@@ -141,16 +148,12 @@ test("report_work produces exactly the old normalized Core request for each stat
         : { summary: "Verified", executor_kind: "ai_agent", verification: ["test passed"] }),
     };
     assert.equal(
-      (await client.callTool({ name: `tasken.${alias}`, arguments: args })).isError,
-      undefined,
-    );
-    assert.equal(
       (await client.callTool({ name: "tasken.report_work", arguments: { ...args, status } }))
         .isError,
       undefined,
     );
-    assert.deepEqual(requests.at(-1), requests.at(-2));
     assert.equal(requests.at(-1).action, action);
+    assert.equal(requests.at(-1).task_id, args.task_id);
     assert.equal("status" in requests.at(-1), false);
   }
 });

@@ -164,8 +164,8 @@ class FixturePersistence {
       .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   }
   readPreference(key) {
-    assert.equal(key, "aiVisibilityDefault");
-    return ["coding_agent"];
+    // 端末の既定の公開範囲（aiVisibilityDefault）は廃止した。Core は端末の設定を読まない（#755）。
+    throw new Error(`unexpected preference read: ${key}`);
   }
 }
 

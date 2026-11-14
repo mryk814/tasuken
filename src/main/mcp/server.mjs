@@ -1039,39 +1039,6 @@ export function createTaskenMcpServer(options = {}) {
     }),
   );
 
-  server.registerTool(
-    "tasken.append_work_receipt",
-    {
-      description:
-        "Legacy progress alias; prefer tasken.report_work status=progress. Queues an append-only report for human adoption.",
-      inputSchema: receiptProposalSchema,
-      annotations: PROPOSAL_ANNOTATIONS,
-    },
-    withCoreClient((args) => queueTaskWork(args, "append_receipt")),
-  );
-
-  server.registerTool(
-    "tasken.report_task_done",
-    {
-      description:
-        "Legacy done alias; prefer tasken.report_work status=done. Human adoption records a report and never completes the Task.",
-      inputSchema: receiptProposalSchema,
-      annotations: PROPOSAL_ANNOTATIONS,
-    },
-    withCoreClient((args) => queueTaskWork(args, "report_done")),
-  );
-
-  server.registerTool(
-    "tasken.report_task_blocked",
-    {
-      description:
-        "Legacy blocked alias; prefer tasken.report_work status=blocked. Queues a blocker report for human adoption.",
-      inputSchema: blockedProposalSchema,
-      annotations: PROPOSAL_ANNOTATIONS,
-    },
-    withCoreClient((args) => queueTaskWork(args, "report_blocked")),
-  );
-
   const creationTools = {
     task: {
       fields: aiTaskCreationFields,

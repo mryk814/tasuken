@@ -108,7 +108,6 @@ class FixtureWorkspaceRepository {
 function legacy(workspace) {
   return new ReadOnlyTaskenContext("phase-1-fixture.sqlite", {
     workspace,
-    aiVisibilityDefault: ["coding_agent"],
   });
 }
 

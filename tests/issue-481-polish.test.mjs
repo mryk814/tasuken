@@ -152,16 +152,16 @@ test("Theme report prompts use the canonical prompt contract and keep copy/edit 
 });
 
 test("Shortcut labels follow the host OS without changing accelerator storage", async () => {
-  const taskenRoot = await importBundled("src/shared/taskenRoot.ts");
+  // Tasken Root と共に既定の Root ショートカットは外した（#755）。表示の整形は残る直接ショートカットで使う。
+  const shortcuts = await importBundled("src/shared/globalShortcuts.ts");
   assert.equal(
-    taskenRoot.formatShortcutLabel("CommandOrControl+Shift+Space", "Win32"),
+    shortcuts.formatShortcutLabel("CommandOrControl+Shift+Space", "Win32"),
     "Ctrl+Shift+Space",
   );
   assert.equal(
-    taskenRoot.formatShortcutLabel("CommandOrControl+Shift+Space", "MacIntel"),
+    shortcuts.formatShortcutLabel("CommandOrControl+Shift+Space", "MacIntel"),
     "⌘⇧Space",
   );
-  assert.equal(taskenRoot.DEFAULT_ROOT_SHORTCUT, "CommandOrControl+Shift+Space");
   const settings = source("src/renderer/src/features/workspace/pages/SettingsPage.tsx");
   assert.match(settings, /formatShortcutLabel\(\s*definition\.accelerator/);
 });

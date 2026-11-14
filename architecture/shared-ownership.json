@@ -42,21 +42,19 @@
       "classification": "platform",
       "owner": "platform-architecture",
       "files": [
-        "src/shared/agentLaunch.ts",
         "src/shared/ai.ts",
         "src/shared/attachments.ts",
         "src/shared/batchTranscriptionIpc.ts",
         "src/shared/calendar.ts",
         "src/shared/fileExport.ts",
+        "src/shared/globalShortcuts.ts",
         "src/shared/mediaCapture.ts",
         "src/shared/memoPresentation.ts",
         "src/shared/mermaidPowerPoint.ts",
         "src/shared/sketchExport.ts",
         "src/shared/slideTimelineExport.ts",
         "src/shared/taskenPaths.mjs",
-        "src/shared/taskenRoot.ts",
-        "src/shared/themePickerDom.ts",
-        "src/shared/todayMiniPresentation.ts"
+        "src/shared/themePickerDom.ts"
       ],
       "migrationTarget": "Main, Renderer, or feature transport adapter"
     },

@@ -155,21 +155,6 @@ export const MCP_TOOL_REQUIREMENTS = Object.freeze({
     access: "proposal",
     capability: TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   },
-  "tasken.append_work_receipt": {
-    toolset: "legacy",
-    access: "proposal",
-    capability: TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
-  },
-  "tasken.report_task_done": {
-    toolset: "legacy",
-    access: "proposal",
-    capability: TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
-  },
-  "tasken.report_task_blocked": {
-    toolset: "legacy",
-    access: "proposal",
-    capability: TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
-  },
   "tasken.propose_note": {
     toolset: "write",
     access: "proposal",
@@ -204,6 +189,8 @@ export const MCP_TOOLSETS = Object.freeze([
   "proposals",
   "meta",
   "write",
+  // 旧名3道具（append_work_receipt・report_task_done・report_task_blocked）の組。道具は外したので
+  // 空だが、名前は受ける。HTTPの配備の設定に残っていると、起動ごと断られて接続が止まるため（#755）。
   "legacy",
 ]);
 
@@ -221,10 +208,7 @@ export function parseMcpToolsets(value) {
 }
 
 export function mcpToolsetEnabled(requirement, toolsets) {
-  return (
-    toolsets.includes(requirement.toolset) ||
-    (requirement.toolset !== "legacy" && toolsets.includes("all"))
-  );
+  return toolsets.includes(requirement.toolset) || toolsets.includes("all");
 }
 
 function contentKindAllowed(profile, kind) {
@@ -291,12 +275,7 @@ export function mcpToolAvailability(capabilities, options = {}) {
         !["proposals", "create-only", "proposals-and-start", "create-and-start"].includes(profile),
       note_edit: canContent("note_edit"),
       task_work_report:
-        [
-          "tasken.report_work",
-          "tasken.append_work_receipt",
-          "tasken.report_task_done",
-          "tasken.report_task_blocked",
-        ].some((name) => tools[name].available) &&
+        tools["tasken.report_work"].available &&
         advertised.has(TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY),
       task_start: writeEnabled && advertised.has(TASKEN_CORE_TASK_START_WORK_CAPABILITY),
     },

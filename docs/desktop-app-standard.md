@@ -50,9 +50,7 @@ React Page / Component
 6. RepositoryはDB操作だけを担当し、UI文言や画面状態を持たない。
 7. 複数更新はRepositoryまたはServiceのtransaction内で完結させる。
 8. DB、ファイル、更新、外部URL、クリップボードはMain Process側の権限として扱う。
-9. 複数ウィンドウ（メイン・クイックキャプチャ・ミニ表示等）からの書き込みはMainの単一経路に集約し、変更通知イベントで全ウィンドウへ反映する。各ウィンドウが直接ファイル・DBへ書かない。
-
-TodayミニのTheme一覧を非同期更新するときは、応答時点の利用者の選択を保持する。候補と選択が変わらない更新では、開いているメニューとfocusを保持する。
+9. 複数ウィンドウ（メイン・クイックキャプチャ・付箋・Note別窓）からの書き込みはMainの単一経路に集約し、変更通知イベントで全ウィンドウへ反映する。各ウィンドウが直接ファイル・DBへ書かない。
 
 `contextIsolation: true`と`nodeIntegration: false`は必須とする。
 Chromium sandboxは対象Windows環境で配布版検証が通る場合に有効化する。

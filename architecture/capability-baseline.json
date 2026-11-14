@@ -27,7 +27,6 @@
       "global": "api",
       "properties": [
         "activity",
-        "agentLauncher",
         "agentWorkLogs",
         "ai",
         "aiContext",
@@ -125,23 +124,6 @@
       "file": "src/preload/regionSelector.ts",
       "global": "regionSelectorApi",
       "properties": ["complete"]
-    },
-    {
-      "file": "src/preload/todayMini.ts",
-      "global": "todayMiniApi",
-      "properties": [
-        "addTask",
-        "hide",
-        "list",
-        "listThemes",
-        "onRefresh",
-        "onThemeChange",
-        "openTask",
-        "pinTopRight",
-        "refresh",
-        "toggle",
-        "toggleChecklist"
-      ]
     }
   ]
 }

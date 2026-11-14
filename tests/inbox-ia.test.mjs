@@ -52,13 +52,9 @@ test("the title bar launcher directly controls satellite windows without a popov
   const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
   assert.match(shellSource, /function TitleBarLauncher/);
-  assert.match(
-    shellSource,
-    /const todayLabel = launcher\.todayWindowOpen \? "今日やることを収納" : "今日やることを表示"/,
-  );
-  assert.match(shellSource, /aria-label=\{todayLabel\}/);
+  // Today Mini（今日の小窓）は外した（#755）。上の帯に残るのは付箋の窓だけ。
+  assert.doesNotMatch(shellSource, /todayWindowOpen|今日やることを表示/);
   assert.match(shellSource, /aria-label="付箋を展開または収納"/);
-  assert.match(shellSource, /aria-pressed=\{launcher\.todayWindowOpen\}/);
   assert.match(shellSource, /aria-pressed=\{launcher\.stickyWindowsShown\}/);
   assert.doesNotMatch(shellSource, /titlebar-popover/);
   assert.doesNotMatch(shellSource, /aria-haspopup="dialog"/);
@@ -67,8 +63,7 @@ test("the title bar launcher directly controls satellite windows without a popov
   // Command PaletteからもTop Barと同じwindow操作へ到達する。
   assert.match(workspaceAppSource, /id: "open:memos"/);
   assert.match(workspaceAppSource, /execute: \(\) => \{\s*void toggleStickyWindows\(\);\s*\}/);
-  assert.match(workspaceAppSource, /id: "open:today-window"/);
-  assert.match(workspaceAppSource, /execute: toggleTodayWindow/);
+  assert.doesNotMatch(workspaceAppSource, /id: "open:today-window"/);
 
   assert.match(
     styles,

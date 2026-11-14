@@ -15,9 +15,6 @@ const READ_ONLY = (process.env.TASKEN_MCP_READ_ONLY ?? "1") !== "0";
 const WRITE_TOOL_NAMES = new Set([
   "tasken.start_task_work",
   "tasken.report_work",
-  "tasken.append_work_receipt",
-  "tasken.report_task_done",
-  "tasken.report_task_blocked",
   "tasken.propose_note",
   "tasken.propose_note_edit",
   "tasken.propose_feed_post",

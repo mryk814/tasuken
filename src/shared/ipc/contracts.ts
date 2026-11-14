@@ -69,7 +69,6 @@ import type {
 } from "../calendar";
 import type { WebArtifactExecutionPolicy } from "../webArtifact.mjs";
 import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
-import type { ThemePickerOption } from "../themeRef.mjs";
 import type { AiContextPreview } from "../aiContextPreview.mjs";
 import type { DataHealthIssue, DataHealthResult, DataHealthSeverity } from "../dataHealth.mjs";
 import type {
@@ -176,8 +175,6 @@ export const IPC = {
   filePathExists: "file:path-exists",
   fileReadPreview: "file:read-preview",
   dialogChooseDirectory: "dialog:choose-directory",
-  agentLaunchClients: "agent-launch:clients",
-  agentLaunch: "agent-launch:launch",
   dialogChooseFiles: "dialog:choose-files",
   markdownImageSave: "markdown-image:save",
   artifactFilesImport: "artifact:files-import",
@@ -220,25 +217,7 @@ export const IPC = {
   appFlushAck: "app:flush-ack",
   appPerformanceDiagnosticsEnabled: "app:performance-diagnostics-enabled",
   appPerformanceReport: "app:performance-report",
-  taskenRootToggle: "tasken-root:toggle",
-  taskenRootHide: "tasken-root:hide",
-  taskenRootShown: "tasken-root:shown",
-  taskenRootOpen: "tasken-root:open",
-  taskenRootShortcutGet: "tasken-root:shortcut-get",
-  taskenRootShortcutSet: "tasken-root:shortcut-set",
   mcpBridgeInfo: "mcp:bridge-info",
-  todayMiniShow: "today-mini:show",
-  todayMiniToggleWindow: "today-mini:toggle-window",
-  todayMiniRefresh: "today-mini:refresh",
-  todayMiniTheme: "today-mini:theme",
-  todayMiniPinTopRight: "today-mini:pin-top-right",
-  todayMiniHide: "today-mini:hide",
-  todayMiniList: "today-mini:list",
-  todayMiniThemes: "today-mini:themes",
-  todayMiniAddTask: "today-mini:add-task",
-  todayMiniToggle: "today-mini:toggle",
-  todayMiniToggleChecklist: "today-mini:toggle-checklist",
-  todayMiniOpenTask: "today-mini:open-task",
   memoStickyLoad: "memo-sticky:load",
   memoStickyCreate: "memo-sticky:create",
   memoStickySave: "memo-sticky:save",
@@ -331,7 +310,6 @@ export const IPC = {
   workspaceOpenMemo: "workspace:open-memo",
   workspaceNavigate: "workspace:navigate",
   workspaceOpenTaskDetail: "workspace:open-task-detail",
-  workspaceOpenRootTarget: "workspace:open-root-target",
 } as const;
 
 export interface WorkspaceChangePayload {
@@ -341,18 +319,6 @@ export interface WorkspaceChangePayload {
   canonical_root_status?: CanonicalRootStatusMap;
   /** 付箋autosaveのresponseより先に届く自己通知をrequestへ束縛する。 */
   memoStickySave?: MemoStickySaveSource;
-}
-
-export interface RootOpenRequest {
-  kind: "command" | "task" | "note" | "theme" | "resource" | "artifact";
-  id: string;
-  action?: "open" | "edit" | "focus";
-}
-
-export interface RootShortcutState {
-  shortcut: string;
-  registered: boolean;
-  error?: string;
 }
 
 export interface RendererFlushRequest {
@@ -386,39 +352,7 @@ export interface ViewPreferenceChange {
   revision: number;
 }
 
-export interface TodayMiniTask {
-  id: string;
-  title: string;
-  themeName: string;
-  themeColor: string;
-  scheduleLabel: string;
-  hasReminder: boolean;
-  priority: "normal" | "high";
-  checklistDone: number;
-  checklistTotal: number;
-  checklistItems: TodayMiniChecklistItem[];
-}
-
-export interface TodayMiniChecklistItem {
-  id: string;
-  title: string;
-  done: boolean;
-}
-
-export type TodayMiniThemeOption = ThemePickerOption;
-
-export interface TodayMiniAddTaskRequest {
-  title: string;
-  themeId?: string;
-}
-
-export interface TodayMiniToggleChecklistRequest {
-  taskId: string;
-  itemId: string;
-}
-
 export interface SatelliteWindowStatePayload {
-  todayOpen: boolean;
   openMemoIds: string[];
   stickyMemoIds: string[];
   alwaysOnTopMemoIds: string[];
@@ -786,10 +720,6 @@ export type FeedLinkPreviewResult =
   { ok: true; preview: FeedLinkPreview } | { ok: false; reason: string };
 
 export interface ResearchDeskApi {
-  agentLauncher: {
-    clients(): Promise<import("../agentLaunch").AgentLaunchClient[]>;
-    launch(request: import("../agentLaunch").AgentLaunchRequest): Promise<void>;
-  };
   openTaskCapture(mode?: "today-task" | "feed"): Promise<void>;
   captureOrganizer: {
     openSaved(captureId: string, version: number): Promise<void>;
@@ -969,14 +899,6 @@ export interface ResearchDeskApi {
     performanceDiagnosticsEnabled(): Promise<boolean>;
     reportPerformance(report: RendererPerformanceReport): void;
     getMcpBridgeInfo(): Promise<McpBridgeInfo>;
-    toggleTaskenRoot(): Promise<boolean>;
-    hideTaskenRoot(): Promise<boolean>;
-    openTaskenRootTarget(request: RootOpenRequest): Promise<boolean>;
-    getTaskenRootShortcut(): Promise<RootShortcutState>;
-    setTaskenRootShortcut(shortcut: string): Promise<RootShortcutState>;
-    onTaskenRootShown(callback: () => void): () => void;
-    showTodayMiniWindow(): Promise<boolean>;
-    toggleTodayMiniWindow(): Promise<boolean>;
     /** A=付箋表示対象をdesired stateで保存し、B=window表示をMainで調停する（#377）。 */
     setMemoStickyTarget(request: MemoStickyTargetRequest): Promise<MemoStickyTargetResult>;
     toggleMemoStickyTargetsVisibility(): Promise<MemoStickyVisibilityResult>;
@@ -1000,7 +922,6 @@ export interface ResearchDeskApi {
     onNavigate(callback: (route: string) => void): () => void;
     onWorkspaceChanged(callback: (change?: WorkspaceChangePayload) => void): () => void;
     onOpenTaskDetail(callback: (taskId: string) => void): () => void;
-    onOpenTaskenRootTarget(callback: (request: RootOpenRequest) => void): () => void;
     onCapturedTaskFocus(callback: (request: CapturedTaskFocusRequest) => void): () => void;
     ackCapturedTaskFocus(requestId: string, ok: boolean): Promise<void>;
   };

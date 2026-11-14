@@ -216,7 +216,7 @@ Agent Deskの項目名プレビューから指定Checklist itemだけをチェ�
 
 - Codexのツール一覧には、ユーザー設定の `tasken` MCP と、Codexアプリ側が公開する `tasken.tasken.*` の**2経路が見える**。
   後者を選ぶと `get_task_context` が `not_found` になる（別環境を見ている）。`tasken.*` を明示して使う。
-- `append_work_receipt` / `report_task_blocked` / `report_task_done` はProposalを作るだけで**Taskのversionを進めない**。
+- 作業報告（今の名前は `report_work`）はProposalを作るだけで**Taskのversionを進めない**。
   続けて送るときの `expected_version` は据え置きになる。
 
 ### 参照先

@@ -16,8 +16,9 @@ const activityPanelSource = readFileSync(
 );
 
 test("Today page stays focused on daily tasks instead of utility controls", () => {
-  assert.match(todayPageSource, /openTodayTasksWindow/);
-  assert.match(todayPageSource, /showTodayMiniWindow/);
+  // Today Mini（今日の小窓）は外した（#755）。Today の画面から小窓を開く入口が無いこと。
+  assert.doesNotMatch(todayPageSource, /openTodayTasksWindow/);
+  assert.doesNotMatch(todayPageSource, /showTodayMiniWindow/);
   assert.match(todayPageSource, /今日やること/);
   assert.doesNotMatch(todayPageSource, /IconFlag/);
   assert.doesNotMatch(todayPageSource, /onTogglePriority/);

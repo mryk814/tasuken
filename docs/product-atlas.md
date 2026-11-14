@@ -94,7 +94,6 @@ flowchart LR
 | -------------- | ------------------------ | ----------------------- |
 | Quick Capture  | どこからでも入力         | CaptureEntry / Task等   |
 | Sticky Memo    | Memoをデスクトップ表示   | 同じMemo Entity         |
-| Today Mini     | Todayを小窓表示          | 同じTask Projection     |
 | Detached Note  | Noteを別Windowで編集     | 同じNote Entity         |
 | Media Recorder | Voice / Screen Recording | CaptureEntry + Artifact |
 
@@ -172,7 +171,7 @@ Quick Capture / Inbox / Memo / Sticky Memo / Voice Capture
 ### Task projection cluster
 
 ```text
-Today / ToDo / Timeline / Theme Overview / Today Mini
+Today / ToDo / Timeline / Theme Overview
 ```
 
 すべてTask・Scheduleの異なる見方。Taskの状態・日付・Theme判定を独自実装しない。

@@ -16,8 +16,7 @@
         "scripts/sketch-toolbar-smoke.mjs",
         "src/main/index.ts",
         "src/renderer/src/services/workspaceApi.ts",
-        "src/renderer/src/stores/workspaceStore.ts",
-        "src/renderer/src/tasken-root/TaskenRootApp.tsx"
+        "src/renderer/src/stores/workspaceStore.ts"
       ]
     },
     "generic-task-write": {
@@ -224,7 +223,6 @@
         "src/main/quickCaptureController.ts",
         "src/main/reminderController.ts",
         "src/main/services/snapshotService.mjs",
-        "src/main/todayMiniController.ts",
         "tests/activity-event.test.mjs",
         "tests/agent-roundtrip-acceptance.test.mjs",
         "tests/ai-collaboration-e2e.test.mjs",

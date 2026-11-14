@@ -36,7 +36,6 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, "src/preload/index.ts"),
           capture: resolve(__dirname, "src/preload/capture.ts"),
-          todayMini: resolve(__dirname, "src/preload/todayMini.ts"),
           recordingIndicator: resolve(__dirname, "src/preload/recordingIndicator.ts"),
           regionSelector: resolve(__dirname, "src/preload/regionSelector.ts"),
           memoSticky: resolve(__dirname, "src/preload/memoSticky.ts"),
@@ -51,9 +50,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, "src/renderer/index.html"),
-          root: resolve(__dirname, "src/renderer/root.html"),
           capture: resolve(__dirname, "src/renderer/capture.html"),
-          todayMini: resolve(__dirname, "src/renderer/today-mini.html"),
           recordingIndicator: resolve(__dirname, "src/renderer/recording-indicator.html"),
           regionSelector: resolve(__dirname, "src/renderer/region-selector.html"),
           memoSticky: resolve(__dirname, "src/renderer/memo-sticky.html"),

@@ -190,27 +190,6 @@ function normalizeImportedTask(input, previous, fallbackSource) {
   return normalizeTaskAssignment(input, previous);
 }
 
-function normalizeTaskenRootUsage(value) {
-  if (!isPlainObject(value)) return {};
-  return Object.fromEntries(
-    Object.entries(value)
-      .slice(0, 500)
-      .flatMap(([key, record]) => {
-        if (!key || key.length > 240 || !isPlainObject(record)) return [];
-        const count = Number(record.count);
-        const lastUsedAt = typeof record.lastUsedAt === "string" ? record.lastUsedAt : "";
-        if (
-          !Number.isFinite(count) ||
-          count < 0 ||
-          !lastUsedAt ||
-          Number.isNaN(Date.parse(lastUsedAt))
-        )
-          return [];
-        return [[key, { count: Math.min(1_000_000, Math.floor(count)), lastUsedAt }]];
-      }),
-  );
-}
-
 function automaticSnapshotGenerations(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 5;
@@ -859,7 +838,6 @@ export class WorkspaceDatabase {
       deviceId: this.deviceId,
       themeMode: this.readPreference("themeMode"),
       activeGroups: this.readPreference("activeGroups"),
-      activeGroup: this.readPreference("activeGroup"),
       entityCount: this.db
         .prepare("SELECT COUNT(*) AS count FROM entities WHERE deleted_at IS NULL")
         .get().count,
@@ -934,7 +912,6 @@ export class WorkspaceDatabase {
         return [];
       }
     }
-    if (key === "activeGroup") return this.ensureMeta("active_group", "");
     if (key === "activityLogDirectory") return this.ensureMeta("activity_log_directory", "");
     if (key === "activityLogAutoExportTime")
       return this.ensureMeta("activity_log_auto_export_time", "");
@@ -948,16 +925,6 @@ export class WorkspaceDatabase {
       return this.ensureMeta("shared_sync_enabled", "false") === "true";
     if (key === "sharedSyncLastAt") return this.ensureMeta("shared_sync_last_at", "");
     if (key === "sharedSyncLastError") return this.ensureMeta("shared_sync_last_error", "");
-    if (key === "taskenRoot.globalShortcut")
-      return this.ensureMeta("tasken_root_global_shortcut", "");
-    if (key === "taskenRoot.usage.v1") {
-      const raw = this.ensureMeta("tasken_root_usage_v1", "{}");
-      try {
-        return normalizeTaskenRootUsage(JSON.parse(raw));
-      } catch {
-        return {};
-      }
-    }
     if (key === "automaticSnapshotBackupEnabled")
       return this.ensureMeta("automatic_snapshot_backup_enabled", "true") === "true";
     // ローカルのAIに直接の書き込みを許すか（#703）。端末ごとの設定で、同期しない。既定は無効。
@@ -1011,7 +978,6 @@ export class WorkspaceDatabase {
         return [];
       }
     }
-    if (key === "activeGroup") return readMeta("active_group") ?? "";
     if (key === "artifactDirectory") return readMeta("artifact_directory") ?? "";
     // Coreが書き込みのたびに読む。既定（無効）を書き出さない。
     if (key === "aiDirectWriteEnabled") return readMeta("ai_direct_write_enabled") === "true";
@@ -1171,30 +1137,6 @@ export class WorkspaceDatabase {
         .run(metaKey, text);
       return text;
     }
-    if (key === "taskenRoot.globalShortcut") {
-      const shortcut = typeof value === "string" ? value.trim().slice(0, 160) : "";
-      this.db
-        .prepare(
-          `
-        INSERT INTO workspace_meta(key, value) VALUES('tasken_root_global_shortcut', ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `,
-        )
-        .run(shortcut);
-      return shortcut;
-    }
-    if (key === "taskenRoot.usage.v1") {
-      const usage = normalizeTaskenRootUsage(value);
-      this.db
-        .prepare(
-          `
-        INSERT INTO workspace_meta(key, value) VALUES('tasken_root_usage_v1', ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `,
-        )
-        .run(JSON.stringify(usage));
-      return usage;
-    }
     if (key === "aiDirectWriteEnabled") {
       if (typeof value !== "boolean") throw new Error("直接の書き込みの設定の値が不正です。");
       this.db
@@ -1243,16 +1185,7 @@ export class WorkspaceDatabase {
         .run(String(generations));
       return generations;
     }
-    if (key !== "activeGroup") throw new Error(`未対応の設定です: ${key}`);
-    this.db
-      .prepare(
-        `
-      INSERT INTO workspace_meta(key, value) VALUES('active_group', ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `,
-      )
-      .run(String(value || ""));
-    return value;
+    throw new Error(`未対応の設定です: ${key}`);
   }
 
   isEmpty() {

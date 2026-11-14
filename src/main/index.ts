@@ -34,7 +34,6 @@ import {
   type QuickCaptureController,
 } from "./quickCaptureController";
 import { createReminderController, type ReminderController } from "./reminderController";
-import { createTodayMiniController, type TodayMiniController } from "./todayMiniController";
 import {
   createSatelliteWindowRegistry,
   type SatelliteWindowRegistry,
@@ -57,7 +56,7 @@ import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBackup";
 import { applyEmbeddedAiRetirementMigration } from "./services/embeddedAiRetirementMigration";
 import { acquireSmokeClipboardLock } from "./smokeClipboardLock.mjs";
-import type { Entity, EntityType } from "../shared/types/workspace";
+import type { Entity } from "../shared/types/workspace";
 import { MediaCaptureService } from "./services/mediaCaptureService";
 import { FeedLinkPreviewService } from "./services/feedLinkPreviewService";
 import { ScreenRecordingService } from "./services/screenRecordingService";
@@ -68,16 +67,14 @@ import {
   setPerformanceDiagnosticsWriter,
 } from "./services/performanceDiagnostics";
 import { createRecordingIndicatorController } from "./recordingIndicatorController";
-import { createTaskenRootController, type TaskenRootController } from "./taskenRootController";
 import { screenRecordingOriginsMatch } from "../shared/screenRecording.mjs";
 import type { CommandReceipt } from "../shared/applicationCommand";
 import {
   IPC,
-  type RootOpenRequest,
   type SatelliteWindowStatePayload,
   type WorkspaceChangePayload,
 } from "../shared/ipc/contracts";
-import { DIRECT_SHORTCUT_DEFINITIONS } from "../shared/taskenRoot";
+import { DIRECT_SHORTCUT_DEFINITIONS } from "../shared/globalShortcuts";
 import { TASK_CONTRACT_SCHEMA_VERSION } from "../shared/contracts/task/public";
 
 const isSmokeTest = process.argv.includes("--smoke-test");
@@ -133,12 +130,10 @@ let desktopComposition: TaskenDesktopComposition | null = null;
 let workspaceRepository: InstanceType<typeof WorkspaceDatabase>;
 let trayController: TrayController | null = null;
 let quickCaptureController: QuickCaptureController | null = null;
-let todayMiniController: TodayMiniController | null = null;
 let reminderController: ReminderController | null = null;
 let satelliteWindows: SatelliteWindowRegistry | null = null;
 let memoStickyController: MemoStickyController | null = null;
 let noteWindowController: NoteWindowController | null = null;
-let taskenRootController: TaskenRootController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
 let automaticSnapshotBackup: AutomaticSnapshotBackupService | null = null;
 let dailyContextAutoService: WorkspaceService | null = null;
@@ -272,15 +267,9 @@ function applyApplicationMenu(): void {
  * 切り離しウィンドウ（#290 / #298）は registry へ問い合わせる。
  */
 function isAuxiliaryWindow(win: BrowserWindow): boolean {
-  if (win === taskenRootController?.getWindow()) return true;
   if (win === quickCaptureController?.getWindow()) return true;
   if (win === quickCaptureController?.getSavedWindow()) return true;
-  if (win === todayMiniController?.getWindow()) return true;
   return satelliteWindows?.has(win) === true;
-}
-
-function isVisibleWindow(win: BrowserWindow | null): boolean {
-  return Boolean(win && !win.isDestroyed() && win.isVisible());
 }
 
 /** 開いている付箋の一覧を本体へ配る。本体側で「付箋表示中」を区別するために使う（#298）。 */
@@ -290,7 +279,6 @@ function notifyMemoStickyWindowsChanged(): void {
   const alwaysOnTopMemoIds = memoStickyController?.alwaysOnTopMemoIds() || [];
   const openNoteIds = noteWindowController?.openNoteIds() || [];
   const state: SatelliteWindowStatePayload = {
-    todayOpen: isVisibleWindow(todayMiniController?.getWindow() || null),
     openMemoIds,
     stickyMemoIds,
     alwaysOnTopMemoIds,
@@ -304,7 +292,6 @@ function notifyMemoStickyWindowsChanged(): void {
 
 function notifyMainWindowRefresh(change?: WorkspaceChangePayload): void {
   notifyDailyContextAuto();
-  const todayMiniWindow = todayMiniController?.getWindow();
   for (const win of BrowserWindow.getAllWindows()) {
     if (!isAuxiliaryWindow(win) && !win.isDestroyed()) {
       win.webContents.send(IPC.workspaceChanged, change);
@@ -312,9 +299,6 @@ function notifyMainWindowRefresh(change?: WorkspaceChangePayload): void {
   }
   // 切り離したウィンドウも同じ正本を見ているので、同じ変更を配る（#290）。
   satelliteWindows?.broadcast(IPC.workspaceChanged, change);
-  if (todayMiniWindow && !todayMiniWindow.isDestroyed()) {
-    todayMiniWindow.webContents.send(IPC.todayMiniRefresh);
-  }
 }
 
 function notifyDailyContextAuto(): void {
@@ -323,17 +307,6 @@ function notifyDailyContextAuto(): void {
   } catch (error) {
     logMain("warn", "daily-context", "自動公開の更新待ちを保存できませんでした", error);
   }
-}
-
-// 「今日やること」の一覧結果へ影響しうるEntity。ここに載らない種類では前面ウィンドウを更新しない。
-const TODAY_MINI_ENTITY_TYPES = new Set<EntityType>(["task", "schedule", "theme", "project"]);
-
-function notifyTodayMiniRefresh(types: EntityType[]): void {
-  if (!types.some((type) => TODAY_MINI_ENTITY_TYPES.has(type))) return;
-  const todayMiniWindow = todayMiniController?.getWindow();
-  if (!todayMiniWindow || todayMiniWindow.isDestroyed()) return;
-  if (todayMiniWindow.webContents.isLoading()) return;
-  todayMiniWindow.webContents.send(IPC.todayMiniRefresh);
 }
 
 function notifyCommandApplied(
@@ -371,14 +344,8 @@ function notifyCommandApplied(
     if (delta.length) win.webContents.send(IPC.workspaceChanged, { entities: delta });
   }
   // Satellite windows do not issue the main command IPC, so they can always
-  // receive the delta.  The mini window refreshes its projection from the same
-  // repository rather than applying a second delta.
+  // receive the delta.
   satelliteWindows?.broadcast(IPC.workspaceChanged, payloads.satellite);
-  if (changes.some(({ type }) => TODAY_MINI_ENTITY_TYPES.has(type))) {
-    const mini = todayMiniController?.getWindow();
-    if (mini && !mini.isDestroyed() && mini.webContents.id !== senderId)
-      mini.webContents.send(IPC.todayMiniRefresh);
-  }
 }
 
 function findMainWindow(): BrowserWindow | null {
@@ -419,12 +386,25 @@ function showMainWindow(): BrowserWindow {
   return win;
 }
 
+/** 本体を前面に出し、Taskの詳細を開く（リマインダーの通知から）。 */
+function openTaskDetail(taskId: string): void {
+  if (!workspaceRepository?.get("task", taskId)) return;
+  const mainWindow = showMainWindow();
+  const send = () => {
+    setTimeout(() => {
+      if (!mainWindow.isDestroyed())
+        mainWindow.webContents.send(IPC.workspaceOpenTaskDetail, taskId);
+    }, 150);
+  };
+  if (mainWindow.webContents.isLoading()) mainWindow.webContents.once("did-finish-load", send);
+  else send();
+}
+
 interface SmokeCreatedResult {
   title: string;
   rootReady: boolean;
   smokeTaskId: string;
   smokeTaskTitle: string;
-  todayMiniWindowOpened: boolean;
   saved: boolean;
   markdownSaved: boolean;
   markdownPreviewRendered: boolean;
@@ -489,62 +469,6 @@ interface SmokeReloadResult {
   settingsReloadRestored: boolean;
 }
 
-interface SmokeMiniResult {
-  todayMiniOpened: boolean;
-  todayMiniAlwaysOnTop: boolean;
-  /** この環境が always-on-top を報告するか。falseなら最前面の検査は環境要因として扱う（#607）。 */
-  todayMiniTopmostSupported: boolean;
-  todayMiniTaskVisible: boolean;
-  todayMiniCompletionSaved: boolean;
-  todayMiniOpenDetail: boolean;
-  todayMiniToggleRestored: boolean;
-  todayMiniResponsive: boolean;
-  todayMiniThemeKeyboard: boolean;
-  todayMiniThemeSaved: boolean;
-  todayMiniFailurePreserved: boolean;
-}
-
-/**
- * ウィンドウ環境がどこまで保証するかを、無関係な新規ウィンドウで測る（#607）。
- *
- * - `topmostReported`: OSが `setAlwaysOnTop` を報告するか。リモート表示など、
- *   最前面を無視する環境では常にfalseになる。
- * - `boundsDelta`: 指定サイズと実際のサイズの差。ウィンドウ枠やDPIの丸めで
- *   1px動く環境があり、boundsの厳密一致を要求すると本体の不具合と区別できない。
- */
-async function probeWindowEnvironment(): Promise<{
-  topmostReported: boolean;
-  boundsDelta: number;
-}> {
-  const probeWidth = 200;
-  const probeHeight = 120;
-  const probe = new BrowserWindow({
-    width: probeWidth,
-    height: probeHeight,
-    show: false,
-    // Todayミニと同じ条件（枠なし・最前面・タスクバー非表示）で測る。
-    // 条件を変えると、測れる環境と測れない環境の差が本体の差と混ざる。
-    frame: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-  });
-  try {
-    probe.show();
-    probe.setAlwaysOnTop(true);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    const bounds = probe.getBounds();
-    return {
-      topmostReported: probe.isAlwaysOnTop(),
-      boundsDelta: Math.max(
-        Math.abs(bounds.width - probeWidth),
-        Math.abs(bounds.height - probeHeight),
-      ),
-    };
-  } finally {
-    if (!probe.isDestroyed()) probe.destroy();
-  }
-}
-
 function recordSmoke(stage: string, details: Record<string, unknown> = {}): void {
   if (!isSmokeTest) return;
   lastSmokeStage = stage;
@@ -558,13 +482,7 @@ function recordSmoke(stage: string, details: Record<string, unknown> = {}): void
 }
 
 function completeInitialSmokeViaAppQuit(result: Record<string, unknown>): void {
-  if (!taskenRootController) throw new Error("Tasken Root controller is not ready");
-  taskenRootController.toggle();
-  const rootWindow = taskenRootController.getWindow();
-  if (!rootWindow || rootWindow.isDestroyed() || !rootWindow.isVisible()) {
-    throw new Error("Tasken Root window did not open before app quit");
-  }
-  pendingSmokeQuitResult = { ...result, taskenRootOpened: true };
+  pendingSmokeQuitResult = { ...result };
   recordSmoke("quit-started", pendingSmokeQuitResult);
   smokeQuitWatchdog = setTimeout(() => {
     if (!pendingSmokeQuitResult) return;
@@ -673,28 +591,9 @@ async function runSmokeTest(window: BrowserWindow): Promise<void> {
   const testTitle = `デスクトップ動作確認 ${Date.now()}`;
   const markdownTitle = `Markdown動作確認 ${Date.now()}`;
   const footnoteTitle = `脚注動作確認 ${Date.now()}`;
-  const smokeTaskTitle = `Todayミニ動作確認 ${Date.now()}`;
+  const smokeTaskTitle = `Task動作確認 ${Date.now()}`;
   const smokeTaskId = randomUUID();
   const smokeThemeId = `smoke-theme-${Date.now()}`;
-  const todayMiniThemeMatrix = Array.from({ length: 20 }, (_, index) => ({
-    id: `today-mini-theme-${Date.now()}-${index}`,
-    name:
-      index === 19
-        ? "とても長い日本語のTheme名を省略表示して全文をtooltipで確認する"
-        : `Today Theme ${String(index + 1).padStart(2, "0")}`,
-    color: [
-      "chart-1",
-      "chart-2",
-      "chart-3",
-      "chart-4",
-      "chart-5",
-      "chart-6",
-      "theme-extra-1",
-      "theme-extra-2",
-      "theme-extra-3",
-      "theme-extra-4",
-    ][index % 10],
-  }));
   const markdownBody = `---
 theme: smoke
 type: report
@@ -848,9 +747,6 @@ flowchart LR
       await delay(200);
 
       await window.api.entities.save("theme", { id: ${JSON.stringify(smokeThemeId)}, name: "Smoke Theme", code: "SMOKE", status: "active" });
-      for (const theme of ${JSON.stringify(todayMiniThemeMatrix)}) {
-        await window.api.entities.save("theme", { ...theme, status: "active" });
-      }
       const smokeImage = await window.api.attachments.saveMarkdownImage({
         fileName: "smoke.png",
         mimeType: "image/png",
@@ -1096,7 +992,7 @@ flowchart LR
           state: "todo",
           priority: "high",
           checklist_items: [{ id: "mini-1", title: "smoke", done: false, sort_order: 0 }],
-          ai_summary: "Todayミニの動作確認",
+          ai_summary: "Taskの動作確認",
           ai_summary_authority: "user_confirmed",
           ai_freshness: "current",
           ai_authority: "user_confirmed",
@@ -1130,7 +1026,7 @@ flowchart LR
       }
       const reloadedWorkspace = await window.api.workspace.load();
       const reloadedSmokeTask = (reloadedWorkspace.tasks || []).find((task) => task.id === ${JSON.stringify(smokeTaskId)});
-      const aiMetadataPersisted = reloadedSmokeTask?.ai_summary === "Todayミニの動作確認"
+      const aiMetadataPersisted = reloadedSmokeTask?.ai_summary === "Taskの動作確認"
         && reloadedSmokeTask?.ai_freshness === "current"
         && reloadedSmokeTask?.ai_source_refs?.[0]?.storage_root_id === "smoke-root";
       await window.api.entities.save("schedule", {
@@ -1144,7 +1040,6 @@ flowchart LR
         granularity: "day"
       }, { source: "smoke" });
 
-      const todayMiniWindowOpened = await window.api.app.showTodayMiniWindow();
       const themeMode = await window.api.preferences.get("themeMode");
       const savedBeforeSettingsRoute = [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(testTitle)}));
       const markdownSavedBeforeSettingsRoute = [...document.querySelectorAll("button")].some((button) => button.textContent.includes(${JSON.stringify(markdownTitle)}));
@@ -1167,7 +1062,6 @@ flowchart LR
         rootReady: Boolean(document.querySelector("#root > *")),
         smokeTaskId: ${JSON.stringify(smokeTaskId)},
         smokeTaskTitle: ${JSON.stringify(smokeTaskTitle)},
-        todayMiniWindowOpened,
         saved: savedBeforeSettingsRoute,
         markdownSaved: markdownSavedBeforeSettingsRoute,
         markdownPreviewRendered,
@@ -1708,298 +1602,6 @@ flowchart LR
   } finally {
     releaseSmokeClipboardLock();
   }
-  let mini: SmokeMiniResult = {
-    todayMiniOpened: false,
-    todayMiniAlwaysOnTop: false,
-    todayMiniTopmostSupported: false,
-    todayMiniTaskVisible: false,
-    todayMiniCompletionSaved: false,
-    todayMiniOpenDetail: false,
-    todayMiniToggleRestored: false,
-    todayMiniResponsive: false,
-    todayMiniThemeKeyboard: false,
-    todayMiniThemeSaved: false,
-    todayMiniFailurePreserved: false,
-  };
-  const todayMiniWindow = todayMiniController?.getWindow();
-  const todayMini = todayMiniWindow && !todayMiniWindow.isDestroyed() ? todayMiniWindow : null;
-  if (todayMini) {
-    if (todayMini.webContents.isLoading()) {
-      await new Promise<void>((resolve) => {
-        todayMini.webContents.once("did-finish-load", () => resolve());
-        setTimeout(resolve, 1200);
-      });
-    }
-    mini.todayMiniOpened = created.todayMiniWindowOpened && todayMini.isVisible();
-    const initialMiniId = todayMini.webContents.id;
-    const initialMiniBounds = todayMini.getBounds();
-    // 環境がどこまで保証するかを、無関係な新規ウィンドウで先に測る。
-    // topmostを無視する環境（リモート表示など）やウィンドウ枠の丸めで、
-    // Todayミニ本体の検査だけが落ちないようにする（#607）。
-    const windowEnvironment = await probeWindowEnvironment();
-    mini.todayMiniTopmostSupported = windowEnvironment.topmostReported;
-    const boundsWithinEnvironment = (
-      left: Electron.Rectangle,
-      right: Electron.Rectangle,
-    ): boolean =>
-      Math.abs(left.x - right.x) <= windowEnvironment.boundsDelta &&
-      Math.abs(left.y - right.y) <= windowEnvironment.boundsDelta &&
-      Math.abs(left.width - right.width) <= windowEnvironment.boundsDelta &&
-      Math.abs(left.height - right.height) <= windowEnvironment.boundsDelta;
-    const toggleResult = (await window.webContents.executeJavaScript(`
-      (async () => {
-        const hidden = await window.api.app.toggleTodayMiniWindow(); for (let attempt = 0; attempt < 20 && (await window.api.app.getSatelliteWindowState()).todayOpen; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 50));
-        const shown = await window.api.app.toggleTodayMiniWindow();
-        return { hidden, shown };
-      })()
-    `)) as { hidden: boolean; shown: boolean };
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const settledBounds = todayMini.getBounds();
-      if (
-        todayMini.isVisible() &&
-        (!windowEnvironment.topmostReported || todayMini.isAlwaysOnTop()) &&
-        boundsWithinEnvironment(settledBounds, initialMiniBounds)
-      )
-        break;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    const restoredBounds = todayMini.getBounds();
-    mini.todayMiniToggleRestored =
-      toggleResult.hidden === false &&
-      toggleResult.shown === true &&
-      todayMini.isVisible() &&
-      todayMini.webContents.id === initialMiniId &&
-      boundsWithinEnvironment(restoredBounds, initialMiniBounds);
-    // OSがtopmostを報告する環境では復帰後も最前面であること。
-    // 報告しない環境では同じ値が常にfalseになるため、通過条件で環境要因として扱う。
-    mini.todayMiniAlwaysOnTop = todayMini.isAlwaysOnTop();
-    const longTheme = todayMiniThemeMatrix.at(-1)!;
-    await todayMini.webContents.executeJavaScript(`
-      (() => {
-        const trigger = document.querySelector(".theme-picker-trigger");
-        trigger?.click();
-        [...document.querySelectorAll(".theme-picker-option")]
-          .find((candidate) => candidate.getAttribute("title") === ${JSON.stringify(longTheme.name)})?.click();
-      })()
-    `);
-    const responsiveResults: boolean[] = [];
-    for (const width of [300, 320, 360, 420]) {
-      todayMini.setSize(width, Math.max(360, initialMiniBounds.height), false);
-      await new Promise((resolve) => setTimeout(resolve, 40));
-      responsiveResults.push(
-        (await todayMini.webContents.executeJavaScript(`
-        (() => {
-          const doc = document.scrollingElement;
-          const form = document.querySelector(".add-task-bar");
-          const submit = document.querySelector("#add-task-submit");
-          // Pickerはclickのたびにtrigger/menuを作り直すので、開いた後のnodeを測る。
-          document.querySelector(".theme-picker-trigger")?.click();
-          const trigger = document.querySelector(".theme-picker-trigger");
-          const menu = document.querySelector(".theme-picker-menu");
-          const menuRect = menu?.getBoundingClientRect();
-          const triggerRect = trigger?.getBoundingClientRect();
-          const result = Boolean(doc && form && trigger && submit && menu && menuRect
-            && menu.hidden === false
-            && menuRect.width > 0
-            && menuRect.height > 0
-            && triggerRect && triggerRect.width > 0
-            && trigger.getAttribute("title") === ${JSON.stringify(longTheme.name)}
-            && doc.scrollWidth <= doc.clientWidth + 1
-            && form.scrollWidth <= form.clientWidth + 1
-            && trigger.getBoundingClientRect().right <= innerWidth + 1
-            && submit.getBoundingClientRect().right <= innerWidth + 1
-            && menu.querySelectorAll(".theme-picker-option").length >= 21
-            && menu.scrollWidth <= menu.clientWidth + 1
-            && menu.scrollHeight > menu.clientHeight
-            && menuRect.left >= -1
-            && menuRect.right <= innerWidth + 1
-            && menuRect.top >= -1
-            && menuRect.bottom <= innerHeight + 1);
-          trigger?.click();
-          return result;
-        })()
-      `)) as boolean,
-      );
-    }
-    todayMini.setBounds(initialMiniBounds, false);
-    mini.todayMiniResponsive = responsiveResults.every(Boolean);
-    const miniInteraction = (await todayMini.webContents.executeJavaScript(`
-      (async () => {
-        const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-        for (let attempt = 0; attempt < 30; attempt += 1) {
-          if (document.body.innerText.includes(${JSON.stringify(smokeTaskTitle)})) break;
-          await delay(100);
-        }
-        const todayMiniTaskVisible = document.body.innerText.includes(${JSON.stringify(smokeTaskTitle)});
-        await window.todayMiniApi.toggle(${JSON.stringify(smokeTaskId)});
-        await delay(140);
-        const afterToggle = await window.todayMiniApi.list();
-        const todayMiniCompletionSaved = !afterToggle.some((task) => task.id === ${JSON.stringify(smokeTaskId)});
-        const todayMiniOpenDetail = await window.todayMiniApi.openTask(${JSON.stringify(smokeTaskId)});
-        return { todayMiniTaskVisible, todayMiniCompletionSaved, todayMiniOpenDetail };
-      })()
-    `)) as Pick<
-      SmokeMiniResult,
-      "todayMiniTaskVisible" | "todayMiniCompletionSaved" | "todayMiniOpenDetail"
-    >;
-    mini = { ...mini, ...miniInteraction };
-
-    // 合成キーはwebContentsがfocusされるまで捨てられるので、キー送出前に前面へ出す。
-    todayMini.focus();
-    todayMini.webContents.focus();
-    await new Promise((resolve) => setTimeout(resolve, 60));
-    await todayMini.webContents.executeJavaScript(`
-      (() => {
-        const trigger = document.querySelector(".theme-picker-trigger");
-        trigger?.focus();
-      })()
-    `);
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    // 最初の合成キーはwebContentsのactivationに吸われることがあるので、開くまで押し直す。
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      todayMini.webContents.sendInputEvent({ type: "keyDown", keyCode: "Down" });
-      todayMini.webContents.sendInputEvent({ type: "keyUp", keyCode: "Down" });
-      await new Promise((resolve) => setTimeout(resolve, 60));
-      const opened = (await todayMini.webContents.executeJavaScript(`
-        document.querySelector(".theme-picker-menu")?.hidden === false
-          && document.activeElement?.classList.contains("theme-picker-option") === true
-      `)) as boolean;
-      if (opened) break;
-    }
-    // 開いた直後は選択中（長いTheme名）にfocusが当たる。Upで一つ前のSmoke Themeへ移る。
-    for (const keyCode of ["Up"]) {
-      todayMini.webContents.sendInputEvent({ type: "keyDown", keyCode });
-      todayMini.webContents.sendInputEvent({ type: "keyUp", keyCode });
-    }
-    // ChromiumはkeyDownだけではbutton/formを実行しない。char eventまで送って実操作と同じにする。
-    todayMini.webContents.sendInputEvent({ type: "keyDown", keyCode: "ENTER" });
-    todayMini.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
-    todayMini.webContents.sendInputEvent({ type: "keyUp", keyCode: "ENTER" });
-    await new Promise((resolve) => setTimeout(resolve, 80));
-    mini.todayMiniThemeKeyboard = (await todayMini.webContents.executeJavaScript(`
-      document.querySelector(".theme-picker-trigger")?.getAttribute("title") === "Smoke Theme"
-        && document.activeElement === document.querySelector(".theme-picker-trigger")
-    `)) as boolean;
-    const miniAddedTitle = `Today追加動作確認 ${Date.now()}`;
-    await todayMini.webContents.executeJavaScript(`
-      (() => {
-        const input = document.querySelector("#add-task-input");
-        input.value = ${JSON.stringify(miniAddedTitle)};
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.focus();
-      })()
-    `);
-    todayMini.webContents.sendInputEvent({ type: "keyDown", keyCode: "ENTER" });
-    todayMini.webContents.sendInputEvent({ type: "char", keyCode: "\r" });
-    todayMini.webContents.sendInputEvent({ type: "keyUp", keyCode: "ENTER" });
-    const enterAdded = (await todayMini.webContents.executeJavaScript(`
-      (async () => {
-        const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-        const input = document.querySelector("#add-task-input");
-        for (let attempt = 0; attempt < 30; attempt += 1) {
-          if (document.body.innerText.includes(${JSON.stringify(miniAddedTitle)})) break;
-          await delay(100);
-        }
-        const added = (await window.todayMiniApi.list()).find((task) => task.title === ${JSON.stringify(miniAddedTitle)});
-        return Boolean(added?.themeName === "Smoke Theme" && input.value === "" && document.querySelector(".theme-picker-trigger")?.getAttribute("title") === "Smoke Theme");
-      })()
-    `)) as boolean;
-    const enterSavedTask = (workspaceRepository.list("task") as Entity[]).find(
-      (task) => task.title === miniAddedTitle,
-    );
-    const miniButtonTitle = `Today＋動作確認 ${Date.now()}`;
-    const submitPoint = (await todayMini.webContents.executeJavaScript(`
-      (() => {
-        const input = document.querySelector("#add-task-input");
-        input.value = ${JSON.stringify(miniButtonTitle)};
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        const rect = document.querySelector("#add-task-submit")?.getBoundingClientRect();
-        return rect ? { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) } : null;
-      })()
-    `)) as { x: number; y: number } | null;
-    if (submitPoint) {
-      todayMini.webContents.sendInputEvent({
-        type: "mouseDown",
-        x: submitPoint.x,
-        y: submitPoint.y,
-        button: "left",
-        clickCount: 1,
-      });
-      todayMini.webContents.sendInputEvent({
-        type: "mouseUp",
-        x: submitPoint.x,
-        y: submitPoint.y,
-        button: "left",
-        clickCount: 1,
-      });
-    }
-    const buttonAdded = (await todayMini.webContents.executeJavaScript(`
-      (async () => {
-        const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-        for (let attempt = 0; attempt < 30; attempt += 1) {
-          if (document.body.innerText.includes(${JSON.stringify(miniButtonTitle)})) break;
-          await delay(100);
-        }
-        return Boolean(document.body.innerText.includes(${JSON.stringify(miniButtonTitle)})
-          && document.querySelector("#add-task-input")?.value === "");
-      })()
-    `)) as boolean;
-    const buttonSavedTask = (workspaceRepository.list("task") as Entity[]).find(
-      (task) => task.title === miniButtonTitle,
-    );
-    mini.todayMiniThemeSaved =
-      enterAdded &&
-      enterSavedTask?.project_id === smokeThemeId &&
-      buttonAdded &&
-      buttonSavedTask?.project_id === smokeThemeId;
-
-    const failedTheme = todayMiniThemeMatrix.at(-1)!;
-    await todayMini.webContents.executeJavaScript(`
-      (() => {
-        const trigger = document.querySelector(".theme-picker-trigger");
-        trigger?.click();
-        [...document.querySelectorAll(".theme-picker-option")]
-          .find((candidate) => candidate.getAttribute("title") === ${JSON.stringify(failedTheme.name)})?.click();
-        const input = document.querySelector("#add-task-input");
-        input.value = "失敗しても残る入力";
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      })()
-    `);
-    workspaceRepository.remove("theme", failedTheme.id);
-    todayMini.webContents.send(IPC.todayMiniRefresh);
-    mini.todayMiniFailurePreserved = (await todayMini.webContents.executeJavaScript(`
-      (async () => {
-        const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-        for (let attempt = 0; attempt < 30; attempt += 1) {
-          if (document.querySelector(".theme-picker-trigger")?.dataset.unavailable === "true") break;
-          await delay(50);
-        }
-        document.querySelector("#add-task-form")?.requestSubmit();
-        for (let attempt = 0; attempt < 30; attempt += 1) {
-          if (document.querySelector(".state.is-error")) break;
-          await delay(100);
-        }
-        return document.querySelector("#add-task-input")?.value === "失敗しても残る入力"
-          && document.querySelector(".theme-picker-trigger")?.getAttribute("title") === ${JSON.stringify(`${todayMiniThemeMatrix.at(-1)!.name}（利用不可）`)}
-          && document.querySelector(".theme-picker-trigger")?.dataset.unavailable === "true"
-          && document.querySelector(".theme-picker-trigger .theme-picker-color")?.style.getPropertyValue("--theme-picker-color") === "var(--color-border-strong)"
-          && !document.querySelector("#add-task-submit")?.disabled;
-      })()
-    `)) as boolean;
-  }
-  const detailOpened = (await window.webContents.executeJavaScript(`
-    (async () => {
-      const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      for (let attempt = 0; attempt < 30; attempt += 1) {
-        const drawer = document.querySelector(".drawer-form");
-        const title = drawer?.querySelector('input[name="title"]');
-        if (title?.value === ${JSON.stringify(smokeTaskTitle)}) return true;
-        await delay(100);
-      }
-      return false;
-    })()
-  `)) as boolean;
-  mini.todayMiniOpenDetail = mini.todayMiniOpenDetail && detailOpened;
   recordSmoke("markdown-edit-complete");
 
   window.show();
@@ -2122,7 +1724,7 @@ flowchart LR
           markdownPastePersisted: Boolean(markdown?.body_markdown?.includes("## Pasted Markdown Heading") && markdown?.body_markdown?.includes("**Pasted Bold Text**")),
           themeMode,
           aiTaskMetadataPersisted: Boolean(
-            tasks.find((task) => task.id === ${JSON.stringify(smokeTaskId)})?.ai_summary === "Todayミニの動作確認"
+            tasks.find((task) => task.id === ${JSON.stringify(smokeTaskId)})?.ai_summary === "Taskの動作確認"
           ),
           settingsReloadRestored,
         });
@@ -2146,7 +1748,6 @@ flowchart LR
         settingsReloadRestored: afterReload.settingsReloadRestored,
         settingsKeyboardInputTrusted: settingsKeyboard.inputTrusted,
         settingsStorageBeforeReload,
-        ...mini,
       };
       console.log(JSON.stringify(result));
       const passed = Boolean(
@@ -2173,17 +1774,6 @@ flowchart LR
         result.notesFootnoteEditPreviewAligned &&
         result.rawCopyNotified &&
         result.rootReady &&
-        result.todayMiniOpened &&
-        // 最前面を報告しない環境では、この検査だけを環境要因として通過させる（#607）。
-        (result.todayMiniAlwaysOnTop || !result.todayMiniTopmostSupported) &&
-        result.todayMiniTaskVisible &&
-        result.todayMiniCompletionSaved &&
-        result.todayMiniOpenDetail &&
-        result.todayMiniToggleRestored &&
-        result.todayMiniResponsive &&
-        result.todayMiniThemeKeyboard &&
-        result.todayMiniThemeSaved &&
-        result.todayMiniFailurePreserved &&
         result.clipboardWritten &&
         result.sketchClipboardWritten &&
         result.sketchClipboardPasted &&
@@ -2767,13 +2357,9 @@ async function startDesktopApp(): Promise<void> {
     batchTranscriptionRepository,
     screenRecording,
     feedLinkPreview,
-    (types, change) => {
-      // 差分があればそのまま配り、全体再読込は受け側の判断に残す。
-      notifyMainWindowRefresh(change);
-      notifyTodayMiniRefresh(types);
-    },
+    // 差分があればそのまま配り、全体再読込は受け側の判断に残す。
+    (_types, change) => notifyMainWindowRefresh(change),
     notifyCommandApplied,
-    notifyTodayMiniRefresh,
     aiTaskChanges,
   );
   registerMobileGatewayIpc(composition.mobileGateway);
@@ -2793,7 +2379,6 @@ async function startDesktopApp(): Promise<void> {
     IPC.satelliteWindowState,
     () =>
       ({
-        todayOpen: isVisibleWindow(todayMiniController?.getWindow() || null),
         openMemoIds: memoStickyController?.visibleMemoIds() || [],
         stickyMemoIds: memoStickyController?.stickyMemoIds() || [],
         alwaysOnTopMemoIds: memoStickyController?.alwaysOnTopMemoIds() || [],
@@ -2816,24 +2401,6 @@ async function startDesktopApp(): Promise<void> {
     isAppQuitApproved: () => appQuitApproved,
   });
   noteWindowController.registerIpc();
-  taskenRootController = createTaskenRootController({
-    getPreference: (key) => workspaceRepository.getPreference(key),
-    setPreference: (key, value) => {
-      workspaceRepository.setPreference(key, value);
-    },
-    getAppIconPath,
-    isAppQuitApproved: () => appQuitApproved,
-    showMainTarget: (request: RootOpenRequest) => {
-      const mainWindow = showMainWindow();
-      const send = () => {
-        if (!mainWindow.isDestroyed())
-          mainWindow.webContents.send(IPC.workspaceOpenRootTarget, request);
-      };
-      if (readyMainWindows.has(mainWindow)) send();
-      else mainWindow.webContents.once("did-finish-load", send);
-    },
-  });
-  taskenRootController.registerIpc();
   quickCaptureController = createQuickCaptureController({
     showMainWindow,
     isMainSender: (senderId) => findMainWindow()?.webContents.id === senderId,
@@ -2845,15 +2412,6 @@ async function startDesktopApp(): Promise<void> {
     executeCommands: (envelopes) => applicationCommands.executeBatch(envelopes),
   });
   quickCaptureController.registerIpc();
-  todayMiniController = createTodayMiniController({
-    repository: workspaceRepository,
-    satelliteWindows,
-    showMainWindow,
-    notifyWorkspaceChanged: notifyMainWindowRefresh,
-    notifyCommandApplied,
-    executeCommand: (envelope) => applicationCommands.execute(envelope),
-  });
-  todayMiniController.registerIpc();
   createRecordingIndicatorController({
     satelliteWindows,
     getMainWindow: () => findMainWindow(),
@@ -2861,9 +2419,7 @@ async function startDesktopApp(): Promise<void> {
   reminderController = createReminderController({
     repository: workspaceRepository,
     getAppIconPath,
-    openTask: (taskId) => {
-      todayMiniController?.openTask(taskId);
-    },
+    openTask: openTaskDetail,
     showMainWindow: () => {
       showMainWindow();
     },
@@ -2871,7 +2427,6 @@ async function startDesktopApp(): Promise<void> {
   trayController = createTrayController({
     appName: APP_NAME,
     getAppIconPath,
-    showTodayMini: () => todayMiniController?.show(),
     quickCaptureMenuItems: () => quickCaptureController?.menuItems() || [],
     showQuickCapture: () => quickCaptureController?.show("feed"),
     showMainWindow: () => {
@@ -2900,7 +2455,6 @@ async function startDesktopApp(): Promise<void> {
     for (const definition of DIRECT_SHORTCUT_DEFINITIONS) {
       globalShortcut.register(definition.accelerator, directHandlers[definition.id]);
     }
-    taskenRootController.registerShortcut();
   }
 
   app.on("activate", () => {
@@ -2965,8 +2519,6 @@ app.on("before-quit", (event) => {
 
 app.on("will-quit", () => {
   reminderController?.stop();
-  const taskenRootClosedBeforeWillQuit = taskenRootController?.getWindow() === null;
-  taskenRootController?.destroy();
   globalShortcut.unregisterAll();
   if (smokeQuitWatchdog) {
     clearTimeout(smokeQuitWatchdog);
@@ -2975,12 +2527,7 @@ app.on("will-quit", () => {
   if (pendingSmokeQuitResult) {
     const result = pendingSmokeQuitResult;
     pendingSmokeQuitResult = null;
-    const taskenRootQuitCompleted =
-      taskenRootClosedBeforeWillQuit && taskenRootController?.getWindow() === null;
-    recordSmoke(taskenRootQuitCompleted ? "restart-ready" : "quit-failed", {
-      ...result,
-      taskenRootClosedBeforeWillQuit,
-      taskenRootQuitCompleted,
-    });
+    // will-quit まで届いたことが、終了の経路が詰まらずに通った印になる。
+    recordSmoke("restart-ready", result);
   }
 });

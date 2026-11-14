@@ -348,13 +348,9 @@ test("本体ウィンドウ判定を一箇所へ集約する（#290）", () => {
   assert.match(mainSource, /satelliteWindows\?\.broadcast\(IPC\.workspaceChanged, change\);/);
 });
 
-test("Todayの表示状態はregistryのvisibility遷移を通知する（#327）", () => {
-  assert.match(mainSource, /function isVisibleWindow\(win: BrowserWindow \| null\): boolean/);
-  assert.match(
-    mainSource,
-    /todayOpen: isVisibleWindow\(todayMiniController\?\.getWindow\(\) \|\| null\)/g,
-  );
-  assert.doesNotMatch(mainSource, /todayOpen: Boolean\(todayMiniController\?\.getWindow\(\)\)/);
+// Today Mini の窓（todayOpen）は外した（#755）。registry の visibility 遷移の通知は付箋が使う。
+test("切り離しウィンドウの表示状態はregistryのvisibility遷移を通知する（#327）", () => {
+  assert.doesNotMatch(mainSource, /todayOpen|todayMiniController/);
   assert.match(registrySource, /const wasVisible = window\.isVisible\(\);/);
   assert.match(registrySource, /window\.show\(\);/);
   assert.match(registrySource, /window\.focus\(\);/);
@@ -369,29 +365,10 @@ test("Todayの表示状態はregistryのvisibility遷移を通知する（#327�
   );
   assert.match(registrySource, /focus\(key\)[\s\S]*reveal\(window\)/);
   assert.match(registrySource, /window\.on\("closed"[\s\S]*options\.onChanged\?\.\(\);/);
-  assert.match(mainSource, /todayMiniToggleRestored/);
-  assert.match(mainSource, /toggleResult\.hidden === false[\s\S]*toggleResult\.shown === true/);
 });
 
-test("Todayミニは最前面を要求し、OSが報告しない環境では検査を環境要因として扱う（#607）", () => {
-  // OSがtopmostを報告する環境（CIなど）ではsmokeが最前面を検査する。
-  // 報告しない環境でも「要求している」ことは、ここで正本から固定する。
-  const controller = readFileSync("src/main/todayMiniController.ts", "utf8");
-  assert.match(controller, /alwaysOnTop: true/);
-  assert.match(controller, /win\.setAlwaysOnTop\(true\)/);
-  assert.match(mainSource, /probeWindowEnvironment/);
-  assert.match(mainSource, /todayMiniTopmostSupported = windowEnvironment\.topmostReported/);
-});
-
-test("Top BarのToday／付箋はicon中心で状態を色だけに頼らない（#327）", () => {
-  assert.match(
-    shellSource,
-    /const todayLabel = launcher\.todayWindowOpen \? "今日やることを収納" : "今日やることを表示"/,
-  );
-  assert.match(
-    shellSource,
-    /aria-label=\{todayLabel\}[\s\S]*title=\{todayLabel\}[\s\S]*aria-pressed=\{launcher\.todayWindowOpen\}/,
-  );
+// Today Mini の最前面の検査（#607）は、窓ごと外した（#755）ので消した。
+test("Top Barの付箋はicon中心で状態を色だけに頼らない（#327）", () => {
   assert.match(
     shellSource,
     /aria-label="付箋を展開または収納"[\s\S]*title="付箋を展開または収納"[\s\S]*aria-pressed=\{launcher\.stickyWindowsShown\}/,
@@ -745,9 +722,7 @@ test("上部バーはPopoverを経由せずRegistryの衛星ウィンドウを�
     "utf8",
   );
 
-  assert.match(shellSource, /todayWindowOpen: boolean;/);
   assert.match(shellSource, /stickyWindowsShown: boolean;/);
-  assert.match(shellSource, /aria-pressed=\{launcher\.todayWindowOpen\}/);
   assert.match(shellSource, /aria-pressed=\{launcher\.stickyWindowsShown\}/);
   assert.doesNotMatch(shellSource, /titlebar-popover/);
   assert.match(workspaceAppSource, /workspaceApi\s*\.getSatelliteWindowState\(\)/);
@@ -756,7 +731,6 @@ test("上部バーはPopoverを経由せずRegistryの衛星ウィンドウを�
     /return workspaceApi\.onSatelliteWindowStateChanged\(applyState\);/,
   );
   assert.match(workspaceAppSource, /workspaceApi\.toggleMemoStickyTargetsVisibility\(\)/);
-  assert.match(workspaceAppSource, /workspaceApi\.toggleTodayMiniWindow\(\)/);
 });
 
 test("付箋表示対象は同じMemoのproperties_jsonへ保存し、閉じても状態を消さない（#327）", () => {

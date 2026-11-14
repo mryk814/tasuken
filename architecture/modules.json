@@ -36,12 +36,10 @@
     "main.headless": ["main.application", "main.composition", "main.infrastructure", "main.mcp", "main.mobile", "shared"],
     "preload": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "renderer.bootstrap.main": ["renderer.app", "renderer.workspace", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
-    "renderer.bootstrap.root": ["renderer.app", "renderer.tasken-root", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "renderer.workspace": ["renderer.app", "renderer.services", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "renderer.memo-sticky": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
-    "renderer.tasken-root": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
     "renderer.services": ["shared", "shared.kernel", "shared.contracts.task", "shared.ipc"],
-    "renderer.app": ["renderer.services", "renderer.workspace", "renderer.memo-sticky", "renderer.tasken-root", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"]
+    "renderer.app": ["renderer.services", "renderer.workspace", "renderer.memo-sticky", "shared", "shared.kernel", "shared.contracts.task", "shared.ipc"]
   },
   "modules": [
     {
@@ -248,14 +246,6 @@
       "owner": "renderer-architecture"
     },
     {
-      "id": "renderer.bootstrap.root",
-      "root": "src/renderer/src/root.tsx",
-      "kind": "composition-root",
-      "status": "report-only",
-      "publicEntrypoints": [],
-      "owner": "renderer-architecture"
-    },
-    {
       "id": "renderer.workspace",
       "root": "src/renderer/src/features/workspace",
       "kind": "renderer-feature",
@@ -266,14 +256,6 @@
     {
       "id": "renderer.memo-sticky",
       "root": "src/renderer/src/features/memo-sticky",
-      "kind": "renderer-feature",
-      "status": "report-only",
-      "publicEntrypoints": [],
-      "owner": "renderer-architecture"
-    },
-    {
-      "id": "renderer.tasken-root",
-      "root": "src/renderer/src/tasken-root",
       "kind": "renderer-feature",
       "status": "report-only",
       "publicEntrypoints": [],
@@ -301,7 +283,6 @@
     "src/main/ipc/registerIpc.ts",
     "src/preload/index.ts",
     "src/renderer/src/main.tsx",
-    "src/renderer/src/root.tsx",
     "src/renderer/src/App.tsx",
     "src/renderer/src/features/workspace/WorkspaceApp.tsx",
     "src/renderer/src/services/workspaceApi.ts",

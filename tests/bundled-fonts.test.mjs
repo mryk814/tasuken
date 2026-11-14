@@ -6,9 +6,7 @@ import test from "node:test";
 const root = path.resolve(import.meta.dirname, "..");
 const rendererEntries = [
   "index.html",
-  "root.html",
   "capture.html",
-  "today-mini.html",
   "recording-indicator.html",
   "region-selector.html",
   "memo-sticky.html",
@@ -28,7 +26,10 @@ test("all renderer windows load the bundled font stylesheet without a font CDN",
 
 test("font tokens use only bundled families before generic fallbacks", () => {
   const tokens = read("design-standard/tokens.css");
-  assert.match(tokens, /--font-base:\s*"Nunito Variable", "Noto Sans JP Variable", system-ui, sans-serif;/);
+  assert.match(
+    tokens,
+    /--font-base:\s*"Nunito Variable", "Noto Sans JP Variable", system-ui, sans-serif;/,
+  );
   assert.match(tokens, /--font-mono:\s*"JetBrains Mono Variable", ui-monospace, monospace;/);
 });
 
@@ -37,7 +38,10 @@ test("renderer-owned rich text and canvas surfaces use the bundled families", ()
   const mermaid = read("src/renderer/src/features/workspace/lib/mermaid.ts");
   const sketch = read("src/renderer/src/features/workspace/lib/sketch.ts");
   assert.doesNotMatch(appCss, /"Yu Gothic UI"|"Meiryo UI"|"Segoe UI"/);
-  assert.match(mermaid, /MERMAID_SCREEN_FONT_FAMILY = "Nunito Variable, Noto Sans JP Variable, sans-serif"/);
+  assert.match(
+    mermaid,
+    /MERMAID_SCREEN_FONT_FAMILY = "Nunito Variable, Noto Sans JP Variable, sans-serif"/,
+  );
   assert.match(sketch, /'Nunito Variable', 'Noto Sans JP Variable', sans-serif/);
 });
 

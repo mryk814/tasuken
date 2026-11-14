@@ -41,12 +41,6 @@ function desktopApi() {
 }
 
 export const workspaceApi = {
-  agentLaunchClients() {
-    return desktopApi().agentLauncher.clients();
-  },
-  launchAgent(request: import("../../../shared/agentLaunch").AgentLaunchRequest) {
-    return desktopApi().agentLauncher.launch(request);
-  },
   undoAiChange(changeId: string) {
     return desktopApi().entities.undoAiChange(changeId);
   },
@@ -354,30 +348,6 @@ export const workspaceApi = {
   },
   getMcpBridgeInfo() {
     return desktopApi().app.getMcpBridgeInfo();
-  },
-  toggleTaskenRoot() {
-    return desktopApi().app.toggleTaskenRoot();
-  },
-  hideTaskenRoot() {
-    return desktopApi().app.hideTaskenRoot();
-  },
-  openTaskenRootTarget(request: Parameters<Window["api"]["app"]["openTaskenRootTarget"]>[0]) {
-    return desktopApi().app.openTaskenRootTarget(request);
-  },
-  getTaskenRootShortcut() {
-    return desktopApi().app.getTaskenRootShortcut();
-  },
-  setTaskenRootShortcut(shortcut: string) {
-    return desktopApi().app.setTaskenRootShortcut(shortcut);
-  },
-  onTaskenRootShown(callback: () => void) {
-    return desktopApi().app.onTaskenRootShown(callback);
-  },
-  showTodayMiniWindow() {
-    return desktopApi().app.showTodayMiniWindow();
-  },
-  toggleTodayMiniWindow() {
-    return desktopApi().app.toggleTodayMiniWindow();
   },
   setMemoStickyTarget(memoId: string, target: boolean) {
     return desktopApi().app.setMemoStickyTarget({ memoId, target });

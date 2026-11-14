@@ -4,7 +4,6 @@ import test from "node:test";
 
 const viteConfig = readFileSync("electron.vite.config.ts", "utf8");
 const standaloneSources = [
-  readFileSync("src/renderer/today-mini.html", "utf8"),
   readFileSync("src/renderer/capture.html", "utf8"),
   readFileSync("src/renderer/memo-sticky.html", "utf8"),
 ];
@@ -18,16 +17,13 @@ test("standalone windows receive the shared design tokens at build time", () => 
 
 test("standalone windows do not define a second color palette", () => {
   for (const source of standaloneSources) {
-    assert.doesNotMatch(source, /--color-(?:bg-top|bg-mid|bg-bottom|panel|glass|paper|paper-edge|theme-extra)/);
+    assert.doesNotMatch(
+      source,
+      /--color-(?:bg-top|bg-mid|bg-bottom|panel|glass|paper|paper-edge|theme-extra)/,
+    );
     assert.doesNotMatch(source, /:\s*#[0-9A-Fa-f]{3,8}\b/);
     assert.doesNotMatch(source, /rgba?\(\s*\d/);
   }
 });
 
-test("Today mini standalone picker uses only shared design token roles", () => {
-  const todayMini = standaloneSources[0];
-  assert.doesNotMatch(todayMini, /--color-(?:glass|glass-hover|panel-strong|text-light)/);
-  assert.match(todayMini, /--color-surface-subtle/);
-  assert.match(todayMini, /--color-surface-muted/);
-  assert.match(todayMini, /--color-accent-subtle-bg-strong/);
-});
+// Today Mini の窓の色の検査は、窓ごと外した（#755）ので消した。

@@ -3,7 +3,6 @@ import { app, Menu, nativeImage, Tray } from "electron";
 interface TrayControllerOptions {
   appName: string;
   getAppIconPath: () => string;
-  showTodayMini: () => void;
   quickCaptureMenuItems: () => Electron.MenuItemConstructorOptions[];
   showQuickCapture: () => void;
   showMainWindow: () => void;
@@ -43,8 +42,6 @@ export function createTrayController(options: TrayControllerOptions): TrayContro
     setup() {
       tray = new Tray(createTrayIcon(options.getAppIconPath()));
       const contextMenu = Menu.buildFromTemplate([
-        { label: "今日やることを表示", click: options.showTodayMini },
-        { type: "separator" },
         ...options.quickCaptureMenuItems(),
         { type: "separator" },
         { label: `${options.appName} を開く`, click: options.showMainWindow },

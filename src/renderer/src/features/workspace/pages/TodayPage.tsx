@@ -1333,14 +1333,6 @@ export function TodayPage({
     });
   }
 
-  async function openTodayTasksWindow() {
-    const opened = await workspaceApi.showTodayMiniWindow();
-    setToast(
-      opened ? "今日やることを開きました。" : "今日やることを開けませんでした。",
-      opened ? "success" : "danger",
-    );
-  }
-
   function handleOpenCandidateTask(row: DailyPlanningRow) {
     openDrawer({
       type: "task",
@@ -1463,9 +1455,6 @@ export function TodayPage({
         </Button>
         <Button variant="secondary" onClick={() => openDailyScratchpad(today)}>
           <IconNotebook size={16} /> 今日のScratchpad
-        </Button>
-        <Button variant="secondary" onClick={openTodayTasksWindow}>
-          <IconCalendarCheck size={16} /> 今日やること
         </Button>
         <ToolbarMenu
           label="その他"

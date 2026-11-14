@@ -17,7 +17,7 @@ import {
 } from "@tabler/icons-react";
 import { AI_ICON } from "../../../pages/semanticIcons";
 import type { Task, Schedule } from "../domain-model/types";
-import type { BaseRecord, SaveEntities, Theme } from "../types";
+import type { SaveEntities, Theme } from "../types";
 import { TASK_STATE_LABELS } from "../domain-model/labels";
 import { buildSaveTaskOperations } from "../domain-model/persistence";
 import { buildCompleteTaskOperations } from "../domain-model/taskRecurrence";
@@ -34,7 +34,6 @@ import {
   type BoardRow,
 } from "./TaskBoardModel";
 import { AiCreationMark } from "./AiCreationMark";
-import { AgentLaunchButton } from "./AgentLaunchButton";
 import "./TaskBoard.css";
 
 const STATE_ICONS = {
@@ -51,7 +50,6 @@ export function TaskBoard({
   rows,
   allRows,
   themes,
-  repositoryContexts,
   defaultThemeId,
   proposals,
   receipts,
@@ -62,7 +60,6 @@ export function TaskBoard({
   rows: BoardRow[];
   allRows: BoardRow[];
   themes: Theme[];
-  repositoryContexts: BaseRecord[];
   defaultThemeId: string;
   proposals: readonly unknown[];
   receipts: readonly unknown[];
@@ -427,15 +424,6 @@ export function TaskBoard({
                               </span>
                               {ai && <small>{workLabel}</small>}
                             </span>
-                            {!terminal && (
-                              <AgentLaunchButton
-                                task={task}
-                                themes={themes}
-                                repositoryContexts={repositoryContexts}
-                                saveEntities={saveEntities}
-                                setToast={setToast}
-                              />
-                            )}
                           </div>
                         </article>
                       </Fragment>

@@ -19,7 +19,7 @@ Taskenの日付操作は**対象ごとに別の操作**とし、表示名でも�
 `today_date` は「利用者が今日扱うと選んだ日」であり、**期限ではない**。
 `Schedule.end_date` が締切の正本で、既存データの意味を変えない。
 ToDoの「今日の予定」ボタンの選択印は `today_date = 今日` の場合だけ表示する。追加・解除は `today_date` だけを更新し、Scheduleの開始日・締切・実施期間を変更しない。
-ToDoの「今日」フィルターと件数は、上部Todayミニと同じ共通selectorの対象を使う。期限が今日のTaskは対象に含めるが、期間の開始日だけでは今日選択済みと扱わない。
+ToDoの「今日」フィルターと件数は、Todayと同じ共通selectorの対象を使う。期限が今日のTaskは対象に含めるが、期間の開始日だけでは今日選択済みと扱わない。
 
 ## 2. 「扱う日を変更」の選択肢
 
@@ -72,7 +72,6 @@ Taskenを閉じずに日付を跨いでも、Today・Sidebarの件数・候補�
 - 本体Todayと Sidebar は `useCurrentLocalDate()`（`lib/currentLocalDate.ts`）でローカル日付を購読する。
   60秒ごとの確認に加え、window focus・`visibilitychange`・`pageshow` で照合する。スリープ中にtimerが走らなくても、復帰時に揃う。
 - 日付が同じなら再描画しない。timerは購読者が何人でも一つで、購読がなくなれば止める。
-- 前面Todayミニウィンドウは以前からfocus・表示復帰・60秒ごとの確認でMainの `selectTodayTasks` を読み直している。本体と同じselectorを使う。
 - 日付切替で `today_date`・`Schedule.end_date` は書き換えない。表示の投影だけを作り直す。
 
 Today一覧の投影は `buildTodayPageProjection(domain, today)`（`lib/dailyPlanning.ts`）にまとめ、Domainか日付が変わったときだけ作り直す。

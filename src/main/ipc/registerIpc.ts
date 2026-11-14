@@ -1,6 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
-import { getTaskAgentClients } from "../services/taskAgentProcess";
-import { launchAgent } from "../services/agentLaunchService";
+import { BrowserWindow, dialog, ipcMain } from "electron";
 
 import { IPC } from "../../shared/ipc/contracts";
 import { entityTypes, type Entity, type EntityType } from "../../shared/types/workspace";
@@ -248,7 +246,6 @@ export function registerIpc(
     senderId: number,
     options?: { senderReceivesAll?: boolean },
   ) => void = () => {},
-  notifyTaskProjectionChanged: (types: EntityType[]) => void = () => {},
   /** AIの直接変更を本人が取り消す口（#703）。Desktopのcompositionが渡す。 */
   aiTaskChanges?: { undoByUser(changeId: string): unknown },
 ): void {
@@ -329,7 +326,6 @@ export function registerIpc(
       },
     },
     taskCapability,
-    () => notifyTaskProjectionChanged(["task"]),
   );
   // 来歴（change_event）は読み込みの約9割を占める（#734）。画面へは載せず、開いた範囲だけ activityEvents で渡す。
   ipcMain.handle(IPC.workspaceLoad, () =>
@@ -405,10 +401,6 @@ export function registerIpc(
     if (normalizedKey === "artifactDirectory") {
       service.notifyDailyContextAutoChange();
     }
-    if (normalizedKey === "themeMode") {
-      const mode = value === "dark" ? "dark" : "light";
-      publishIpc(IPC.todayMiniTheme, mode);
-    }
     if (normalizedKey === "artifactDirectory") {
       // Root changes are workspace projection changes, not entity changes.
       // Refreshing here updates canonical_root_status in the live renderer.
@@ -458,13 +450,6 @@ export function registerIpc(
     service.readFilePreview(requireText(filePath, "プレビューするファイル")),
   );
   ipcMain.handle(IPC.dialogChooseDirectory, (_event, title) => service.chooseDirectory(title));
-  ipcMain.handle(IPC.agentLaunchClients, () => getTaskAgentClients());
-  ipcMain.handle(IPC.agentLaunch, async (_event, request) => {
-    const bridge = await service.getMcpBridgeInfo();
-    if (bridge.coreStatus === "unavailable")
-      throw new Error("Tasken MCPへ接続できません。接続設定を確認してください。");
-    await launchAgent(request, repository, bridge.configJson, app.getPath("userData"));
-  });
   ipcMain.handle(IPC.dialogChooseFiles, (_event, title) => service.chooseFiles(title));
   ipcMain.handle(IPC.markdownImageSave, (_event, request) =>
     service.saveMarkdownImageAttachment(request),

@@ -215,7 +215,6 @@ export function WorkspaceApp() {
   // 衛星ウィンドウの開閉・表示対象はMainのRegistry／IPC通知を購読する（#327）。
   const [openStickyMemoIds, setOpenStickyMemoIds] = useState<string[]>([]);
   const [stickyMemoTargetIds, setStickyMemoTargetIds] = useState<string[]>([]);
-  const [todayWindowOpen, setTodayWindowOpen] = useState(false);
   const [snapshotPreview, setSnapshotPreview] = useState<SnapshotPreview | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
@@ -324,20 +323,7 @@ export function WorkspaceApp() {
       const loaded = await loadWorkspaceAction();
       setThemeMode((loaded.meta?.themeMode as "light" | "dark") || "light");
       const storedGroups = loaded.meta?.activeGroups;
-      if (Array.isArray(storedGroups)) {
-        setActiveGroups(storedGroups as string[]);
-      } else if (typeof storedGroups === "string" && storedGroups) {
-        setActiveGroups([storedGroups]);
-        workspaceApi.setPreference("activeGroups", [storedGroups]).catch(() => {});
-      } else {
-        const legacy = loaded.meta?.activeGroup;
-        const migrated = typeof legacy === "string" && legacy ? [legacy] : [];
-        setActiveGroups(migrated);
-        if (legacy) {
-          workspaceApi.setPreference("activeGroups", migrated).catch(() => {});
-          workspaceApi.setPreference("activeGroup", null).catch(() => {});
-        }
-      }
+      setActiveGroups(Array.isArray(storedGroups) ? (storedGroups as string[]) : []);
       if (!useUiStore.getState().activeThemeId) {
         setActiveThemeId(activeRecords((loaded.themes as Theme[]) || [])[0]?.id || "");
       }
@@ -404,12 +390,10 @@ export function WorkspaceApp() {
   useEffect(() => {
     if (detachedNoteId) return undefined;
     const applyState = (state: {
-      todayOpen: boolean;
       openMemoIds: string[];
       stickyMemoIds: string[];
       alwaysOnTopMemoIds: string[];
     }) => {
-      setTodayWindowOpen(state.todayOpen);
       setOpenStickyMemoIds(state.openMemoIds);
       setStickyMemoTargetIds(state.stickyMemoIds);
     };
@@ -418,7 +402,6 @@ export function WorkspaceApp() {
       .then(applyState)
       .catch(() =>
         applyState({
-          todayOpen: false,
           openMemoIds: [],
           stickyMemoIds: [],
           alwaysOnTopMemoIds: [],
@@ -1076,80 +1059,6 @@ export function WorkspaceApp() {
       });
     });
   }, [fullDomain, loadState, setRoute, setToast]);
-
-  useEffect(() => {
-    if (!window.api?.app?.onOpenTaskenRootTarget || detachedNoteId || loadState !== "success")
-      return undefined;
-    return window.api.app.onOpenTaskenRootTarget((request) => {
-      if (request.kind === "command") {
-        if (request.id === "create:capture") {
-          void window.api.openTaskCapture("feed");
-          return;
-        }
-        if (request.id.startsWith("navigate:")) navigate(request.id.slice("navigate:".length));
-        return;
-      }
-      if (request.kind === "task") {
-        const task = fullDomain.tasks.find((entry) => entry.id === request.id);
-        if (!task) {
-          setToast("Taskを開けませんでした。画面を更新してもう一度試してください。", "danger");
-          return;
-        }
-        if (request.action === "focus") {
-          startFocusSession(task.id);
-          return;
-        }
-        const schedule = fullDomain.schedules.find(
-          (entry) => entry.owner_type === "task" && entry.owner_id === task.id,
-        );
-        location.hash = "todo";
-        setRoute("todo");
-        openDrawer({
-          type: "task",
-          mode: request.action === "edit" ? "edit" : undefined,
-          entity: { ...task, _schedule: schedule } as Record<string, unknown>,
-        });
-        return;
-      }
-      if (request.kind === "note") {
-        const note = fullDomain.notes.find((entry) => entry.id === request.id);
-        if (!note) {
-          setToast("Noteを開けませんでした。画面を更新してもう一度試してください。", "danger");
-          return;
-        }
-        location.hash = "notes";
-        setRoute("notes");
-        window.dispatchEvent(new CustomEvent("tasken:select-note", { detail: note.id }));
-        return;
-      }
-      if (request.kind === "theme") {
-        const theme = allThemes.find((entry) => entry.id === request.id);
-        if (!theme) return;
-        setActiveThemeId(theme.id);
-        navigate("theme");
-        return;
-      }
-      if (request.kind === "resource") {
-        const resource = fullDomain.resources.find((entry) => entry.id === request.id);
-        if (resource)
-          openDrawer({ type: "resource", entity: resource as unknown as Record<string, unknown> });
-        return;
-      }
-      if (request.kind === "artifact") {
-        const artifact = (fullData.artifacts || []).find((entry) => entry.id === request.id);
-        if (artifact) openContentViewer({ type: "artifact", artifactId: artifact.id });
-      }
-    });
-  }, [
-    allThemes,
-    detachedNoteId,
-    fullData.artifacts,
-    fullDomain,
-    loadState,
-    setActiveThemeId,
-    setRoute,
-    setToast,
-  ]);
 
   // 切り離しウィンドウから本体へ表示を渡す（#290 / #298）。本体側だけが受ける。
   useEffect(() => {
@@ -2097,11 +2006,6 @@ export function WorkspaceApp() {
   const dispatchNotesCommand = (command: string) => {
     window.dispatchEvent(new CustomEvent("tasken:notes-command", { detail: command }));
   };
-  const toggleTodayWindow = () => {
-    void workspaceApi.toggleTodayMiniWindow().catch((error) => {
-      setToast(`Todayウィンドウを表示／収納できませんでした。${errorMessage(error)}`, "danger");
-    });
-  };
   const toggleStickyWindows = () => {
     void (async () => {
       const result = await workspaceApi.toggleMemoStickyTargetsVisibility();
@@ -2239,13 +2143,6 @@ export function WorkspaceApp() {
       execute: () => {
         void toggleStickyWindows();
       },
-    },
-    {
-      id: "open:today-window",
-      label: "今日のTaskウィンドウを表示／収納",
-      keywords: ["today", "今日", "ポップアウト", "window"],
-      category: "Commands",
-      execute: toggleTodayWindow,
     },
     {
       id: "navigate:today",
@@ -2451,12 +2348,10 @@ export function WorkspaceApp() {
   ];
 
   const titleBarLauncher: TitleBarLauncherData = {
-    todayWindowOpen,
     stickyWindowsShown:
       stickyMemoTargetIds.length > 0 &&
       stickyMemoTargetIds.every((memoId) => openStickyMemoIds.includes(memoId)),
     toggleStickyWindows,
-    toggleTodayWindow,
   };
 
   const backTarget = routeHistory.back.at(-1) ?? null;
