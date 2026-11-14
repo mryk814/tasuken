@@ -1,10 +1,14 @@
 @import "tailwindcss";
+/* 共通の意匠の写し（紙・墨・朱の印の色）。同じ名前（AI の藍・候補）は、後に読む design-standard の値が勝つ。 */
+@import "./ishou/tokens.css";
 @import "../../../../design-standard/tokens.css";
 @import "katex/dist/katex.min.css";
 @import "@mdxeditor/editor/style.css";
 @import "./artifacts.css";
 @import "./feed.css";
 @import "./theme.css";
+/* つながらない時の見せ方の型（割印と日付印）。色の後に読む。 */
+@import "./ishou/offline.css";
 
 @theme inline {
   --color-app-accent: var(--color-accent);
@@ -6677,6 +6681,45 @@ textarea:hover {
 }
 .settings-section-heading h2 {
   margin: 0;
+}
+/* 見出しの右: 状態の札と、最後に届いた時刻の日付印。 */
+.sync-heading-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+/* 未送信の行。左に印（割印、直すと送れる時は「!」も）、中に理由、右に数。枠は実線（点線は候補だけ）。 */
+.ofl-unsent-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+.ofl-unsent-marks {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+.ofl-unsent-body {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+.ofl-unsent-body span {
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+.ofl-unsent-count {
+  flex: none;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .sync-state {
   border: 1px solid var(--color-border);

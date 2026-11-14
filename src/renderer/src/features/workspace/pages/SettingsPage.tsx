@@ -22,6 +22,7 @@ import type { PageProps, Theme } from "../types";
 import { todayIso as todayIsoDate } from "../domain-model/scheduleSemantics";
 import { entityTitle } from "../lib/domain";
 import { Button, IntegrationStatus, PageHeader } from "../components/common";
+import { StampLine, UnsentRow } from "../components/OfflineMarks";
 import { RestoreBackupDialog } from "../components/RestoreBackupDialog";
 import { CaptureOrganizerSettings } from "../components/CaptureOrganizerSettings";
 import {
@@ -60,6 +61,13 @@ function settingsSectionFromHash(hash: string): SettingsSectionId {
 
 function settingsHash(section: SettingsSectionId): string {
   return section === "general" ? "settings" : `settings/${section}`;
+}
+
+/** 読めない日時は「無い」と同じに扱う（日付印を作れない）。 */
+function validDate(value: string | undefined): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function backupTime(value: string): string {
@@ -605,6 +613,7 @@ export function SettingsPage({
         : `確認できませんでした。${updateInfo.error || ""}`
     : "未確認";
 
+  const lastSyncedAt = validDate(syncStatus?.lastSyncedAt);
   const storageStatus =
     syncStatus?.state === "error" || Boolean(syncStatus?.lastError)
       ? { label: "エラー", tone: "error" as const }
@@ -995,10 +1004,14 @@ export function SettingsPage({
             >
               <div className="settings-section-heading">
                 <h2>端末間同期</h2>
-                <IntegrationStatus
-                  label={syncStatus?.state === "syncing" ? "同期中" : storageStatus.label}
-                  tone={syncStatus?.state === "syncing" ? "loading" : storageStatus.tone}
-                />
+                <span className="sync-heading-state">
+                  <IntegrationStatus
+                    label={syncStatus?.state === "syncing" ? "同期中" : storageStatus.label}
+                    tone={syncStatus?.state === "syncing" ? "loading" : storageStatus.tone}
+                  />
+                  {/* 最後に相手へ届いた時刻は、丸い日付印と横の古さで言う。 */}
+                  {lastSyncedAt && <StampLine label="届いた" at={lastSyncedAt} />}
+                </span>
               </div>
               <p className="field-help">
                 各端末のSQLiteはローカルに保ち、変更とNote内のMarkdown画像を交換します。
@@ -1007,7 +1020,7 @@ export function SettingsPage({
                 <summary>同期の詳細</summary>
                 <div className="settings-detail-body">
                   <p className="field-help">
-                    選択したOneDriveまたは共有フォルダを使います。画像は各端末にもキャッシュするため、同期後はオフラインでも表示できます。
+                    選択したOneDriveまたは共有フォルダを使います。画像は各端末にも写しを置くため、同期後はつながらない時でも表示できます。
                   </p>
                 </div>
               </details>
@@ -1016,17 +1029,12 @@ export function SettingsPage({
                   <dt>同期先</dt>
                   <dd title={syncStatus?.directory}>{syncStatus?.directory || "未設定"}</dd>
                 </div>
-                <div>
-                  <dt>最終同期</dt>
-                  <dd>
-                    {syncStatus?.lastSyncedAt
-                      ? new Date(syncStatus.lastSyncedAt).toLocaleString("ja-JP", {
-                          dateStyle: "short",
-                          timeStyle: "short",
-                        })
-                      : "未同期"}
-                  </dd>
-                </div>
+                {!lastSyncedAt && (
+                  <div>
+                    <dt>最終同期</dt>
+                    <dd>まだありません</dd>
+                  </div>
+                )}
                 <div>
                   <dt>端末</dt>
                   <dd className="mono-value">
@@ -1045,8 +1053,16 @@ export function SettingsPage({
                   </dd>
                 </div>
               </dl>
-              {syncStatus?.lastError && (
-                <p className="form-error">同期エラー: {syncStatus.lastError}</p>
+              {/* まだ共有フォルダへ出ていない変更。待てば送る物は割印だけ、本人が直す物は割印と「!」で、理由を添える。 */}
+              {syncStatus && syncStatus.pendingCount > 0 ? (
+                <UnsentRow
+                  count={syncStatus.pendingCount}
+                  fixReason={syncStatus.lastError || undefined}
+                />
+              ) : (
+                syncStatus?.lastError && (
+                  <p className="form-error">同期エラー: {syncStatus.lastError}</p>
+                )
               )}
               {syncStatus?.waitingFor && (
                 <p className="field-help">
