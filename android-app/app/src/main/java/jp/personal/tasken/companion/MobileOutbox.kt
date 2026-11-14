@@ -161,7 +161,12 @@ sealed interface MobileCommandSendResult {
     data class CaptureApplied(val response: MobileCaptureCommandResponseDto) : MobileCommandSendResult
     data class WorkLogApplied(val response: MobileWorkLogResponse) : MobileCommandSendResult
     data class Conflict(val response: MobileTaskCommandErrorResponseDto) : MobileCommandSendResult
-    data class Retry(val reason: String) : MobileCommandSendResult
+    /**
+     * The command stays in the outbox and is sent again later. serverReached is true when the confirmed
+     * Desktop answered and only this command failed; the drain then goes on with unrelated commands and
+     * the Desktop is still read. Otherwise the connection itself failed, so the drain stops.
+     */
+    data class Retry(val reason: String, val serverReached: Boolean = false) : MobileCommandSendResult
     data class Rejected(
         val code: String,
         val message: String,
@@ -172,6 +177,15 @@ sealed interface MobileCommandSendResult {
         }
     }
 }
+
+/**
+ * retryPending: some command is still waiting to be sent again.
+ * connectionFailed: the drain stopped because the Desktop could not be reached; reading it would fail too.
+ */
+data class MobileOutboxDrainResult(
+    val retryPending: Boolean,
+    val connectionFailed: Boolean,
+)
 
 data class MobileStateActionResult(
     val commandId: String?,
@@ -1013,13 +1027,30 @@ class MobileOutbox(
         return ChecklistUpdateBase(checklistItems(envelope.command.base.getValue("checklistItems")))
     }
 
-    suspend fun drain(serverId: String, sender: (String) -> MobileCommandSendResult): Boolean {
+    suspend fun drain(serverId: String, sender: (String) -> MobileCommandSendResult): Boolean =
+        send(serverId, sender).retryPending
+
+    /**
+     * Sends every command that is free to go, each at most once per call. A command the Desktop answered
+     * but did not settle is set aside for this call and the others go on; it keeps its attempt count and
+     * last reason and is retried on a later call. Several such failures in a row look like the Desktop
+     * itself is in trouble, so the call stops there instead of trying every command against it.
+     */
+    suspend fun send(serverId: String, sender: (String) -> MobileCommandSendResult): MobileOutboxDrainResult {
         require(serverId.isNotBlank())
-        var shouldRetry = false
+        val skipped = mutableSetOf<String>()
+        var failuresInRow = 0
+        fun stopped(connectionFailed: Boolean = false) =
+            MobileOutboxDrainResult(retryPending = connectionFailed || skipped.isNotEmpty(), connectionFailed = connectionFailed)
         while (true) {
             require(dao.syncState()?.serverId == serverId) { "確認済みDesktopと同期状態が一致しません。" }
+            if (failuresInRow >= MOBILE_OUTBOX_FAILURES_IN_ROW_LIMIT) return stopped()
             val attemptedAt = now().toString()
-            val command = dao.claimNext(serverId, attemptedAt) ?: return shouldRetry
+            val command = dao.claimNext(serverId, attemptedAt, skipped) ?: return stopped()
+            fun setAside() {
+                skipped += command.commandId
+                failuresInRow += 1
+            }
             when (val result = sender(command.envelopeJson)) {
                 is MobileCommandSendResult.WorkLogApplied -> {
                     val response = result.response
@@ -1028,9 +1059,10 @@ class MobileOutbox(
                         record.id == command.workLogId && command.commandName in setOf("RecordWorkLog", "DeleteWorkLog", "RestoreWorkLog", "AdoptWorkLogOrganization")
                     if (!valid) {
                         dao.markRetry(command.commandId, structuredCommandError("invalid_command_receipt", "作業記録の送信結果が一致しません。本文を保持しています。", true))
-                        return true
+                        setAside()
+                        continue
                     }
-                    if (!dao.applyWorkLogReceipt(command, record)) return shouldRetry
+                    if (!dao.applyWorkLogReceipt(command, record)) return stopped()
                 }
                 is MobileCommandSendResult.Applied -> {
                     val response = result.response
@@ -1040,7 +1072,8 @@ class MobileOutbox(
                             command.commandId,
                             structuredCommandError("invalid_command_receipt", invalidReceipt, retryable = true),
                         )
-                        return true
+                        setAside()
+                        continue
                     }
                     val task = response.data.task
                     val updatedSyncState = SyncStateEntity(
@@ -1098,7 +1131,7 @@ class MobileOutbox(
                             syncState = updatedSyncState,
                         )
                     }
-                    if (!receiptApplied) return shouldRetry
+                    if (!receiptApplied) return stopped()
                 }
                 is MobileCommandSendResult.CaptureApplied -> {
                     val response = result.response
@@ -1125,7 +1158,8 @@ class MobileOutbox(
                                 retryable = true,
                             ),
                         )
-                        return true
+                        setAside()
+                        continue
                     }
                     val dependents = dao.dependents(command.commandId)
                     require(dependents.size <= 1)
@@ -1173,7 +1207,7 @@ class MobileOutbox(
                             dependentEnvelopeJson = dependentEnvelope,
                         )
                     }
-                    if (!receiptApplied) return shouldRetry
+                    if (!receiptApplied) return stopped()
                 }
                 is MobileCommandSendResult.Conflict -> {
                     val response = result.response
@@ -1186,7 +1220,7 @@ class MobileOutbox(
                                 retryable = true,
                             ),
                         )
-                        return true
+                        return stopped(connectionFailed = true)
                     }
                     val conflict = requireNotNull(response.error.conflict)
                     val current = conflict.currentTask
@@ -1317,14 +1351,16 @@ class MobileOutbox(
                 }
                 is MobileCommandSendResult.Retry -> {
                     dao.markRetry(command.commandId, result.reason)
-                    shouldRetry = true
-                    return shouldRetry
+                    if (!result.serverReached) return stopped(connectionFailed = true)
+                    setAside()
+                    continue
                 }
                 is MobileCommandSendResult.Rejected -> {
                     val reason = structuredCommandError(result.code, result.message, result.retryable)
                     if (result.retryable) {
                         dao.markRetry(command.commandId, reason)
-                        return true
+                        setAside()
+                        continue
                     }
                     dao.applyTaskRejection {
                     val themeBase = themeUpdateBase(command)
@@ -1382,10 +1418,14 @@ class MobileOutbox(
                     }
                 }
             }
+            failuresInRow = 0
         }
     }
 
 }
+
+/** Retries in a row, within one drain, after which the Desktop is treated as unwell for this round. */
+internal const val MOBILE_OUTBOX_FAILURES_IN_ROW_LIMIT = 3
 
 object MobileOutboxScheduler {
     private const val UniqueWorkName = "tasken-mobile-outbox"

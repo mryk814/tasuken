@@ -2,6 +2,14 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-14 Android の未送信の列で、同じ時刻に積んだ子の命令が親を止め、送信が全部止まった
+
+- しようとしたこと: #761 で、再送待ちの命令を飛ばして依存の無い命令を先へ送る。同じ Task への後の命令は、「同じ対象で先に作られた未完了の命令があれば待つ」として、作成順（createdAt、同じなら commandId）で比べた。
+- 起きたこと: `MobileTaskEditChainTest` の 3 件と `MobileOutboxDatabaseTest` の 1 件で、何も送られなくなった（`expected:<3> but was:<1>` など）。
+- 原因: 試験も実際の連続操作も、一度の時刻で複数の命令を積むので createdAt が同じになる。同じなら commandId（ランダムな UUID）で比べるため、子の命令が親より「先」に見え、親は子に、子は dependsOnCommandId で親に止められていた。
+- 直し方: 先後は dependsOnCommandId の連なりの先頭どうしで比べるようにした（`MobileOutboxOrder.kt`）。
+- 再発防止: 関数の横にコメントを書き、`MobileOutboxOrderTest` に「同じ時刻の子が親を止めない」試験を足した。命令の先後を比べる時は、createdAt を時刻の順として信じない。
+
 ## 2026-11-14 v0.1.89 の Windows release が、Release の時だけ流れる smoke の古い文で落ちた
 
 - しようとしたこと: #736（ナビの言葉の日本語化）と #741 を入れた後、v0.1.89 のタグを push して Windows release を流す。

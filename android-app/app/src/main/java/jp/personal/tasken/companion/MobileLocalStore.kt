@@ -1099,12 +1099,30 @@ abstract class MobileLocalDao {
         observedAt = observedAt,
     )
 
+    /**
+     * Unfinished commands for choosing the next send. envelopeJson is left empty except for work logs (it
+     * can hold photos as base64, and only a work log's Task link is needed here); load the chosen one by id.
+     */
     @Query(
-        "SELECT * FROM outbox_command " +
-            "WHERE serverId = :serverId AND state IN ('pending', 'retry_wait') AND dependsOnCommandId IS NULL " +
-            "ORDER BY createdAt ASC, commandId ASC LIMIT 1",
+        "SELECT commandId, idempotencyKey, requestId, clientDeviceId, issuedAt, commandName, " +
+            "CASE WHEN commandName = 'RecordWorkLog' THEN envelopeJson ELSE '' END AS envelopeJson, " +
+            "serverId, state, attemptCount, createdAt, lastAttemptAt, lastError, taskId, captureId, " +
+            "dependsOnCommandId, taskIntentJson, workLogId " +
+            "FROM outbox_command WHERE state IN ('pending', 'sending', 'retry_wait')",
     )
-    abstract suspend fun nextSendable(serverId: String): OutboxCommandEntity?
+    abstract suspend fun unfinishedOutboxForOrdering(): List<OutboxCommandEntity>
+
+    /**
+     * Commands waiting to be sent again, with how many tries they took, when, and why the last one failed.
+     * envelopeJson is left empty: it can hold photos, and the sync sheet does not need it.
+     */
+    @Query(
+        "SELECT commandId, idempotencyKey, requestId, clientDeviceId, issuedAt, commandName, " +
+            "'' AS envelopeJson, serverId, state, attemptCount, createdAt, lastAttemptAt, lastError, taskId, " +
+            "captureId, dependsOnCommandId, taskIntentJson, workLogId " +
+            "FROM outbox_command WHERE state = 'retry_wait' ORDER BY createdAt ASC, commandId ASC",
+    )
+    abstract fun observeRetryingOutbox(): Flow<List<OutboxCommandEntity>>
 
     @Query(
         "UPDATE outbox_command SET state = 'sending', attemptCount = attemptCount + 1, " +
@@ -2277,9 +2295,14 @@ abstract class MobileLocalDao {
     }
 
     @Transaction
-    open suspend fun claimNext(serverId: String, attemptedAt: String): OutboxCommandEntity? {
+    open suspend fun claimNext(
+        serverId: String,
+        attemptedAt: String,
+        skipped: Set<String> = emptySet(),
+    ): OutboxCommandEntity? {
         require(serverId.isNotBlank())
-        val command = nextSendable(serverId) ?: return null
+        val chosen = nextSendableCommand(unfinishedOutboxForOrdering(), serverId, skipped) ?: return null
+        val command = outbox(chosen.commandId) ?: return null
         return if (markSending(command.commandId, serverId, attemptedAt) == 1) {
             command.copy(
                 state = OutboxState.Sending,
