@@ -50,7 +50,12 @@ export interface TaskenHeadlessCoreOptions {
   /** Mobile Gatewayのport。既定は48177（Desktopと同じ）。試験では0で空きを使う。 */
   mobileGatewayPort?: number;
   /** 書き込みを断る判定に使う、AI作成の差分の形の印。試験で差し替える。既定は契約ファイルの値。 */
-  syncShapeFlags?: ReadonlyArray<{ shape_sha256: string; desktop_first?: boolean }>;
+  syncShapeFlags?: ReadonlyArray<{
+    shape_sha256: string;
+    desktop_first?: boolean;
+    /** 古いDesktopが取り込めないのがこの経路の書く差分だけの時、その経路だけを断る（#751）。 */
+    desktop_first_routes?: ReadonlyArray<string>;
+  }>;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -285,7 +290,10 @@ export async function startTaskenHeadlessCore(
     // 古いDesktopが取り込めない差分を、replicaが書かないようにする。読み取りは止めない。
     const flags = options.syncShapeFlags || aiItemPacketFlags;
     runtime.enableWriteGate((requestPath) => {
-      if (desktopWriteBlock({ flags, desktops: sync.desktopStatuses() }) === "desktop_behind")
+      if (
+        desktopWriteBlock({ flags, desktops: sync.desktopStatuses(), route: requestPath }) ===
+        "desktop_behind"
+      )
         return "DESKTOP_BEHIND";
       // 開始・直接変更・取り消しは既存Taskの直接の書き換えで、replicaの手元の版との照合は、
       // replicaが遅れていても通ってしまう。取り込みが追いついている（state ok）ときだけ受け付ける。

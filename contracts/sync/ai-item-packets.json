@@ -1,5 +1,5 @@
 {
-  "description": "Desktop と NAS の replica が読み合う、AI が replica で書く Task・Note・AI の作業の同期差分の形（新規作成と、既存 Task の直接変更の Task と Change Event と、AI の作業の記録。tests/ai-item-creation.test.mjs が replica の実際の出力と比べる）。形を変えたら、入れる前に flags の末尾へ一行足す。replica は main に入ってから 5 分で新しい形を書き始め、Desktop は本人が上げるまで古いまま。desktop_first は、古い Desktop がこの形を取り込めず、Desktop を先に上げる必要があるか。replica は、Desktop の status.json の syncShape より後に desktop_first: true の印があると、書き込みを断る。",
+  "description": "Desktop と NAS の replica が読み合う、AI が replica で書く Task・Note・AI の作業の同期差分の形（新規作成と、既存 Task の直接変更の Task と Change Event と、AI の作業の記録。tests/ai-item-creation.test.mjs が replica の実際の出力と比べる）。形を変えたら、入れる前に flags の末尾へ一行足す。replica は main に入ってから 5 分で新しい形を書き始め、Desktop は本人が上げるまで古いまま。desktop_first は、古い Desktop がこの形を取り込めず、Desktop を先に上げる必要があるか（どの書き込みも断る）。取り込めないのが一部の経路の書く差分だけなら、desktop_first を false にして desktop_first_routes にその経路を並べ、その経路だけを断る。replica は、Desktop の status.json の syncShape より後に desktop_first: true の印があると、書き込みを断る。",
   "shape": {
     "task": [
       "$.changeId: string",
@@ -331,8 +331,9 @@
     {
       "date": "2026-11-14",
       "shape_sha256": "d60bf9ba03fec2a101a949ac27abb5971548a9862f7a0e9d7ab9098a8dc8b47c",
-      "desktop_first": true,
-      "note": "replica が AI の作業の記録（#751 の新しい種類 agent_work_record）を書くようになった。古い Desktop はこの種類を知らず、差分を取り込めずに同期が止まるので、Desktop を先に上げる。Task・Note の形は変わらない"
+      "desktop_first": false,
+      "desktop_first_routes": ["/v1/commands/record-agent-work"],
+      "note": "replica が AI の作業の記録（#751 の新しい種類 agent_work_record）を書くようになった。古い Desktop はこの種類を知らず、差分を取り込めずに同期が止まる。止めるのはこの種類を書く経路だけにし、ほかの案・作成は通す。Task・Note の形は変わらない"
     }
   ]
 }

@@ -50,3 +50,34 @@ test("Desktop が複数いるとき、一台でも遅れていれば断る", () 
   );
   assert.equal(desktopWriteBlock({ flags, desktops: [desktop("b"), desktop("z")] }), null);
 });
+
+// #751: 古い Desktop が取り込めないのが新しい種類（AI の作業）の差分だけの時は、その種類を書く経路だけを断る。
+test("経路ごとの印（desktop_first_routes）は、その経路の書き込みだけを断る", () => {
+  const route = "/v1/commands/record-agent-work";
+  const flags = [
+    mark("a", false),
+    { shape_sha256: sha("b"), desktop_first: false, desktop_first_routes: [route] },
+  ];
+  assert.equal(desktopWriteBlock({ flags, desktops: [desktop("a")], route }), "desktop_behind");
+  assert.equal(
+    desktopWriteBlock({ flags, desktops: [desktop("a")], route: "/v1/commands/propose-content" }),
+    null,
+  );
+  assert.equal(desktopWriteBlock({ flags, desktops: [desktop("a")] }), null);
+  // Desktop が上がった後（印の形を取り込める）は通す。
+  assert.equal(desktopWriteBlock({ flags, desktops: [desktop("b")], route }), null);
+  // 数える Desktop が無い時は、経路の印があればその経路を断る。
+  assert.equal(desktopWriteBlock({ flags, desktops: [], route }), "desktop_behind");
+  assert.equal(
+    desktopWriteBlock({ flags, desktops: [], route: "/v1/commands/create-ai-item" }),
+    null,
+  );
+});
+
+test("契約ファイルの AI の作業の印は、AI の作業を書く経路だけを断る", () => {
+  const flag = aiItemPacketFlags.find((entry) =>
+    entry.desktop_first_routes?.includes("/v1/commands/record-agent-work"),
+  );
+  assert.ok(flag);
+  assert.equal(flag.desktop_first, false);
+});

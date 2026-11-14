@@ -1476,3 +1476,45 @@ test("replicaは同期の鮮度を source_status で返し、MCPの結果にsour
     if (host.db.open) host.db.close();
   }
 });
+
+// #751: 古い Desktop が知らない種類（AI の作業）を書く経路だけを断り、ほかの案・作成は通す。
+test("replicaは、AIの作業を取り込めないDesktopがいる間はAIの作業だけを断り、ほかの案・作成は通す", async (t) => {
+  const f = await writeGateFixture(t);
+  const route = "/v1/commands/record-agent-work";
+  const routeMark = (shape) => ({
+    shape_sha256: shape,
+    desktop_first: false,
+    desktop_first_routes: [route],
+  });
+  const work = (key) => ({
+    idempotency_key: key,
+    caller: "gate-test",
+    source_session: "gate-session",
+    client_kind: "claude_code",
+    status: "done",
+    summary: "NASでAIの作業を書く",
+  });
+  // Desktopの形が、AIの作業の印より前を指す（まだ上がっていない）。
+  const behind = await f.startReplica([f.mark(f.hostShape, false), routeMark(f.sha("b"))]);
+  try {
+    const core = new TaskenCoreClient({ userDataPath: f.replicaUserData });
+    assert.deepEqual(await gateOutcome(() => core.recordAgentWork(work("w1"))), {
+      code: "DESKTOP_BEHIND",
+      status: 409,
+    });
+    const created = await core.createAiItem(gateCreateRequest("route-a"));
+    assert.equal(created.status, "created");
+    assert.equal(await gateOutcome(() => core.proposeContent({})), "passed");
+  } finally {
+    await behind.stop();
+  }
+  // Desktopが上がった後（印の形を出している）は書ける。
+  const current = await f.startReplica([f.mark(f.sha("a"), false), routeMark(f.hostShape)]);
+  try {
+    const core = new TaskenCoreClient({ userDataPath: f.replicaUserData });
+    const written = await core.recordAgentWork(work("w2"));
+    assert.equal(written.status, "recorded");
+  } finally {
+    await current.stop();
+  }
+});
