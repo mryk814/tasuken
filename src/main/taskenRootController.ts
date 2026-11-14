@@ -49,7 +49,7 @@ export function createTaskenRootController(
       fullscreenable: false,
       skipTaskbar: true,
       alwaysOnTop: true,
-      backgroundColor: "#F4EEEC",
+      backgroundColor: "#ECE2DF",
       icon: options.getAppIconPath(),
       webPreferences: {
         contextIsolation: true,

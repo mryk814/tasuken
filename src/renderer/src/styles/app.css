@@ -829,7 +829,7 @@ kbd {
 }
 .semantic-button-ai:hover:not(:disabled) {
   border-color: var(--action-ai-fg);
-  background: color-mix(in srgb, var(--action-ai-hover) 44%, var(--color-surface));
+  background: var(--action-ai-hover);
 }
 .semantic-button:focus-visible {
   outline: none;
@@ -6424,6 +6424,17 @@ textarea:hover {
   gap: var(--space-1);
   min-width: 0;
 }
+/* 色は「誰が」、線は「決まったか」。採った AI の提案は藍の実線、
+   機械が集めてまだ見ていない記録は薄い墨の点線。見送ったものには線を引かない。 */
+.proposal-history-row.is-accepted {
+  border-left: 2px solid var(--color-ai);
+}
+.proposal-history-row.is-candidate {
+  border-left: 2px dashed var(--color-candidate-bd);
+}
+.proposal-history-row.is-candidate strong {
+  color: var(--color-candidate);
+}
 .proposal-history-row small {
   overflow: hidden;
   color: var(--color-text-secondary);
@@ -6458,10 +6469,11 @@ textarea:hover {
   border-color: var(--color-warning-bd);
   background: var(--color-warning-bg);
 }
+/* 見送りは誤りではないので、赤にしない（終わって後ろへ下がった状態の色）。 */
 .proposal-status-rejected {
-  color: var(--color-danger-strong);
-  border-color: var(--color-danger-bd);
-  background: var(--color-danger-bg);
+  color: var(--color-status-idle-fg);
+  border-color: var(--color-status-idle-bd);
+  background: var(--color-status-idle-bg);
 }
 .proposal-status-quarantined {
   color: var(--color-info-strong);
@@ -9501,6 +9513,29 @@ kbd {
   border-radius: var(--radius-md);
   background: var(--color-surface);
 }
+/* 候補棚の行は、機械が拾ってまだ今日に入れていないもの。点線・面なしで置き、
+   今日へ入れると実線の行（今日やること）になる。期限の色は意味があるので残す。 */
+.shelf-task-row:not(.is-overdue, .is-due-today) {
+  border: var(--border-candidate);
+  background: transparent;
+}
+.shelf-task-row.is-overdue,
+.shelf-task-row.is-due-today {
+  border-style: dashed;
+}
+.shelf-task-row .shelf-task-title strong {
+  color: var(--color-candidate);
+  transition: color var(--duration-fast) var(--ease);
+}
+.shelf-task-row:hover .shelf-task-title strong,
+.shelf-task-row:focus-within .shelf-task-title strong {
+  color: var(--color-text);
+}
+@media (prefers-reduced-motion: reduce) {
+  .shelf-task-row .shelf-task-title strong {
+    transition: none;
+  }
+}
 .shelf-task-row:hover {
   border-color: var(--color-border-strong);
   background: var(--color-surface-muted);
@@ -11965,6 +12000,37 @@ kbd {
 .import-candidate small {
   color: var(--color-text-secondary);
 }
+/* AI の提案の行。未決は藍の点線と藍の字（AI が書いたまま）、採ったら実線と本文の色。
+   「見送る」を選んだ行は薄い墨へ下がる。線種はすぐ替え、色だけを短く移す。 */
+.import-candidate.is-undecided,
+.import-candidate.is-decided {
+  border-left: 2px dashed var(--color-ai);
+  transition: border-color var(--duration-fast) var(--ease);
+}
+.import-candidate.is-decided {
+  border-left-style: solid;
+}
+.import-candidate.is-undecided > div > strong,
+.import-candidate.is-decided > div > strong {
+  transition: color var(--duration-fast) var(--ease);
+}
+.import-candidate.is-undecided > div > strong {
+  color: var(--color-ai);
+}
+.import-candidate.is-undecided.is-skipped {
+  border-left-color: var(--color-candidate-bd);
+}
+.import-candidate.is-undecided.is-skipped > div > strong {
+  color: var(--color-candidate);
+}
+@media (prefers-reduced-motion: reduce) {
+  .import-candidate.is-undecided,
+  .import-candidate.is-decided,
+  .import-candidate.is-undecided > div > strong,
+  .import-candidate.is-decided > div > strong {
+    transition: none;
+  }
+}
 .proposal-agent-session-details {
   display: grid;
   gap: 2px;
@@ -13884,7 +13950,7 @@ kbd {
 .activity-timeline-row--ai_work .activity-timeline-kind {
   border-color: var(--color-ai-bd);
   background: var(--color-ai-bg);
-  color: var(--color-ai);
+  color: var(--color-ai-strong);
 }
 .activity-timeline-row--organize .activity-timeline-kind {
   border-color: var(--color-border-subtle);

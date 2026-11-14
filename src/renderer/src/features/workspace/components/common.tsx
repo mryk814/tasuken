@@ -105,10 +105,13 @@ export function ActionButton({
   iconSize = 16,
   children,
   type = "button",
+  emphasis,
   "aria-label": ariaLabel,
   ...props
 }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children" | "type"> & {
   action: ActionId;
+  /** 並ぶ操作の中でこれが主操作になる時だけ、役割の色を主操作色へ上げる。 */
+  emphasis?: "primary";
   compact?: boolean;
   iconOnly?: boolean;
   iconSize?: number;
@@ -116,7 +119,8 @@ export function ActionButton({
   type?: ButtonHTMLAttributes<HTMLButtonElement>["type"];
 }) {
   const definition = actionDefinition(action);
-  const variant: ButtonVariant = definition.role === "status" ? "secondary" : definition.role;
+  const variant: ButtonVariant =
+    emphasis ?? (definition.role === "status" ? "secondary" : definition.role);
   const ActionIcon = definition.icon;
   return (
     <Button

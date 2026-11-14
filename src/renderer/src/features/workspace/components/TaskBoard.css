@@ -254,8 +254,8 @@
 }
 .task-board-assignee.is-ai {
   flex-wrap: wrap;
-  color: var(--color-info-strong);
-  background: var(--color-info-bg);
+  color: var(--color-ai-strong);
+  background: var(--color-ai-bg);
   border-radius: var(--radius-sm);
   padding: var(--space-1) var(--space-2);
 }

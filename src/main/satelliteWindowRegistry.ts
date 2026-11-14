@@ -157,7 +157,7 @@ export function createSatelliteWindowRegistry(options: RegistryOptions): Satelli
       autoHideMenuBar: true,
       transparent: spec.transparent ?? false,
       hasShadow: spec.hasShadow ?? true,
-      backgroundColor: spec.backgroundColor ?? (spec.transparent ? "#00000000" : "#F4EEEC"),
+      backgroundColor: spec.backgroundColor ?? (spec.transparent ? "#00000000" : "#ECE2DF"),
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,

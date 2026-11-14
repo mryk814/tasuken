@@ -627,7 +627,10 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
           </summary>
           <div className="proposal-history-list">
             {history.map((proposal) => (
-              <div className="proposal-history-row" key={proposal.id}>
+              <div
+                className={`proposal-history-row${["accepted", "partially_accepted"].includes(str(proposal.status)) ? " is-accepted" : ""}`}
+                key={proposal.id}
+              >
                 <div>
                   <strong>
                     {domain.tasks.find((task) => task.id === taskWorkEntry(proposal)?.task_id)
@@ -651,7 +654,7 @@ export function AiProposalPanel(props: AiProposalPanelProps) {
               </p>
             )}
             {passiveSessionProposals.map((proposal) => (
-              <div className="proposal-history-row" key={proposal.id}>
+              <div className="proposal-history-row is-candidate" key={proposal.id}>
                 <div>
                   <strong>{proposalTargetLabel(proposal)}</strong>
                   <small>
@@ -1142,7 +1145,7 @@ export function ProposalDetail(props: ProposalDetailProps) {
       )}
       {preview.candidates.map((candidate, index) => (
         <div
-          className={`import-candidate${candidate.type === "task_work" ? " is-work-report" : ""}${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`}
+          className={`import-candidate ${active.status === "pending" ? "is-undecided" : "is-decided"}${candidate.action === "ignore" ? " is-skipped" : ""}${candidate.type === "task_work" ? " is-work-report" : ""}${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`}
           key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}
         >
           <div>
@@ -1321,7 +1324,12 @@ export function ProposalDetail(props: ProposalDetailProps) {
           <ActionButton action="actionReject" onClick={() => void rejectProposal()}>
             拒否
           </ActionButton>
-          <ActionButton action="aiProposalAccept" onClick={() => void acceptProposal()}>
+          {/* 採る は本人の操作なので主操作色（えんじ）。「採って完了」が並ぶ時はそちらが主操作。 */}
+          <ActionButton
+            action="aiProposalAccept"
+            emphasis={activeWork && canCompleteActiveWork ? undefined : "primary"}
+            onClick={() => void acceptProposal()}
+          >
             採用
           </ActionButton>
           {activeWork && canCompleteActiveWork && (

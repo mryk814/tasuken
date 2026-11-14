@@ -47,6 +47,15 @@
   border-bottom: none;
 }
 
+/* 色は「誰が」、線は「決まったか」。AI の質問・報告・変更案は本人が答えるまで未決なので、
+ * 左に藍の点線を引く。答えるとこの行は列から消える（決着した提案の履歴では実線）。 */
+.feed-attention-post {
+  /* 線は余白の側へ出し、アバターの左端をほかの投稿とそろえたままにする。 */
+  margin-left: calc(-1 * (var(--space-2) + 2px));
+  padding-left: var(--space-2);
+  border-left: 2px dashed var(--color-ai);
+}
+
 .feed-post-body {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr);
@@ -87,7 +96,8 @@
   background: var(--color-text-secondary);
 }
 
-/* 出所の種別を色でも分けるが、AI表記の文字ラベルを必ず併記する。 */
+/* 出所の種別を色でも分けるが、AI表記の文字ラベルを必ず併記する。
+ * 藍のベタはAIのアバターだけ。AIどうしは色ではなく形と頭文字で見分ける。 */
 .feed-avatar-ai {
   background: var(--color-ai);
 }
@@ -601,21 +611,6 @@ fieldset.feed-needs-detail {
   min-width: 0;
 }
 
-.feed-notice {
-  padding: 10px var(--space-3);
-  border: 1px solid var(--action-ai-bd);
-  border-radius: var(--radius-md);
-  background: var(--action-ai-bg);
-  color: var(--color-text);
-  font-size: var(--text-sm);
-  line-height: var(--lh-base);
-}
-
-.feed-notice strong {
-  color: var(--action-ai-fg);
-  margin-right: var(--space-1);
-}
-
 .feed-header {
   display: flex;
   flex-wrap: wrap;
@@ -784,8 +779,7 @@ fieldset.feed-needs-detail {
   box-shadow: var(--focus-ring);
 }
 
-.feed-state,
-.feed-generated {
+.feed-state {
   flex: none;
   padding: 1px 8px;
   border-radius: var(--radius-pill);
@@ -822,13 +816,6 @@ fieldset.feed-needs-detail {
   color: var(--color-status-idle-fg);
   background: var(--color-status-idle-bg);
   border: 1px solid var(--color-status-idle-bd);
-}
-
-/* 生成文は事実と色だけで区別させない。文字ラベルを必ず併記する。 */
-.feed-generated {
-  color: var(--action-ai-fg);
-  background: var(--action-ai-bg);
-  border: 1px solid var(--action-ai-bd);
 }
 
 .feed-row-summary {
@@ -1379,40 +1366,34 @@ fieldset.feed-needs-detail {
   overflow-wrap: anywhere;
 }
 
+/* AIのアバターは全部が藍（.feed-avatar-ai）。どのAIかは形と頭文字で見分ける。 */
 .feed-avatar-codex {
-  background: var(--color-chart-2);
   border-radius: 10px 50% 50% 50%;
 }
 
 .feed-avatar-claude {
-  background: var(--color-chart-4);
   border-radius: 50% 10px 50% 50%;
 }
 
 .feed-avatar-github_copilot,
 .feed-avatar-gemini {
-  background: var(--color-chart-3);
   border-radius: 12px 12px 50% 12px;
 }
 
 .feed-avatar-cursor {
-  background: var(--color-chart-5);
   border-radius: 50%;
 }
 
 .feed-avatar-deepseek,
 .feed-avatar-opencode {
-  background: var(--color-chart-1);
   border-radius: 6px;
 }
 
 .feed-avatar-antigravity {
-  background: var(--color-chart-6);
   border-radius: 50% 6px 50% 6px;
 }
 
 .feed-avatar-external_ai {
-  background: var(--color-text-secondary);
   border-radius: 50%;
 }
 

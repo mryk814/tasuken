@@ -111,7 +111,7 @@ export function createQuickCaptureController(
       skipTaskbar: true,
       alwaysOnTop: true,
       transparent: false,
-      backgroundColor: "#F4EEEC",
+      backgroundColor: "#ECE2DF",
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,

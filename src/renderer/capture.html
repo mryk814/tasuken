@@ -219,7 +219,8 @@
       .organization input:focus-visible { outline: none; box-shadow: var(--focus-ring); }
       .organization textarea { min-height: 64px; }
       .organization-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-      .candidate-row { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+      /* 整理案は、採るまでは候補。左に薄い墨の点線を引く。 */
+      .candidate-row { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; padding-left: 8px; border-left: 2px dashed var(--color-candidate-bd); }
       .candidate-row select { min-width: 0; flex: 1; }
       #organization-empty { font-size: 12px; }
       #organization-status, #organization-warnings { font-size: 12px; white-space: pre-wrap; }

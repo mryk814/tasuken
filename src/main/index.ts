@@ -2410,7 +2410,7 @@ function createWindow(): BrowserWindow {
     minWidth: 980,
     minHeight: 680,
     show: false,
-    backgroundColor: "#F4EEEC",
+    backgroundColor: "#ECE2DF",
     title: APP_NAME,
     icon: getAppIconPath(),
     autoHideMenuBar: true,

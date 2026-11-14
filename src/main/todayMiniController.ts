@@ -88,7 +88,7 @@ export function createTodayMiniController(
       minHeight: 360,
       page: "today-mini",
       preload: path.join(__dirname, "../preload/todayMini.mjs"),
-      backgroundColor: "#F4EEEC",
+      backgroundColor: "#ECE2DF",
       alwaysOnTop: true,
       frame: false,
       skipTaskbar: true,
