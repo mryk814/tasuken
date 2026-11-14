@@ -515,53 +515,11 @@ abstract class MobileLocalDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertWorkLog(record: WorkLogCacheEntity)
 
-    @Query("SELECT * FROM work_log_organization")
-    abstract fun observeWorkLogOrganizations(): Flow<List<WorkLogOrganizationEntity>>
-
     @Query("SELECT * FROM work_log_organization WHERE sourceId = :id")
     abstract suspend fun workLogOrganization(id: String): WorkLogOrganizationEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertWorkLogOrganization(value: WorkLogOrganizationEntity)
-
-    @Transaction
-    open suspend fun beginWorkLogOrganization(id: String, generationId: String, issuedAt: String): WorkLogOrganizationEntity {
-        val record = requireNotNull(workLog(id))
-        require(syncState()?.serverId == record.serverId && !record.deleted && record.optimisticCommandId == null)
-        require(workLogOrganization(id)?.state !in setOf("adopting", "adopted")) { "採用済みの整理補足があります。" }
-        return WorkLogOrganizationEntity(id, record.serverId, requireNotNull(record.serverVersion), generationId, issuedAt, "generating", null).also { upsertWorkLogOrganization(it) }
-    }
-
-    @Transaction
-    open suspend fun completeWorkLogOrganization(expected: WorkLogOrganizationEntity, proposal: MobileWorkLogOrganization): Boolean {
-        val record = workLog(expected.sourceId) ?: return false
-        if (workLogOrganization(expected.sourceId) != expected || syncState()?.serverId != expected.serverId ||
-            record.serverVersion != expected.sourceVersion || record.deleted || record.optimisticCommandId != null) return false
-        proposal.validate(record.body)
-        upsertWorkLogOrganization(expected.copy(state = "proposal", proposalJson = MobileWorkLogContract.json.encodeToString(proposal)))
-        return true
-    }
-
-    @Transaction
-    open suspend fun discardWorkLogOrganization(id: String) {
-        val value = workLogOrganization(id) ?: return
-        require(syncState()?.serverId == value.serverId && value.state !in setOf("adopting", "adopted"))
-        upsertWorkLogOrganization(value.copy(state = "discarded"))
-    }
-
-    @Transaction
-    open suspend fun enqueueWorkLogOrganization(id: String, command: OutboxCommandEntity) {
-        val record = requireNotNull(workLog(id))
-        val value = requireNotNull(workLogOrganization(id))
-        if (value.state in setOf("adopting", "adopted")) return
-        require(syncState()?.serverId == value.serverId && command.serverId == record.serverId && value.serverId == record.serverId)
-        require(value.state == "proposal" && value.sourceVersion == record.serverVersion && !record.deleted && record.optimisticCommandId == null)
-        require(command.commandId == value.generationId)
-        requireNotNull(value.proposal()).validate(record.body)
-        insertOutbox(command)
-        upsertWorkLog(record.copy(optimisticCommandId = command.commandId))
-        upsertWorkLogOrganization(value.copy(state = "adopting"))
-    }
 
     @Transaction
     open suspend fun enqueueWorkLog(record: WorkLogCacheEntity, command: OutboxCommandEntity) {
@@ -598,6 +556,8 @@ abstract class MobileLocalDao {
             pending.attemptCount != command.attemptCount || pending.envelopeJson != command.envelopeJson) return false
         val record = requireNotNull(workLog(projection.id))
         require(record.serverId == command.serverId && record.optimisticCommandId == command.commandId)
+        // 作業記録の AI 整理（#755 束9a で外した）の採用は、新しい版では作らない。前の版が送信待ちに残した
+        // 命令だけがここへ来る。Gateway は束9b までこの命令を受けるので、送って結果を記録する。
         if (command.commandName == "AdoptWorkLogOrganization") {
             val value = requireNotNull(workLogOrganization(record.id))
             require(value.generationId == command.commandId && value.state == "adopting")
@@ -1047,9 +1007,6 @@ abstract class MobileLocalDao {
         }
         return command.commandId
     }
-
-    @Transaction
-    open suspend fun enqueueCreateBatch(block: suspend () -> List<String>): List<String> = block()
 
     @Transaction
     open suspend fun enqueueCreate(task: TaskCacheEntity, command: OutboxCommandEntity) {

@@ -281,7 +281,6 @@ internal fun TodayApp(
     var relatedTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var themeContextId by rememberSaveable { mutableStateOf<String?>(null) }
     var localSearchOpen by rememberSaveable { mutableStateOf(false) }
-    var directAiSettingsOpen by rememberSaveable { mutableStateOf(false) }
     var syncSheetOpen by rememberSaveable { mutableStateOf(false) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var localSearchTaskReturn by rememberSaveable { mutableStateOf<String?>(null) }
@@ -545,31 +544,9 @@ internal fun TodayApp(
     LaunchedEffect(captureState) {
         if (captureState is CaptureUiState.Queued) {
             val queued = captureState as CaptureUiState.Queued
-            val queuedEntityIds = listOf(queued.entityId) + queued.additionalEntityIds
-            justAddedIds = queuedEntityIds.toSet()
+            justAddedIds = setOf(queued.entityId)
             captureSavedKey = System.nanoTime()
             hapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
-            if (queuedEntityIds.size > 1) {
-                speechRecognizer.cancel()
-                speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
-                if (queued.completionBehavior == CaptureCompletionBehavior.Continue) {
-                    paneState.continueCapture()
-                } else {
-                    paneState.resetCapture()
-                }
-                todayViewModel.resetCaptureState()
-                coroutineScope.launch {
-                    val result = snackbarHostState.showSnackbar(
-                        message = "${queuedEntityIds.size}件のTaskを追加しました。Desktopへ自動送信します。",
-                        actionLabel = "取り消す",
-                        duration = SnackbarDuration.Long,
-                    )
-                    if (result == SnackbarResult.ActionPerformed) {
-                        todayViewModel.undoCreatedCaptures(queuedEntityIds)
-                    }
-                }
-                return@LaunchedEffect
-            }
             val undoTarget = MobileCaptureUndoTarget(queued.entityId, queued.kind)
             val undoTargetSaved = withContext(Dispatchers.IO) {
                 captureDraftStore.saveUndoTarget(undoTarget)
@@ -921,7 +898,6 @@ internal fun TodayApp(
             notificationsAllowed = notificationsEnabled,
             notificationPermissionDenied = notificationPermissionDenied,
             onRequestNotifications = requestNotifications,
-            onOpenDirectAiSettings = { settingsOpen = false; directAiSettingsOpen = true },
             onRepair = { settingsOpen = false; todayViewModel.retryPairing() },
             onDismiss = { settingsOpen = false },
         )
@@ -937,15 +913,12 @@ internal fun TodayApp(
 
     if (recoveryOpen) {
         val canRestore = paneState.captureDraft.text.isEmpty() &&
-            paneState.captureDraft.originalText.isNullOrEmpty() &&
             captureState !is CaptureUiState.Saving && !paneState.captureOpen
         MobileCaptureRecoveryDialog(
             entries = recoveredInputs,
             canRestore = canRestore,
             onRestore = { entry ->
-                if (!canRestore || paneState.captureDraft.text.isNotEmpty() ||
-                    !paneState.captureDraft.originalText.isNullOrEmpty()
-                ) {
+                if (!canRestore || paneState.captureDraft.text.isNotEmpty()) {
                     false
                 } else {
                     val restored = captureDraftStore.restoreRecoveredInput(entry.id)
@@ -1017,10 +990,6 @@ internal fun TodayApp(
                 onDismiss = { workLogOpen = false; workLogRecordId = null })
         }
     }
-    if (directAiSettingsOpen) {
-        val directStore = remember(context) { DirectCaptureSettingsStore(context.applicationContext) }
-        DirectAiSettingsSheet(directStore, onChanged = {}, onDismiss = { directAiSettingsOpen = false })
-    }
     if (paneState.captureOpen) {
         CaptureTaskSheet(
             savedEventKey = captureSavedKey,
@@ -1035,15 +1004,6 @@ internal fun TodayApp(
             },
             onKindSelected = { kind ->
                 paneState.captureDraft = paneState.captureDraft.withKind(kind)
-            },
-            onOrganize = todayViewModel::organizeCapture,
-            onOrganizationChanged = { proposal ->
-                val current = paneState.captureDraft
-                paneState.captureDraft = current.withEditedOrganizations(proposal)
-            },
-            onOrganizationDiscarded = {
-                val current = paneState.captureDraft
-                paneState.captureDraft = current.withoutOrganization()
             },
             requestInputFocus = paneState.captureInputFocusRequested,
             onInputFocusHandled = paneState::consumeInputFocusRequest,
@@ -1107,9 +1067,6 @@ internal fun CaptureTaskSheet(
     onDraftChanged: (String) -> Unit,
     onThemeSelected: (String?) -> Unit,
     onKindSelected: (MobileCaptureKind) -> Unit,
-    onOrganize: (suspend (MobileCaptureDraft) -> List<MobileCaptureOrganization>)? = null,
-    onOrganizationChanged: (List<MobileCaptureOrganization>) -> Unit = {},
-    onOrganizationDiscarded: () -> Unit = {},
     requestInputFocus: Boolean = false,
     onInputFocusHandled: () -> Unit = {},
     onSubmit: (CaptureCompletionBehavior) -> Unit,
@@ -1131,52 +1088,8 @@ internal fun CaptureTaskSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val directStore = remember(context) { DirectCaptureSettingsStore(context.applicationContext) }
-    var organizeJob by remember { mutableStateOf<Job?>(null) }
-    var organizeRequest by remember { mutableIntStateOf(0) }
-    var organizeBusy by remember { mutableStateOf(false) }
-    var organizeError by remember(draft.draftId) { mutableStateOf<String?>(null) }
-    val currentDraft by rememberUpdatedState(draft)
     // 本人が「メモ」を選んだか。長文の自動切り替えとは分けて持つ。
     var memoMode by rememberSaveable(draft.draftId) { mutableStateOf(false) }
-    DisposableEffect(Unit) {
-        onDispose {
-            organizeRequest++
-            organizeJob?.cancel()
-        }
-    }
-    fun startOrganize() {
-        val organize = onOrganize ?: return
-        val requested = draft
-        if ((requested.originalText ?: requested.text).isBlank()) return
-        val request = ++organizeRequest
-        organizeJob?.cancel()
-        organizeError = null
-        organizeBusy = true
-        organizeJob = scope.launch {
-            try {
-                val proposals = organize(requested)
-                require(proposals.isNotEmpty() && proposals.size <= 8)
-                proposals.forEach(MobileCaptureOrganization::validate)
-                if (request == organizeRequest && currentDraft == requested) onOrganizationChanged(proposals)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                if (request == organizeRequest && currentDraft == requested) {
-                    organizeError = if (directStore.settings().enabled) {
-                        failure.message ?: DIRECT_CAPTURE_FAILURE
-                    } else {
-                        "AI整理を利用できません。PCがオフの場合は設定（右上の歯車）の「PCなし整理」から直接整理できます。通常の追加も使えます。"
-                    }
-                }
-            } finally {
-                if (request == organizeRequest) {
-                    organizeJob = null
-                    organizeBusy = false
-                }
-            }
-        }
-    }
     fun submit(behavior: CaptureCompletionBehavior) {
         // 500文字を超える入力は、原文を保つためメモ(Capture)として保存する。
         val nextKind = if (memoMode || draft.text.length > MOBILE_TASK_TITLE_MAX_LENGTH) {
@@ -1186,12 +1099,6 @@ internal fun CaptureTaskSheet(
         }
         if (draft.kind != nextKind) onKindSelected(nextKind)
         onSubmit(behavior)
-    }
-    // 音声を確定した後はAI整理を基本にする。
-    LaunchedEffect(speechState, onOrganize) {
-        if (onOrganize != null && speechState is ShortSpeechUiState.Result && draft.organization == null && !organizeBusy) {
-            startOrganize()
-        }
     }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1206,14 +1113,10 @@ internal fun CaptureTaskSheet(
         val speechActive = speechState !is ShortSpeechUiState.Idle
         val overLimit = draft.text.length > MOBILE_CAPTURE_TEXT_MAX_LENGTH
         val taskOverLimit = draft.text.length > MOBILE_TASK_TITLE_MAX_LENGTH
-        val included = draft.allOrganizations().filterNot { it.excluded }
-        val organizationValid = draft.organization == null ||
-            (included.isNotEmpty() && included.all { runCatching { it.validate() }.isSuccess })
-        val canSubmit = state !is CaptureUiState.Saving && !speechBusy && !organizeBusy &&
-            (draft.organization != null || (draft.text.isNotBlank() && !overLimit)) && organizationValid
+        val canSubmit = state !is CaptureUiState.Saving && !speechBusy && draft.text.isNotBlank() && !overLimit
         val sheetWindow = LocalWindowInfo.current
         LaunchedEffect(draft.draftId, requestInputFocus) {
-            if (!requestInputFocus || draft.organization != null) return@LaunchedEffect
+            if (!requestInputFocus) return@LaunchedEffect
             // シートのウィンドウがフォーカスを得たら、開くアニメーションの完了を待たずに入力欄へ移す。
             // 完了（isVisible）まで待つと、シートが開き切ってからキーボードが出始めて遅く見える。
             snapshotFlow { sheetWindow.isWindowFocused }.first { it }
@@ -1251,104 +1154,82 @@ internal fun CaptureTaskSheet(
                 }
                 SavedStamp(savedEventKey, modifier = Modifier.testTag("capture-saved-stamp"))
             }
-            if (draft.organization == null) {
-                // 枠のない入力欄。キーボードで狭くなる画面では、文字そのものを主役にする。
-                androidx.compose.material3.TextField(
-                    value = draft.text,
-                    onValueChange = onDraftChanged,
-                    label = { Text(if (memoMode) "付箋" else "Task名") },
-                    placeholder = { Text(if (memoMode) "思いついたこと、あとで整理したいこと" else "例: 帰りに牛乳を買う") },
-                    supportingText = if (overLimit) {
-                        { Text("${draft.text.length} / ${MOBILE_CAPTURE_TEXT_MAX_LENGTH}文字。全文を保持しています。編集するか、全文をコピーして回収できます。") }
-                    } else if (taskOverLimit && !memoMode) {
-                        { Text("${draft.text.length}文字。長文はメモとして保存します。") }
-                    } else if (state is CaptureUiState.Error) {
-                        { Text(state.message) }
-                    } else if (draft.text.length >= MOBILE_TASK_TITLE_MAX_LENGTH * 4 / 5) {
-                        { Text("${draft.text.length} / ${MOBILE_TASK_TITLE_MAX_LENGTH}文字") }
-                    } else {
-                        null
-                    },
-                    isError = state is CaptureUiState.Error || overLimit,
-                    enabled = sheetEnabled,
-                    minLines = 1,
-                    maxLines = 6,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                    keyboardActions = KeyboardActions(onDone = {
-                        if (canSubmit) submit(CaptureCompletionBehavior.Close)
-                    }),
-                    textStyle = MaterialTheme.typography.bodyLarge,
-                    colors = androidx.compose.material3.TextFieldDefaults.colors(
-                        focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        errorContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                        focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                        disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester)
-                        .testTag("capture-text-input"),
-                )
-                if (draft.text.isNotEmpty() && overLimit) {
-                    CaptureCopyButton(draft.text)
-                }
-                CaptureThemePicker(
-                    themeId = draft.projectId,
-                    themes = themes,
-                    catalogState = themeCatalogState,
-                    enabled = sheetEnabled,
-                    onThemeSelected = { themeId ->
-                        onThemeSelected(themeId)
-                        if (draft.source != MobileCaptureSource.AndroidSpeech) {
-                            focusRequester.requestFocus()
-                            keyboardController?.show()
-                        }
-                    },
-                )
-                if (speechActive) {
-                    val speechStatusScroll = rememberScrollState()
-                    LaunchedEffect(speechState, speechStatusScroll.maxValue) {
-                        speechStatusScroll.scrollTo(speechStatusScroll.maxValue)
+            // 枠のない入力欄。キーボードで狭くなる画面では、文字そのものを主役にする。
+            androidx.compose.material3.TextField(
+                value = draft.text,
+                onValueChange = onDraftChanged,
+                label = { Text(if (memoMode) "付箋" else "Task名") },
+                placeholder = { Text(if (memoMode) "思いついたこと、あとで整理したいこと" else "例: 帰りに牛乳を買う") },
+                supportingText = if (overLimit) {
+                    { Text("${draft.text.length} / ${MOBILE_CAPTURE_TEXT_MAX_LENGTH}文字。全文を保持しています。編集するか、全文をコピーして回収できます。") }
+                } else if (taskOverLimit && !memoMode) {
+                    { Text("${draft.text.length}文字。長文はメモとして保存します。") }
+                } else if (state is CaptureUiState.Error) {
+                    { Text(state.message) }
+                } else if (draft.text.length >= MOBILE_TASK_TITLE_MAX_LENGTH * 4 / 5) {
+                    { Text("${draft.text.length} / ${MOBILE_TASK_TITLE_MAX_LENGTH}文字") }
+                } else {
+                    null
+                },
+                isError = state is CaptureUiState.Error || overLimit,
+                enabled = sheetEnabled,
+                minLines = 1,
+                maxLines = 6,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    if (canSubmit) submit(CaptureCompletionBehavior.Close)
+                }),
+                textStyle = MaterialTheme.typography.bodyLarge,
+                colors = androidx.compose.material3.TextFieldDefaults.colors(
+                    focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    errorContainerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                    unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                    disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester)
+                    .testTag("capture-text-input"),
+            )
+            if (draft.text.isNotEmpty() && overLimit) {
+                CaptureCopyButton(draft.text)
+            }
+            CaptureThemePicker(
+                themeId = draft.projectId,
+                themes = themes,
+                catalogState = themeCatalogState,
+                enabled = sheetEnabled,
+                onThemeSelected = { themeId ->
+                    onThemeSelected(themeId)
+                    if (draft.source != MobileCaptureSource.AndroidSpeech) {
+                        focusRequester.requestFocus()
+                        keyboardController?.show()
                     }
-                    Text(
-                        speechStatusText(speechState),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (speechState is ShortSpeechUiState.Error) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.fillMaxWidth().height(120.dp)
-                            .testTag("capture-speech-status").verticalScroll(speechStatusScroll),
-                    )
+                },
+            )
+            if (speechActive) {
+                val speechStatusScroll = rememberScrollState()
+                LaunchedEffect(speechState, speechStatusScroll.maxValue) {
+                    speechStatusScroll.scrollTo(speechStatusScroll.maxValue)
                 }
-                CapturePhotoStrip(
-                    photos = draft.photos,
-                    enabled = sheetEnabled,
-                    onRemovePhoto = onRemovePhoto,
-                    loadThumbnail = loadPhotoThumbnail,
-                )
-                if (organizeBusy) {
-                    Text("整理中…", style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.testTag("capture-organizing"))
-                }
-                organizeError?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.testTag("capture-organization-error"))
-                }
-            } else {
-                CaptureOrganizationEditor(
-                    draft = draft,
-                    themes = themes,
-                    themeCatalogState = themeCatalogState,
-                    enabled = sheetEnabled,
-                    onChange = onOrganizationChanged,
-                    onRestoreOriginal = onOrganizationDiscarded,
+                Text(
+                    speechStatusText(speechState),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (speechState is ShortSpeechUiState.Error) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().height(120.dp)
+                        .testTag("capture-speech-status").verticalScroll(speechStatusScroll),
                 )
             }
-            if (state is CaptureUiState.Error && draft.organization != null) {
-                Text(state.message, color = MaterialTheme.colorScheme.error)
-            }
+            CapturePhotoStrip(
+                photos = draft.photos,
+                enabled = sheetEnabled,
+                onRemovePhoto = onRemovePhoto,
+                loadThumbnail = loadPhotoThumbnail,
+            )
         }
         // キーボードのすぐ上に固定する道具と確定。親指の届く1段に集める。
         val voiceListening = speechState is ShortSpeechUiState.Listening || speechState is ShortSpeechUiState.Partial
@@ -1358,48 +1239,23 @@ internal fun CaptureTaskSheet(
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (draft.organization == null) {
-                    if (!voiceListening) {
-                        VoiceToolButton(
-                            speechState = speechState,
-                            hasText = draft.text.isNotBlank(),
-                            enabled = state !is CaptureUiState.Saving && speechState !is ShortSpeechUiState.Processing,
-                            onClick = {
-                                keyboardController?.hide()
-                                onStartVoice()
-                            },
-                            modifier = Modifier.testTag("capture-voice-action"),
-                        )
-                    }
-                    CapturePhotoButton(
-                        photoCount = draft.photos.size,
-                        enabled = sheetEnabled && !voiceListening,
-                        onTakePhoto = onTakePhoto,
+                if (!voiceListening) {
+                    VoiceToolButton(
+                        speechState = speechState,
+                        hasText = draft.text.isNotBlank(),
+                        enabled = state !is CaptureUiState.Saving && speechState !is ShortSpeechUiState.Processing,
+                        onClick = {
+                            keyboardController?.hide()
+                            onStartVoice()
+                        },
+                        modifier = Modifier.testTag("capture-voice-action"),
                     )
-                    if (onOrganize != null) {
-                        IconButton(
-                            onClick = {
-                                keyboardController?.hide()
-                                if (organizeBusy) {
-                                    organizeRequest++
-                                    organizeJob?.cancel()
-                                    organizeJob = null
-                                    organizeBusy = false
-                                } else {
-                                    startOrganize()
-                                }
-                            },
-                            enabled = sheetEnabled && !voiceListening && (draft.originalText ?: draft.text).isNotBlank(),
-                            modifier = Modifier.size(48.dp).testTag("capture-organize"),
-                        ) {
-                            if (organizeBusy) {
-                                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(painterResource(R.drawable.ic_tabler_sparkles), contentDescription = "AIで分ける")
-                            }
-                        }
-                    }
                 }
+                CapturePhotoButton(
+                    photoCount = draft.photos.size,
+                    enabled = sheetEnabled && !voiceListening,
+                    onTakePhoto = onTakePhoto,
+                )
                 Spacer(Modifier.weight(1f))
                 if (voiceListening) {
                     // 録音中は親指の届く右寄りに大きな確定を置く。左端の小さな停止だけにしない。
@@ -1451,46 +1307,23 @@ internal fun CaptureTaskSheet(
                     .testTag("capture-bottom-inset-spacer"),
             )
         }
-        if (draft.organization == null) {
-            // 本文は縮められる領域、道具と確定は常にキーボードの直上。
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f, fill = false)
-                        .fillMaxWidth()
-                        .testTag("capture-sheet-content")
-                        .verticalScroll(rememberScrollState())
-                        .padding(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    body()
-                }
-                androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                    submitRow()
-                    bottomInset()
-                }
+        // 本文は縮められる領域、道具と確定は常にキーボードの直上。
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .fillMaxWidth()
+                    .testTag("capture-sheet-content")
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                body()
             }
-        } else {
-            // 整理案の編集中は確定操作を常に押せるよう下部に固定する。
-            Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.94f)) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .testTag("capture-sheet-content")
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    body()
-                }
-                Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                        submitRow()
-                        bottomInset()
-                    }
-                }
+            androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                submitRow()
+                bottomInset()
             }
         }
     }

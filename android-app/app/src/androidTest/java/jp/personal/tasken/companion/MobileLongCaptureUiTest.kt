@@ -126,7 +126,6 @@ class MobileLongCaptureUiTest {
                     emptyList(), MobileThemeCatalogState.Available(emptyList(), "fixture", 1, ""),
                     onDraftChanged = { draft.value = draft.value.withText(it) }, onThemeSelected = {},
                     onKindSelected = { draft.value = draft.value.withKind(it) },
-                    onOrganize = { error("provider unavailable") },
                     onSubmit = { submitted = draft.value }, onStartVoice = {}, onStopVoice = {}, onDismiss = {},
                 )
             }
