@@ -35,7 +35,7 @@ await build({
   bundle: true,
   platform: "node",
   format: "esm",
-  external: ["better-sqlite3", "adm-zip", "pptxgenjs"],
+  external: ["better-sqlite3", "pptxgenjs"],
   alias: { electron: path.resolve("src/main/headless/electronUnavailable.ts") },
   outfile: path.join(bundleDirectory, "headless.mjs"),
   logLevel: "silent",

@@ -37,7 +37,7 @@ async function bundleEntry(relativePath, fileName) {
     format: "esm",
     // Electronの画面のAPIは使わない（capabilityを読むだけ）。使えば例外になる代わりを入れる。
     alias: { electron: path.resolve("src/main/headless/electronUnavailable.ts") },
-    external: ["better-sqlite3", "adm-zip", "pptxgenjs"],
+    external: ["better-sqlite3", "pptxgenjs"],
     write: false,
     logLevel: "silent",
   });

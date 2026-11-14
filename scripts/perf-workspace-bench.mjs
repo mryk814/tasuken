@@ -16,7 +16,6 @@ import {
   WorkspaceDatabase,
   workspaceEntityTypes,
 } from "../src/main/repositories/workspaceRepository.mjs";
-import { createSnapshot, readSnapshot } from "../src/main/services/snapshotService.mjs";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
 
 function argument(name, fallback = "") {
@@ -202,29 +201,6 @@ try {
     saveSamples.push(performance.now() - started);
   }
   results.saveNoteWithActivityMs = Number(median(saveSamples).toFixed(1));
-
-  const snapshotWorkspace = time(() => repository.loadWorkspace(true));
-  const zip = time(() => createSnapshot(snapshotWorkspace.value));
-  const zipPath = path.join(workDirectory, "snapshot.zip");
-  const written = time(() => zip.value.writeZip(zipPath));
-  results.snapshot = {
-    loadMs: Number(snapshotWorkspace.ms.toFixed(1)),
-    buildMs: Number(zip.ms.toFixed(1)),
-    writeMs: Number(written.ms.toFixed(1)),
-    zipMb: Number((fs.statSync(zipPath).size / 1e6).toFixed(1)),
-  };
-  const largestEntry = zip.value
-    .getEntries()
-    .map((entry) => ({ name: entry.entryName, mb: Number((entry.header.size / 1e6).toFixed(1)) }))
-    .sort((a, b) => b.mb - a.mb)[0];
-  results.snapshot.largestEntry = largestEntry;
-  try {
-    const verified = time(() => readSnapshot(zipPath));
-    results.snapshot.verifyMs = Number(verified.ms.toFixed(1));
-    results.snapshot.verify = "ok";
-  } catch (error) {
-    results.snapshot.verify = `failed: ${error instanceof Error ? error.message : String(error)}`;
-  }
 
   const sqliteBackupPath = path.join(workDirectory, "backup.sqlite");
   const backupStarted = performance.now();

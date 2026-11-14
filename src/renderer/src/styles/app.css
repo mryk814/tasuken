@@ -11976,14 +11976,6 @@ kbd {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-.snapshot-preview {
-  margin-top: var(--space-3);
-  overflow: hidden;
-}
-.snapshot-preview > .form-actions {
-  justify-content: flex-end;
-  padding: var(--pad-card);
-}
 .workspace-meta {
   display: grid;
   grid-template-columns: 110px 1fr;

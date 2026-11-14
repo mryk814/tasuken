@@ -39,15 +39,6 @@ async function importWorkspaceService() {
         `,
         loader: "js",
       }));
-      buildApi.onResolve({ filter: /^adm-zip$/ }, () => ({
-        path: "adm-zip-mock",
-        namespace: "adm-zip-mock",
-      }));
-      buildApi.onLoad({ filter: /.*/, namespace: "adm-zip-mock" }, () => ({
-        contents:
-          "export default class AdmZip { constructor() { throw new Error('adm-zip is not used by canonical workspace behavior tests'); } }",
-        loader: "js",
-      }));
       buildApi.onResolve({ filter: /^better-sqlite3$/ }, () => ({
         path: "better-sqlite3-mock",
         namespace: "better-sqlite3-mock",
@@ -362,7 +353,7 @@ test("RecordWorkLog preserves day precision, canonical body, original receipt, a
   }
 });
 
-test("RecordWorkLog v1 fixture survives Snapshot and rejects invalid dates and malformed Unicode", () => {
+test("RecordWorkLog v1 fixture survives a restored copy and rejects invalid dates and malformed Unicode", async () => {
   const fixture = createFixture("tasken-work-log-snapshot");
   const restored = createFixture("tasken-work-log-restored");
   try {
@@ -378,7 +369,11 @@ test("RecordWorkLog v1 fixture survives Snapshot and rejects invalid dates and m
         /本文・実施日・入力日時/,
       );
     const receipt = service.recordWorkLog(command);
-    restored.database.applySnapshot(fixture.database.readWorkspaceSnapshot(true));
+    // 控えから戻した先（DBの写し）でも、同じ入力は同じ結果を返す。
+    const copyPath = path.join(restored.userDataPath, "restored-copy.sqlite");
+    await fixture.database.backupTo(copyPath);
+    restored.database.db.close();
+    restored.database = new WorkspaceDatabase(copyPath);
     const next = new WorkspaceService(restored.database, restored.userDataPath);
     assert.deepEqual(next.recordWorkLog(command), receipt);
     assert.equal(restored.database.get("note", receipt.noteId).body_markdown, command.body);

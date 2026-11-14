@@ -151,7 +151,6 @@ import {
   assertGeneratedCanonicalPath,
 } from "./canonicalPath.mjs";
 import { buildMermaidPptxBuffer } from "./mermaidPowerPointService";
-import { readSnapshot } from "./snapshotService.mjs";
 import { discoverThemeFolderLocation, ensureThemeFolderLocation } from "./themeFolderLocation.mjs";
 import { rejectGenericAudioArtifact, rejectGenericVideoArtifact } from "../mediaCapturePersistence";
 import { artifactOpenTarget } from "../../shared/artifactLinks.mjs";
@@ -160,7 +159,6 @@ import {
   normalizeWebArtifactExecutionPolicy,
   webArtifactPreviewUrl,
 } from "../../shared/webArtifact.mjs";
-import { validateSnapshotMediaWorkspace } from "./snapshotMediaValidation";
 import { logMain } from "../log";
 import { measureMainPerformance } from "./performanceDiagnostics";
 
@@ -189,7 +187,6 @@ import {
   removeConversationContextFile,
 } from "./conversationContextPublisher.mjs";
 
-type SnapshotDecisions = Record<string, string>;
 
 const MARKDOWN_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
 /** アプリ内ビューア用。インフォグラフィック等の大きめ画像も許容する。 */
@@ -242,8 +239,6 @@ interface WorkspaceRepository {
   saveMany(
     operations: Array<{ action: "save"; type: string; entity: unknown; options?: unknown }>,
   ): Array<Record<string, unknown>>;
-  previewSnapshot(workspace: unknown): unknown[];
-  applySnapshot(workspace: unknown, decisions: SnapshotDecisions, revisions: unknown[]): unknown;
   getPreference(key: string): unknown;
   setPreference(key: string, value: unknown): unknown;
   getDataHealthState(): unknown;
@@ -299,13 +294,6 @@ interface CanonicalRecoveryReceipt {
 }
 
 type CanonicalSaveOptions = SaveOptions & { __canonicalOperationAt?: string };
-
-function localDateIso(date = new Date()): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 function safeExportFileName(value: string, extension: "md" | "pdf"): string {
   const cleaned = value
@@ -733,7 +721,6 @@ function normalizeMarkdownImageAttachment(value: unknown): MarkdownImageAttachme
 }
 
 export class WorkspaceService {
-  private readonly pendingSnapshots = new Map<string, Workspace>();
   private readonly canonicalRecoveryPath: string;
   private readonly canonicalRecoveryWarningPath: string;
   private readonly dataHealthEvaluator = new DataHealthEvaluator();
@@ -3836,28 +3823,6 @@ export class WorkspaceService {
     });
   }
 
-  async inspectSnapshot() {
-    const result = await dialog.showOpenDialog({
-      title: "Workspace Snapshotを読み込む",
-      properties: ["openFile"],
-      filters: [{ name: "Tasken Snapshot", extensions: ["zip"] }],
-    });
-    if (result.canceled || !result.filePaths[0]) return { canceled: true };
-    const parsed = readSnapshot(result.filePaths[0]) as {
-      manifest: Record<string, unknown>;
-      workspace: Workspace;
-    };
-    this.validateSnapshotMedia(parsed.workspace);
-    const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    this.pendingSnapshots.set(token, parsed.workspace);
-    return {
-      canceled: false,
-      token,
-      manifest: parsed.manifest,
-      changes: this.repository.previewSnapshot(parsed.workspace),
-    };
-  }
-
   async exportMarkdownFile(requestValue: unknown): Promise<MarkdownFileExportResult> {
     const request = normalizeMarkdownFileExportRequest(requestValue);
     let directory = request.directory?.trim() || "";
@@ -4172,82 +4137,5 @@ export class WorkspaceService {
     const buffer = await buildMermaidPptxBuffer(diagram, safeTitle || "Mermaid");
     fs.writeFileSync(result.filePath, buffer);
     return { canceled: false, filePath: result.filePath, warnings: diagram.warnings };
-  }
-
-  applySnapshot(token: string, decisions: SnapshotDecisions): Workspace {
-    const snapshot = this.pendingSnapshots.get(token);
-    if (!snapshot) {
-      throw new Error(
-        "Importプレビューの有効期限が切れました。もう一度Snapshotを選択してください。",
-      );
-    }
-    this.validateSnapshotMedia(snapshot);
-    const result = this.repository.applySnapshot(
-      snapshot,
-      decisions,
-      snapshot.plan_revisions || [],
-    );
-    this.pendingSnapshots.delete(token);
-    return result as Workspace;
-  }
-
-  private validateSnapshotMedia(snapshot: Workspace): void {
-    validateSnapshotMediaWorkspace(snapshot, {
-      repository: this.repository,
-      resolveManagedDirectory: (themeId, workspace) =>
-        this.resolveSnapshotManagedArtifactDirectory(themeId, workspace),
-    });
-  }
-
-  private resolveSnapshotManagedArtifactDirectory(
-    themeId: string | null,
-    snapshot: Workspace,
-  ): { kind: "needs_directory" } | { kind: "ok"; directory: string } {
-    if (!themeId || themeId === PERSONAL_DEFAULT_THEME_ID) {
-      return this.resolveThemeContentDirectory(themeId, "artifacts", { writeThemeManifest: false });
-    }
-    const currentTheme =
-      this.repository.get("theme", themeId) || this.repository.get("project", themeId);
-    if (currentTheme) return this.resolveManagedArtifactDirectory(themeId);
-    const incomingTheme = [
-      ...(Array.isArray(snapshot.projects) ? snapshot.projects : []),
-      ...(Array.isArray(snapshot.themes) ? snapshot.themes : []),
-    ].find((theme) => theme && theme.id === themeId && !theme.deleted_at);
-    if (!incomingTheme) return { kind: "needs_directory" };
-    const syncRoot = String(this.repository.getPreference("artifactDirectory") || "").trim();
-    const themeStorageRoot =
-      typeof incomingTheme.storage_root === "string" ? incomingTheme.storage_root.trim() : "";
-    const root = themeStorageRoot || syncRoot;
-    if (!root) return { kind: "needs_directory" };
-    if (fs.existsSync(root)) {
-      const discovered = discoverThemeFolderLocation({
-        syncRoot,
-        themeStorageRoot,
-        themeId,
-        themeCode: typeof incomingTheme.code === "string" ? incomingTheme.code : "",
-        displayName: String(incomingTheme.name || incomingTheme.title || ""),
-      });
-      return discovered.status === "ok"
-        ? { kind: "ok", directory: path.join(discovered.themeFolder, "Artifacts") }
-        : { kind: "needs_directory" };
-    }
-    const location = (
-      resolveThemeContentDirectoryParts as (options: {
-        artifactDirectory?: string | null;
-        themeId?: string | null;
-        themeCode?: string | null;
-        themeStorageRoot?: string | null;
-        contentKind?: "artifacts" | "notes" | "exports";
-      }) => { kind: "needs_directory" } | { kind: "ok"; root: string; segments: string[] }
-    )({
-      artifactDirectory: syncRoot,
-      themeId,
-      themeCode: typeof incomingTheme.code === "string" ? incomingTheme.code : null,
-      themeStorageRoot,
-      contentKind: "artifacts",
-    });
-    return location.kind === "ok"
-      ? { kind: "ok", directory: path.join(location.root, ...location.segments) }
-      : { kind: "needs_directory" };
   }
 }

@@ -12,7 +12,6 @@ import type {
   DocumentSaveRequest,
   SaveOperation,
   SaveOptions,
-  SnapshotInspectResult,
   Workspace,
   WorkspaceMeta,
 } from "../types/workspace";
@@ -232,8 +231,6 @@ export const IPC = {
   workLogRecord: "work-log:record",
   entityRemove: "entity:remove",
   entityRestore: "entity:restore",
-  snapshotInspect: "snapshot:inspect",
-  snapshotApply: "snapshot:apply",
   automaticSnapshotStatus: "automatic-snapshot:status",
   automaticSnapshotConfigure: "automatic-snapshot:configure",
   automaticSnapshotRun: "automatic-snapshot:run",
@@ -888,21 +885,16 @@ export interface ResearchDeskApi {
     executeBatch(envelopes: CommandEnvelope[]): Promise<CommandReceipt[]>;
   };
   snapshots: {
-    inspectFile(): Promise<SnapshotInspectResult>;
-    // decisionsは「change.key -> action」の対応表。配列ではなくオブジェクトで渡す。
-    applyImport(token: string, decisions: Record<string, string>): Promise<Workspace>;
     automaticStatus(): Promise<AutomaticSnapshotBackupStatus>;
     configureAutomatic(
       config: AutomaticSnapshotBackupConfig,
     ): Promise<AutomaticSnapshotBackupStatus>;
     runAutomatic(): Promise<AutomaticSnapshotBackupStatus>;
-  };
-  backups: {
-    list(): Promise<WorkspaceBackupList>;
-    chooseFile(): Promise<WorkspaceRestoreChoice>;
-    preview(token: string): Promise<WorkspaceRestorePreview>;
+    listBackups(): Promise<WorkspaceBackupList>;
+    chooseBackupFile(): Promise<WorkspaceRestoreChoice>;
+    previewBackup(token: string): Promise<WorkspaceRestorePreview>;
     /** 今のデータを控え、戻す準備をして、起動し直す。 */
-    restore(token: string): Promise<void>;
+    restoreBackup(token: string): Promise<void>;
     lastRestore(): Promise<WorkspaceRestoreOutcome | null>;
     dismissLastRestore(): Promise<void>;
   };

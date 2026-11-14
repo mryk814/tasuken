@@ -6,7 +6,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveTaskenUserDataPath } from "../src/shared/taskenPaths.mjs";
 
-import { createSnapshot } from "../src/main/services/snapshotService.mjs";
 import {
   WorkspaceDatabase,
   workspaceEntityTypes,
@@ -2810,8 +2809,6 @@ function backupExistingDatabase(targetPath) {
   const backupDirectory = path.join(path.dirname(targetPath), "development-data-backups", stamp);
   fs.mkdirSync(backupDirectory, { recursive: true });
   const existing = new WorkspaceDatabase(targetPath);
-  const snapshotPath = path.join(backupDirectory, "workspace-before-materials-demo.tasken.zip");
-  createSnapshot(existing.loadWorkspace(true)).writeZip(snapshotPath);
   existing.db.pragma("wal_checkpoint(TRUNCATE)");
   existing.db.close();
   for (const suffix of ["", "-wal", "-shm"]) {
@@ -2819,7 +2816,7 @@ function backupExistingDatabase(targetPath) {
     if (fs.existsSync(source))
       fs.renameSync(source, path.join(backupDirectory, `${path.basename(targetPath)}${suffix}`));
   }
-  return { backupDirectory, snapshotPath };
+  return { backupDirectory };
 }
 
 function seed(targetPath) {
@@ -2928,10 +2925,6 @@ function seed(targetPath) {
     ),
   };
   repository.validateSnapshotWorkspace(loaded);
-  const snapshotDirectory = path.join(path.dirname(targetPath), "development-snapshots");
-  fs.mkdirSync(snapshotDirectory, { recursive: true });
-  const snapshotPath = path.join(snapshotDirectory, "materials-informatics-workspace.tasken.zip");
-  createSnapshot(loaded).writeZip(snapshotPath);
   const counts = Object.fromEntries(
     workspaceEntityTypes
       .map((type) => [type, repository.list(type).length])
@@ -2942,7 +2935,6 @@ function seed(targetPath) {
   return {
     targetPath,
     managedDirectory,
-    snapshotPath,
     backup,
     counts,
     total: Object.values(counts).reduce((sum, count) => sum + count, 0),

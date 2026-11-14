@@ -33,7 +33,6 @@ import {
 import {
   projectCommandReceiptForRenderer,
   projectEntityForRenderer,
-  projectSnapshotInspectForRenderer,
   projectWorkspaceForRenderer,
   restoreMainOnlyEventFields,
 } from "../rendererMediaProjection";
@@ -47,7 +46,7 @@ import {
   performanceDiagnosticsEnabled,
   recordRendererPerformance,
 } from "../services/performanceDiagnostics";
-import { assertRendererBootstrapContainsNoMedia } from "../services/snapshotMediaValidation";
+import { assertRendererBootstrapContainsNoMedia } from "../mediaCapturePersistence";
 import {
   isViewPreferenceId,
   normalizeViewPreference,
@@ -820,19 +819,6 @@ export function registerIpc(
     notifyCommandApplied(receipts, event.sender.id);
     return receipts.map(projectCommandReceiptForRenderer);
   });
-  ipcMain.handle(IPC.snapshotInspect, async () =>
-    projectSnapshotInspectForRenderer(await service.inspectSnapshot()),
-  );
-  ipcMain.handle(IPC.snapshotApply, (_event, token, decisions) =>
-    projectWorkspaceForRenderer(
-      service.applySnapshot(
-        requireId(token),
-        decisions && typeof decisions === "object" && !Array.isArray(decisions)
-          ? (decisions as Record<string, string>)
-          : {},
-      ),
-    ),
-  );
   ipcMain.handle(IPC.automaticSnapshotStatus, () => automaticSnapshotBackup.status());
   ipcMain.handle(IPC.automaticSnapshotConfigure, (_event, config) => {
     const normalized = requireAutomaticSnapshotConfig(config);

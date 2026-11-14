@@ -43,7 +43,6 @@ import {
   type PlanRevision,
   type SaveEntities,
   type SaveEntity,
-  type SnapshotPreview,
   type Theme,
   type WorkspaceData,
 } from "./types";
@@ -215,7 +214,6 @@ export function WorkspaceApp() {
   // 衛星ウィンドウの開閉・表示対象はMainのRegistry／IPC通知を購読する（#327）。
   const [openStickyMemoIds, setOpenStickyMemoIds] = useState<string[]>([]);
   const [stickyMemoTargetIds, setStickyMemoTargetIds] = useState<string[]>([]);
-  const [snapshotPreview, setSnapshotPreview] = useState<SnapshotPreview | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [contextPackThemeId, setContextPackThemeId] = useState<string | null>(null);
@@ -2453,8 +2451,6 @@ export function WorkspaceApp() {
     removeEntity,
     removeEntityQuiet,
     setToast,
-    snapshotPreview,
-    setSnapshotPreview,
   };
 
   return (

@@ -8,7 +8,6 @@ import test from "node:test";
 import { build } from "esbuild";
 
 import { formatRecordCountsMarkdown } from "../src/main/services/recordCounts.mjs";
-import { createSnapshot, readSnapshot } from "../src/main/services/snapshotService.mjs";
 import { SharedFolderSyncService } from "../src/main/services/sharedFolderSync.mjs";
 import { validateEntity } from "../src/main/repositories/domain.mjs";
 import {
@@ -51,7 +50,7 @@ function item(overrides = {}) {
   };
 }
 
-test("board order persists through SQLite restart, snapshot import/export, delete/restore and shared-folder sync", async () => {
+test("board order persists through SQLite restart, delete/restore and shared-folder sync", async () => {
   const task = (extra = {}) => ({
     id: "board-task",
     title: "Ordered task",
@@ -63,7 +62,6 @@ test("board order persists through SQLite restart, snapshot import/export, delet
   const filename = path.join(root, "first.sqlite");
   let first = new WorkspaceDatabase(filename);
   const second = new WorkspaceDatabase(path.join(root, "second.sqlite"));
-  const imported = new WorkspaceDatabase(path.join(root, "imported.sqlite"));
   try {
     first.save("task", task({ board_order: 3 }));
     first.save("task", task({ id: "old-task" }));
@@ -71,15 +69,9 @@ test("board order persists through SQLite restart, snapshot import/export, delet
     first = new WorkspaceDatabase(filename);
     assert.equal(first.get("task", "board-task").board_order, 3);
     assert.equal(first.get("task", "old-task").board_order, undefined);
-    const snapshotPath = path.join(root, "snapshot.zip");
-    createSnapshot(first.loadWorkspace()).writeZip(snapshotPath);
-    const { workspace } = readSnapshot(snapshotPath);
-    imported.previewSnapshot(workspace);
-    imported.applySnapshot(workspace);
-    assert.equal(imported.get("task", "board-task").board_order, 3);
-    imported.remove("task", "board-task");
-    imported.restore("task", "board-task");
-    assert.equal(imported.get("task", "board-task").board_order, 3);
+    first.remove("task", "board-task");
+    first.restore("task", "board-task");
+    assert.equal(first.get("task", "board-task").board_order, 3);
 
     const firstSync = new SharedFolderSyncService(first, () => {}, path.join(root, "a-images"));
     const secondSync = new SharedFolderSyncService(second, () => {}, path.join(root, "b-images"));
@@ -93,7 +85,7 @@ test("board order persists through SQLite restart, snapshot import/export, delet
     assert.equal(first.get("task", "board-task").board_order, 0);
     assert.equal(first.get("task", "board-task").state, "doing");
   } finally {
-    for (const database of [first, second, imported]) if (database.db.open) database.db.close();
+    for (const database of [first, second]) if (database.db.open) database.db.close();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
@@ -247,20 +239,6 @@ test("Core Task context reads an empty SQLite snapshot without creating the defa
   }
 });
 
-function fakeRepository(preview) {
-  const inserted = [];
-  const repo = Object.create(WorkspaceDatabase.prototype);
-  repo.db = { transaction: (fn) => () => fn() };
-  repo.validateSnapshotWorkspace = () => {};
-  repo.previewSnapshot = () => preview;
-  repo.insertImported = (type, entity) => inserted.push({ type, entity });
-  repo.insertPlanRevision = () => {};
-  repo.loadWorkspace = () => ({
-    items: inserted.filter((entry) => entry.type === "item").map((entry) => entry.entity),
-  });
-  return { repo, inserted };
-}
-
 function fakeGraphRepository(records = {}) {
   const repo = Object.create(WorkspaceDatabase.prototype);
   repo.list = (type) => records[type] || [];
@@ -286,20 +264,12 @@ function fakePreferenceRepository() {
   return repo;
 }
 
-test("workspace entity types and snapshots exclude person records", () => {
+test("workspace entity types exclude person records", () => {
   assert.equal(workspaceEntityTypes.includes("person"), false);
   assert.equal(workspaceEntityTypes.includes("item"), true);
-
-  const zip = createSnapshot({
-    items: [item()],
-    people: [{ id: "p1", name: "Legacy person" }],
-    meta: {},
-  });
-  assert.equal(zip.getEntry("people.json"), null);
-  assert.ok(zip.getEntry("items.json"));
 });
 
-test("snapshot round-trips feed manual-paste replies with question, source, and comment", () => {
+test("feed_reply accepts manual-paste metadata: question, source, and comment", () => {
   // 外部AIクリップボード往復の手動貼付は `feed_reply` の任意メタデータで保つ。
   assert.equal(workspaceEntityTypes.includes("feed_reply"), true);
   const manual = {
@@ -315,16 +285,6 @@ test("snapshot round-trips feed manual-paste replies with question, source, and 
     comment: "次も同じ表で見たい。",
   };
   validateEntity("feed_reply", { ...manual });
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-feed-manual-snapshot-"));
-  try {
-    const filePath = path.join(directory, "workspace.zip");
-    createSnapshot({ feed_replies: [manual], meta: {} }).writeZip(filePath);
-    const { workspace } = readSnapshot(filePath);
-    assert.equal(workspace.feed_replies.length, 1);
-    assert.deepEqual(workspace.feed_replies[0], manual);
-  } finally {
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
 });
 
 test("activity log export directory preference round-trips", () => {
@@ -458,7 +418,7 @@ test("knowledge entity validation rejects invalid enums", () => {
   );
 });
 
-test("workspace entity types and snapshots include v2 domain records", () => {
+test("workspace entity types include v2 domain records", () => {
   for (const type of [
     "project",
     "capture_entry",
@@ -475,58 +435,6 @@ test("workspace entity types and snapshots include v2 domain records", () => {
   ]) {
     assert.equal(workspaceEntityTypes.includes(type), true);
   }
-
-  const zip = createSnapshot({
-    projects: [{ id: "project-1", name: "Project", state: "active" }],
-    tasks: [{ id: "task-1", title: "Task", state: "todo", priority: "normal" }],
-    schedules: [
-      {
-        id: "schedule-1",
-        owner_type: "task",
-        owner_id: "task-1",
-        date_kind: "deadline",
-        confidence: "fixed",
-        granularity: "day",
-        end_date: "2026-06-19",
-      },
-    ],
-    knowledge_edges: [
-      {
-        id: "edge-1",
-        source_node_id: "node-1",
-        target_node_id: "node-2",
-        relation_type: "supports",
-      },
-    ],
-    change_events: [
-      {
-        id: "change-1",
-        entity_type: "task",
-        entity_id: "task-1",
-        changed_at: "2026-06-19T00:00:00.000Z",
-        change_type: "created",
-        source: "manual",
-      },
-    ],
-    sketches: [
-      {
-        id: "sketch-1",
-        title: "Reaction map",
-        document: {
-          schema_version: 1,
-          pages: [{ id: "page-1", width: 1200, height: 840, background: "dot", objects: [] }],
-        },
-      },
-    ],
-    meta: {},
-  });
-
-  assert.ok(zip.getEntry("projects.json"));
-  assert.ok(zip.getEntry("tasks.json"));
-  assert.ok(zip.getEntry("schedules.json"));
-  assert.ok(zip.getEntry("knowledge_edges.json"));
-  assert.ok(zip.getEntry("change_events.json"));
-  assert.ok(zip.getEntry("sketches.json"));
 });
 
 test("domain entity validation rejects invalid enum values", () => {
@@ -961,59 +869,6 @@ test("snapshot validation follows Registry Theme fields and keeps Schedule owner
         },
       ],
     }),
-  );
-});
-
-test("snapshot create never overwrites an existing local record", () => {
-  const change = {
-    key: "item:item-1",
-    type: "item",
-    incoming: item({ title: "Snapshot item", version: 2 }),
-    local: item(),
-    category: "update",
-    action: "update",
-    actions: ["update", "duplicate", "ignore"],
-  };
-  assert.deepEqual(change.actions, ["update", "duplicate", "ignore"]);
-  assert.throws(
-    () => fakeRepository([change]).repo.applySnapshot({}, { "item:item-1": "create" }),
-    /createでは上書きできません/,
-  );
-
-  const { repo, inserted } = fakeRepository([change]);
-  repo.applySnapshot({}, { "item:item-1": "update" });
-  assert.equal(inserted[0].entity.title, "Snapshot item");
-});
-
-test("snapshot duplicate creates a separate id and update requires local record", () => {
-  const existingChange = {
-    key: "item:item-1",
-    type: "item",
-    incoming: item({ title: "Snapshot duplicate", version: 2 }),
-    local: item(),
-    category: "update",
-    action: "update",
-    actions: ["update", "duplicate", "ignore"],
-  };
-  const { repo, inserted } = fakeRepository([existingChange]);
-  repo.applySnapshot({}, { "item:item-1": "duplicate" });
-  assert.equal(inserted[0].type, "item");
-  assert.notEqual(inserted[0].entity.id, "item-1");
-  assert.equal(inserted[0].entity.version, 1);
-
-  const newChange = {
-    key: "item:new-item",
-    type: "item",
-    incoming: item({ id: "new-item", title: "New item" }),
-    local: null,
-    category: "new",
-    action: "create",
-    actions: ["create", "ignore"],
-  };
-  assert.deepEqual(newChange.actions, ["create", "ignore"]);
-  assert.throws(
-    () => fakeRepository([newChange]).repo.applySnapshot({}, { "item:new-item": "update" }),
-    /updateは実行できません/,
   );
 });
 

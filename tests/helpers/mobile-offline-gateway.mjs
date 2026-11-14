@@ -33,15 +33,11 @@ const bundle = await build({
             'export const app = { getPath: () => "" }; export class BrowserWindow {} export class ClipboardItem {} export const clipboard = {}; export const dialog = {}; export const nativeImage = {}; export const shell = {};',
           ],
           [
-            "adm-zip",
-            'export default class AdmZip { constructor() { throw new Error("Snapshot archives are not used in the Gateway fixture"); } }',
-          ],
-          [
             "better-sqlite3",
             'export default class Database { constructor() { throw new Error("The Gateway fixture injects its real SQLite repository"); } }',
           ],
         ]);
-        api.onResolve({ filter: /^(electron|adm-zip|better-sqlite3)$/ }, ({ path }) => ({
+        api.onResolve({ filter: /^(electron|better-sqlite3)$/ }, ({ path }) => ({
           path,
           namespace: "workspace-port-mock",
         }));

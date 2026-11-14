@@ -78,7 +78,7 @@ Electron内の入力・保存・再読み込みを自動確認（Electron依存�
 npm run smoke:desktop
 ```
 
-データ検証、transaction、Snapshot往復を自動確認:
+データ検証、transaction、控え（DBの写し）の開き直しを自動確認:
 
 ```bash
 npm run smoke:model
@@ -159,7 +159,7 @@ npm run release:check
 - 節目の状態を残すときは、Settings →「Advanced」→「控えを今すぐ作る」。
 - 戻すときは、同じ場所の「控えから戻す」で控えを選びます。戻す前の件数と戻した後の件数が並ぶので、確かめてから「戻して起動し直す」を押します。Taskenは、今のデータを`tasken-before-restore-<日時>-<id>.sqlite`として同じ保存先へ控えてから置き換え、起動し直します。戻せなかったときは、戻す前のデータのまま起動します。
 - 戻す前の控え（`tasken-before-restore-*`）は自動では消しません。要らなくなったら手で消します。
-- 2026-11より前の版が作った`tasken-auto-*.zip`は世代に数えず、自動では消しません。
+- 2026-11より前の版が作った`tasken-auto-*.zip`と、手で書き出したWorkspace SnapshotのZIPは、Taskenからは読めません。ファイルは消さないので、手元に残ります。
 
 ### 新しい端末へ引っ越す
 

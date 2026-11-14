@@ -107,23 +107,6 @@ export function projectCommandReceiptForRenderer(receipt: CommandReceipt): Comma
   };
 }
 
-export function projectSnapshotInspectForRenderer<T>(result: T): T {
-  if (!result || typeof result !== "object" || Array.isArray(result)) return result;
-  const value = result as Record<string, unknown>;
-  if (!Array.isArray(value.changes)) return result;
-  const changes = value.changes.map((entry) => {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
-    const change = entry as Record<string, unknown>;
-    const type = change.type as EntityType;
-    const project = (candidate: unknown) =>
-      candidate && typeof candidate === "object" && !Array.isArray(candidate)
-        ? projectEntityForRenderer(type, candidate as Entity)
-        : candidate;
-    return { ...change, incoming: project(change.incoming), local: project(change.local) };
-  });
-  return { ...value, changes } as T;
-}
-
 export function projectChangesForRenderer(
   changes: Array<{ type: EntityType; entity: Entity }>,
 ): Array<{ type: EntityType; entity: Entity }> {

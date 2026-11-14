@@ -177,10 +177,3 @@ export interface SnapshotDecision {
   id: string;
   action: "create" | "update" | "duplicate" | "ignore";
 }
-
-export interface SnapshotInspectResult {
-  canceled: boolean;
-  token?: string;
-  manifest?: Record<string, unknown>;
-  changes?: unknown[];
-}

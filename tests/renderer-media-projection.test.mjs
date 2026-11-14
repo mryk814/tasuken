@@ -143,22 +143,7 @@ test("single and batch command receipts retain safe deltas without media storage
   assert.equal("receipt_json" in projected.eventChanges[0].entity, false);
 });
 
-test("snapshot preview projects nested incoming/local media and apply workspace projection stays path-safe", () => {
-  const preview = projection.projectSnapshotInspectForRenderer({
-    status: "preview",
-    changes: [
-      {
-        type: "artifact",
-        classification: "updated",
-        incoming: artifact,
-        local: { ...artifact, stored_path: "C:/private/local.wav" },
-      },
-      { type: "change_event", classification: "updated", incoming: event, local: event },
-    ],
-  });
-  assertNoPrivateMediaPath(preview);
-  assert.equal(preview.changes[0].incoming.filename, "voice.wav");
-  assert.equal(preview.changes[0].local.filename, "voice.wav");
+test("workspace projection stays path-safe for media artifacts and their events", () => {
   assertNoPrivateMediaPath(
     projection.projectWorkspaceForRenderer({ artifacts: [artifact], change_events: [event] }),
   );

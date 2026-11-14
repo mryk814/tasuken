@@ -110,6 +110,24 @@ test("generic import, proposal, direct save and batch are wired to Media rejecti
   );
 });
 
+test("Renderer bootstrap rejects inferred audio/video before its repository writer is called", () => {
+  let writes = 0;
+  const guardedBootstrap = (workspace) => {
+    boundary.assertRendererBootstrapContainsNoMedia(workspace);
+    writes += 1;
+  };
+  guardedBootstrap({ artifacts: [{ id: "text", title: "Text", filename: "notes.txt" }] });
+  assert.equal(writes, 1);
+  for (const artifact of [
+    { id: "audio", filename: "voice.wav" },
+    { id: "video", filename: "evidence.mp4" },
+    { id: "opaque", filename: "opaque.bin", mime_type: "video/webm" },
+  ]) {
+    assert.throws(() => guardedBootstrap({ artifacts: [artifact] }), /Media Artifact/);
+  }
+  assert.equal(writes, 1);
+});
+
 test("bootstrap, remove and restore Renderer returns use media-safe projection", () => {
   const ipc = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
   assert.match(

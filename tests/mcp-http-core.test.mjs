@@ -94,7 +94,7 @@ test("production HTTP and stdio bridges share the isolated Headless Core; restar
       bundle: true,
       platform: "node",
       format: "esm",
-      external: ["better-sqlite3", "adm-zip", "pptxgenjs"],
+      external: ["better-sqlite3", "pptxgenjs"],
       outfile: headlessPath,
       logLevel: "silent",
     });

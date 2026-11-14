@@ -75,6 +75,22 @@ export function rejectGenericAudioArtifact(value: unknown, operation = "保存")
   }
 }
 
+/** Sample投入（Rendererからのbootstrap）で、音声・動画のArtifactを作らせない。 */
+export function assertRendererBootstrapContainsNoMedia(value: unknown): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  const artifacts = (value as { artifacts?: unknown }).artifacts;
+  if (!Array.isArray(artifacts)) return;
+  if (
+    artifacts.some(
+      (artifact) => isGenericAudioArtifact(artifact) || isGenericVideoArtifact(artifact),
+    )
+  ) {
+    throw new Error(
+      "Sample投入ではMedia Artifactを作成できません。専用のMedia取り込みを使用してください。",
+    );
+  }
+}
+
 export function isGenericVideoArtifact(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const entity = value as Record<string, unknown>;

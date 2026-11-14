@@ -18,7 +18,7 @@ import {
   copyMcpBridgeConfig,
 } from "../../../../../shared/ipc/contracts";
 import type { CalendarConnectionStatus, CalendarProvider } from "../../../../../shared/calendar";
-import type { PageProps, SnapshotChange, SnapshotPreview, Theme } from "../types";
+import type { PageProps, Theme } from "../types";
 import { todayIso as todayIsoDate } from "../domain-model/scheduleSemantics";
 import { entityTitle } from "../lib/domain";
 import { Button, IntegrationStatus, PageHeader } from "../components/common";
@@ -75,11 +75,8 @@ export function SettingsPage({
   activeGroups,
   setActiveGroups,
   allThemes,
-  setSnapshotPreview,
-  snapshotPreview,
   setToast,
 }: SettingsPageProps) {
-  const [busy, setBusy] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateCheckResult | null>(null);
   const [artifactDirectory, setArtifactDirectory] = useState("");
@@ -504,43 +501,6 @@ export function SettingsPage({
       );
   }
 
-  async function inspectSnapshot() {
-    setBusy(true);
-    try {
-      const result = await workspaceApi.inspectSnapshot();
-      if (!result.canceled && result.token) {
-        const changes = (result.changes as SnapshotChange[] | undefined) || [];
-        const preview: SnapshotPreview = {
-          token: result.token,
-          manifest: result.manifest,
-          changes,
-          decisions: Object.fromEntries(changes.map((change) => [change.key, change.action])),
-        };
-        setSnapshotPreview(preview);
-      }
-    } catch (error) {
-      setToast(
-        `Snapshotを読み込めませんでした。${error instanceof Error ? error.message : String(error)}`,
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function applySnapshot() {
-    if (!snapshotPreview) return;
-    setBusy(true);
-    try {
-      await workspaceApi.applySnapshot(snapshotPreview.token, snapshotPreview.decisions);
-      await workspaceApi.reload();
-    } catch (error) {
-      setToast(
-        `Snapshotを反映できませんでした。${error instanceof Error ? error.message : String(error)}`,
-      );
-      setBusy(false);
-    }
-  }
-
   async function checkForUpdates() {
     setCheckingUpdate(true);
     try {
@@ -924,14 +884,6 @@ export function SettingsPage({
                     フォルダを開く
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  className="text-button"
-                  disabled={busy}
-                  onClick={inspectSnapshot}
-                >
-                  以前のZIPを読み込む
-                </button>
               </div>
             </section>
             <section
@@ -1566,53 +1518,6 @@ export function SettingsPage({
       )}
       {/* 設定フォームの label の並び（2列）を受けないよう、フォームの外に置く。 */}
       <RestoreBackupDialog open={restoreDialogOpen} close={() => setRestoreDialogOpen(false)} />
-      {snapshotPreview && activeSection === "advanced" && (
-        <section className="panel snapshot-preview">
-          <div className="section-heading">
-            <h2>Snapshot差分</h2>
-            <span>{snapshotPreview.changes.length}件</span>
-          </div>
-          {snapshotPreview.changes.map((change) => (
-            <div className="import-candidate" key={change.key}>
-              <div>
-                <strong>{entityTitle(change.type, change.incoming)}</strong>
-                <small>
-                  {change.type} / {change.category}
-                </small>
-              </div>
-              <select
-                value={snapshotPreview.decisions[change.key]}
-                onChange={(event) =>
-                  setSnapshotPreview({
-                    ...snapshotPreview,
-                    decisions: { ...snapshotPreview.decisions, [change.key]: event.target.value },
-                  })
-                }
-              >
-                {(change.actions || ["ignore"]).map((action) => (
-                  <option key={action} value={action}>
-                    {action === "ignore"
-                      ? "無視"
-                      : action === "create"
-                        ? "新規作成"
-                        : action === "update"
-                          ? "既存を更新"
-                          : "両方残す"}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ))}
-          <div className="form-actions">
-            <Button variant="secondary" onClick={() => setSnapshotPreview(null)}>
-              取り消す
-            </Button>
-            <Button variant="primary" disabled={busy} onClick={applySnapshot}>
-              選択内容を反映
-            </Button>
-          </div>
-        </section>
-      )}
     </div>
   );
 }

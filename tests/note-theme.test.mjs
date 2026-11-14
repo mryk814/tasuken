@@ -15,7 +15,6 @@ test("Note Theme ownership prefers canonical project_id and reads legacy theme_i
 test("Note consumers use the canonical Theme resolver", () => {
   const files = [
     "src/main/core/services/knowledgeQueryService.ts",
-    "src/main/services/snapshotService.mjs",
     "src/renderer/src/features/workspace/WorkspaceApp.tsx",
     "src/renderer/src/features/workspace/components/drawer.tsx",
     "src/renderer/src/features/workspace/lib/io.ts",

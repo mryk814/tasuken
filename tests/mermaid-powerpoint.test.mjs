@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
-import AdmZip from "adm-zip";
+import JSZip from "jszip";
 import { build } from "esbuild";
 
 async function importBundled(relativePath) {
@@ -106,19 +106,19 @@ test("edge labels are matched by stable path/group id before DOM order", () => {
 test("native PPTX output contains editable edge label, node text, notes, and slide relationships", async () => {
   const buffer = await pptx.buildMermaidPptxBuffer(diagram, "日本語 Mermaid");
   assert.ok(buffer.byteLength > 1_000);
-  const zip = new AdmZip(buffer);
-  const names = zip.getEntries().map((entry) => entry.entryName);
+  const zip = await JSZip.loadAsync(buffer);
+  const names = Object.keys(zip.files);
   assert.ok(names.includes("[Content_Types].xml"));
   assert.ok(names.includes("ppt/presentation.xml"));
   assert.ok(names.includes("ppt/slides/slide1.xml"));
   assert.ok(names.includes("ppt/slides/_rels/slide1.xml.rels"));
-  const slideXml = zip.readAsText("ppt/slides/slide1.xml");
+  const slideXml = await zip.file("ppt/slides/slide1.xml").async("string");
   assert.match(slideXml, /承認/);
   assert.match(slideXml, /入力/);
   assert.match(slideXml, /Mermaid edge label edge-1/);
   assert.match(slideXml, /Mermaid node A/);
   assert.ok(slideXml.indexOf("Mermaid edge edge-1") < slideXml.indexOf("Mermaid node A"));
-  const notesXml = zip.readAsText("ppt/notesSlides/notesSlide1.xml");
+  const notesXml = await zip.file("ppt/notesSlides/notesSlide1.xml").async("string");
   assert.match(notesXml, /flowchart TD/);
   assert.match(notesXml, /承認/);
 });
@@ -137,7 +137,11 @@ test("native PPTX transform honors negative Mermaid viewBox origins", async () =
     edges: [{ ...diagram.edges[0], x1: -975, y1: -487, x2: -920, y2: -480 }],
   };
   const buffer = await pptx.buildMermaidPptxBuffer(negativeOriginDiagram, "negative origin");
-  const slideXml = new AdmZip(buffer).readAsText("ppt/slides/slide1.xml");
+  const slideXml = await (
+    await JSZip.loadAsync(buffer)
+  )
+    .file("ppt/slides/slide1.xml")
+    .async("string");
   assert.doesNotMatch(slideXml, /<a:off x="-/);
   assert.doesNotMatch(slideXml, /<a:off y="-/);
   assert.equal(shared.validateMermaidPptxDiagram(negativeOriginDiagram).viewBoxX, -1_000);

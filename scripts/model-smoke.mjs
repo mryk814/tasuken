@@ -5,7 +5,6 @@ import path from "node:path";
 import { app } from "electron";
 
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
-import { createSnapshot, readSnapshot } from "../src/main/services/snapshotService.mjs";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "research-desk-model-test-"));
 
@@ -66,7 +65,11 @@ try {
     target_node_id: evidence.id,
     relation_type: "supports",
   });
-  db.save("item", { ...item, planned_end: "2026-06-12", progress: 20 }, { reason: "test revision" });
+  db.save(
+    "item",
+    { ...item, planned_end: "2026-06-12", progress: 20 },
+    { reason: "test revision" },
+  );
   db.remove("theme", theme.id);
   const detachedTheme = db.get("item", item.id)?.theme_id === null;
   const cascadedStatus = Boolean(db.get("status_update", statusUpdate.id, true)?.deleted_at);
@@ -79,7 +82,9 @@ try {
   db.restore("item", item.id);
   const restoredParent = db.get("item", child.id)?.parent_item_id === item.id;
   db.remove("knowledge_node", evidence.id);
-  const cascadedKnowledgeEdge = Boolean(db.get("knowledge_edge", knowledgeEdge.id, true)?.deleted_at);
+  const cascadedKnowledgeEdge = Boolean(
+    db.get("knowledge_edge", knowledgeEdge.id, true)?.deleted_at,
+  );
   db.restore("knowledge_node", evidence.id);
   const restoredKnowledgeEdge = !db.get("knowledge_edge", knowledgeEdge.id, true)?.deleted_at;
   const deletedTheme = db.save("theme", { id: "theme-deleted", name: "Deleted" });
@@ -121,16 +126,13 @@ try {
     rolledBack = db.get("note", "note-ok", true) === null;
   }
 
-  const zipPath = path.join(dir, "snapshot.zip");
-  createSnapshot(db.loadWorkspace(true)).writeZip(zipPath);
-  const parsed = readSnapshot(zipPath);
-  const tombstone = parsed.workspace.themes.find((entry) => entry.id === deletedTheme.id)?.deleted_at;
-
-  const imported = new WorkspaceDatabase(path.join(dir, "imported.sqlite"));
-  const decisions = Object.fromEntries(
-    imported.previewSnapshot(parsed.workspace).map((change) => [change.key, change.action]),
-  );
-  imported.applySnapshot(parsed.workspace, decisions, parsed.workspace.plan_revisions);
+  // 控え（DBの写し）を開き直しても、削除の印と計画の履歴が残る。
+  const copyPath = path.join(dir, "copy.sqlite");
+  await db.backupTo(copyPath);
+  const copied = new WorkspaceDatabase(copyPath);
+  const tombstone = copied.get("theme", deletedTheme.id, true)?.deleted_at;
+  const copiedRevisions = copied.loadWorkspace(true).plan_revisions.length;
+  copied.db.close();
 
   const result = {
     rejected,
@@ -145,13 +147,18 @@ try {
     cascadedKnowledgeEdge,
     restoredKnowledgeEdge,
     tombstone: Boolean(tombstone),
-    exportedRevisions: parsed.workspace.plan_revisions.length,
-    importedRevisions: imported.loadWorkspace(true).plan_revisions.length,
+    savedRevisions: db.loadWorkspace(true).plan_revisions.length,
+    copiedRevisions,
     persistedPreference: db.getPreference("themeMode") === "dark",
     schemaVersion: db.getMeta().schemaVersion,
   };
   const passed = Object.entries(result).every(([key, value]) =>
-    key === "schemaVersion" ? value === 1 : key.includes("Revisions") ? value === 1 : value === true);
+    key === "schemaVersion"
+      ? value === 1
+      : key.includes("Revisions")
+        ? value === 1
+        : value === true,
+  );
   console.log(JSON.stringify(result));
   app.exit(passed ? 0 : 1);
 } catch (error) {

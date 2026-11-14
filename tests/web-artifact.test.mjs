@@ -41,14 +41,6 @@ async function importWorkspaceService() {
               'export const app={getPath:()=>""}; export class BrowserWindow{}; export class ClipboardItem{}; export const clipboard={}; export const dialog={}; export const nativeImage={}; export const shell={openPath:async()=>""};',
             loader: "js",
           }));
-          buildApi.onResolve({ filter: /^adm-zip$/ }, () => ({
-            path: "adm-zip-mock",
-            namespace: "adm-zip-mock",
-          }));
-          buildApi.onLoad({ filter: /.*/, namespace: "adm-zip-mock" }, () => ({
-            contents: "export default class AdmZip {}",
-            loader: "js",
-          }));
           buildApi.onResolve({ filter: /^better-sqlite3$/ }, () => ({
             path: "better-sqlite3-mock",
             namespace: "better-sqlite3-mock",

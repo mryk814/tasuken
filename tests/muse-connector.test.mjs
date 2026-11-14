@@ -103,7 +103,7 @@ test(
         bundle: true,
         platform: "node",
         format: "esm",
-        external: ["better-sqlite3", "adm-zip", "pptxgenjs"],
+        external: ["better-sqlite3", "pptxgenjs"],
         outfile: headlessPath,
         logLevel: "silent",
       });

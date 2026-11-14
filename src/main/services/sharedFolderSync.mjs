@@ -314,7 +314,7 @@ export class SharedFolderSyncService {
     if (!directory) throw new Error("同期フォルダが設定されていません。");
     this.state = "syncing";
     try {
-      // status.jsonの`at`。ensureSyncBaseline（Snapshot取り込みをこの回で送信キューへ入れる）や
+      // status.jsonの`at`。ensureSyncBaseline（まだ送信キューに無い記録をこの回で入れる）や
       // 画像の同期より前に取る。後ろで取ると、その間に確定した変更の時刻が`at`より前なのに
       // 連番は publishedThrough より後になり、「at より前の変更は全部入っている」が偽になる。
       const passStartedAt = this.clock();

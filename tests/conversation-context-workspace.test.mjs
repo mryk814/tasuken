@@ -41,15 +41,6 @@ async function importWorkspaceService() {
         `,
         loader: "js",
       }));
-      buildApi.onResolve({ filter: /^adm-zip$/ }, () => ({
-        path: "adm-zip-mock",
-        namespace: "adm-zip-mock",
-      }));
-      buildApi.onLoad({ filter: /.*/, namespace: "adm-zip-mock" }, () => ({
-        contents:
-          "export default class AdmZip { constructor() { throw new Error('adm-zip is not used by Conversation Context tests'); } }",
-        loader: "js",
-      }));
       buildApi.onResolve({ filter: /^better-sqlite3$/ }, () => ({
         path: "better-sqlite3-mock",
         namespace: "better-sqlite3-mock",

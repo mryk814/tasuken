@@ -345,23 +345,6 @@ export interface DrawerConfig {
   dataScope?: "full";
 }
 
-export interface SnapshotChange {
-  key: string;
-  type: EntityType;
-  category: string;
-  action: string;
-  actions?: string[];
-  incoming: BaseRecord;
-  local?: BaseRecord | null;
-}
-
-export interface SnapshotPreview {
-  token: string;
-  manifest?: Record<string, unknown>;
-  changes: SnapshotChange[];
-  decisions: Record<string, string>;
-}
-
 export type SaveEntity = (
   type: EntityType,
   entity: DrawerEntity,
@@ -439,6 +422,4 @@ export interface PageProps {
     tone?: "info" | "success" | "warning" | "danger",
     undo?: { label: string; run(): void | Promise<void> } | null,
   ): void;
-  snapshotPreview: SnapshotPreview | null;
-  setSnapshotPreview(preview: SnapshotPreview | null): void;
 }
