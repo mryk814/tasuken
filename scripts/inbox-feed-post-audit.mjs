@@ -159,7 +159,7 @@ try {
           ),
         SECOND_ROW.text,
       );
-      await page.locator(".toast button", { hasText: "元に戻す" }).first().click();
+      await page.locator(".toast button", { hasText: "取り消す" }).first().click();
       await page.locator(".feed-post", { hasText: SECOND_ROW.text }).first().waitFor();
       await page.screenshot({ path: `${OUT_DIR}/restored.png` });
 

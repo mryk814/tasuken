@@ -33,7 +33,7 @@ export const PROJECT_STATE_LABELS: Record<ProjectState, string> = {
 export const CAPTURE_ENTRY_STATE_LABELS: Record<CaptureEntryState, string> = {
   untriaged: "未整理",
   triaged: "整理済み",
-  archived: "アーカイブ",
+  archived: "外した",
 };
 
 export const TASK_STATE_LABELS: Record<TaskState, string> = {

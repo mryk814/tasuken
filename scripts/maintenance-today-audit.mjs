@@ -274,7 +274,7 @@ await withApp(async (page) => {
   if (await todayRow(page).count()) {
     failures.push("削除した手入れがTodayに残っています。");
   }
-  const undo = page.locator(".toast button", { hasText: "元に戻す" }).first();
+  const undo = page.locator(".toast button", { hasText: "取り消す" }).first();
   if (!(await undo.count())) {
     failures.push("削除のUndoが出ていません。");
   } else {

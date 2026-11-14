@@ -181,8 +181,8 @@ export function SketchLibraryPage({
           data-search
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="タイトル・Themeで検索"
-          aria-label="Sketchを検索"
+          placeholder="タイトル・Themeでさがす"
+          aria-label="Sketchをさがす"
         />
         <ThemePickerSelect
           themes={themes}

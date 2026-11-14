@@ -139,14 +139,14 @@ export const ACTION_DEFINITIONS = {
   },
   aiProposalAccept: {
     id: "aiProposalAccept",
-    label: "採用",
+    label: "採る",
     icon: IconCheck,
     role: "secondary",
     availability: "when-selection",
   },
   aiProposalAcceptAndComplete: {
     id: "aiProposalAcceptAndComplete",
-    label: "完了",
+    label: "採って完了",
     icon: IconCheck,
     role: "primary",
     availability: "when-selection",
@@ -160,7 +160,7 @@ export const ACTION_DEFINITIONS = {
   },
   actionReject: {
     id: "actionReject",
-    label: "拒否",
+    label: "見送る",
     icon: IconX,
     role: "secondary",
     availability: "when-selection",

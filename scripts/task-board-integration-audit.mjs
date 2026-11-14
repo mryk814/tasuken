@@ -309,7 +309,7 @@ export async function runIntegratedBoardChecks({
       await conversation.getByRole("button", { name: "Taskを完了", exact: true }).count(),
       0,
     );
-    await conversation.getByRole("button", { name: "報告を採用", exact: true }).click();
+    await conversation.getByRole("button", { name: "採って続ける", exact: true }).click();
     await conversation
       .getByText(/Taskは継続/)
       .first()
@@ -335,9 +335,9 @@ export async function runIntegratedBoardChecks({
       await dialog.getByRole("button", { name: "確認へ進む", exact: true }).click();
       await dialog.waitFor({ state: "detached" });
       const detail = page.getByRole("complementary", { name: "選択Sessionの詳細", exact: true });
-      await detail.getByRole("button", { name: "採用", exact: true }).click();
+      await detail.getByRole("button", { name: "採る", exact: true }).click();
       await detail
-        .getByRole("button", { name: "採用", exact: true })
+        .getByRole("button", { name: "採る", exact: true })
         .waitFor({ state: "detached" });
       await logs.getByLabel("表示日").fill("2026-10-03");
       await logs.getByRole("button", { name: "週", exact: true }).click();

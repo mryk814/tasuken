@@ -569,8 +569,8 @@ export function SketchPage({
             <button
               disabled={!undoStack.length}
               onClick={undo}
-              title="元に戻す（Ctrl+Z）"
-              aria-label="元に戻す"
+              title="取り消す（Ctrl+Z）"
+              aria-label="取り消す"
             >
               <IconArrowBackUp size={18} />
             </button>

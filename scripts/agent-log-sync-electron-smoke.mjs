@@ -51,7 +51,7 @@ async function selectSession() {
 /** #629: ログ同期の記録は採用待ちにせず履歴へ入る。採用ボタンも対応待ちも出ない。 */
 async function assertAdoptedWithoutReview() {
   const detail = timeline().getByRole("complementary", { name: "選択Sessionの詳細", exact: true });
-  assert.equal(await detail.getByRole("button", { name: "採用", exact: true }).count(), 0);
+  assert.equal(await detail.getByRole("button", { name: "採る", exact: true }).count(), 0);
   const pending = await page.evaluate(async () =>
     (await window.api.entities.list("ai_proposal")).filter(
       (proposal) =>
@@ -160,7 +160,7 @@ try {
   await page.evaluate((raw) => window.api.agentWorkLogs.import(raw, []), legacy);
   await collector().getByRole("button", { name: "ログ同期", exact: true }).click();
   await collector()
-    .getByText(/採用待ちのまま残った記録が 1/)
+    .getByText(/未決のまま残った記録が 1/)
     .waitFor();
   assert.equal(await page.locator(".feed-needs-row").count(), 0);
   await collector().getByRole("note").scrollIntoViewIfNeeded();

@@ -95,7 +95,7 @@ test("Agent Desk offers adopt-and-complete only for completable Task work report
   );
   assert.match(
     semanticActionsSource,
-    /aiProposalAcceptAndComplete: \{[\s\S]*?label: "完了"[\s\S]*?role: "primary"/,
+    /aiProposalAcceptAndComplete: \{[\s\S]*?label: "採って完了"[\s\S]*?role: "primary"/,
   );
   assert.match(aiProposalPanelSource, /activeWork && canCompleteActiveWork && \(/);
   assert.match(
@@ -105,7 +105,7 @@ test("Agent Desk offers adopt-and-complete only for completable Task work report
   assert.match(aiProposalPanelSource, /name: "AcceptTaskWork"/);
   assert.match(aiProposalPanelSource, /receiptId: active\.id, completeTask: true/);
   assert.match(aiProposalPanelSource, /\["done", "cancelled"\]\.includes\(str\(/);
-  assert.match(aiProposalPanelSource, /作業報告を採用し、Taskを完了しました。/);
+  assert.match(aiProposalPanelSource, /作業報告を採り、Taskを完了しました。/);
   assert.match(aiProposalPanelSource, /対象Taskは既に完了またはキャンセルされています。/);
   assert.match(
     aiProposalPanelSource,

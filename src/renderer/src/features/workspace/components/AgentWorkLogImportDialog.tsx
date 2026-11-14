@@ -51,7 +51,7 @@ export function AgentWorkLogImportDialog({
       setToast(
         result.status === "duplicate"
           ? "同じ記録は受信済みです。"
-          : "取込内容を確認して採用してください。",
+          : "取込内容を確認して採ってください。",
         "success",
       );
       onQueued(result.agent_session_id, preview!.started_at);
@@ -78,7 +78,7 @@ export function AgentWorkLogImportDialog({
           <IconX size={18} aria-hidden="true" />
         </Button>
       </header>
-      <p>選んだログから依頼と回答を確認し、採用後に保存します。hooks の設定は不要です。</p>
+      <p>選んだログから依頼と回答を確認し、採った後に保存します。hooks の設定は不要です。</p>
       <label className="agent-log-file">
         <IconFileImport size={22} aria-hidden="true" />
         JSON・JSONLを選択

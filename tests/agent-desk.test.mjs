@@ -36,15 +36,15 @@ test("成果確認の読み順と操作名が設計どおり（#599）", () => {
     assert.ok(index > cursor, `${label} の順序が違う`);
     cursor = index;
   }
-  assert.ok(feedPage.includes("報告を採用"));
-  assert.ok(feedPage.includes("採用してTaskを完了"));
+  assert.ok(feedPage.includes("採って続ける"));
+  assert.ok(feedPage.includes("採って完了"));
   assert.ok(feedPage.includes("修正を依頼"));
   assert.ok(feedPage.includes("Taskも完了する"));
 });
 
 test("Task完了は選ばれていない明示オプションにする（#599）", () => {
-  // 既定の主操作は「報告を採用」。チェックで初めて完了へ変わる（処理中は送信中の文言）。
-  assert.match(feedPage, /completeTask\s*\n?\s*\?\s*"採用してTaskを完了"\s*\n?\s*:\s*"報告を採用"/);
+  // 既定の主操作は「採って続ける」（報告だけを採る）。チェックで初めて完了へ変わる（処理中は送信中の文言）。
+  assert.match(feedPage, /completeTask\s*\n?\s*\?\s*"採って完了"\s*\n?\s*:\s*"採って続ける"/);
   assert.ok(feedPage.includes("useState(false)"));
 });
 
@@ -66,7 +66,7 @@ test("採用はTaskの完了と混同しない文言にする（#602 報告だ�
   // 採用しただけの報告を「Taskは継続」として読ませる。
   assert.ok(rail.includes('"受入れ済み／Taskは継続"'));
   assert.ok(rail.includes('"受入れ済み／Task完了"'));
-  assert.ok(feedPage.includes("報告を採用しました。Taskは継続します。"));
+  assert.ok(feedPage.includes("報告を採りました。Taskは継続します。"));
   assert.ok(feedPage.includes("修正を依頼しました。Taskは継続します。"));
 });
 

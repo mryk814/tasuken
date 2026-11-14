@@ -176,7 +176,7 @@ export function AgentLogSyncPanel() {
               </p>
               {setup.pendingRecords > 0 && (
                 <p className="agent-log-sync-pending" role="note">
-                  以前の版で採用待ちのまま残った記録が {setup.pendingRecords}{" "}
+                  以前の版で未決のまま残った記録が {setup.pendingRecords}{" "}
                   件あります。次の「ログ同期」で読み直し、自分の会話は履歴へ入れ、subagentやレビュー用のthreadは取り下げます。
                 </p>
               )}
@@ -545,7 +545,7 @@ export function AgentWorkTimeline(
           <span>
             <StatusIcon session={session} />
             {STATUSES[session.status]}
-            {selectedProposal ? " · 採用待ち" : ""}
+            {selectedProposal ? " · 未決" : ""}
           </span>
           <Button aria-label="詳細を閉じる" onClick={closeDetail}>
             <IconX size={18} aria-hidden="true" />

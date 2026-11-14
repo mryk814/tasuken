@@ -220,7 +220,7 @@ await withApp(async (page) => {
   if (await habitRow(page).count()) {
     failures.push("削除したHabitがTodayに残っています。");
   }
-  const undo = page.locator(".toast button", { hasText: "元に戻す" }).first();
+  const undo = page.locator(".toast button", { hasText: "取り消す" }).first();
   if (!(await undo.count())) {
     failures.push("削除のUndoが出ていません。");
   } else {

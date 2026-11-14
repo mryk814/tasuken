@@ -142,7 +142,7 @@ export function KnowledgePage({ data, themes, openDrawer }: PageProps) {
           <span className="muted-text">{visibleNodes.length} / {nodes.length}件</span>
         </div>
         <div className="filter-bar knowledge-filter-bar">
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="タイトル・本文を検索" aria-label="Knowledge検索" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="タイトル・本文でさがす" aria-label="Knowledgeをさがす" />
           <ThemePickerSelect themes={themes} value={themeId} onChange={setThemeId} allowAll allowNone allLabel="全Theme" ariaLabel="Themeで絞り込む" />
           <select value={nodeType} onChange={(event) => setNodeType(event.target.value)} aria-label="Typeで絞り込む">
             <option value={ALL}>全Type</option>{NODE_TYPE_ORDER.map((type) => <option key={type} value={type}>{KNOWLEDGE_NODE_LABELS[type] || type}</option>)}

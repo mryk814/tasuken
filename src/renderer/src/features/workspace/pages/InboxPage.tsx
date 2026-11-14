@@ -331,7 +331,7 @@ export function InboxPage({
         },
         buildChangeEventOperation("capture_entry", entry.id, "updated", {}, entry, archived),
       ],
-      "付箋メモをアーカイブしました。",
+      "付箋メモを外しました。",
     );
   }
 
@@ -413,7 +413,7 @@ export function InboxPage({
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="付箋メモを検索"
+          placeholder="付箋メモをさがす"
         />
       </label>
       <section className="panel inbox-panel">
@@ -526,8 +526,8 @@ export function InboxPage({
                     <button
                       className="row-action-button"
                       onClick={() => void archiveEntry(memo)}
-                      aria-label="付箋メモをアーカイブ"
-                      title="アーカイブ"
+                      aria-label="付箋メモを外す"
+                      title="外す"
                     >
                       <IconArchive size={15} />
                     </button>

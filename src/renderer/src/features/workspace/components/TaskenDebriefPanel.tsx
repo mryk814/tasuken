@@ -142,9 +142,9 @@ export function TaskenDebriefPanel({
               : entry.status === "active"
                 ? "作業中"
                 : entry.taskId && entry.reviewStatus === "pending"
-                  ? "AI作業終了・採用待ち"
+                  ? "AI作業終了・未決"
                   : entry.taskId && entry.reviewStatus === "accepted"
-                    ? "採用済み"
+                    ? "採った"
                     : entry.proposal
                       ? "未確定の受信記録"
                       : "記録済み"}
@@ -220,7 +220,7 @@ export function TaskenDebriefPanel({
         </div>
         <p>
           MCPのTasken日報（daily-report）は当日分をまとめます。選択日分は依頼文をコピーして開始できます。
-          草稿の採用後、Notesで振り返りの回答を追記します。
+          草稿を採った後、Notesで振り返りの回答を追記します。
         </p>
         {reports.map((note) => (
           <Button key={note.id} onClick={() => openReport(note.id)}>

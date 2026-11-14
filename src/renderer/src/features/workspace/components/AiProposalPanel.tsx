@@ -793,7 +793,7 @@ export function ProposalDetail(props: ProposalDetailProps) {
         ],
         issuedAt: new Date().toISOString(),
       } as CommandEnvelope);
-      setToast("Work proposalを却下しました。", "success");
+      setToast("Work proposalを見送りました。", "success");
       afterDecision(active.id);
       return;
     }
@@ -822,11 +822,11 @@ export function ProposalDetail(props: ProposalDetailProps) {
           str(active.received_at || active.created_at || active.updated_at) ||
           new Date(0).toISOString(),
       } as CommandEnvelope);
-      setToast("Proposalを却下しました。", "success");
+      setToast("Proposalを見送りました。", "success");
       afterDecision(active.id);
     } catch (error) {
       setToast(
-        `Proposalを却下できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        `Proposalを見送れませんでした。${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -859,14 +859,14 @@ export function ProposalDetail(props: ProposalDetailProps) {
         await executeCommand(command);
         setToast(
           preview.candidates.some((candidate) => candidate.action !== "ignore")
-            ? "記録を採用しました。"
-            : "記録を却下しました。",
+            ? "記録を採りました。"
+            : "記録を見送りました。",
           "success",
         );
         afterDecision(active.id);
       } catch (error) {
         setToast(
-          `記録を採用できませんでした。${error instanceof Error ? error.message : String(error)}`,
+          `記録を採れませんでした。${error instanceof Error ? error.message : String(error)}`,
         );
       }
       return;
@@ -879,7 +879,7 @@ export function ProposalDetail(props: ProposalDetailProps) {
           return;
         }
         if (preview.candidates.filter((entry) => entry.action !== "ignore").length !== 1)
-          throw new Error("Work proposalは1件ずつ採用してください。");
+          throw new Error("Work proposalは1件ずつ採ってください。");
         const taskId = str(candidate.entry.task_id);
         const task = domain.tasks.find((entry) => entry.id === taskId);
         if (!task) throw new Error("対象Taskが見つかりません。Taskを再読み込みしてください。");
@@ -946,14 +946,14 @@ export function ProposalDetail(props: ProposalDetailProps) {
             expectedVersions: [{ type: taskEntityType, id: task.id, version: completedVersion }],
             issuedAt: new Date().toISOString(),
           } as CommandEnvelope);
-          setToast("作業報告を採用し、Taskを完了しました。", "success");
+          setToast("作業報告を採り、Taskを完了しました。", "success");
         } else {
-          setToast("作業報告を採用しました。", "success");
+          setToast("作業報告を採りました。", "success");
         }
         afterDecision(active.id);
       } catch (error) {
         setToast(
-          `Work proposalを採用できませんでした。${error instanceof Error ? error.message : String(error)}`,
+          `Work proposalを採れませんでした。${error instanceof Error ? error.message : String(error)}`,
         );
       }
       return;
@@ -1058,13 +1058,13 @@ export function ProposalDetail(props: ProposalDetailProps) {
           new Date(0).toISOString(),
       } as CommandEnvelope);
       setToast(
-        status === "rejected" ? "Proposalを却下しました。" : "Proposalを採用しました。",
+        status === "rejected" ? "Proposalを見送りました。" : "Proposalを採りました。",
         "success",
       );
       afterDecision(active.id);
     } catch (error) {
       setToast(
-        `Proposalを採用できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        `Proposalを採れませんでした。${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -1134,7 +1134,7 @@ export function ProposalDetail(props: ProposalDetailProps) {
           </ol>
           {coveredReports.length > 0 && (
             <p>
-              採用すると、同じ作業の過去報告{coveredReports.length}
+              採ると、同じ作業の過去報告{coveredReports.length}
               件をこの完了報告に集約して履歴に残します。
             </p>
           )}
@@ -1240,9 +1240,9 @@ export function ProposalDetail(props: ProposalDetailProps) {
                 )
               }
             >
-              <option value="create">採用する</option>
+              <option value="create">採る</option>
               {candidate.duplicate && <option value="merge">既存を更新</option>}
-              <option value="ignore">今回採用しない</option>
+              <option value="ignore">見送る</option>
             </select>
           )}
           {candidate.type === "note" && candidate.action === "create" && (
@@ -1303,7 +1303,7 @@ export function ProposalDetail(props: ProposalDetailProps) {
                         )
                       }
                     />
-                    この変更を採用
+                    この変更を採る
                   </span>
                   <pre>
                     {hunk.lines
@@ -1322,7 +1322,7 @@ export function ProposalDetail(props: ProposalDetailProps) {
       {active.status === "pending" && (
         <div className="form-actions">
           <ActionButton action="actionReject" onClick={() => void rejectProposal()}>
-            拒否
+            見送る
           </ActionButton>
           {/* 採る は本人の操作なので主操作色（えんじ）。「採って完了」が並ぶ時はそちらが主操作。 */}
           <ActionButton
@@ -1330,14 +1330,14 @@ export function ProposalDetail(props: ProposalDetailProps) {
             emphasis={activeWork && canCompleteActiveWork ? undefined : "primary"}
             onClick={() => void acceptProposal()}
           >
-            採用
+            採る
           </ActionButton>
           {activeWork && canCompleteActiveWork && (
             <ActionButton
               action="aiProposalAcceptAndComplete"
               onClick={() => void acceptProposal({ completeTask: true })}
             >
-              完了
+              採って完了
             </ActionButton>
           )}
         </div>
@@ -1515,9 +1515,9 @@ export function ProposalRisk({ proposal }: { proposal: BaseRecord }) {
 function proposalStatusLabel(proposal: BaseRecord): string {
   const labels: Record<string, string> = {
     pending: "確認待ち",
-    accepted: "採用済み",
-    partially_accepted: "一部採用",
-    rejected: "拒否済み",
+    accepted: "採った",
+    partially_accepted: "一部採った",
+    rejected: "見送った",
     quarantined: "隔離中",
   };
   return labels[str(proposal.status)] || str(proposal.status) || "処理済み";

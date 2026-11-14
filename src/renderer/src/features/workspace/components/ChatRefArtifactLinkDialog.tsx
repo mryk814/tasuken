@@ -134,8 +134,8 @@ export function ChatRefArtifactLinkDialog({
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="タイトル・URL・グループで検索"
-                aria-label="Chat Refを検索"
+                placeholder="タイトル・URL・グループでさがす"
+                aria-label="Chat Refをさがす"
               />
             )}
             {rankedResources.length ? (

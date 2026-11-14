@@ -179,8 +179,8 @@ export function ArtifactsPage({
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="ファイル名・元Entity・Themeで検索"
-          aria-label="Artifact を検索"
+          placeholder="ファイル名・元Entity・Themeでさがす"
+          aria-label="Artifact をさがす"
         />
         <ThemePickerSelect
           themes={themes}

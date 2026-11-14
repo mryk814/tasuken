@@ -277,7 +277,7 @@ export function ChatRefsPage({
   function toggleAdopted(r: Resource) {
     void saveEntities(
       buildSaveResourceOperations({ ...r, reference_status: isAdopted(r) ? "inbox" : "adopted" }),
-      isAdopted(r) ? "採用を解除しました。" : "採用にしました。",
+      isAdopted(r) ? "採るのをやめました。" : "採りました。",
     );
   }
 
@@ -453,7 +453,7 @@ export function ChatRefsPage({
     if (isChatArchived(resource)) return;
     void saveEntities(
       buildSaveResourceOperations(archiveChatResource(resource)),
-      "Archiveしました。通常一覧からは隠れます。",
+      "一覧から外しました。",
     );
   }
 
@@ -461,7 +461,7 @@ export function ChatRefsPage({
     if (!isChatArchived(resource)) return;
     void saveEntities(
       buildSaveResourceOperations(restoreChatResource(resource)),
-      "Archiveを解除し、元のグループへ戻しました。",
+      "一覧に戻しました。",
     );
   }
 
@@ -470,11 +470,11 @@ export function ChatRefsPage({
     if (!targets.length) return;
     if (
       !window.confirm(
-        `「${group.label}」の${targets.length}件をArchiveします。削除ではなく保管です。続けますか？`,
+        `「${group.label}」の${targets.length}件を一覧から外します。削除ではなく保管です。続けますか？`,
       )
     )
       return;
-    saveGroupResources(archiveChatResources(targets), `「${group.label}」をArchiveしました。`);
+    saveGroupResources(archiveChatResources(targets), `「${group.label}」を一覧から外しました。`);
   }
 
   function restoreGroup(group: ChatRefGroup) {
@@ -486,10 +486,7 @@ export function ChatRefsPage({
       )
     )
       return;
-    saveGroupResources(
-      restoreChatResources(targets),
-      `「${group.label}」のArchiveを解除しました。`,
-    );
+    saveGroupResources(restoreChatResources(targets), `「${group.label}」を一覧に戻しました。`);
   }
 
   function clearDragState() {
@@ -505,7 +502,7 @@ export function ChatRefsPage({
     const items: ContextMenuItem[] = [
       { label: "編集する", onSelect: () => openChatResource(resource) },
       {
-        label: isAdopted(resource) ? "採用を解除" : "採用にする",
+        label: isAdopted(resource) ? "採らない" : "採る",
         onSelect: () => toggleAdopted(resource),
       },
       { label: "タイトルをコピー", onSelect: () => workspaceApi.copyText(str(resource.title)) },
@@ -518,8 +515,8 @@ export function ChatRefsPage({
     }
     items.push(
       archived
-        ? { label: "Archiveを解除", onSelect: () => restoreChatLink(resource) }
-        : { label: "Archiveする", onSelect: () => archiveChatLink(resource) },
+        ? { label: "一覧に戻す", onSelect: () => restoreChatLink(resource) }
+        : { label: "一覧から外す", onSelect: () => archiveChatLink(resource) },
     );
     // 削除はドロワーの Danger Zone のみ（一覧アイコン・メニューからは出さない）
     setContextMenu({ x: event.clientX, y: event.clientY, items });
@@ -631,7 +628,7 @@ export function ChatRefsPage({
         route="chat-refs"
         info={
           isArchiveView
-            ? "Archiveしたチャットリンクを確認し、必要なら元のグループへ戻します。"
+            ? "外したチャットリンクを確認し、必要なら元のグループへ戻します。"
             : undefined
         }
       >
@@ -686,7 +683,7 @@ export function ChatRefsPage({
             className={isArchiveView ? "is-active" : ""}
             onClick={() => updatePrefs({ listMode: "archive" })}
           >
-            Archive
+            外したもの
             {archivedCount > 0 ? ` ${archivedCount}` : ""}
           </button>
         </div>
@@ -702,7 +699,7 @@ export function ChatRefsPage({
           data-search
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="タイトル、グループ、URLを検索"
+          placeholder="タイトル、グループ、URLでさがす"
         />
         {!isArchiveView && query.trim() && (
           <label className="chat-ref-search-option">
@@ -711,7 +708,7 @@ export function ChatRefsPage({
               checked={includeArchivedInSearch}
               onChange={(event) => updatePrefs({ includeArchivedInSearch: event.target.checked })}
             />
-            Archiveも含める
+            外したものも含める
           </label>
         )}
         <select
@@ -720,7 +717,7 @@ export function ChatRefsPage({
           aria-label="参照状態で絞り込み"
         >
           <option value="all">すべて</option>
-          <option value="adopted">採用のみ</option>
+          <option value="adopted">採ったものだけ</option>
           <option value="inbox">未整理のみ</option>
         </select>
         <select
@@ -800,7 +797,7 @@ export function ChatRefsPage({
 
         <div className="panel chat-ref-column link-column">
           <div className="section-heading">
-            <h2>{isArchiveView ? "Archive" : "会話"}</h2>
+            <h2>{isArchiveView ? "外したもの" : "会話"}</h2>
             <span>{visibleResources.length}件</span>
           </div>
           <div className="chat-link-list">
@@ -886,8 +883,8 @@ export function ChatRefsPage({
                           <button
                             className="chat-group-archive"
                             onClick={() => archiveGroup(group)}
-                            aria-label={`${group.label}をまとめてArchive`}
-                            title="グループをArchive（削除ではなく保管）"
+                            aria-label={`${group.label}をまとめて一覧から外す`}
+                            title="グループを一覧から外す（削除ではなく保管）"
                           >
                             <IconArchive size={14} />
                           </button>
@@ -926,8 +923,8 @@ export function ChatRefsPage({
                           <button
                             className="chat-group-restore"
                             onClick={() => restoreGroup(group)}
-                            aria-label={`${group.label}のArchiveをまとめて解除`}
-                            title="グループのArchiveを解除"
+                            aria-label={`${group.label}をまとめて一覧に戻す`}
+                            title="グループを一覧に戻す"
                           >
                             <IconArchiveOff size={14} />
                           </button>
@@ -1042,7 +1039,7 @@ export function ChatRefsPage({
                             event.stopPropagation();
                             toggleAdopted(r);
                           }}
-                          aria-label={isAdopted(r) ? "採用を解除" : "採用にする"}
+                          aria-label={isAdopted(r) ? "採らない" : "採る"}
                         >
                           {isAdopted(r) ? <IconStarFilled size={16} /> : <IconStar size={16} />}
                         </button>
@@ -1058,7 +1055,7 @@ export function ChatRefsPage({
                           {r.title || "無題"}
                           {(archived || threadLabels.length > 0) && (
                             <span className="chat-link-meta">
-                              {archived && <small className="chat-thread-meta">Archive</small>}
+                              {archived && <small className="chat-thread-meta">外した</small>}
                               {threadLabels.map((label) => (
                                 <small className="chat-thread-meta" key={label}>
                                   {label}
@@ -1122,8 +1119,8 @@ export function ChatRefsPage({
                               event.stopPropagation();
                               restoreChatLink(r);
                             }}
-                            aria-label={`${r.title || "チャットリンク"}のArchiveを解除`}
-                            title="Archiveを解除"
+                            aria-label={`${r.title || "チャットリンク"}を一覧に戻す`}
+                            title="一覧に戻す"
                           >
                             <IconArchiveOff size={15} />
                           </button>
@@ -1134,8 +1131,8 @@ export function ChatRefsPage({
                               event.stopPropagation();
                               archiveChatLink(r);
                             }}
-                            aria-label={`${r.title || "チャットリンク"}をArchive`}
-                            title="Archive（削除ではなく保管）"
+                            aria-label={`${r.title || "チャットリンク"}を一覧から外す`}
+                            title="一覧から外す（削除ではなく保管）"
                           >
                             <IconArchive size={15} />
                           </button>
@@ -1147,7 +1144,7 @@ export function ChatRefsPage({
             ))}
             {!visibleResources.length &&
               (isArchiveView ? (
-                <EmptyState title="Archiveはまだありません" />
+                <EmptyState title="外したものはまだありません" />
               ) : (
                 <EmptyState
                   title="チャット参照がありません"

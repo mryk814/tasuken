@@ -712,7 +712,7 @@ test("Notesのtoolbarがpage / document / editor / outputへ分かれる（#331�
     source,
     /<ToolbarMenu\s+label="出力"\s+title="書き出しと保存先"\s+items=\{outputMenuItems\}\s*\/>/,
   );
-  assert.match(source, /aria-label="本文を検索・置換"/);
+  assert.match(source, /aria-label="本文をさがして置き換える"/);
 
   // 低頻度actionは同格buttonとして並べない。
   for (const removed of [

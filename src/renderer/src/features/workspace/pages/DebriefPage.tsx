@@ -87,7 +87,7 @@ export function DebriefPage(props: PageProps) {
             ))}
           </div>
         ) : (
-          <p className="debrief-history-empty">採用した日報がここに並びます。</p>
+          <p className="debrief-history-empty">採った日報がここに並びます。</p>
         )}
       </section>
     </div>

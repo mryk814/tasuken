@@ -1528,7 +1528,7 @@ export function FeedPage(props: PageProps) {
           changes?: Array<{ type?: string; entity?: { id?: string; version?: number } }>;
         } | null;
         if (!withCompletion) {
-          setToast("報告を採用しました。Taskは継続します。", "success");
+          setToast("報告を採りました。Taskは継続します。", "success");
           setSelectedNeedsId(null);
           return;
         }
@@ -1550,11 +1550,11 @@ export function FeedPage(props: PageProps) {
           expectedVersions: [{ type: "task", id: item.taskId, version: nextVersion }],
           issuedAt: new Date().toISOString(),
         } as never);
-        setToast("報告を採用し、Taskを完了しました。", "success");
+        setToast("報告を採り、Taskを完了しました。", "success");
         setSelectedNeedsId(null);
       } catch (error) {
         setToast(
-          `報告を採用できませんでした。${error instanceof Error ? error.message : String(error)} 既に採用済みの場合は、Task完了だけを再試行できます。`,
+          `報告を採れませんでした。${error instanceof Error ? error.message : String(error)} 既に採っている場合は、Task完了だけを再試行できます。`,
           "danger",
         );
       } finally {
@@ -1676,7 +1676,7 @@ export function FeedPage(props: PageProps) {
               disabled={busy}
               onClick={() => void acceptReport(item, completeTask)}
             >
-              {busy ? "処理中" : completeTask ? "採用してTaskを完了" : "報告を採用"}
+              {busy ? "処理中" : completeTask ? "採って完了" : "採って続ける"}
             </Button>
             <Button variant="ghost" disabled={busy} onClick={() => openTaskDrawer(item)}>
               Taskを開く

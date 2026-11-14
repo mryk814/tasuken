@@ -139,14 +139,14 @@ function eventTitle(event: StructuredActivityEvent, ref: { id?: string }, entity
   if (event.event_kind === "task_ai_work" && current) {
     const review =
       event.metadata?.review_status === "pending"
-        ? "採用待ち"
+        ? "未決"
         : event.metadata?.review_status === "accepted"
-          ? "採用済み"
+          ? "採った"
           : "記録済み";
     return `${current} · ${review}${event.metadata?.task_state === "done" ? "・完了" : ""}`;
   }
   if (current && event.event_kind === "task_completed") return `${current} · 完了`;
-  if (current && event.metadata?.work_action === "accepted") return `${current} · 完了報告を採用`;
+  if (current && event.metadata?.work_action === "accepted") return `${current} · 完了報告を採った`;
   if (current && event.metadata?.work_action === "started") return `${current} · 作業開始`;
   if (current && event.metadata?.work_action === "reported") return `${current} · 作業終了報告`;
   if (current) return current;
@@ -584,7 +584,7 @@ export function ActivityLogPanel({
         id: work.id,
         occurred_at: interval.start_at,
         event_kind: "task_ai_work",
-        summary: `${work.title} · ${work.summary} · ${work.review_status === "pending" ? "採用待ち" : work.review_status === "accepted" ? "採用済み" : "記録済み"}`,
+        summary: `${work.title} · ${work.summary} · ${work.review_status === "pending" ? "未決" : work.review_status === "accepted" ? "採った" : "記録済み"}`,
         entity_ref: { type: "task", id: work.task_id },
         theme_ref: task?.project_id ? { kind: "theme", id: task.project_id } : { kind: "none" },
         actor: { kind: "ai_agent", id: work.executor_label },

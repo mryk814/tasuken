@@ -235,7 +235,7 @@ export async function runTaskBoardAudit(WorkspaceDatabase) {
     await page.screenshot({ path: `${output}/review-ready.png` });
     await page
       .locator(".task-conversation")
-      .getByRole("button", { name: "報告を採用", exact: true })
+      .getByRole("button", { name: "採って続ける", exact: true })
       .click();
     await page.waitForTimeout(700);
     assert.match(await page.locator(".task-conversation").innerText(), /Taskは継続/);

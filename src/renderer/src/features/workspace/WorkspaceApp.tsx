@@ -1687,7 +1687,7 @@ export function WorkspaceApp() {
           ? `\n未完了/待ち/メモ/資料など関連する項目が${relatedCount}件あります。`
           : "";
       const ok = confirm(
-        `「${name}」を削除しますか？${detail}\n削除後も「元に戻す」から復元できます。`,
+        `「${name}」を削除しますか？${detail}\n削除後も「取り消す」から復元できます。`,
       );
       if (!ok) return;
     }
@@ -2678,7 +2678,7 @@ export function WorkspaceApp() {
                   {toastUndo.label}
                 </button>
               ) : (
-                lastDeleted.current && <button onClick={undoDelete}>元に戻す</button>
+                lastDeleted.current && <button onClick={undoDelete}>取り消す</button>
               )}
               <button onClick={() => setToast("")}>閉じる</button>
             </div>

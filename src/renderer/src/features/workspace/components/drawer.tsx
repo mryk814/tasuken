@@ -290,7 +290,9 @@ function TaskConversationPanel({
     >
       <h3>課題のやり取り</h3>
       <strong>{taskNextTurn(task, model)}</strong>
-      <p className="field-help">Task状態とAI報告の確認は別です。報告採用後もTaskは継続します。</p>
+      <p className="field-help">
+        Task状態とAI報告の確認は別です。報告を採った後もTaskは継続します。
+      </p>
       {(task.handoff_instruction || task.handoff_expected_result) && (
         <article>
           <strong>依頼</strong>
@@ -379,11 +381,11 @@ function TaskConversationPanel({
                                 receiptId: item.sourceRef.id,
                                 completeTask: false,
                               }),
-                        "報告を採用しました。Taskは継続します。",
+                        "報告を採りました。Taskは継続します。",
                       )
                     }
                   >
-                    報告を採用
+                    採って続ける
                   </button>
                   <button
                     type="button"
@@ -452,7 +454,7 @@ function TaskConversationPanel({
             <small>
               {" "}
               {report.isCurrentAttempt ? "現在の作業" : "過去の作業"} ·{" "}
-              {report.proposalStatus === "pending" ? "未採用" : "記録"}
+              {report.proposalStatus === "pending" ? "未決" : "記録"}
             </small>
             <p>{report.summary}</p>
             <time>{report.receivedAt || report.reportedAt}</time>
@@ -537,7 +539,7 @@ function TaskConversationPanel({
 const CHAT_REFERENCE_STATUSES = ["inbox", "adopted"];
 const CHAT_REFERENCE_STATUS_LABELS: Record<string, string> = {
   inbox: "未整理",
-  adopted: "採用",
+  adopted: "採った",
 };
 const normalizeReferenceStatus = (value: unknown) =>
   str(value) === "adopted" ? "adopted" : "inbox";
@@ -1092,7 +1094,7 @@ export function EntityDrawer({
                 CHAT_REFERENCE_STATUS_LABELS[normalizeReferenceStatus(entity.reference_status)]
               }
             />
-            {Boolean(entity.archived_at) && <StatusBadge value="paused" label="Archive" />}
+            {Boolean(entity.archived_at) && <StatusBadge value="paused" label="外した" />}
           </div>
         )}
         <h2>{str(entity.title)}</h2>
@@ -1110,7 +1112,7 @@ export function EntityDrawer({
               <dd>{str(entity.chat_group) || "未分類"}</dd>
               {Boolean(entity.archived_at) && (
                 <>
-                  <dt>Archive</dt>
+                  <dt>外した</dt>
                   <dd>保管中（削除・グループ解除とは別）</dd>
                 </>
               )}

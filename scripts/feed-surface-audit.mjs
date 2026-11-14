@@ -642,16 +642,16 @@ async function auditFixtures(app, page) {
     failures.push(`報告の確認の読み順が違います（${reviewLabels.join(",")}）。`);
   }
   const reviewText = (await review.innerText()).replace(/\s+/g, " ");
-  for (const label of ["報告を採用", "Taskも完了する", "修正を依頼"]) {
+  for (const label of ["採って続ける", "Taskも完了する", "修正を依頼"]) {
     if (!reviewText.includes(label)) failures.push(`報告の確認に「${label}」がありません。`);
   }
   await page.screenshot({ path: `${OUT_DIR}/review-open.png`, fullPage: true });
 
   // 13. 報告だけを採用する。Taskは完了させない（採用と完了は別のCommand）。
-  await review.locator("button", { hasText: "報告を採用" }).first().click();
+  await review.locator("button", { hasText: "採って続ける" }).first().click();
   await page.waitForTimeout(2000);
   const acceptToast = (await page.locator(".toast").first().innerText()).replace(/\s+/g, " ");
-  if (!acceptToast.includes("報告を採用しました")) {
+  if (!acceptToast.includes("報告を採りました")) {
     failures.push(`報告を採用した結果が読めません（${acceptToast}）。`);
   }
   const afterAccept = await feedBadge(page);
@@ -668,7 +668,7 @@ async function auditFixtures(app, page) {
     return;
   }
   const rejectButton = noteProposalRow
-    .locator(".feed-needs-detail .proposal-inline-preview button", { hasText: "拒否" })
+    .locator(".feed-needs-detail .proposal-inline-preview button", { hasText: "見送る" })
     .first();
   if (!(await rejectButton.count())) {
     failures.push("変更案を却下する操作が投稿の詳細にありません。");
@@ -1168,7 +1168,7 @@ async function auditLiveRestart(page) {
   await page.screenshot({ path: `${OUT_DIR}/live-note-missing.png`, fullPage: true });
 
   // 「元に戻す」は同じIDのNoteを戻すので、同じ参照からまた読める。
-  const undo = page.locator(".toast button", { hasText: "元に戻す" }).first();
+  const undo = page.locator(".toast button", { hasText: "取り消す" }).first();
   if (!(await undo.count())) {
     failures.push("Noteの削除を元に戻す導線が出ていません。");
     return;
@@ -1501,7 +1501,7 @@ async function auditNoteReference(page) {
   }
   await page.screenshot({ path: `${OUT_DIR}/note-ref-missing.png`, fullPage: true });
 
-  const undo = page.locator(".toast button", { hasText: "元に戻す" }).first();
+  const undo = page.locator(".toast button", { hasText: "取り消す" }).first();
   if (!(await undo.count())) {
     failures.push("Noteの削除を元に戻す導線が出ていません。");
     return;

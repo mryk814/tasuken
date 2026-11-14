@@ -116,12 +116,12 @@ async function acceptSelectedNeedsItem(page) {
   const detail = page.locator(".feed-needs-detail");
   const review = detail.locator(".feed-review");
   if (await review.count()) {
-    await review.getByRole("button", { name: "報告を採用", exact: true }).click();
+    await review.getByRole("button", { name: "採って続ける", exact: true }).click();
     return;
   }
   await detail
     .locator(".proposal-inline-preview")
-    .getByRole("button", { name: "採用", exact: true })
+    .getByRole("button", { name: "採る", exact: true })
     .click();
 }
 
@@ -132,7 +132,7 @@ async function waitForWorkProposalDecision(page) {
         return { status: "accepted" };
       }
       const message = document.querySelector(".toast-message")?.textContent?.trim() || "";
-      return message.includes("Work proposalを採用できませんでした")
+      return message.includes("Work proposalを採れませんでした")
         ? { status: "error", message }
         : false;
     },
@@ -272,9 +272,9 @@ try {
   await openProposalConfirmation(page);
   await openFirstNeedsRow(page);
   assert.match(await page.locator(".proposal-inline-preview").innerText(), new RegExp(title));
-  await page.getByRole("button", { name: "採用", exact: true }).click();
+  await page.getByRole("button", { name: "採る", exact: true }).click();
   await waitForPendingCount(page, 0);
-  assert.doesNotMatch(await bodyText(page), /Proposalを採用できませんでした/);
+  assert.doesNotMatch(await bodyText(page), /Proposalを採れませんでした/);
 
   await openNavigation(page, "ノート");
   await page.getByText(title, { exact: true }).first().waitFor();
@@ -477,7 +477,7 @@ try {
   await openFirstNeedsRow(page);
   await page
     .locator(".proposal-inline-preview")
-    .getByRole("button", { name: "拒否", exact: true })
+    .getByRole("button", { name: "見送る", exact: true })
     .click();
   await waitForPendingCount(page, 0);
 

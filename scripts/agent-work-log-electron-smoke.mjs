@@ -54,8 +54,8 @@ async function importFixture(name, extension = "json") {
   await dialog.waitFor({ state: "detached" });
   console.log(`queued ${name}`);
   const detail = panel().getByRole("complementary", { name: "選択Sessionの詳細", exact: true });
-  await detail.getByRole("button", { name: "採用", exact: true }).click();
-  await detail.getByRole("button", { name: "採用", exact: true }).waitFor({ state: "detached" });
+  await detail.getByRole("button", { name: "採る", exact: true }).click();
+  await detail.getByRole("button", { name: "採る", exact: true }).waitFor({ state: "detached" });
   console.log(`accepted ${name}`);
 }
 try {
@@ -318,7 +318,7 @@ try {
       path.join(output, "failure-layout.json"),
       JSON.stringify(
         await page
-          .locator('[aria-label="採用"]')
+          .locator('[aria-label="採る"]')
           .evaluateAll((elements) =>
             elements.map((element) => {
               const ancestors = [];

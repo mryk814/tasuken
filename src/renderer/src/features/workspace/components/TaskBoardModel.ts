@@ -62,7 +62,7 @@ export function moveBoardTask(
     task.intended_executor === "ai_agent" &&
     task.work_state !== "accepted"
   ) {
-    throw new Error("AIの報告を採用してから完了にしてください。");
+    throw new Error("AIの報告を採ってから完了にしてください。");
   }
   if (beforeId === taskId) return [];
   const column = sortBoardRows(rows.filter((row) => row.task.state === state)).map(

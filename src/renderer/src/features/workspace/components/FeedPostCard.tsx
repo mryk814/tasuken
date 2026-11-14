@@ -248,8 +248,8 @@ export function FeedPostCard({
               {noteMissing ? (
                 <p className="feed-attachment-missing">
                   {post.draft
-                    ? "元のNoteを「元に戻す」と、この参照からまた読めます。草稿の本文は残っています。"
-                    : "元のNoteを「元に戻す」と、この参照からまた読めます。"}
+                    ? "元のNoteを戻すと、この参照からまた読めます。草稿の本文は残っています。"
+                    : "元のNoteを戻すと、この参照からまた読めます。"}
                 </p>
               ) : null}
               {article.figureLabel ? (

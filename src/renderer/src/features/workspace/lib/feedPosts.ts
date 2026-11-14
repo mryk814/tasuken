@@ -306,7 +306,7 @@ export const FEED_POSTS: readonly FeedPost[] = [
     attachment: {
       kind: "note_draft",
       title: "不確かさを記録に残す手順",
-      intro: "記事の草稿（採用前）",
+      intro: "記事の草稿（採る前）",
       figureLabel: null,
       refLabel: "高分子材料評価",
       articleBody: [
@@ -702,7 +702,7 @@ export function buildPostsFromProposals(input: {
       ? {
           kind: "note_draft" as const,
           title: text(article.title),
-          intro: "記事の草稿（採用前）",
+          intro: "記事の草稿（採る前）",
           figureLabel: text(post.attachment_label) || null,
           refLabel: themeId ? (themeNames.get(themeId) ?? themeId) : "Tasken",
           articleBody,

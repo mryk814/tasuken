@@ -252,7 +252,7 @@ export function DailyScratchpadDialog({
           <aside className="scratchpad-history">
             <label className="scratchpad-search">
               <IconSearch size={15} />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="過去の紙を検索" />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="過去の紙をさがす" />
             </label>
             <div className="scratchpad-date-list">
               {filteredPads.slice(0, LIST_LIMIT).map((record: BaseRecord) => {

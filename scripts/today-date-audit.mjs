@@ -171,11 +171,11 @@ try {
   const toastText = (await toast.count()) ? await toast.innerText() : "";
   if (!toastText.includes("締切"))
     failures.push(`締切が変わっていないことを説明していません: ${toastText}`);
-  if (!toastText.includes("元に戻す")) failures.push("Undoがトーストにありません。");
+  if (!toastText.includes("取り消す")) failures.push("Undoがトーストにありません。");
   await page.screenshot({ path: `${OUT_DIR}/today-after-change.png`, fullPage: true });
 
   // 7. Undoで扱う日が元に戻る。締切は最初から動いていない。
-  await toast.locator("button", { hasText: "元に戻す" }).first().click();
+  await toast.locator("button", { hasText: "取り消す" }).first().click();
   await page.waitForTimeout(1500);
   const undoneJoined = (
     await page.locator(".today-task-list .today-task-row").allInnerTexts()

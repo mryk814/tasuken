@@ -1138,7 +1138,7 @@ export function TodayPage({
       "today_window",
     );
     setToast(message, "success", {
-      label: "元に戻す",
+      label: "取り消す",
       run: async () => {
         /*
          * 取り消しは保存後に押される。保存前の saveEntities は古い版を持つため、

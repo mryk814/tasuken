@@ -548,7 +548,7 @@ test("付箋を閉じる・アーカイブ・削除を別の操作として区�
 
   // 付箋ウィンドウ側: ×は閉じるだけ、アーカイブと削除はメニューへ。
   assert.match(stickyHtml, /aria-label="メモの操作"/);
-  assert.match(stickyHtml, /role="menuitem" id="archive">アーカイブ</);
+  assert.match(stickyHtml, /role="menuitem" id="archive">外す</);
   assert.match(stickyHtml, /role="menuitem" id="delete" class="danger">メモを削除</);
   // 削除は取り消せないので確認する。閉じる操作には確認を出さない。
   assert.match(stickyHtml, /window\.confirm\("このメモを削除しますか。/);
@@ -556,7 +556,7 @@ test("付箋を閉じる・アーカイブ・削除を別の操作として区�
   assert.match(memoStickySource, /ipcMain\.handle\(IPC\.memoStickyDelete/);
 
   // Inbox側: アーカイブと削除を別ボタンで並べる。
-  assert.match(inboxSource, /aria-label="付箋メモをアーカイブ"/);
+  assert.match(inboxSource, /aria-label="付箋メモを外す"/);
   assert.match(inboxSource, /aria-label="付箋メモを削除"/);
   // 収納は表示をやめるだけで、付箋対象からもMemoからも外さない（#377）。
   assert.match(inboxSource, /allTargetStickiesVisible \? "対象を収納" : "対象を表示"/);

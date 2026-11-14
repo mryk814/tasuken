@@ -2531,7 +2531,7 @@ export function NotesPage({
           data-search
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="タイトル、本文、URLを検索"
+          placeholder="タイトル、本文、URLでさがす"
         />
         <div className="segmented" aria-label="表示する種類">
           {[
@@ -2909,8 +2909,8 @@ export function NotesPage({
                       setSearchOpen(true);
                       window.requestAnimationFrame(() => searchInputRef.current?.focus());
                     }}
-                    aria-label="本文を検索・置換"
-                    title="本文を検索・置換（Ctrl+F）"
+                    aria-label="本文をさがして置き換える"
+                    title="本文をさがして置き換える（Ctrl+F）"
                   >
                     <IconSearch size={15} stroke={1.8} aria-hidden="true" />
                   </Button>
@@ -3029,7 +3029,7 @@ export function NotesPage({
                 <div
                   className="markdown-search-bar"
                   role="search"
-                  aria-label="Markdown本文を検索・置換"
+                  aria-label="Markdown本文をさがして置き換える"
                 >
                   <div className="markdown-search-row">
                     <input
@@ -3046,8 +3046,8 @@ export function NotesPage({
                         }
                         if (event.key === "Escape") closeMarkdownSearch();
                       }}
-                      placeholder="本文を検索"
-                      aria-label="本文を検索"
+                      placeholder="本文をさがす"
+                      aria-label="本文をさがす"
                     />
                     <span className="markdown-search-count" aria-live="polite">
                       {searchMatches.length

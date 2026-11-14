@@ -119,7 +119,7 @@ try {
   await toolbar.getByRole("button", { name: "図形", exact: true }).click();
   await selection.getByRole("button", { name: "削除", exact: true }).click();
   await expectObjects(2);
-  await toolbar.getByRole("button", { name: "元に戻す", exact: true }).click();
+  await toolbar.getByRole("button", { name: "取り消す", exact: true }).click();
   await expectObjects(3);
   await canvas.focus();
   await page.keyboard.press("Escape");

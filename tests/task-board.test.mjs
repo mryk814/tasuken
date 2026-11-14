@@ -142,7 +142,7 @@ test("未採用AI Taskの完了を拒否し、完了列内の並べ替えは完�
   const ai = boardRow("ai");
   ai.task.intended_executor = "ai_agent";
   ai.task.work_state = "working";
-  assert.throws(() => moveBoardTask([ai], "ai", "done"), /報告.*採用/);
+  assert.throws(() => moveBoardTask([ai], "ai", "done"), /報告.*採って/);
   const completed = { ...boardRow("done", "done", 0).task, completed_at: "2026-10-07T12:00:00Z" };
   const updates = moveBoardTask(
     [{ task: completed }, boardRow("first", "done", 1)],

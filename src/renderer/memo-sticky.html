@@ -127,7 +127,7 @@
             <button type="button" role="menuitemcheckbox" id="always-on-top" aria-checked="false">常に手前に表示</button>
             <button type="button" role="menuitem" id="copy">全文をコピー</button>
             <button type="button" role="menuitem" id="open-main">Taskenで開く</button>
-            <button type="button" role="menuitem" id="archive">アーカイブ</button>
+            <button type="button" role="menuitem" id="archive">外す</button>
             <button type="button" role="menuitem" id="delete" class="danger">メモを削除</button>
           </span>
         </span>
@@ -403,7 +403,7 @@
         setMenuOpen(false);
         if (!await coordinator.flush()) return;
         const done = await api.archive();
-        if (!done) setState("アーカイブできません。保存エラーを解消してから再試行してください。", "is-error");
+        if (!done) setState("外せません。保存エラーを解消してから再試行してください。", "is-error");
       });
       document.querySelector("#delete").addEventListener("click", async () => {
         setMenuOpen(false);

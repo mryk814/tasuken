@@ -124,7 +124,7 @@ function shapeFor(item: AttentionItem): KindShape {
       state: "review",
       stateLabel: "成果確認",
       actions: [{ id: "review_report", label: "成果を確認", role: "primary" }, DEFER],
-      reasonShown: "agentの成果報告が未処理です。採用するかどうかは人が決めます。",
+      reasonShown: "agentの成果報告が未処理です。採るかどうかは人が決めます。",
     };
   }
   return {
@@ -134,7 +134,7 @@ function shapeFor(item: AttentionItem): KindShape {
     // 生成ラベル（AI提案）と重ねない。DesktopのAgent Deskと同じ「変更案」を使う。
     stateLabel: "変更案",
     actions: [{ id: "view_proposal", label: "提案を見る", role: "primary" }, DISMISS],
-    reasonShown: "AIからの変更案が未処理です。採用するまで正式データは変わりません。",
+    reasonShown: "AIからの変更案が未処理です。採るまで正式データは変わりません。",
   };
 }
 
@@ -219,8 +219,8 @@ function confirmationRow(
     // 事実の記録であってAIの提案ではない。生成ラベルは付けない。
     generated: null,
     reasonShown: isProgress
-      ? "進捗の追記です。採用も却下もまだ決まっていません。"
-      : "回答済みです。報告の採用はまだ決まっていません。",
+      ? "進捗の追記です。採るか見送るかはまだ決まっていません。"
+      : "回答済みです。報告を採るかはまだ決まっていません。",
     pathLabel: pathLabel(item.themeName ?? themeName, item.taskTitle),
     sourceLabel: null,
     sourceId: item.sourceId,

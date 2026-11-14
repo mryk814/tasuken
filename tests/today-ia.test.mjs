@@ -60,7 +60,7 @@ test("扱う日のメニューは5つの選択肢とUndoを持つ（#454）", ()
   for (const label of ["今日", "明日", "来週（", "日付を選ぶ", "今日の選択を外す"]) {
     assert.ok(todayPageSource.includes(label), `扱う日のメニューに ${label} がない`);
   }
-  assert.match(todayPageSource, /label: "元に戻す"/);
+  assert.match(todayPageSource, /label: "取り消す"/);
 });
 
 test("Todayは期限の確認セクションを持たず、予定終了が当日のTaskは今日やることに残る（#454）", () => {
@@ -137,7 +137,10 @@ test("Todayは日付範囲の意味ごとに扱いを分ける（#309）", () =>
   // 期間内に一度やるTaskと、継続中Taskを別のセクションで見せる。
   assert.match(todayPageSource, /<h2>期間内に対応<\/h2>/);
   assert.match(todayPageSource, /<h2>継続中<\/h2>/);
-  const projectionSource = readFileSync("src/renderer/src/features/workspace/lib/dailyPlanning.ts", "utf8");
+  const projectionSource = readFileSync(
+    "src/renderer/src/features/workspace/lib/dailyPlanning.ts",
+    "utf8",
+  );
   assert.match(projectionSource, /buildExecutionWindowTaskView/);
   assert.match(projectionSource, /buildOngoingPeriodTaskView/);
 
