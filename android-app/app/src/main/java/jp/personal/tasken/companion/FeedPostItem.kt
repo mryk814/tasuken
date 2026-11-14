@@ -334,7 +334,8 @@ private fun FeedReplyItem(reply: MobileFeedReplyDto) {
                     Text(
                         "送信待ち",
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.tertiary,
+                        // 小さな文字なので、線と印の色（tertiary。地の上で 3.6）でなく文字の濃さ（5.5）を使う。
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
                         modifier = Modifier.testTag("feed-reply-pending-${reply.replyId}"),
                     )
                 }
