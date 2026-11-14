@@ -4,7 +4,10 @@ import path from "node:path";
 
 import { app } from "electron";
 
-import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
+import {
+  WorkspaceDatabase,
+  workspaceSchemaVersion,
+} from "../src/main/repositories/workspaceRepository.mjs";
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "research-desk-model-test-"));
 
@@ -154,7 +157,7 @@ try {
   };
   const passed = Object.entries(result).every(([key, value]) =>
     key === "schemaVersion"
-      ? value === 1
+      ? value === workspaceSchemaVersion
       : key.includes("Revisions")
         ? value === 1
         : value === true,

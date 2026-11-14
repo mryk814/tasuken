@@ -28,6 +28,14 @@
 - 再発防止: 固定の秒数の待ちが重さに弱い形は、上の記録と同じく #748（読み込みの完了を待つ形に変える）で直す。記録だけ。
 - 追記（同じ日、束1 の smoke の守りを戻す作業、CPU 90〜96%、別の worktree が全試験を流し続けていた）: 30 秒にしても `sticky memo smoke load timeout` で3回続けて落ち、4回目は手前の `Notes page が見つかりません` で落ちた。読み込みの出来事を一時的に記録して流した回は、`did-navigate` が 3.4 秒、`dom-ready` が 3.5 秒で `did-finish-load` も届き、全部通った。出来事の取りこぼしではなく、重さで読み込みそのものが遅れていると見ている。同じ source のまま流し直すと通る。直しは引き続き #748。
 
+## 2026-11-14 設定の欄の中に置いた対話が崩れ、preload の新しい名前空間と試験の抑止で監査が落ちた
+
+- しようとしたこと: #752 で、設定の「控えと復元」の欄（`.settings-form`）の中に「控えから戻す」の対話（`<dialog>`）を置き、preload に `api.backups` を足し、戻す訓練の試験で `WorkspaceDatabase` を直に作る。
+- 起きたこと: (1) 対話の中の選択肢が、丸印・日時・大きさが縦に割れて並んだ。型と試験は通り、画面を撮って気づいた。(2) `audit:architecture --enforce core-mcp` が `capability.surface_expansion`（`api.backups`）と `compatibility.consumer_added`（試験）で止めた。(3) 抑止を足すと、`tests/architecture-audit.test.mjs` が固定している指摘の数と一覧が合わなくなり、全試験でそれだけ落ちた。
+- 原因: (1) `.settings-form label` が 180px と残りの 2 列の grid で、欄の中の label 全部に効く。(2) preload の面は基準に無い名前空間を足すと止まる。抑止の前例は無い。(3) 抑止の数と一覧は試験で固定してある。
+- 直し方: (1) 対話を欄の外（ページの根）へ出した。(2) 控えの操作は、自動バックアップと同じ `api.snapshots` に置いた。試験は前例と同じ形の抑止を足し、Task を直に保存するのをやめた（`generic-task-write` に数えられる）。(3) 試験の数と一覧に 1 件足した。
+- 再発防止: (1) は置いた所にコメントを書いた。(2)(3) は ci が止めるので記録だけ。新しい試験で `WorkspaceDatabase` を使ったら、`architecture/suppressions.json` と `tests/architecture-audit.test.mjs` の数・一覧を一緒に直す。
+
 ## 2026-11-14 v0.1.89 の Windows release が、Release の時だけ流れる smoke の古い文で落ちた
 
 - しようとしたこと: #736（ナビの言葉の日本語化）と #741 を入れた後、v0.1.89 のタグを push して Windows release を流す。
