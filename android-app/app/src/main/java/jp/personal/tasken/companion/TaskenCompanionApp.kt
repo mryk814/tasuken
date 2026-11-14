@@ -26,6 +26,8 @@ class TaskenCompanionApp : Application() {
         super.onCreate()
         MobileOutboxScheduler.ensurePeriodicSync(this)
         TaskenNotifications.retireRemovedChannels(this)
+        // ファイルの削除と Keystore の呼び出しで起動の描画を待たせないよう、裏で片付ける。
+        scope.launch { RetiredDirectCaptureAiSettings.retire(applicationContext) }
         TaskenTodayWidget.updateAll(this)
         // アプリ内のTask・Theme変更をウィジェットへ即時反映する。
         // 定期同期だけでは完了・編集・追加が次の同期まで古いままになる。
