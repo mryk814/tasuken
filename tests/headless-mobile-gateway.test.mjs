@@ -456,46 +456,6 @@ test("写真つきのCaptureはNASに保存され、差分と写真が共有フ�
   );
 });
 
-test("委任はこのnodeではできない: capability_unavailable（入力の誤りではない）", async (t) => {
-  const dir = temporary();
-  const { host, sync, shared } = await desktop(dir);
-  const { core, userDataPath, base } = await nas(dir, shared);
-  t.after(() => finish(dir, [() => sync.stop(), () => host.db.close(), () => core.stop()]));
-  const api = call(base, await pair(base, userDataPath));
-  const response = await api.post(TASKEN_MOBILE_ENDPOINTS.taskDelegations, {
-    ...API,
-    requestId: "request-delegate",
-    commandId: "command-delegate",
-    taskId: "task-a",
-    expectedTaskVersion: await versionOf(api, "task-a"),
-    agent: "hermes",
-    contextFingerprint: `sha256:${"a".repeat(64)}`,
-    issuedAt: new Date().toISOString(),
-    actorId: DEVICE_ID,
-  });
-  assert.equal(response.body.error.code, "capability_unavailable");
-  assert.notEqual(response.body.error.code, "validation_failed");
-});
-
-test("AI整理はTASKEN_CAPTURE_LLM_*が無ければcapability_unavailable", async (t) => {
-  const dir = temporary();
-  const { host, sync, shared } = await desktop(dir);
-  const { core, userDataPath, base } = await nas(dir, shared, {
-    env: { ...process.env, TASKEN_CAPTURE_LLM_PROVIDER: "" },
-  });
-  t.after(() => finish(dir, [() => sync.stop(), () => host.db.close(), () => core.stop()]));
-  const api = call(base, await pair(base, userDataPath));
-  const response = await api.post(TASKEN_MOBILE_ENDPOINTS.captureOrganization, {
-    text: "明日までに資料を直す",
-    capturedAt: new Date().toISOString(),
-    timeZone: "Asia/Tokyo",
-    themeId: null,
-    maxTasks: 1,
-  });
-  assert.notEqual(response.status, 200);
-  assert.equal(response.body.error.code, "capability_unavailable");
-});
-
 test("DBが公開済みの状態より古いと、同期を止め、端末の書き込みは作成も断る", async (t) => {
   const dir = temporary();
   const { host, sync, shared } = await desktop(dir);
@@ -600,7 +560,7 @@ test("写真の保存先の入出力が失敗したら、400（却下）では�
   assert.equal(host.get("capture_entry", "capture-io-failure").images.length, 1);
 });
 
-test("続けること・手入れの記録は、本体（habit・maintenance）を上書きするので既存Entityの書き換えとして守る", () => {
+test("続けることの記録は、本体（habit）を上書きするので既存Entityの書き換えとして守る", () => {
   const intents = [];
   const ok = () => ({ ok: true });
   const core = guardMobileWrites(
@@ -610,7 +570,6 @@ test("続けること・手入れの記録は、本体（habit・maintenance）�
       executeTaskCommand: ok,
       executeCaptureCommand: ok,
       decideTaskWorkProposal: ok,
-      delegateTaskToAgent: ok,
     },
     (intent) => intents.push(intent),
   );
@@ -622,13 +581,9 @@ test("続けること・手入れの記録は、本体（habit・maintenance）�
       sequence: 1,
     },
   });
-  core.executeRoutineAction({
-    action: { name: "RecordMaintenance", maintenanceId: "maint-1", performedOn: "2026-11-12" },
-  });
   core.executeFeedAction({ action: { name: "PostFeedReply" } });
   assert.deepEqual(intents, [
     { kind: "modify", targets: [{ type: "habit", id: "habit-1" }] },
-    { kind: "modify", targets: [{ type: "maintenance", id: "maint-1" }] },
     { kind: "create", targets: [] },
   ]);
 });

@@ -25,8 +25,6 @@ const MAX_BODY_BYTES = 256 * 1024;
 // Photo CreateCapture/CreateTask carry base64 images (contract: up to 8 images).
 // Keep the default small, but allow photo payloads on /v1/commands.
 const MAX_COMMAND_BODY_BYTES = 36 * 1024 * 1024;
-// AI organize requests may also carry photos for the organizing LLM.
-const MAX_ORGANIZE_BODY_BYTES = 12 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 5_000;
 const RATE_WINDOW_MS = 60_000;
 const REQUESTS_PER_WINDOW = 120;
@@ -356,11 +354,7 @@ export class MobileGatewayHost {
       if (method === "POST") {
         body = await requestBody(
           request,
-          path === TASKEN_MOBILE_ENDPOINTS.commands
-            ? MAX_COMMAND_BODY_BYTES
-            : path === TASKEN_MOBILE_ENDPOINTS.captureOrganization
-              ? MAX_ORGANIZE_BODY_BYTES
-              : MAX_BODY_BYTES,
+          path === TASKEN_MOBILE_ENDPOINTS.commands ? MAX_COMMAND_BODY_BYTES : MAX_BODY_BYTES,
         );
       } else if (request.headers["content-length"] || request.headers["transfer-encoding"]) {
         request.resume();

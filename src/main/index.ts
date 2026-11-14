@@ -2335,11 +2335,10 @@ async function startDesktopApp(): Promise<void> {
     feedWriter: createMobileFeedWriter(workspaceRepository, (change) =>
       notifyMainWindowRefresh(change as never),
     ),
-    // Androidからの続けること・手入れの記録（#454）。Desktopの記録と同じEntity保存を使う。
+    // Androidからの続けることの記録（#454）。Desktopの記録と同じEntity保存を使う。
     routineWriter: createMobileRoutineWriter(workspaceRepository, (change) =>
       notifyMainWindowRefresh(change as never),
     ),
-    getCaptureOrganizer: () => captureOrganizerSettings.createOrganizer(),
     userDataPath: app.getPath("userData"),
     persistence: workspaceRepository,
     mcpPackageSmoke,

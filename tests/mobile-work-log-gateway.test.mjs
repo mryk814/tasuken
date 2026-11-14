@@ -45,24 +45,17 @@ function client(fixture) {
   };
 }
 
-test("saved work-log organization checks source version, keeps adoption separate and replays after lost receipt", async () => {
-  let calls = 0;
+// 整理を作る受け口（/v1/work-log-organization）は #755 束9b で外した。束9a のスマホは新しい整理を作らないが、
+// 前の版が送信待ちに残した AdoptWorkLogOrganization（本人が採った整理）は /v1/commands で送ってくる。
+// それを受けて受領書を返し続けることで、スマホは送信待ちから消してよくなり、本人が採った物を失わない。
+test("retired work-log organization endpoint is gone, but a queued AdoptWorkLogOrganization is still accepted and replays after lost receipt", async () => {
   const proposal = {
     done: [],
     observations: [],
     unresolved: ["原因は温度が怪しい。"],
     nextActions: [],
   };
-  const fixture = await createMobileOfflineGateway({
-    organizer: {
-      providerLabel: "fixture",
-      organizeWorkLog: async (source) => {
-        calls++;
-        assert.equal(source, "原因は温度が怪しい。");
-        return proposal;
-      },
-    },
-  });
+  const fixture = await createMobileOfflineGateway();
   try {
     const api = client(fixture);
     await api.send(
@@ -71,12 +64,9 @@ test("saved work-log organization checks source version, keeps adoption separate
         "organized-source",
       ),
     );
-    assert.equal(calls, 0);
-    assert.equal((await api.organize("organized-source", 2)).status, 409);
-    assert.equal(calls, 0);
-    const organized = await api.organize("organized-source", 1);
-    assert.equal(organized.status, 200, JSON.stringify(organized.body));
-    assert.deepEqual(organized.body.data.proposal, proposal);
+    const retired = await api.organize("organized-source", 1);
+    assert.equal(retired.status, 404, JSON.stringify(retired.body));
+    assert.equal(retired.body.error.code, "not_found");
     assert.equal(fixture.snapshot().workLogs.length, 1);
     const command = api.envelope(
       {
@@ -98,54 +88,8 @@ test("saved work-log organization checks source version, keeps adoption separate
       fixture.snapshot().events.filter((event) => event.command_id === command.commandId).length,
       1,
     );
-  } finally {
-    await fixture.close();
-  }
-});
-
-test("work-log organization rejects read-only access and a source edited during inference", async () => {
-  let calls = 0;
-  const denied = await createMobileOfflineGateway({
-    scopes: ["mobile:read"],
-    organizer: {
-      providerLabel: "fixture",
-      organizeWorkLog: async () => {
-        calls++;
-        throw new Error("must not call");
-      },
-    },
-  });
-  try {
-    assert.equal((await client(denied).organize("source", 1)).status, 403);
-    assert.equal(calls, 0);
-  } finally {
-    await denied.close();
-  }
-  let fixture;
-  fixture = await createMobileOfflineGateway({
-    organizer: {
-      providerLabel: "fixture",
-      organizeWorkLog: async () => {
-        await fixture.control({
-          editWorkLog: { id: "changing-source", body: "Desktopで追記した原文。" },
-        });
-        return { done: [], observations: [], unresolved: ["温度が怪しい。"], nextActions: [] };
-      },
-    },
-  });
-  try {
-    const api = client(fixture);
-    await api.send(
-      api.envelope(
-        { name: "RecordWorkLog", body: "温度が怪しい。", performedDate: "2026-09-01" },
-        "changing-source",
-      ),
-    );
-    assert.equal((await api.organize("changing-source", 1)).status, 409);
-    assert.equal(
-      (await api.get("changing-source")).body.data.workLog.body,
-      "Desktopで追記した原文。",
-    );
+    const adopted = fixture.snapshot().notes.find((note) => note.id === command.commandId);
+    assert.deepEqual(adopted?.properties_json?.work_log_organization?.proposal, proposal);
   } finally {
     await fixture.close();
   }

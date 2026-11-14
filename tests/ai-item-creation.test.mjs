@@ -281,7 +281,6 @@ test("Desktop: 直接の書き込みは設定をその場で読み、Theme・期
     undefined,
     undefined,
     undefined,
-    undefined,
     { executeAiTaskStart: (command) => commands.executeAiTaskStart(command, "any") },
   );
   runtime.enableAiItemCreation(createAiItemCreationPort(commands, workspace), {

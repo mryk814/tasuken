@@ -6,10 +6,6 @@ import {
   TASKEN_MOBILE_MAX_RESPONSE_BYTES,
   mobileTaskCommandRequestSchema,
   mobileTaskCommandResponseSchema,
-  mobileTaskContextPreviewRequestSchema,
-  mobileTaskContextPreviewResponseSchema,
-  mobileTaskDelegationRequestSchema,
-  mobileTaskDelegationResponseSchema,
   mobileErrorResponseSchema,
   mobileHealthResponseSchema,
   mobileThemesRequestSchema,
@@ -20,10 +16,6 @@ import {
   type MobileHealthResponse,
   type MobileTaskCommandRequest,
   type MobileTaskCommandResponse,
-  type MobileTaskContextPreviewRequest,
-  type MobileTaskContextPreviewResponse,
-  type MobileTaskDelegationRequest,
-  type MobileTaskDelegationResponse,
   type MobileThemesRequest,
   type MobileThemesResponse,
   type MobileTodayRequest,
@@ -59,8 +51,6 @@ function safeClientMessage(code: string) {
     return "同じTask IDが既に存在します。新しいIDで再試行してください。";
   if (code === "version_conflict")
     return "Taskが更新されています。再読み込みして再試行してください。";
-  if (code === "context_stale")
-    return "Taskの公開Contextが更新されています。再Previewしてから委任してください。";
   if (code === "capability_unavailable") return "必要なMobile API capabilityを利用できません。";
   if (code === "response_too_large") return "Mobile API responseが上限を超えました。";
   return "Mobile Gatewayへ接続できません。DesktopとTailscaleを確認してください。";
@@ -149,30 +139,6 @@ export class MobileGatewayClient {
     await this.requireCapability(TASKEN_MOBILE_CAPABILITIES.taskWrite);
     return mobileTaskCommandResponseSchema.parse(
       await this.request("POST", TASKEN_MOBILE_ENDPOINTS.commands, input),
-    );
-  }
-
-  async getTaskContextPreview(
-    input: MobileTaskContextPreviewRequest,
-  ): Promise<MobileTaskContextPreviewResponse> {
-    const parsed = mobileTaskContextPreviewRequestSchema.parse(input);
-    await this.requireCapability(TASKEN_MOBILE_CAPABILITIES.taskContextPreviewRead);
-    const query = new URLSearchParams({
-      apiVersion: String(parsed.apiVersion),
-      schemaVersion: String(parsed.schemaVersion),
-      requestId: parsed.requestId,
-      taskId: parsed.taskId,
-    });
-    return mobileTaskContextPreviewResponseSchema.parse(
-      await this.request("GET", `${TASKEN_MOBILE_ENDPOINTS.taskContextPreview}?${query}`),
-    );
-  }
-
-  async delegateTask(input: MobileTaskDelegationRequest): Promise<MobileTaskDelegationResponse> {
-    mobileTaskDelegationRequestSchema.parse(input);
-    await this.requireCapability(TASKEN_MOBILE_CAPABILITIES.taskWrite);
-    return mobileTaskDelegationResponseSchema.parse(
-      await this.request("POST", TASKEN_MOBILE_ENDPOINTS.taskDelegations, input),
     );
   }
 

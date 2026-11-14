@@ -1,7 +1,6 @@
 import { nodeExecPath } from "./helpers/childProcessNode.mjs";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
-import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -36,23 +35,15 @@ async function importBundled(relativePaths) {
 const bundled = await importBundled([
   "src/main/services/applicationCommandService.ts",
   "src/main/composition/taskenCoreRuntime.ts",
-  "src/shared/contracts/mobile/public.mjs",
 ]);
 const { ApplicationCommandService } = bundled.bundled0;
 const { TaskenCoreRuntime } = bundled.bundled1;
-const { TASKEN_MOBILE_ENDPOINTS } = bundled.bundled2;
 
 const AT = "2026-09-20T09:00:00.000Z";
 const TASK_ID = "task-roundtrip-viscosity";
 const THEME_ID = "theme-roundtrip";
 const ATTEMPT_ID = "11111111-1111-4111-8111-111111111111";
 const REQUEST_ID = "33333333-3333-4333-8333-333333333333";
-
-const PRINCIPAL = {
-  kind: "mobile_device",
-  deviceId: "device-fold-7",
-  scopes: ["mobile:read", "mobile:human-review", "mobile:task-write"],
-};
 
 function command(name, payload, commandId, expectedVersions = []) {
   return {
@@ -71,11 +62,12 @@ function taskVersion(database) {
 }
 
 /**
- * 一つのTaskをDesktop・MCP・Androidで往復させる受け入れ証跡（#602 / 単位K）。
+ * 一つのTaskをDesktop・MCPで往復させる受け入れ証跡（#602 / 単位K）。
  *
- * 実SQLite + 実stdio MCP + 実mobile gatewayを同じworkspaceへ向け、
- * 「作成 → Handoff → MCP開始 → 質問 → Android回答 → MCP再取得 → 再開 → 成果報告 →
+ * 実SQLite + 実stdio MCPを同じworkspaceへ向け、
+ * 「作成 → Handoff → MCP開始 → 質問 → Desktop回答 → MCP再取得 → 再開 → 成果報告 →
  * Desktop採用 → 明示完了」を同じTask IDで通す。
+ * Androidからの回答（要対応と返答の受け口）は #755 束9b で外した。
  */
 async function createWorkspace() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-roundtrip-"));
@@ -94,17 +86,9 @@ async function createWorkspace() {
     undefined,
     undefined,
     undefined,
-    undefined,
     { executeAiTaskStart: (envelope) => application.executeAiTaskStart(envelope, "any") },
   );
-  const adapter = runtime.createMobileGateway({
-    current: () => ({
-      serverId: "desktop-roundtrip",
-      serverRevision: database.list("change_event", true).length,
-      generatedAt: new Date().toISOString(),
-    }),
-  });
-  return { root, dbPath, database, application, adapter, runtime };
+  return { root, dbPath, database, application, runtime };
 }
 
 async function withWorkspace(run) {
@@ -141,47 +125,6 @@ async function callTool(client, name, args) {
   return result.structuredContent;
 }
 
-function mobile(suffix) {
-  return {
-    apiVersion: "1",
-    schemaVersion: "7",
-    requestId: `request-${suffix}`,
-  };
-}
-
-async function readAttention(adapter) {
-  const response = await adapter.handle({
-    method: "GET",
-    path: TASKEN_MOBILE_ENDPOINTS.attention,
-    principal: PRINCIPAL,
-    query: mobile(`attention-${randomUUID()}`),
-  });
-  assert.equal(response.status, 200, JSON.stringify(response.body));
-  return response.body.data;
-}
-
-async function answerFromAndroid(adapter, item, body, commandId = `reply-${randomUUID()}`) {
-  return adapter.handle({
-    method: "POST",
-    path: TASKEN_MOBILE_ENDPOINTS.agentReplies,
-    principal: PRINCIPAL,
-    body: {
-      apiVersion: 1,
-      schemaVersion: 7,
-      requestId: `request-${commandId}`,
-      commandId,
-      idempotencyKey: commandId,
-      clientDeviceId: PRINCIPAL.deviceId,
-      issuedAt: new Date().toISOString(),
-      taskId: item.taskId,
-      questionId: item.requestId,
-      body,
-      choiceId: null,
-      expectedTaskVersion: item.taskVersion,
-    },
-  });
-}
-
 function adoptProposal(application, database, proposalId) {
   application.execute(
     command("ApplyTaskWorkProposal", { proposalId, decision: "accept" }, `${proposalId}:accept`, [
@@ -195,8 +138,8 @@ function adoptProposal(application, database, proposalId) {
   );
 }
 
-test("Task一件をDesktop・MCP・Androidで往復させ、同じTask IDのまま完了する (#602)", async () => {
-  await withWorkspace(async ({ database, application, adapter, client, root }) => {
+test("Task一件をDesktop・MCPで往復させ、同じTask IDのまま完了する (#602)", async () => {
+  await withWorkspace(async ({ database, application, client, root }) => {
     // 1. DesktopでTaskを作り、AIへ任せる（Handoff）。
     application.execute(
       command(
@@ -278,20 +221,16 @@ test("Task一件をDesktop・MCP・Androidで往復させ、同じTask IDのま�
     adoptProposal(application, database, queued.proposal_id);
     assert.equal(database.get("task", TASK_ID).work_state, "blocked");
 
-    // 4. Androidが同じ判断を要対応として受け取り、質問IDとTask版を持つ。
-    const queue = await readAttention(adapter);
-    assert.equal(queue.counts.needsYou, 1);
-    const question = queue.attention.find((item) => item.kind === "answer_request");
-    assert.ok(question, JSON.stringify(queue.attention));
-    assert.equal(question.taskId, TASK_ID);
-    assert.equal(question.requestId, REQUEST_ID, "質問IDはagentが送った値をそのまま使う");
-    assert.equal(question.workAttemptId, ATTEMPT_ID);
-
-    // 5. Androidから短い返答を送る。Taskは変えず、回答Receiptだけが増える。
+    // 4-5. Desktopの人が質問に短く答える。Taskは変えず、回答Receiptだけが増える。
     const beforeReply = database.get("task", TASK_ID);
-    const reply = await answerFromAndroid(adapter, question, "25℃で進めてください。");
-    assert.equal(reply.status, 200, JSON.stringify(reply.body));
-    assert.equal(reply.body.data.displayState, "answered_resume_waiting");
+    application.execute(
+      command(
+        "ReplyToAgentRequest",
+        { taskId: TASK_ID, requestId: REQUEST_ID, body: "25℃で進めてください。" },
+        "desktop-reply-roundtrip",
+        taskVersion(database),
+      ),
+    );
     const afterReply = database.get("task", TASK_ID);
     assert.equal(afterReply.work_state, beforeReply.work_state);
     assert.equal(afterReply.version, beforeReply.version);
@@ -301,7 +240,6 @@ test("Task一件をDesktop・MCP・Androidで往復させ、同じTask IDのま�
     assert.ok(humanReply, "回答はWork Receiptとして残る");
     assert.equal(humanReply.summary, "25℃で進めてください。");
     assert.equal(humanReply.request_id, REQUEST_ID);
-    assert.equal(humanReply.provenance.reported_via, "mobile");
 
     // 6. agentがMCPで回答を再取得する。往復は同じTask IDのまま。
     const resumed = await callTool(client, "tasken.get_task_context", { task_id: TASK_ID });
@@ -312,14 +250,6 @@ test("Task一件をDesktop・MCP・Androidで往復させ、同じTask IDのま�
     assert.equal(visibleReply.summary, "25℃で進めてください。");
     assert.equal(visibleReply.request_id, REQUEST_ID);
     assert.equal(visibleReply.work_attempt_id, ATTEMPT_ID);
-
-    // 7. 回答後は要対応から外れる（DesktopとAndroidが同じ判断で収束する）。
-    const converged = await readAttention(adapter);
-    assert.equal(converged.counts.needsYou, 0);
-    assert.equal(
-      converged.attention.some((item) => item.requestId === REQUEST_ID),
-      false,
-    );
 
     // 8. agentが成果を報告し、Desktopの人が採用する。Taskは未完了のまま。
     const done = await callTool(client, "tasken.report_work", {
@@ -368,98 +298,5 @@ test("Task一件をDesktop・MCP・Androidで往復させ、同じTask IDのま�
       1,
     );
     assert.equal(path.dirname(root), os.tmpdir());
-  });
-});
-
-test("Androidの古い回答は競合として拒否し、Desktopの状態を巻き戻さない (#602 端末間競合)", async () => {
-  await withWorkspace(async ({ database, application, adapter }) => {
-    application.execute(
-      command(
-        "CreateTask",
-        {
-          task: {
-            id: TASK_ID,
-            title: "粘度測定の条件を決める",
-            state: "todo",
-            priority: "normal",
-            project_id: THEME_ID,
-            requester: "self",
-            intended_executor: "ai_agent",
-            work_state: "ready_for_agent",
-          },
-        },
-        "create-conflict",
-      ),
-    );
-    application.execute(
-      command(
-        "StartTaskWork",
-        {
-          taskId: TASK_ID,
-          executorKind: "ai_agent",
-          executorIdentity: "Codex",
-          startedAt: AT,
-          workAttemptId: ATTEMPT_ID,
-        },
-        "start-conflict",
-        taskVersion(database),
-      ),
-    );
-    const proposal = database.save("ai_proposal", {
-      id: "conflict-question",
-      source: "mcp",
-      source_app: "codex",
-      payload_type: "task_work",
-      status: "pending",
-      received_at: AT,
-      created_at: AT,
-      payload: {
-        task_work: [
-          {
-            task_id: TASK_ID,
-            expected_version: database.get("task", TASK_ID).version,
-            caller: "Codex",
-            action: "report_blocked",
-            executor_label: "Codex",
-            blocker: "測定温度が決まっていません。",
-            summary: "測定温度が決まっていません。",
-            needed_input: ["25℃と40℃のどちらで進めますか。"],
-            reported_at: AT,
-            work_attempt_id: ATTEMPT_ID,
-            request_id: REQUEST_ID,
-          },
-        ],
-      },
-    });
-    adoptProposal(application, database, proposal.id);
-
-    const queue = await readAttention(adapter);
-    const question = queue.attention.find((item) => item.requestId === REQUEST_ID);
-    assert.ok(question);
-
-    // Desktopの人が先に答える。
-    application.execute(
-      command(
-        "ReplyToAgentRequest",
-        { taskId: TASK_ID, requestId: REQUEST_ID, body: "40℃で進めてください。" },
-        "desktop-reply",
-        taskVersion(database),
-      ),
-    );
-
-    // Androidが古い版のまま返信すると、成功にせず競合として返す。
-    const stale = await answerFromAndroid(
-      adapter,
-      question,
-      "25℃で進めてください。",
-      "android-late",
-    );
-    assert.equal(stale.status, 409);
-    assert.equal(stale.body.error.code, "entity_conflict");
-    const replies = database
-      .list("work_receipt")
-      .filter((receipt) => receipt.receipt_kind === "human_reply");
-    assert.equal(replies.length, 1, "遅い回答は記録を作らない");
-    assert.equal(replies[0].summary, "40℃で進めてください。");
   });
 });

@@ -58,15 +58,14 @@ export interface TaskenDesktopCompositionOptions<
 > {
   userDataPath: string;
   persistence: TPersistence;
-  getCaptureOrganizer?: Parameters<TaskenCoreRuntime["createMobileGateway"]>[2];
   mcpPackageSmoke?: McpPackageSmokeOptions;
   onProposalCommitted?: ConstructorParameters<typeof TaskenCoreRuntime>[3];
   onCoreCommandCommitted?: (receipt: ReturnType<ApplicationCommandService["execute"]>) => void;
-  workLogWriter?: ConstructorParameters<typeof TaskenCoreRuntime>[6];
+  workLogWriter?: ConstructorParameters<typeof TaskenCoreRuntime>[5];
   /** Androidからの反応・返信を保存する口（保存後のDesktop画面の更新も担う）。 */
-  feedWriter?: NonNullable<ConstructorParameters<typeof TaskenCoreRuntime>[8]>["feedWriter"];
-  /** Androidからの続けること・手入れの記録を保存する口（#454）。 */
-  routineWriter?: NonNullable<ConstructorParameters<typeof TaskenCoreRuntime>[8]>["routineWriter"];
+  feedWriter?: NonNullable<ConstructorParameters<typeof TaskenCoreRuntime>[7]>["feedWriter"];
+  /** Androidからの続けることの記録を保存する口（#454）。 */
+  routineWriter?: NonNullable<ConstructorParameters<typeof TaskenCoreRuntime>[7]>["routineWriter"];
 }
 
 /** packaged MCP smokeのfixtureを用意し、Proposal IDがあれば検証結果を書き出す。 */
@@ -172,12 +171,6 @@ export class TaskenDesktopComposition<
         return receipt;
       },
       options.onProposalCommitted,
-      (command, currentContextFingerprint, responseMeta) =>
-        this.applicationCommands.executeTaskDelegation(
-          command,
-          currentContextFingerprint,
-          responseMeta,
-        ),
       createNoteProposalImagePort(options.userDataPath, createNativeImageDecoder(nativeImage)),
       options.workLogWriter,
       createCaptureImagePort(options.userDataPath, createNativeImageDecoder(nativeImage)),
@@ -191,11 +184,7 @@ export class TaskenDesktopComposition<
       current: () => this.repository.mobileGatewayState(),
     };
     this.mobileGateway = new MobileGatewayRuntime({
-      adapter: this.coreRuntime.createMobileGateway(
-        mobileState,
-        undefined,
-        options.getCaptureOrganizer,
-      ),
+      adapter: this.coreRuntime.createMobileGateway(mobileState),
       state: mobileState,
       persistence: this.repository,
       stats: this.coreRuntime.stats,

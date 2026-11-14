@@ -299,7 +299,6 @@ function gateway({ writable = false } = {}) {
     undefined,
     undefined,
     undefined,
-    undefined,
     { feedWriter },
   );
   const adapter = runtime.createMobileGateway({

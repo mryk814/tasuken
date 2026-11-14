@@ -30,7 +30,7 @@ interface RoutineRepository {
   saveMany(
     operations: {
       action: "save";
-      type: "habit" | "habit_entry" | "maintenance" | "maintenance_entry";
+      type: "habit" | "habit_entry";
       entity: Record<string, unknown>;
       options: { source: "mobile" };
     }[],
@@ -78,7 +78,7 @@ export function createMobileFeedWriter(
   };
 }
 
-/** Androidからの続けること・手入れの記録（#454）。Desktopの記録と同じEntity保存を使う。 */
+/** Androidからの続けることの記録（#454）。Desktopの記録と同じEntity保存を使う。 */
 export function createMobileRoutineWriter(
   repository: RoutineRepository,
   notify: (change: SavedChange) => void = () => {},

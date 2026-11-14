@@ -1,5 +1,4 @@
 import type { TaskenCoreRuntime } from "../composition/taskenCoreRuntime.ts";
-import { createCaptureOrganizerFromEnvironment } from "../gateway/mobile/public.ts";
 import {
   MobileGatewayRuntime,
   refuseMobileWriteForNow,
@@ -10,10 +9,8 @@ import {
 
 /**
  * NASのheadless nodeでMobile Gatewayを動かす部品（Electron非依存）。
- * Desktopと同じMobileGatewayRuntime・adapterを使い、違いは3つだけ。
- * - 委任（executeTaskDelegation）を持たない。Gatewayはcapability_unavailableで答える。
- * - AIの整理はTASKEN_CAPTURE_LLM_*の環境変数が揃っているときだけ。
- * - 既存Entityの書き換えは、共有フォルダの取り込みが追いついている間だけ受ける（下のguard）。
+ * Desktopと同じMobileGatewayRuntime・adapterを使い、違いは、既存Entityの書き換えを
+ * 共有フォルダの取り込みが追いついている間だけ受けること（下のguard）。
  */
 
 export const DEFAULT_MOBILE_GATEWAY_PORT = 48_177;
@@ -60,7 +57,6 @@ export interface HeadlessMobileGatewayOptions {
   persistence: GatewayPersistence;
   sync: GatewaySync;
   port: number;
-  env: NodeJS.ProcessEnv;
 }
 
 export interface HeadlessMobileGateway {
@@ -80,7 +76,6 @@ export function createHeadlessMobileGateway(
         warn: (event) =>
           console.error(`[tasken-mobile-gateway] unexpected error ${event.location} ${event.id}`),
       },
-      () => createCaptureOrganizerFromEnvironment(options.env),
       createMobileWriteGuard(options.persistence, options.sync),
     ),
     state,

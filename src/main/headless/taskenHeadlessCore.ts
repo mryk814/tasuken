@@ -189,7 +189,6 @@ export async function startTaskenHeadlessCore(
       (command) => commands.execute(command),
       undefined,
       undefined,
-      undefined,
       mobileGatewayEnabled
         ? createMobileWorkLogWriter({
             adoptWorkLogOrganization: (command, actor) =>
@@ -272,7 +271,6 @@ export async function startTaskenHeadlessCore(
           isPublishBlocked: () => joinedSync.isPublishBlocked(),
         },
         port: mobileGatewayPort,
-        env,
       });
       runtime.enableAdminRoutes(mobileGateway.adminRoutes);
       // 端末の書き込みを受けるnodeなので、DBの写しを取る（Desktopと同じ仕組み。既定の保存先は<userData>/Backups）。

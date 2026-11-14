@@ -45,16 +45,12 @@ import {
 import {
   MobileGatewayAdapter,
   MobileGatewayCoreUnavailableError,
-  MOBILE_TASK_CONTEXT_INPUT,
-  type MobileGatewayAgentReplyResult,
   type MobileGatewayCaptureCommandResult,
   type MobileGatewayLoggerPort,
   type MobileGatewayStatePort,
-  type MobileGatewayTaskDelegationResult,
   type MobileGatewayTaskWorkProposalDecisionResult,
   type MobileGatewayWorkReceiptRecord,
   type MobileWriteGuard,
-  taskContextFingerprint,
 } from "../gateway/mobile/public.ts";
 import {
   TaskCapabilityService,
@@ -69,26 +65,14 @@ import {
 } from "../core/public.ts";
 import {
   TASKEN_CORE_API_VERSION,
-  TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
   TASKEN_CORE_TASK_COMMAND_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
 } from "../../shared/contracts/core/public.mjs";
 import {
   ApplicationCommandError,
   type ApplicationCommandPayload,
-  type CommandReceipt,
 } from "../../shared/applicationCommand.ts";
-import {
-  TASK_CONTRACT_SCHEMA_VERSION,
-  buildAgentDeskSummary,
-  deriveAgentWorkState,
-  taskIdSchema,
-  parseStoredTaskSnapshot,
-} from "../../shared/contracts/task/public.ts";
-import {
-  mobileResponseMetaSchema,
-  type MobileResponseMeta,
-} from "../../shared/contracts/mobile/public.ts";
+import { TASK_CONTRACT_SCHEMA_VERSION } from "../../shared/contracts/task/public.ts";
 
 type CorePersistence = AgentReadyTaskWorkspacePersistence &
   AgentWorkspacePersistence &
@@ -127,20 +111,6 @@ function proposalDecisionFailure(
 }
 
 function captureCommandFailure(error: ApplicationCommandError): MobileGatewayCaptureCommandResult {
-  if (error.code === "COMMAND_ID_REUSED") return { ok: false, code: "idempotency_conflict" };
-  if (error.code === "NOT_FOUND") return { ok: false, code: "not_found" };
-  if (error.code === "CONFLICT" || error.code === "INVALID_TRANSITION") {
-    return { ok: false, code: "entity_conflict" };
-  }
-  return { ok: false, code: "validation_failed" };
-}
-
-/**
- * 質問への回答の失敗（#601）。
- * 「すでに回答済み」と「Taskが変わった」はどちらも画面の再読み込みで解決するため、
- * 同じ競合として返し、Androidに再送を促さない。
- */
-function agentReplyFailure(error: ApplicationCommandError): MobileGatewayAgentReplyResult {
   if (error.code === "COMMAND_ID_REUSED") return { ok: false, code: "idempotency_conflict" };
   if (error.code === "NOT_FOUND") return { ok: false, code: "not_found" };
   if (error.code === "CONFLICT" || error.code === "INVALID_TRANSITION") {
@@ -208,19 +178,6 @@ function prepareCommandImages(
   };
 }
 
-function delegationFailure(error: ApplicationCommandError): MobileGatewayTaskDelegationResult {
-  if (error.code === "COMMAND_ID_REUSED") return { ok: false, code: "idempotency_conflict" };
-  if (error.code === "NOT_FOUND") return { ok: false, code: "not_found" };
-  if (error.code === "CONFLICT") {
-    return {
-      ok: false,
-      code:
-        error.details?.conflictReason === "context_stale" ? "context_stale" : "version_conflict",
-    };
-  }
-  return { ok: false, code: "validation_failed" };
-}
-
 /**
  * AI開始の限定の入口。`executeAiTaskStart`はApplicationCommandServiceの開始専用経路
  * （Desktopは`any`、NAS replicaは`personal`）を渡す。
@@ -257,17 +214,11 @@ export class TaskenCoreRuntime {
   private readonly feedWriter?: FeedWriterPort;
   private readonly routineWriter?: RoutineWriterPort;
   private readonly executeApplicationCommand: ExecuteApplicationCommand;
-  private readonly taskContext: ReturnType<typeof createTaskenCore>["getTaskContext"];
   private readonly contentProposals: ReturnType<typeof createTaskenCore>["proposeContent"];
   private readonly agentSessionContext: ReturnType<
     typeof createTaskenCore
   >["getAgentSessionContext"];
   private readonly agentWork: ReturnType<typeof createTaskenCore>["recordAgentWork"];
-  private readonly executeTaskDelegation?: (
-    command: unknown,
-    currentContextFingerprint: () => string,
-    responseMeta: MobileResponseMeta,
-  ) => CommandReceipt;
   readonly taskCapability: TaskCapabilityService;
 
   constructor(
@@ -277,11 +228,6 @@ export class TaskenCoreRuntime {
     onProposalCommitted?: NonNullable<
       Parameters<typeof createTaskenCore>[1]
     >["onProposalCommitted"],
-    executeTaskDelegation?: (
-      command: unknown,
-      currentContextFingerprint: () => string,
-      responseMeta: MobileResponseMeta,
-    ) => CommandReceipt,
     noteProposalImagePort?: NoteProposalImagePort,
     private readonly workLogWriter?: WorkLogWriterPort,
     private readonly captureImagePort?: CaptureImagePort,
@@ -290,7 +236,7 @@ export class TaskenCoreRuntime {
       executeAiTaskStart?: ExecuteApplicationCommand;
       /** Feedへの反応・返信の書き込み口。常時稼働nodeには渡さない。 */
       feedWriter?: FeedWriterPort;
-      /** 続けること・手入れの記録の書き込み口（#454）。常時稼働nodeには渡さない。 */
+      /** 続けることの記録の書き込み口（#454）。常時稼働nodeには渡さない。 */
       routineWriter?: RoutineWriterPort;
     } = {},
   ) {
@@ -309,11 +255,9 @@ export class TaskenCoreRuntime {
       noteProposalImagePort,
       captureImagePort: this.captureImagePort,
     });
-    this.taskContext = core.getTaskContext;
     this.contentProposals = core.proposeContent;
     this.agentSessionContext = core.getAgentSessionContext;
     this.agentWork = core.recordAgentWork;
-    this.executeTaskDelegation = executeTaskDelegation;
     this.taskCapability = new TaskCapabilityService(persistence, executeApplicationCommand);
     this.host = new TaskenCoreHost({
       userDataPath,
@@ -389,14 +333,10 @@ export class TaskenCoreRuntime {
   createMobileGateway(
     state: MobileGatewayStatePort,
     logger?: MobileGatewayLoggerPort,
-    getCaptureOrganizer?: ConstructorParameters<
-      typeof MobileGatewayAdapter
-    >[0]["getCaptureOrganizer"],
     /** NASのheadless nodeだけが渡す。書き込みをCoreの口へ渡す前に断れる（mobileWriteGuard.ts）。 */
     writeGuard?: MobileWriteGuard,
   ): MobileGatewayAdapter {
     return new MobileGatewayAdapter({
-      getCaptureOrganizer,
       writeGuard,
       core: {
         queryActivity: createMobileActivityReadPort(this.persistence),
@@ -423,11 +363,7 @@ export class TaskenCoreRuntime {
         ...createMobileRoutinePort(this.persistence, this.routineWriter),
         status: async () => ({
           apiVersion: TASKEN_CORE_API_VERSION,
-          capabilities: [
-            TASKEN_CORE_TASK_QUERY_CAPABILITY,
-            TASKEN_CORE_TASK_COMMAND_CAPABILITY,
-            TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
-          ],
+          capabilities: [TASKEN_CORE_TASK_QUERY_CAPABILITY, TASKEN_CORE_TASK_COMMAND_CAPABILITY],
         }),
         listThemes: () =>
           this.persistence.list("theme", false).map((theme) => ({
@@ -436,25 +372,6 @@ export class TaskenCoreRuntime {
             color: typeof theme.color === "string" ? theme.color : null,
           })),
         listWorkReceipts: () => this.persistence.list("work_receipt", false).map(mobileWorkReceipt),
-        readAttention: () => {
-          const tasks = this.persistence.list("task", false);
-          const summary = buildAgentDeskSummary({
-            tasks,
-            proposals: this.persistence.list("ai_proposal", false),
-            receipts: this.persistence.list("work_receipt", false),
-            themes: this.persistence.list("theme", false),
-          });
-          return {
-            items: summary.attention,
-            taskVersions: new Map(
-              tasks
-                .filter((task) => !task.deleted_at && Number.isInteger(Number(task.version)))
-                .map((task) => [String(task.id), Number(task.version)] as const),
-            ),
-            working: summary.working,
-            queued: summary.queued,
-          };
-        },
         readFeed: () => ({
           proposals: this.persistence
             .list("ai_proposal", false)
@@ -549,52 +466,6 @@ export class TaskenCoreRuntime {
             throw error;
           }
         },
-        replyToAgentRequest: (input) => {
-          try {
-            const receipt = this.executeApplicationCommand({
-              commandId: input.commandId,
-              name: "ReplyToAgentRequest",
-              actor: { kind: "user", id: input.actorId },
-              source: "mobile",
-              issuedAt: input.issuedAt,
-              payload: {
-                taskId: input.taskId,
-                requestId: input.questionId,
-                body: input.body,
-                ...(input.choiceId ? { choiceId: input.choiceId } : {}),
-              },
-              expectedVersions: [
-                { type: "task", id: input.taskId, version: input.expectedTaskVersion },
-              ],
-            });
-            if (receipt.status === "conflict") return { ok: false, code: "entity_conflict" };
-            if (receipt.status !== "applied" && receipt.status !== "no_change") {
-              throw new Error("Agent reply returned an unexpected command status");
-            }
-            const task = this.persistence.get("task", input.taskId, false);
-            const state = task
-              ? deriveAgentWorkState({
-                  task,
-                  proposals: this.persistence.list("ai_proposal", false),
-                  receipts: this.persistence.list("work_receipt", false),
-                })
-              : null;
-            // 回答はTaskを変えない。回答後に残る表示状態はDesktopと同じ導出から取る。
-            if (!state) throw new Error("Agent reply receipt is missing its canonical Task");
-            return {
-              ok: true,
-              commandId: receipt.commandId,
-              status: receipt.status,
-              taskId: state.taskId,
-              taskVersion: Number(task?.version ?? 0),
-              questionId: input.questionId,
-              displayState: state.state,
-            };
-          } catch (error) {
-            if (error instanceof ApplicationCommandError) return agentReplyFailure(error);
-            throw error;
-          }
-        },
         executeTaskQuery: (input) => this.taskCapability.executeQuery(input),
         executeTaskCommand: (input) => {
           const record = (input || {}) as { name?: unknown; payload?: unknown };
@@ -680,73 +551,6 @@ export class TaskenCoreRuntime {
           } catch (error) {
             prepared.rollback();
             if (error instanceof ApplicationCommandError) return captureCommandFailure(error);
-            throw error;
-          }
-        },
-        getTaskContext: (input) =>
-          this.taskContext.execute(input as Parameters<typeof this.taskContext.execute>[0]),
-        delegateTaskToAgent: (input) => {
-          // 委任を持たない配備（NASのheadless node）。入力の誤りではなく、この接続先ではできない。
-          if (!this.executeTaskDelegation) return { ok: false, code: "capability_unavailable" };
-          const command = {
-            commandId: input.commandId,
-            name: "DelegateTaskToAgent",
-            actor: { kind: "user", id: input.actorId },
-            source: "mobile",
-            issuedAt: input.issuedAt,
-            payload: {
-              taskId: input.taskId,
-              agent: input.agent,
-              ...(input.expectedResult ? { expectedResult: input.expectedResult } : {}),
-              ...(input.instruction ? { instruction: input.instruction } : {}),
-              contextFingerprint: input.contextFingerprint,
-            },
-            expectedVersions: [
-              { type: "task", id: input.taskId, version: input.expectedTaskVersion },
-            ],
-          };
-          try {
-            const receipt = this.executeTaskDelegation(
-              command,
-              () =>
-                taskContextFingerprint(
-                  this.taskContext.execute({
-                    task_id: taskIdSchema.parse(input.taskId),
-                    ...MOBILE_TASK_CONTEXT_INPUT,
-                  }),
-                ),
-              input.responseMeta,
-            );
-            if (receipt.status === "conflict") {
-              throw new Error("Task delegation returned an unclassified conflict receipt");
-            }
-            const taskSnapshot = parseStoredTaskSnapshot(receipt.resultSnapshot?.task);
-            const responseMeta = mobileResponseMetaSchema.safeParse(
-              receipt.resultSnapshot?.responseMeta,
-            );
-            const latestWorkReceipt = receipt.resultSnapshot?.latestWorkReceipt;
-            if (!taskSnapshot.success || taskSnapshot.data.id !== input.taskId) {
-              throw new Error("Task delegation receipt is missing its canonical Task snapshot");
-            }
-            if (!responseMeta.success) {
-              throw new Error("Task delegation receipt is missing its immutable response metadata");
-            }
-            if (
-              latestWorkReceipt !== null &&
-              (!latestWorkReceipt || latestWorkReceipt.task_id !== input.taskId)
-            ) {
-              throw new Error("Task delegation receipt has an invalid Work Receipt snapshot");
-            }
-            return {
-              ok: true,
-              commandId: receipt.commandId,
-              status: receipt.status,
-              task: taskSnapshot.data,
-              latestWorkReceipt: latestWorkReceipt ? mobileWorkReceipt(latestWorkReceipt) : null,
-              responseMeta: responseMeta.data,
-            };
-          } catch (error) {
-            if (error instanceof ApplicationCommandError) return delegationFailure(error);
             throw error;
           }
         },

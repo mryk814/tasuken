@@ -67,11 +67,7 @@ const {
 );
 
 /** A real Gateway/Core/SQLite route, with faults confined to a loopback test proxy. */
-export async function createMobileOfflineGateway({
-  scopes,
-  organizer = null,
-  feedWritable = false,
-} = {}) {
+export async function createMobileOfflineGateway({ scopes, feedWritable = false } = {}) {
   const directory = mkdtempSync(path.join(os.tmpdir(), "tasken-offline-journey-"));
   const serverId = `offline-${randomUUID()}`;
   const deviceId = `test-${randomUUID()}`;
@@ -102,7 +98,6 @@ export async function createMobileOfflineGateway({
       directory,
       database,
       (command) => application.execute(command),
-      undefined,
       undefined,
       undefined,
       {
@@ -146,7 +141,7 @@ export async function createMobileOfflineGateway({
       devices.pair({ code: ticket.code, deviceId, deviceLabel: "Isolated offline journey" });
     }
     host = new MobileGatewayHost({
-      adapter: runtime.createMobileGateway(state, undefined, () => organizer),
+      adapter: runtime.createMobileGateway(state),
       devices,
       state,
       port: 0,

@@ -149,7 +149,6 @@ function gateway({ writable = false, failType = null } = {}) {
     undefined,
     undefined,
     undefined,
-    undefined,
     { routineWriter },
   );
   const adapter = runtime.createMobileGateway({
@@ -194,12 +193,12 @@ function post(adapter, body, principal = writer) {
   });
 }
 
-test("続けることは一時停止中を除き、手入れは目安が近いか過ぎた項目だけを返す", async () => {
+test("続けることは一時停止中を除いて返し、手入れは返さない（#755 束9b）", async () => {
   const { adapter } = gateway();
   const response = await read(adapter);
   assert.equal(response.status, 200);
   assert.equal(mobileRoutinesResponseSchema.safeParse(response.body).success, true);
-  const { habits, maintenances } = response.body.data;
+  const { habits } = response.body.data;
   assert.deepEqual(
     habits.map((habit) => [habit.habitId, habit.scheduleLabel, habit.todayLabel, habit.weekLabel]),
     [
@@ -207,13 +206,8 @@ test("続けることは一時停止中を除き、手入れは目安が近い�
       ["habit-read", "週3回", "今日1回", "今週1/3回"],
     ],
   );
-  assert.deepEqual(
-    maintenances.map((item) => [item.maintenanceId, item.label, item.state, item.dueLabel]),
-    [
-      ["maint-filter", "エアコン / フィルターを掃除する", "overdue", "目安を5日過ぎています"],
-      ["maint-soon", "ドラフト / 点検", "due_soon", "あと4日"],
-    ],
-  );
+  // 手入れの記録はDBに残っていても、スマホへは渡さない（束9a のスマホは欄が無くても空として読む）。
+  assert.equal(Object.hasOwn(response.body.data, "maintenances"), false);
 });
 
 test("読み出しは読み取り権限と日付を求め、知らないqueryを拒否する", async () => {
@@ -249,17 +243,12 @@ test("履歴の欠番があってもAndroidへ次のsequenceを返し、追加�
   assert.equal(repository.list("habit_entry").length, 2);
 });
 
-test("親の保存が失敗するとHabitとMaintenanceの実施記録もrollbackする", async () => {
+test("親の保存が失敗するとHabitの実施記録もrollbackする", async () => {
   for (const [parent, entry, action] of [
     [
       "habit",
       "habit_entry",
       { name: "RecordHabitEntry", habitId: "habit-stretch", performedOn: today, sequence: 1 },
-    ],
-    [
-      "maintenance",
-      "maintenance_entry",
-      { name: "RecordMaintenance", maintenanceId: "maint-filter", performedOn: today },
     ],
   ]) {
     const { adapter, repository } = gateway({ writable: true, failType: parent });
@@ -300,40 +289,17 @@ test("Habitの1回記録はDesktopと同じEntityで保存し、同じ回の再�
   assert.equal(after.body.data.habits[0].todayLabel, "今日1回");
 });
 
-test("Maintenanceの記録は次の目安を進め、同じ日の2回目は増やさない", async () => {
+test("手入れの記録（RecordMaintenance）はもう受けず、手入れの記録を書き換えない（#755 束9b）", async () => {
   const { adapter, repository, saved } = gateway({ writable: true });
-  const body = actionRequest({
-    name: "RecordMaintenance",
-    maintenanceId: "maint-filter",
-    performedOn: today,
-  });
-  const first = await post(adapter, body);
-  assert.equal(first.status, 200);
-  assert.equal(first.body.data.status, "applied");
-  assert.equal(first.body.data.nextDueOn, "2026-11-05");
-  const entry = repository.get("maintenance_entry", `maintenance-entry:maint-filter:${today}`);
-  assert.equal(entry.previous_due_on, "2026-10-01");
-  assert.equal(entry.previous_performed_on, "2026-09-01");
-  assert.equal(entry.next_due_on, "2026-11-05");
-  const item = repository.get("maintenance", "maint-filter");
-  assert.equal(item.next_due_on, "2026-11-05");
-  assert.equal(item.last_performed_on, today);
-
-  const again = await post(adapter, {
-    ...body,
-    commandId: "command-2",
-    idempotencyKey: "command-2",
-  });
-  assert.equal(again.body.data.status, "no_change");
-  assert.equal(again.body.data.nextDueOn, "2026-11-05");
-  assert.equal(saved.length, 2);
-
-  // 目安が先へ進んだので、Todayの対象から外れる。
-  const after = await read(adapter);
-  assert.deepEqual(
-    after.body.data.maintenances.map((m) => m.maintenanceId),
-    ["maint-soon"],
+  const before = structuredClone(repository.get("maintenance", "maint-filter"));
+  const result = await post(
+    adapter,
+    actionRequest({ name: "RecordMaintenance", maintenanceId: "maint-filter", performedOn: today }),
   );
+  assert.equal(result.status, 400);
+  assert.equal(result.body.error.code, "validation_failed");
+  assert.deepEqual(saved, []);
+  assert.deepEqual(repository.get("maintenance", "maint-filter"), before);
 });
 
 test("存在しない・一時停止中・権限なし・他端末の名義・書き込み口なしは拒否する", async () => {

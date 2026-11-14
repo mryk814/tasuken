@@ -96,8 +96,6 @@ export const TASKEN_MOBILE_CAPABILITIES = Object.freeze({
   workReceiptRead: "mobile.work-receipt.read",
   proposalRead: "mobile.proposal.read",
   proposalReview: "mobile.proposal.review",
-  humanReview: "mobile.human-review",
-  taskContextPreviewRead: "mobile.task-context-preview.read",
   taskWrite: "mobile.task.write",
   captureWrite: "mobile.capture.write",
   workLogWrite: "mobile.work-log.write",
@@ -116,25 +114,20 @@ export const TASKEN_MOBILE_ENDPOINTS = Object.freeze({
   workReceipt: "/v1/work-receipt",
   proposals: "/v1/proposals",
   proposalDecisions: "/v1/proposal-decisions",
-  workReviews: "/v1/work-reviews",
-  /** Agent Deskの要対応read model（#601）。Desktopと同じprojectionを返す。 */
-  attention: "/v1/attention",
   /** Feedの投稿（AI・自分）を読むread model。投稿の正本はDesktop。読むだけで、反応や返信は含めない。 */
   feed: "/v1/feed",
   /** Feed投稿への反応（おもしろい・ブックマーク）と、自分のメモとしての返信。冪等。 */
   feedActions: "/v1/feed-actions",
-  /** 続けること（Habit）と手入れ（Maintenance）の読み出し（#454）。 */
+  /** 続けること（Habit）の読み出し（#454）。手入れは #755 束9b で外した。 */
   routines: "/v1/routines",
-  /** Habitの1回記録とMaintenanceの実施記録。IDが決まっているので再送で増えない（#454）。 */
+  /** Habitの1回記録。IDが決まっているので再送で増えない（#454）。 */
   routineActions: "/v1/routine-actions",
-  /** agentの質問への短い返答（#601）。 */
-  agentReplies: "/v1/agent-replies",
-  taskContextPreview: "/v1/task-context-preview",
-  taskDelegations: "/v1/task-delegations",
   bootstrap: "/v1/bootstrap",
   sync: "/v1/sync",
+  /**
+   * 送信待ち（outbox）の命令。前の版のスマホが残した AdoptWorkLogOrganization（作業記録の整理の採用）も
+   * ここで受けて Note に残す。整理を作る受け口（work-log-organization）を外しても、本人が採った整理は失わない。
+   */
   commands: "/v1/commands",
   workLogs: "/v1/work-logs",
-  captureOrganization: "/v1/capture-organization",
-  workLogOrganization: "/v1/work-log-organization",
 });

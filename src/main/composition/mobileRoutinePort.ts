@@ -4,13 +4,6 @@ import {
   habitScheduleLabel,
   nextEntrySequence,
 } from "../../shared/contracts/habit/progress.ts";
-import {
-  isMaintenanceDueSoon,
-  maintenanceDue,
-  maintenanceEntryId,
-  maintenanceLabel,
-  nextDueFrom,
-} from "../../shared/contracts/maintenance/schedule.ts";
 import type { MobileRoutineActionRequest } from "../../shared/contracts/mobile/public.ts";
 import type {
   MobileGatewayCorePort,
@@ -19,14 +12,15 @@ import type {
 } from "../gateway/mobile/public.ts";
 
 /**
- * 続けること（Habit）と手入れ（Maintenance）の書き込みをDesktopのmainへ任せる口（#454）。
- * Desktopの記録と同じEntity（`habit_entry` / `habit` / `maintenance_entry` / `maintenance`）を保存し、
+ * 続けること（Habit）の書き込みをDesktopのmainへ任せる口（#454）。
+ * Desktopの記録と同じEntity（`habit_entry` / `habit`）を保存し、
  * 保存後のDesktop画面の更新もmain側が行う。常時稼働nodeには渡さない。
+ * 手入れ（Maintenance）の読み出しと記録は #755 束9b で外した（記録は読むだけで残る）。
  */
 export interface RoutineWriterPort {
   saveMany(
     operations: {
-      type: "habit" | "habit_entry" | "maintenance" | "maintenance_entry";
+      type: "habit" | "habit_entry";
       entity: Record<string, unknown>;
     }[],
   ): Record<string, unknown>[];
@@ -41,17 +35,7 @@ function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function dateOrNull(value: unknown): string | null {
-  const raw = text(value);
-  return /^\d{4}-\d{2}-\d{2}$/u.test(raw) ? raw : null;
-}
-
-function intervalOf(item: Record<string, unknown>): number | null {
-  const value = Number(item.interval_days);
-  return Number.isInteger(value) && value >= 1 && value <= 3650 ? value : null;
-}
-
-/** Androidへ渡すHabitとMaintenance。Desktopの「Today」に出る範囲と同じにする。 */
+/** Androidへ渡すHabit。Desktopの「Today」に出る範囲と同じにする。 */
 export function readRoutines(
   persistence: RoutinePersistence,
   date: string,
@@ -96,27 +80,7 @@ export function readRoutines(
       };
     })
     .sort((left, right) => left.title.localeCompare(right.title, "ja"));
-  const maintenances = persistence
-    .list("maintenance", false)
-    .filter((item) => !item.deleted_at)
-    .flatMap((item) => {
-      const nextDueOn = dateOrNull(item.next_due_on);
-      const due = maintenanceDue({ nextDueOn, today: date });
-      if (!nextDueOn || !isMaintenanceDueSoon(due)) return [];
-      return [
-        {
-          maintenanceId: text(item.id),
-          label: maintenanceLabel(item),
-          state: due.state as "due_soon" | "overdue",
-          dueLabel: due.label,
-          nextDueOn,
-          lastPerformedOn: dateOrNull(item.last_performed_on),
-          intervalDays: intervalOf(item),
-        },
-      ];
-    })
-    .sort((left, right) => left.nextDueOn.localeCompare(right.nextDueOn));
-  return { date, habits: habits.slice(0, 50), maintenances: maintenances.slice(0, 50) };
+  return { date, habits: habits.slice(0, 50) };
 }
 
 export function createMobileRoutinePort(
@@ -133,68 +97,27 @@ export function createMobileRoutinePort(
             action: MobileRoutineActionRequest["action"];
           }): MobileGatewayRoutineActionResult {
             const { action } = input;
-            if (action.name === "RecordHabitEntry") {
-              const habit = persistence.get("habit", action.habitId, false);
-              if (!habit || habit.deleted_at || text(habit.state) === "paused")
-                return { ok: false, code: "not_found" };
-              const id = habitEntryId(action.habitId, action.performedOn, action.sequence);
-              // 同じ日の同じ回は同じID。応答を失った再送は記録を増やさない。
-              if (persistence.get("habit_entry", id, false))
-                return {
-                  ok: true,
-                  commandId: input.commandId,
-                  status: "no_change",
-                  nextDueOn: null,
-                };
-              writer.saveMany([
-                {
-                  type: "habit_entry",
-                  entity: {
-                    id,
-                    habit_id: action.habitId,
-                    performed_on: action.performedOn,
-                    sequence: action.sequence,
-                    recorded_at: input.issuedAt,
-                  },
-                },
-                { type: "habit", entity: { ...habit, last_performed_on: action.performedOn } },
-              ]);
-              return { ok: true, commandId: input.commandId, status: "applied", nextDueOn: null };
-            }
-            const item = persistence.get("maintenance", action.maintenanceId, false);
-            if (!item || item.deleted_at) return { ok: false, code: "not_found" };
-            const interval = intervalOf(item);
-            if (!interval) return { ok: false, code: "validation_failed" };
-            const id = maintenanceEntryId(action.maintenanceId, action.performedOn);
-            const existing = persistence.get("maintenance_entry", id, false);
-            // 同じ日の2回目は記録を増やさない（Desktopと同じ）。
-            if (existing)
-              return {
-                ok: true,
-                commandId: input.commandId,
-                status: "no_change",
-                nextDueOn: dateOrNull(existing.next_due_on),
-              };
-            const next = nextDueFrom(action.performedOn, interval);
+            const habit = persistence.get("habit", action.habitId, false);
+            if (!habit || habit.deleted_at || text(habit.state) === "paused")
+              return { ok: false, code: "not_found" };
+            const id = habitEntryId(action.habitId, action.performedOn, action.sequence);
+            // 同じ日の同じ回は同じID。応答を失った再送は記録を増やさない。
+            if (persistence.get("habit_entry", id, false))
+              return { ok: true, commandId: input.commandId, status: "no_change" };
             writer.saveMany([
               {
-                type: "maintenance_entry",
+                type: "habit_entry",
                 entity: {
                   id,
-                  maintenance_id: action.maintenanceId,
+                  habit_id: action.habitId,
                   performed_on: action.performedOn,
-                  next_due_on: next,
-                  previous_due_on: dateOrNull(item.next_due_on),
-                  previous_performed_on: dateOrNull(item.last_performed_on),
+                  sequence: action.sequence,
                   recorded_at: input.issuedAt,
                 },
               },
-              {
-                type: "maintenance",
-                entity: { ...item, last_performed_on: action.performedOn, next_due_on: next },
-              },
+              { type: "habit", entity: { ...habit, last_performed_on: action.performedOn } },
             ]);
-            return { ok: true, commandId: input.commandId, status: "applied", nextDueOn: next };
+            return { ok: true, commandId: input.commandId, status: "applied" };
           },
         }
       : {}),

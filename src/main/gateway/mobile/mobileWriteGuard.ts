@@ -63,13 +63,8 @@ export function guardMobileWrites(
       );
       return core.decideTaskWorkProposal(input);
     },
-    delegateTaskToAgent: (input) => {
-      guard(modify({ type: "task", id: input.taskId }));
-      return core.delegateTaskToAgent(input);
-    },
   };
-  const { executeWorkLogCommand, replyToAgentRequest, executeFeedAction, executeRoutineAction } =
-    core;
+  const { executeWorkLogCommand, executeFeedAction, executeRoutineAction } = core;
   if (executeWorkLogCommand) {
     guarded.executeWorkLogCommand = (input) => {
       const command = input.command;
@@ -83,12 +78,6 @@ export function guardMobileWrites(
       return executeWorkLogCommand(input);
     };
   }
-  if (replyToAgentRequest) {
-    guarded.replyToAgentRequest = (input) => {
-      guard(modify({ type: "task", id: input.taskId }));
-      return replyToAgentRequest(input);
-    };
-  }
   if (executeFeedAction) {
     guarded.executeFeedAction = (input) => {
       // 反応は既存の反応を切り替えうるが、対象のIDは書き込み口の内側で決まる。返信は新しい記録。
@@ -98,14 +87,9 @@ export function guardMobileWrites(
   }
   if (executeRoutineAction) {
     guarded.executeRoutineAction = (input) => {
-      // 記録を足すだけに見えるが、続けること・手入れの本体（habit・maintenance）も丸ごと上書きする
+      // 記録を足すだけに見えるが、続けることの本体（habit）も丸ごと上書きする
       // （mobileRoutinePort）。既存Entityの書き換えとして、本体を対象にする。
-      const action = input.action;
-      guard(
-        action.name === "RecordHabitEntry"
-          ? modify({ type: "habit", id: action.habitId })
-          : modify({ type: "maintenance", id: action.maintenanceId }),
-      );
+      guard(modify({ type: "habit", id: input.action.habitId }));
       return executeRoutineAction(input);
     };
   }

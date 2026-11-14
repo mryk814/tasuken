@@ -65,7 +65,6 @@ async function desktop(t, { enabled = true } = {}) {
     undefined,
     undefined,
     undefined,
-    undefined,
     { executeAiTaskStart: (command) => commands.executeAiTaskStart(command, "any") },
   );
   runtime.enableAiItemCreation(createAiItemCreationPort(commands, workspace), {

@@ -2,8 +2,6 @@ export {
   MobileGatewayAdapter,
   MobileGatewayCoreUnavailableError,
   refuseMobileWriteForNow,
-  type MobileGatewayAgentReplyResult,
-  type MobileGatewayAttentionRead,
   type MobileGatewayFeedActionResult,
   type MobileGatewayFeedRead,
   type MobileGatewayRoutineActionResult,
@@ -13,8 +11,6 @@ export {
   type MobileGatewayWorkLogCommandResult,
   type MobileGatewayCaptureCommand,
   type MobileGatewayCaptureCommandResult,
-  type MobileGatewayTaskDelegationCommand,
-  type MobileGatewayTaskDelegationResult,
   type MobileGatewayThemeRecord,
   type MobileGatewayTaskWorkProposalDecision,
   type MobileGatewayTaskWorkProposalDecisionResult,
@@ -28,11 +24,6 @@ export {
   type MobilePrincipal,
 } from "./mobileGatewayAdapter.ts";
 export {
-  projectAttentionItem,
-  projectAttentionItems,
-  projectAttentionQueue,
-} from "./attentionProjection.ts";
-export {
   projectFeedPosts,
   projectOwnFeedPosts,
   projectProposalFeedPosts,
@@ -42,7 +33,6 @@ export {
   MobileGatewayClientError,
   type MobileGatewayClientOptions,
 } from "./mobileGatewayClient.ts";
-export { MOBILE_TASK_CONTEXT_INPUT, taskContextFingerprint } from "./taskContextPreview.ts";
 export {
   createCaptureOrganizerFromEnvironment,
   CaptureOrganizerUserError,

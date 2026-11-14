@@ -103,7 +103,6 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 - 共有フォルダ同期への参加（`--sync-directory`）が済むまでは待ち受けない。指定が無い・参加できない場合は起動を止める。
 - 端末の書き込みは、Desktopと同じ`ApplicationCommandService`・WorkspaceService・`WorkspaceDatabase`を通り、通常の差分として共有フォルダへ公開される。写真はDesktopと同じ`attachments/capture-images`に保存し、同期で運ぶ（寸法検査はElectronなしでPNG/JPEGのヘッダーを読む）。
 - 既存Entityの書き換えは、そのEntityに未解決の同期競合があるか、取り込みが追いついていない（`source`の`state`が`ok`・`conflict`以外）間は503（retryable）で断る。端末はoutboxに残して再送する。新しいEntityを足す作成は通す。
-- 委任は持たない。AI整理は`TASKEN_CAPTURE_LLM_*`が揃うときだけ。それ以外は`capability_unavailable`。
 - DBの自動バックアップ（`<userData>/Backups`、5世代）を起動の30秒後と一日おきに取る。
 - ペアリングコードの発行・端末の一覧・取り消しは`docker exec <container> node core-dist/mobile-pair.mjs [pair|list|revoke <deviceId>]`（Coreの`/v1/admin/mobile/*`を全権tokenで呼ぶ。端末の一覧は同期しないので、Desktopの設定画面には出ない）。
 

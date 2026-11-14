@@ -296,34 +296,6 @@ test("mobile gateway accepts multibyte organized captures and enforces per-endpo
     assert.equal(rejected.status, 413);
     assert.equal((await rejected.json()).error.code, "response_too_large");
     assert.equal(received.length, 3);
-    const organizeBody = (size) =>
-      JSON.stringify({
-        text: "整理",
-        capturedAt: "2026-08-21T01:00:00.000Z",
-        timeZone: "Asia/Tokyo",
-        themeId: null,
-        images: [
-          {
-            reference_id: "photo",
-            file_name: "photo.jpg",
-            media_type: "image/jpeg",
-            data_base64: "A".repeat(size),
-          },
-        ],
-      });
-    const organizePost = (body) =>
-      fetch(host.diagnostics().localOrigin + "/v1/capture-organization", {
-        method: "POST",
-        headers: { authorization: `Bearer ${fixedToken}`, "content-type": "application/json" },
-        body,
-      });
-    const organizeCap = 12 * 1024 * 1024;
-    const organizeOk = await organizePost(organizeBody(512 * 1024));
-    assert.equal(organizeOk.status, 200);
-    await organizeOk.json();
-    const organizeRejected = await organizePost(organizeBody(organizeCap));
-    assert.equal(organizeRejected.status, 413);
-    assert.equal((await organizeRejected.json()).error.code, "response_too_large");
   } finally {
     await host.stop();
   }
