@@ -12,8 +12,11 @@ import {
 //
 // 消してよいと判断する印は、前の版が同じフォルダーに置いた管理ファイル（manifest）が持つ
 // 各ファイルの content hash（markdownSignature）。中身がその hash と一致するファイルだけを
-// 消す。一致しない物は、前の版が書いた後に本人や別の道具が直した物なので残す。見出しの
-// 文言よりも厳しく、前の版は書く前に必ずこの hash を manifest に記録していた。
+// 消す。一致しない物は、前の版が最後に記録した後に本人や別の道具が直した物なので残す。
+// 一致する物は「前の版が最後に記録した中身のまま」の物で、ほぼ前の版が書いた物だが、
+// AI Pack では前の版の発行が途中で失敗した後、そのとき在った中身（本人が直した物でありうる）の
+// hash を控えとして記録していることがある。前の版も次の発行でその 7 ファイルを丸ごと置き換えて
+// いたので、ここでも同じ扱いにする。
 // 名前は前の版が決めていた物（AI Pack の 7 ファイル、日別 Context の Days/Weeks/... の形）に
 // 限り、ワイルドカードでは探さない。symlink / junction は辿らない。
 //
@@ -97,27 +100,27 @@ function resolvePlainChild(fileSystem, base, relativePath) {
 function createRun({ trash, fileSystem }) {
   const summary = { trashed: 0, kept: 0, failed: 0, removedDirectories: 0 };
 
-  /** 中身が allowedHashes のどれかと一致する時だけ、ごみ箱へ移す。 */
+  /** 中身が allowedHashes のどれかと一致する時だけ、ごみ箱へ移す。移せなかった時だけ false。 */
   async function trashIfSigned(filePath, allowedHashes) {
-    if (!filePath) return;
+    if (!filePath) return true;
     const kind = plainEntry(fileSystem, filePath);
-    if (kind === "missing") return;
+    if (kind === "missing") return true;
     if (kind !== "file") {
       summary.kept += 1;
-      return;
+      return true;
     }
     let signature;
     try {
       signature = markdownSignature(fileSystem.readFileSync(filePath, "utf8"));
     } catch {
       summary.kept += 1;
-      return;
+      return true;
     }
     if (!allowedHashes.has(signature)) {
       summary.kept += 1;
-      return;
+      return true;
     }
-    await trashFile(filePath);
+    return trashFile(filePath);
   }
 
   /** 印を確かめ終えた管理ファイル（manifest）を、ごみ箱へ移す。 */
@@ -125,8 +128,10 @@ function createRun({ trash, fileSystem }) {
     try {
       await trash(filePath);
       summary.trashed += 1;
+      return true;
     } catch {
       summary.failed += 1;
+      return false;
     }
   }
 
@@ -162,6 +167,7 @@ async function cleanAiPack(run, fileSystem, themeFolder, themeId) {
     !Array.isArray(manifest.files)
   )
     return;
+  let failed = false;
   for (const name of AI_PACK_FILES) {
     const described = manifest.files.find((entry) => record(entry)?.name === name);
     const hash = text(described?.contentHash);
@@ -170,8 +176,10 @@ async function cleanAiPack(run, fileSystem, themeFolder, themeId) {
       if (plainEntry(fileSystem, filePath) !== "missing") run.summary.kept += 1;
       continue;
     }
-    await run.trashIfSigned(filePath, new Set([hash]));
+    if (!(await run.trashIfSigned(filePath, new Set([hash])))) failed = true;
   }
+  // 一つでも移せなかったら manifest（印）を残し、次の起動でやり直せるようにする。
+  if (failed) return;
   await run.trashFile(manifestPath);
   run.removeIfEmpty(directory);
 }
@@ -228,19 +236,25 @@ async function cleanDailyContext(run, fileSystem, root, workspaceId) {
     ...new Set([text(manifest.operationId), text(pending?.operationId)]),
   ].filter((id) => OPERATION_ID.test(id));
 
+  let failed = false;
   for (const [relativePath, hashes] of allowed) {
     const filePath = resolvePlainChild(fileSystem, directory, relativePath);
     if (!filePath) continue;
-    await run.trashIfSigned(filePath, hashes);
+    if (!(await run.trashIfSigned(filePath, hashes))) failed = true;
     for (const operationId of operationIds) {
       for (const extension of ["tmp", "bak"]) {
         const sidePath = path.join(
           path.dirname(filePath),
           `.${path.basename(filePath)}.${operationId}.${extension}`,
         );
-        await run.trashIfSigned(sidePath, hashes);
+        if (!(await run.trashIfSigned(sidePath, hashes))) failed = true;
       }
     }
+  }
+  // 一つでも移せなかったら manifest と、その退避（.tmp / .bak）を残し、次の起動でやり直す。
+  if (failed) {
+    removeEmptyDailyDirectories(run, fileSystem, directory);
+    return;
   }
   const manifestBackupHashes = new Set(
     HASH.test(text(manifest.manifestBackupHash)) ? [text(manifest.manifestBackupHash)] : [],
@@ -254,6 +268,10 @@ async function cleanDailyContext(run, fileSystem, root, workspaceId) {
     }
   }
   await run.trashFile(manifestPath);
+  removeEmptyDailyDirectories(run, fileSystem, directory);
+}
+
+function removeEmptyDailyDirectories(run, fileSystem, directory) {
   for (const subdirectory of DAILY_CONTEXT_SUBDIRECTORIES) {
     const target = resolvePlainChild(fileSystem, directory, subdirectory);
     if (target) run.removeIfEmpty(target);
@@ -360,10 +378,15 @@ export async function cleanupRetiredOutputs({
   return run.summary;
 }
 
+/** ごみ箱へ移せないファイルが残った時に、起動のたびにやり直す回数の上限。 */
+export const MAX_RETIRED_OUTPUT_CLEANUP_ATTEMPTS = 3;
+
 /**
  * 起動時に一度だけ片付ける。済んだら repository に時刻を残し、二度目は何もしない。
  * ごみ箱へ移せなかったファイルがあった時だけ、次の起動でもう一度試す（同期の道具が
- * ファイルをつかんでいた時など）。失敗は起動を止めず、ログには数だけを出す。
+ * ファイルをつかんでいた時など）。ごみ箱の無い場所（ネットワークドライブなど）では
+ * trashItem が失敗し続けるので、MAX_RETIRED_OUTPUT_CLEANUP_ATTEMPTS 回で諦めて、
+ * 消さずに残したまま済んだ印を付ける。失敗は起動を止めず、ログには数だけを出す。
  * @param {{
  *   repository: {
  *     readRetiredOutputLocations(): {
@@ -374,6 +397,7 @@ export async function cleanupRetiredOutputs({
  *       cleanedAt: string | null,
  *     },
  *     markRetiredOutputsCleaned(at: string): void,
+ *     recordRetiredOutputCleanupAttempt(): number,
  *   },
  *   trash: (filePath: string) => Promise<void>,
  *   log?: (level: "info" | "warn", message: string) => void,
@@ -394,8 +418,17 @@ export async function runRetiredOutputCleanupOnce({
     const summary = await cleanupRetiredOutputs({ ...locations, trash, fileSystem });
     const message = `trashed=${summary.trashed} kept=${summary.kept} failed=${summary.failed} removedDirectories=${summary.removedDirectories}`;
     if (summary.failed > 0) {
-      log("warn", `前の版の出力の片付けを次の起動でやり直す: ${message}`);
-      return { state: "retry", summary };
+      const attempts = repository.recordRetiredOutputCleanupAttempt();
+      if (attempts < MAX_RETIRED_OUTPUT_CLEANUP_ATTEMPTS) {
+        log("warn", `前の版の出力の片付けを次の起動でやり直す: ${message} attempts=${attempts}`);
+        return { state: "retry", summary };
+      }
+      repository.markRetiredOutputsCleaned(now());
+      log(
+        "warn",
+        `前の版の出力の一部をごみ箱へ移せず、残して諦めた: ${message} attempts=${attempts}`,
+      );
+      return { state: "gave_up", summary };
     }
     repository.markRetiredOutputsCleaned(now());
     if (summary.trashed || summary.kept || summary.removedDirectories)

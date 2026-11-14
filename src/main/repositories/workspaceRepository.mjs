@@ -1000,6 +1000,24 @@ export class WorkspaceDatabase {
       .run("retired_outputs_cleanup_v1", String(at));
   }
 
+  /** ごみ箱へ移せないファイルが残った片付けを数え、今までの回数を返す。 */
+  recordRetiredOutputCleanupAttempt() {
+    const key = "retired_outputs_cleanup_attempts_v1";
+    const transaction = this.db.transaction(() => {
+      const current = Number(
+        this.db.prepare("SELECT value FROM workspace_meta WHERE key = ?").get(key)?.value || 0,
+      );
+      const next = (Number.isSafeInteger(current) && current > 0 ? current : 0) + 1;
+      this.db
+        .prepare(
+          "INSERT INTO workspace_meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .run(key, String(next));
+      return next;
+    });
+    return transaction.immediate();
+  }
+
   setPreference(key, value) {
     if (key === "themeMode") {
       if (!["light", "dark"].includes(value)) throw new Error("カラーモードの値が不正です。");

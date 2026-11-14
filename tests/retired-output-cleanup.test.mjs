@@ -186,3 +186,82 @@ test("片付けが例外で止まっても起動を止めない", async () => {
   });
   assert.equal(result.state, "error");
 });
+
+test("一部のファイルだけごみ箱へ移せなかったら manifest を残し、次の起動で残りを片付ける", async () => {
+  const item = fixture();
+  try {
+    const themeFolder = path.join(item.root, "ThemeRoot");
+    writeThemeFolder(themeFolder, "theme-a");
+    const pack = writeAiPack(themeFolder, "theme-a");
+    const dailyRoot = path.join(item.root, "Publish");
+    const daily = writeDailyContext(dailyRoot, "ws-1");
+    const locations = {
+      workspaceId: "ws-1",
+      themes: [{ themeId: "theme-a", storageRoot: themeFolder }],
+      dailyContextRoots: [dailyRoot],
+    };
+    // 同期の道具がつかんでいる時のように、2 つのファイルだけを拒む。
+    const busy = new Set([path.join(pack, "02 Decisions.md"), path.join(daily, "README.md")]);
+    const refusingSome = async (filePath) => {
+      if (busy.has(filePath)) throw Object.assign(new Error("EBUSY"), { code: "EBUSY" });
+      await item.trash(filePath);
+    };
+
+    const first = await cleanupRetiredOutputs({ ...locations, trash: refusingSome });
+    assert.equal(first.failed, 2);
+    assert.equal(fs.existsSync(path.join(pack, ".tasken-ai-pack.json")), true);
+    assert.equal(fs.existsSync(path.join(pack, "02 Decisions.md")), true);
+    assert.equal(fs.existsSync(path.join(pack, "00 Theme Overview.md")), false);
+    assert.equal(fs.existsSync(path.join(daily, ".tasken-context.json")), true);
+    assert.equal(fs.existsSync(path.join(daily, "README.md")), true);
+
+    const second = await cleanupRetiredOutputs({ ...locations, trash: item.trash });
+    assert.equal(second.failed, 0);
+    assert.equal(fs.existsSync(pack), false);
+    assert.equal(fs.existsSync(daily), false);
+  } finally {
+    item.close();
+  }
+});
+
+test("ごみ箱へ移せない状態が続いたら、3 回目で消さずに諦めて済んだ印を付ける", async () => {
+  const item = fixture();
+  try {
+    const themeFolder = path.join(item.root, "ThemeRoot");
+    writeThemeFolder(themeFolder, "theme-a");
+    const pack = writeAiPack(themeFolder, "theme-a");
+    let attempts = 0;
+    let cleanedAt = null;
+    const repository = {
+      readRetiredOutputLocations: () => ({
+        workspaceId: "ws-1",
+        artifactDirectory: "",
+        themes: [{ themeId: "theme-a", storageRoot: themeFolder }],
+        dailyContextRoots: [],
+        cleanedAt,
+      }),
+      recordRetiredOutputCleanupAttempt: () => (attempts += 1),
+      markRetiredOutputsCleaned: (at) => {
+        cleanedAt = at;
+      },
+    };
+    // ごみ箱の無い場所（ネットワークドライブなど）では trashItem が失敗し続ける。
+    const noRecycleBin = async () => {
+      throw Object.assign(new Error("E_ABORT"), { code: "E_ABORT" });
+    };
+    const states = [];
+    for (let run = 0; run < 4; run += 1) {
+      const result = await runRetiredOutputCleanupOnce({
+        repository,
+        trash: noRecycleBin,
+        now: () => "2026-11-14T00:00:00.000Z",
+      });
+      states.push(result.state);
+    }
+    assert.deepEqual(states, ["retry", "retry", "gave_up", "already_done"]);
+    assert.equal(cleanedAt, "2026-11-14T00:00:00.000Z");
+    assert.equal(fs.readdirSync(pack).length, 8, "消さずに残す");
+  } finally {
+    item.close();
+  }
+});

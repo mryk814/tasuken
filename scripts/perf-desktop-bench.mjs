@@ -68,6 +68,9 @@ async function prepareCopy() {
   setMeta.run("activity_log_directory", "");
   // 自動バックアップは世代を入れ替える（古いものを消す）ので、本物の保存先へ向けない。
   setMeta.run("automatic_snapshot_backup_directory", path.join(workDirectory, "backups"));
+  // 前の版の出力の片付け（#755 束2）は Theme の storage_root の下を本物のごみ箱へ移すので、
+  // 済んだことにして走らせない（storage_root は写しでも本物の同期先を指したまま）。
+  setMeta.run("retired_outputs_cleanup_v1", "skipped-by-bench");
   // 日別 Context（#755 束2 で外した）の設定は、もう読まないが本物の公開先のパスを持つことがある。
   // 写しからは消して、下の「外を指すパス」の確かめに引っかからないようにする。
   copy
