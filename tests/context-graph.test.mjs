@@ -10,7 +10,6 @@ import {
 } from "../src/shared/contextGraph.mjs";
 import { ReadOnlyTaskenContext } from "./fixtures/legacyReadOnlyContext.mjs";
 import { buildContextSelection, contextSelectionEntry } from "../src/shared/contextSelection.mjs";
-import { previewContextSubgraph } from "../src/shared/aiContextPreview.mjs";
 
 const fixture = {
   themes: [{ id: "theme-research", name: "Graph Research", project_id: null }],
@@ -621,10 +620,6 @@ test("read-only MCP boundary exposes the same pure projection without a database
   assert.equal(result.read_only, true);
   assert.equal("ai_audience" in result, false);
   assert.ok(result.nodes.some((node) => node.type === "note" && node.id === "note-1"));
-  assert.deepEqual(
-    previewContextSubgraph(result).included.map((entry) => entry.ref),
-    result.context_selection.included.map((entry) => entry.ref),
-  );
   context.close();
 });
 
@@ -656,9 +651,5 @@ test("MCP subgraph applies token budget after safe AI metadata projection", () =
   assert.equal(result.truncated, true);
   assert.ok(result.exclusions.includes("ai_metadata_budget"));
   assert.doesNotMatch(JSON.stringify(result), /C:\\\\Users|alice:secret|secret\.md/);
-  assert.deepEqual(
-    previewContextSubgraph(result).included.map((entry) => entry.ref),
-    result.context_selection.included.map((entry) => entry.ref),
-  );
   context.close();
 });

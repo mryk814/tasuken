@@ -4,7 +4,6 @@ const MAX_INCLUDED = 500;
 const MAX_RELATIONS = 500;
 const MAX_EXCLUDED = 500;
 const MAX_WARNINGS = 200;
-const MAX_FILES = 50;
 const MAX_TEXT = 4_000;
 const MAX_TITLE = 1_000;
 
@@ -41,10 +40,6 @@ function number(value) {
   if (value == null || value === "") return null;
   const result = Number(value);
   return Number.isFinite(result) && result >= 0 ? result : null;
-}
-
-function boolean(value) {
-  return typeof value === "boolean" ? value : null;
 }
 
 function ref(value, fallbackType = null) {
@@ -296,51 +291,6 @@ function normalizeWarnings(value) {
     .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
 }
 
-function normalizeFiles(plan) {
-  const previewByName = new Map(
-    array(object(plan.preview).files).map((entry) => [String(object(entry).name), object(entry)]),
-  );
-  const manifestByName = new Map(
-    array(object(plan.manifest).files).map((entry) => [String(object(entry).name), object(entry)]),
-  );
-  const names = new Set(
-    [
-      ...array(plan.files).map((entry) => nonEmpty(object(entry).name, 1_000)),
-      ...previewByName.keys(),
-      ...manifestByName.keys(),
-    ].filter(Boolean),
-  );
-  return [...names]
-    .sort()
-    .slice(0, MAX_FILES)
-    .map((name) => {
-      const file = object(array(plan.files).find((entry) => object(entry).name === name));
-      const preview = object(previewByName.get(name));
-      const manifest = object(manifestByName.get(name));
-      return {
-        name,
-        includedCount: number(preview.includedCount) ?? array(file.includedEntityIds).length,
-        characterCount:
-          number(preview.characterCount) ??
-          (typeof file.content === "string" ? file.content.length : null),
-        contentHash: nonEmpty(file.content_hash || manifest.contentHash, 500),
-        content:
-          typeof file.content === "string"
-            ? {
-                mode: "full",
-                text: file.content.slice(0, MAX_TEXT),
-                truncated: file.content.length > MAX_TEXT,
-                sourceField: "content",
-              }
-            : null,
-        untypedIncludedIds: uniqueStrings(
-          file.includedEntityIds || manifest.includedEntityIds,
-          MAX_INCLUDED,
-        ),
-      };
-    });
-}
-
 function safeDetails(value, depth = 0) {
   if (depth > 4) return null;
   if (value == null || typeof value === "boolean" || typeof value === "number") return value;
@@ -512,70 +462,6 @@ function responseExclusions(response) {
   return aggregateExclusions([...array(response.exclusions), ...array(response.excluded_reasons)]);
 }
 
-function graphPathForNode(response, nodeRef, edgeById) {
-  const path = array(response.paths)
-    .filter((candidate) => {
-      const target = ref(object(candidate).to);
-      return target?.type === nodeRef.type && target?.id === nodeRef.id;
-    })
-    .sort(
-      (left, right) =>
-        (number(object(left).hops) ?? Number.MAX_SAFE_INTEGER) -
-          (number(object(right).hops) ?? Number.MAX_SAFE_INTEGER) ||
-        array(object(left).edge_ids)
-          .join("\u0000")
-          .localeCompare(array(object(right).edge_ids).join("\u0000")),
-    )[0];
-  const edgeIds = array(object(path).edge_ids);
-  return edgeIds
-    .map((edgeId) => edgeById.get(String(edgeId)))
-    .filter(Boolean)
-    .map((edge) => ({
-      edgeId: edge.id,
-      source: edge.source,
-      target: edge.target,
-      predicate: edge.predicate,
-      layer: edge.layer,
-      status: edge.status,
-      origin: edge.origin,
-    }));
-}
-
-export function previewThemeM365(themeAiPackPlan) {
-  const plan = object(themeAiPackPlan);
-  const preview = object(plan.preview);
-  const manifest = object(plan.manifest);
-  const excluded = aggregateExclusions(
-    plan.excluded_reasons || manifest.excludedReasons || preview.excludedReasons,
-  );
-  const files = normalizeFiles(plan);
-  return makePreview({
-    scopeKind: "theme",
-    seed: { type: "theme", id: plan.theme_id || manifest.themeId },
-    capabilities: {
-      entityDetails: "aggregate_only",
-      exclusionDetails: excluded.length ? "aggregate_only" : "unavailable",
-      relationDetails: "unavailable",
-      aiMetadata: "unavailable",
-      sourceLocators: "unavailable",
-    },
-    excluded,
-    files,
-    warnings: normalizeWarnings(preview.warnings),
-    limits: {},
-    truncation: {
-      truncated: boolean(plan.truncated) === true,
-      reasons: array(plan.truncation_reasons),
-      details: object(plan.truncation),
-    },
-    estimatedCharacters: preview.totalCharacterCount,
-    estimatedTokens: plan.estimated_tokens,
-    includedCount: preview.includedCount ?? array(plan.included_entity_ids).length,
-    excludedCount: preview.excludedCount ?? plan.excluded_count,
-    untypedIncludedIds: plan.included_entity_ids || manifest.includedEntityIds,
-  });
-}
-
 export function previewTaskCoding(taskContextResponse) {
   const response = object(taskContextResponse);
   const fallbackIncluded = [];
@@ -636,150 +522,6 @@ export function previewTaskCoding(taskContextResponse) {
       truncated: Boolean(selection?.truncated ?? response.truncated),
       reasons: [...truncationReasons, ...array(object(selection?.truncation).reasons)],
       details: selection?.truncation || truncationDetails,
-    },
-    estimatedCharacters:
-      selection?.estimated_characters ??
-      response.estimated_characters ??
-      serializedLength(response),
-    estimatedTokens: selection?.estimated_tokens ?? response.estimated_tokens,
-    excludedCount: response.excluded_count,
-  });
-}
-
-function themeKnowledge(response) {
-  const knowledge = object(response.knowledge);
-  return {
-    nodes: array(knowledge.knowledge_nodes || response.knowledge_nodes),
-    edges: array(knowledge.knowledge_edges || response.knowledge_edges),
-  };
-}
-
-export function previewThemeCoding(themeContextResponse) {
-  const response = object(themeContextResponse);
-  const fallbackIncluded = [];
-  let sourceOrder = 0;
-  const addMany = (records, type, reason) => {
-    for (const record of array(records)) {
-      const entity = includedEntity(record, type, {
-        includedReason: reason,
-        sourceOrder: sourceOrder++,
-      });
-      if (entity) fallbackIncluded.push(entity);
-    }
-  };
-  addMany(response.themes, "theme", "seed");
-  addMany(response.repository_contexts, "repository_context", "theme_repository_context");
-  for (const record of array(response.open_items))
-    addMany([record], nonEmpty(object(record).entity_type, 200) || "item", "open_item");
-  addMany(response.recent_notes, "note", "recent_note");
-  const knowledge = themeKnowledge(response);
-  addMany(knowledge.nodes, "knowledge_node", "theme_knowledge");
-  const selection = producerSelection(response);
-  const included = selectionIncluded(response, fallbackIncluded);
-  const relations = (selection ? array(selection.relations) : knowledge.edges)
-    .map((edge) =>
-      relationEntry({
-        ...object(edge),
-        source: object(edge).source || { type: "knowledge_node", id: object(edge).source_node_id },
-        target: object(edge).target || { type: "knowledge_node", id: object(edge).target_node_id },
-        predicate: object(edge).predicate || object(edge).relation_type,
-      }),
-    )
-    .filter(Boolean);
-  const excluded = responseExclusions(response);
-  const themes = array(response.themes);
-  const seed =
-    ref(selection?.seed) ||
-    (themes.length === 1 ? { type: "theme", id: object(themes[0]).id } : null);
-  return makePreview({
-    scopeKind: "theme",
-    seed,
-    capabilities: {
-      entityDetails: "full",
-      exclusionDetails: excluded.length ? (selection ? "full" : "aggregate_only") : "unavailable",
-      relationDetails: relations.length ? (selection ? "full" : "partial") : "unavailable",
-      aiMetadata: included.some((entry) => entry.freshness || entry.authority)
-        ? selection
-          ? "full"
-          : "partial"
-        : "unavailable",
-      sourceLocators: included.some((entry) => entry.sourceLocator) ? "partial" : "unavailable",
-    },
-    included,
-    relations,
-    excluded,
-    warnings: normalizeWarnings(response.warnings),
-    limits: selection?.limits || response.limits,
-    truncation: {
-      truncated: Boolean(selection?.truncated ?? response.truncated),
-      reasons: selection
-        ? array(object(selection.truncation).reasons)
-        : array(response.truncation_reasons),
-      details: selection?.truncation || object(response.truncation),
-    },
-    estimatedCharacters:
-      selection?.estimated_characters ??
-      response.estimated_characters ??
-      serializedLength(response),
-    estimatedTokens: selection?.estimated_tokens ?? response.estimated_tokens,
-    excludedCount: response.excluded_count,
-  });
-}
-
-export function previewContextSubgraph(contextGraphResponse) {
-  const response = object(contextGraphResponse);
-  const selection = producerSelection(response);
-  const relations = array(selection?.relations || response.edges)
-    .map(relationEntry)
-    .filter(Boolean);
-  const edgeById = new Map(relations.filter((edge) => edge.id).map((edge) => [edge.id, edge]));
-  const seed = ref(response.seed);
-  const fallbackIncluded = array(response.nodes)
-    .map((node, sourceOrder) => {
-      const nodeRef = ref(node);
-      if (!nodeRef) return null;
-      const relationPath =
-        seed && compareRef(seed, nodeRef) === 0
-          ? []
-          : graphPathForNode(response, nodeRef, edgeById);
-      const finalEdge = relationPath.at(-1);
-      const rawFinalEdge = finalEdge?.edgeId
-        ? object(array(response.edges).find((edge) => object(edge).id === finalEdge.edgeId))
-        : {};
-      return includedEntity(node, nodeRef.type, {
-        includedReason: seed && compareRef(seed, nodeRef) === 0 ? "seed" : rawFinalEdge.reason,
-        relationPath,
-        sourceOrder,
-      });
-    })
-    .filter(Boolean);
-  const included = selectionIncluded(response, fallbackIncluded);
-  const excluded = selection
-    ? aggregateExclusions(selection.excluded)
-    : aggregateExclusions(response.exclusions);
-  return makePreview({
-    scopeKind: "context_subgraph",
-    seed,
-    capabilities: {
-      entityDetails: "full",
-      exclusionDetails: excluded.length ? (selection ? "full" : "aggregate_only") : "unavailable",
-      relationDetails: relations.length ? "full" : "unavailable",
-      aiMetadata: included.some((entry) => entry.freshness || entry.authority)
-        ? selection
-          ? "full"
-          : "partial"
-        : "unavailable",
-      sourceLocators: included.some((entry) => entry.sourceLocator) ? "partial" : "unavailable",
-    },
-    included,
-    relations,
-    excluded,
-    warnings: normalizeWarnings(response.warnings),
-    limits: selection?.limits || response.limits,
-    truncation: {
-      truncated: Boolean(selection?.truncated ?? response.truncated),
-      reasons: selection ? array(object(selection.truncation).reasons) : array(response.exclusions),
-      details: selection?.truncation || {},
     },
     estimatedCharacters:
       selection?.estimated_characters ??

@@ -40,7 +40,6 @@ import {
   type TaskSectionGroup,
 } from "../lib/taskSections";
 import { ArtifactSection } from "../components/artifacts";
-import { AiContextPreviewPanel } from "../components/AiContextPreviewPanel";
 import { AgentWorkSummaryPanel } from "../components/AgentWorkSummaryPanel";
 import { ThemeIntentPanel } from "../components/ThemeIntentPanel";
 import {
@@ -996,13 +995,6 @@ export function ThemePage({
                 </div>
               )}
             </section>
-
-            {/* AIへ渡る内容の確認も技術設定なので、同じ折り畳みへ置いて入口を失わない。 */}
-            <AiContextPreviewPanel
-              scope={{ type: "theme", id: theme.id }}
-              data={data}
-              openDrawer={openDrawer}
-            />
           </details>
         </div>
       ) : null}

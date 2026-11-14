@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import test from "node:test";
 
 import { build } from "esbuild";
-import { previewTaskCoding, previewThemeCoding } from "../src/shared/aiContextPreview.mjs";
+import { previewTaskCoding } from "../src/shared/aiContextPreview.mjs";
 
 async function importWorkspaceService() {
   const outputDirectory = mkdtempSync(
@@ -140,7 +140,7 @@ function fixtureRepository() {
   };
 }
 
-test("WorkspaceService PreviewはCore context_selectionとTheme AI Pack planをそのままadapterへ通す (#296)", async () => {
+test("WorkspaceService PreviewはTaskのCore context_selectionをそのままadapterへ通す (#296)", async () => {
   const repository = fixtureRepository();
   const taskResponse = {
     task: repository.workspace.tasks[0],
@@ -183,29 +183,16 @@ test("WorkspaceService PreviewはCore context_selectionとTheme AI Pack planを�
     scope: { type: "task", id: "task-1" },
   });
   assert.deepEqual(task.preview, previewTaskCoding(taskResponse));
+  assert.deepEqual(calls, [["task", { task_id: "task-1" }]]);
 
-  const theme = await service.getAiContextPreview({
-    channel: "mcp",
-    scope: { type: "theme", id: "theme-1" },
-  });
-  assert.deepEqual(theme.preview, previewThemeCoding(themeResponse));
-  assert.deepEqual(calls, [
-    ["task", { task_id: "task-1" }],
-    ["theme", { theme_id: "theme-1" }],
-  ]);
-
-  const m365Theme = await service.getAiContextPreview({
-    channel: "ai_pack",
-    scope: { type: "theme", id: "theme-1" },
-  });
-  const m365Task = await service.getAiContextPreview({
-    channel: "ai_pack",
-    scope: { type: "task", id: "task-1" },
-  });
-  assert.equal(m365Theme.preview.schema, "tasken-ai-context-preview/v1");
-  assert.deepEqual(m365Task.preview, m365Theme.preview);
-  assert.deepEqual(m365Task.effectiveScope, { type: "theme", id: "theme-1" });
-  assert.equal(m365Task.includedInEffectiveScope, true);
+  // ThemeのPreviewとAI Packの経路は#755 束2で外した。Handoffが使うTaskとMCPだけを受ける。
+  for (const request of [
+    { channel: "mcp", scope: { type: "theme", id: "theme-1" } },
+    { channel: "ai_pack", scope: { type: "task", id: "task-1" } },
+  ]) {
+    await assert.rejects(service.getAiContextPreview(request), /対象または種類が不正/);
+  }
+  assert.equal(calls.length, 1);
 });
 
 test("WorkspaceService Previewはraw Core/discovery errorをRendererへ公開しない (#296)", async () => {

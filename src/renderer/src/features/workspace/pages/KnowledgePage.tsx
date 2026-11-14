@@ -5,7 +5,6 @@ import type { DataHealthQueryResult } from "../../../../../shared/ipc/contracts"
 import { buildKnowledgeInventory } from "../../../../../shared/knowledgeInventory.mjs";
 import { createLatestRequestGate } from "../../../../../shared/latestRequest.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
-import { drawerTargetForPreview } from "../components/AiContextPreviewPanel";
 import {
   EmptyState,
   Metric,
@@ -17,7 +16,32 @@ import type { KnowledgeEdge } from "../domain-model/types";
 import { KNOWLEDGE_NODE_LABELS, KNOWLEDGE_RELATION_LABELS } from "../lib/domain";
 import { formatDate, str } from "../lib/format";
 import { parseWikiLinks } from "../lib/knowledgeLinks";
-import type { KnowledgeNode, PageProps } from "../types";
+import type { DrawerConfig, KnowledgeNode, PageProps } from "../types";
+
+/** Data Health の指摘が指す記録を、ドロワーで開く対象に引く。見つからなければ null。 */
+function drawerTargetForRef(
+  data: PageProps["data"],
+  ref: { type: string; id: string },
+): DrawerConfig | null {
+  const lookup = (
+    records: Array<Record<string, unknown>> | undefined,
+    type: DrawerConfig["type"],
+  ) => {
+    const entity = records?.find((entry) => String(entry.id) === ref.id);
+    return entity ? { type, mode: "view" as const, entity } : null;
+  };
+  if (ref.type === "project" || ref.type === "theme") return lookup(data.themes, "theme");
+  if (ref.type === "task") return lookup(data.tasks, "task");
+  if (ref.type === "note") return lookup(data.notes, "note");
+  if (ref.type === "resource") return lookup(data.resources, "resource");
+  if (ref.type === "knowledge_node") return lookup(data.knowledge_nodes, "knowledge_node");
+  if (ref.type === "knowledge_edge") return lookup(data.knowledge_edges, "knowledge_edge");
+  if (ref.type === "waiting") return lookup(data.waitings, "waiting");
+  if (ref.type === "plan_node") return lookup(data.plan_nodes, "plan_node");
+  if (ref.type === "capture_entry") return lookup(data.capture_entrys, "capture_entry");
+  if (ref.type === "sketch") return lookup(data.sketches, "sketch");
+  return null;
+}
 
 const ALL = "all";
 const NODE_TYPE_ORDER = ["question", "claim", "evidence", "decision", "source", "insight"];
@@ -175,7 +199,7 @@ export function KnowledgePage({ data, themes, openDrawer }: PageProps) {
   }
 
   function openHealthIssue(issue: DataHealthIssue) {
-    const target = drawerTargetForPreview(data, issue.ref);
+    const target = drawerTargetForRef(data, issue.ref);
     if (target) openDrawer(target);
   }
 
@@ -363,7 +387,7 @@ export function KnowledgePage({ data, themes, openDrawer }: PageProps) {
                   <button
                     type="button"
                     className="knowledge-diagnostic-link"
-                    disabled={!drawerTargetForPreview(data, issue.ref)}
+                    disabled={!drawerTargetForRef(data, issue.ref)}
                     onClick={() => openHealthIssue(issue)}
                   >
                     <strong>

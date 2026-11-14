@@ -601,8 +601,8 @@ export interface ThemeAiPackChangedPayload {
   dirty: boolean;
 }
 
-export type AiContextPreviewChannel = "ai_pack" | "mcp";
-export type AiContextPreviewScope = { type: "theme" | "task"; id: string };
+export type AiContextPreviewChannel = "mcp";
+export type AiContextPreviewScope = { type: "task"; id: string };
 
 export interface AiContextPreviewRequest {
   channel: AiContextPreviewChannel;
@@ -613,7 +613,7 @@ export interface AiContextPreviewResult {
   state: "ready" | "empty" | "error";
   requestedScope: AiContextPreviewScope;
   effectiveScope: AiContextPreviewScope;
-  producer: "theme_ai_pack" | "mcp_task_context" | "mcp_theme_context";
+  producer: "mcp_task_context";
   preview: AiContextPreview | null;
   includedInEffectiveScope: boolean | null;
   error?: string;

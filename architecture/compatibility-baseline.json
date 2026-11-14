@@ -35,7 +35,6 @@
     "legacy-workspace-data": {
       "consumerPaths": [
         "src/renderer/src/features/workspace/WorkspaceApp.tsx",
-        "src/renderer/src/features/workspace/components/AiContextPreviewPanel.tsx",
         "src/renderer/src/features/workspace/components/ChatRefArtifactLinkDialog.tsx",
         "src/renderer/src/features/workspace/components/ContentViewer.tsx",
         "src/renderer/src/features/workspace/components/ContextPackDialog.tsx",

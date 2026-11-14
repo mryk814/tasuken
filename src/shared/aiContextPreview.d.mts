@@ -1,5 +1,4 @@
 import type { AiAuthority, AiFreshness } from "./aiMetadata.mjs";
-import type { ThemeAiPackPlan } from "./themeAiPack.mjs";
 
 export type PreviewCapability = "full" | "partial" | "aggregate_only" | "unavailable";
 export type PreviewBodyMode =
@@ -134,17 +133,11 @@ export interface AiContextPreview {
     excluded: number;
     representedExcluded: number;
   };
-  /** Producerが型を返さないTheme AI Pack向け。型を推測してincludedへ昇格しない。 */
+  /** Producerが型を返さないidの置き場。型を推測してincludedへ昇格しない。 */
   untypedIncludedIds: string[];
 }
 
 export const AI_CONTEXT_PREVIEW_SCHEMA: "tasken-ai-context-preview/v1";
 
-/** Theme AI Pack planの選択結果を再計算せず、集計能力の限界も含めて表示用へ投影する。 */
-export function previewThemeM365(themeAiPackPlan: ThemeAiPackPlan | unknown): AiContextPreview;
 /** tasken.get_task_contextの実responseを再queryせず表示用へ投影する。 */
 export function previewTaskCoding(taskContextResponse: unknown): AiContextPreview;
-/** tasken.get_theme_contextの実responseを再queryせず表示用へ投影する。 */
-export function previewThemeCoding(themeContextResponse: unknown): AiContextPreview;
-/** tasken.get_context_subgraph / contextGraphMcpShapeの実responseを再queryせず表示用へ投影する。 */
-export function previewContextSubgraph(contextGraphResponse: unknown): AiContextPreview;
