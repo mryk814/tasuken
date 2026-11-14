@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 
 /*
  * 色は「誰が」、線は「決まったか」。
- * 藍は AI が書いたもの・AI の提案だけ。tertiary（情報の青）は送信待ちや更新中など AI 以外にも使うので、
+ * 藍は AI が書いたもの・AI の提案だけ。tertiary（情報の浅葱）は送信待ちや更新中など AI 以外にも使うので、
  * 藍は Material の役割に混ぜず、ここに別に持つ。値は design-standard/tokens.json の ai 系（試験が比べる）。
  * 点線は未決（機械が拾った候補・本人がまだ答えていない提案）、実線は決まったもの。
  */
