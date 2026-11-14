@@ -2,6 +2,14 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-14 v0.1.89 の Windows release が、Release の時だけ流れる smoke の古い文で落ちた
+
+- しようとしたこと: #736（ナビの言葉の日本語化）と #741 を入れた後、v0.1.89 のタグを push して Windows release を流す。
+- 起きたこと: 段「Verify tag and create Windows artifacts」の `smoke:activity:packaged` が、帯の文「やったことを保存しました。DebriefのActivityで確認できます。」を 30 秒待って TimeoutError。Release は作られず、タグ v0.1.89 だけが残った。
+- 原因: 画面の帯は「日誌のActivity…」に変わったが、`scripts/activity-electron-smoke.mjs` が古い文を完全一致で待っていた。この smoke は `release:check` でだけ流れ、`npm run ci` に入っていないので、CI では気づけなかった（#736 で台本の旧ラベルを直した時も、この文は画面の名前のラベルではなく帯の文なので拾えなかった）。
+- 直し方: 帯の前半「やったことを保存しました。」で待つ形にした（確かめたいのは保存できたことで、後半は画面の名前を含み言葉をそろえるたびに変わる）。出したタグは動かさず、v0.1.90 で出し直す（docs/release.md の決まり）。
+- 再発防止: `tests/smoke-release-text.test.mjs` を足した。Release の時だけ流れる smoke が完全一致で待つ文字列が、src か台本自身の架空のデータにあることを確かめる（直す前の台本では、この行を名指しして落ちる）。
+
 ## 2026-11-14 全体の試験でだけ、子プロセスを起こす試験が ETIMEDOUT で落ちた（#735）
 
 - しようとしたこと: 全体の試験（2,326 件）を続けて3回通す。PC はほかのセッション（python・エミュレータ・試験）で CPU 70〜100%。

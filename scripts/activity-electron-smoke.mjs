@@ -408,9 +408,9 @@ async function assertWorkLogDateRollover() {
   assert.equal(await date.inputValue(), "2026-08-23");
   await dialog.getByRole("button", { name: "記録を保存", exact: true }).click();
   await dialog.waitFor({ state: "hidden" });
-  await page
-    .getByText("やったことを保存しました。DebriefのActivityで確認できます。", { exact: true })
-    .waitFor();
+  // 帯の後半は画面の名前（日誌など）を含み、言葉をそろえるたびに変わる。確かめたいのは保存できたことなので、
+  // 前半の「やったことを保存しました」で待つ（#736 の後、Release の時だけ流れるこの smoke が古い文を待って落ちた）。
+  await page.getByText(/^やったことを保存しました。/).waitFor();
   await open.click();
   assert.equal(await date.inputValue(), "2026-08-27");
   assert.equal(await body.inputValue(), "");
