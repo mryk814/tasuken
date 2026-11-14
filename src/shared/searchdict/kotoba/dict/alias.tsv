@@ -1,0 +1,80 @@
+# 同じ語の別の書き方。1行が1組で、タブ区切り。先頭に種類 alias、続けて書き方を2つ以上。
+# どの書き方で探しても、同じ行のほかの書き方も探す。意味が違う読み方を持つ語（そば・せんたく）は入れない。
+# 書き方は部分一致で探すので、ほかの語の頭になるかなも入れない（そうじ→そうじゃない、いっしょ→いっしょう）。
+
+# 送り仮名
+alias	引っ越し	引越し	引越
+alias	打ち合わせ	打合せ	打ち合せ
+alias	申し込み	申込み	申込
+alias	振り込み	振込み	振込
+alias	問い合わせ	問合せ	問い合せ
+alias	受け付け	受付け	受付
+alias	受け取り	受取り	受取
+alias	取り消し	取消し	取消
+alias	取り扱い	取扱い	取扱
+alias	売り上げ	売上げ	売上
+alias	締め切り	締切り	締切
+alias	待ち合わせ	待合せ	待ち合せ
+alias	乗り換え	乗換え	乗換
+alias	割り引き	割引き	割引
+alias	売り切れ	売切れ	売切
+alias	組み立て	組立て	組立
+alias	書き込み	書込み	書込
+alias	読み込み	読込み	読込
+alias	貸し出し	貸出し	貸出
+alias	払い戻し	払戻し	払戻
+alias	見積もり	見積り	見積
+alias	入れ替え	入替え	入替
+alias	切り替え	切替え	切替
+alias	組み合わせ	組合せ	組み合せ
+alias	引き出し	引出し	引出
+alias	呼び出し	呼出し	呼出
+alias	手続き	手続
+alias	話し合い	話合い
+alias	届け出	届出
+alias	買い物	買物
+alias	飲み物	飲物
+alias	乗り物	乗物
+alias	食べ物	食べもの
+alias	忘れ物	忘れもの
+
+# かなと漢字
+alias	献立	こんだて
+alias	ご飯	ごはん	御飯
+alias	眼鏡	めがね	メガネ
+alias	子ども	子供	こども
+alias	友だち	友達	ともだち
+alias	沢山	たくさん
+alias	布団	ふとん
+alias	料理	りょうり
+alias	散歩	さんぽ
+alias	旅行	りょこう
+alias	美味しい	おいしい
+alias	嬉しい	うれしい
+alias	楽しい	たのしい
+alias	面白い	おもしろい
+alias	綺麗	きれい	キレイ	奇麗
+alias	可愛い	かわいい	カワイイ
+alias	素敵	すてき	ステキ
+alias	凄い	すごい	スゴイ
+
+# 食べ物
+alias	焼き肉	焼肉
+alias	焼き鳥	焼鳥	やきとり
+alias	唐揚げ	唐揚	から揚げ	からあげ
+alias	お好み焼き	お好み焼
+alias	たこ焼き	たこ焼	タコ焼き
+alias	天ぷら	天麩羅	てんぷら
+alias	寿司	鮨
+alias	うどん	饂飩
+alias	ラーメン	らーめん
+alias	コーヒー	珈琲
+alias	ビール	麦酒
+
+# カタカナと英字
+alias	スマホ	スマートフォン
+alias	ノートパソコン	ノートPC	ラップトップ
+alias	Wi-Fi	WiFi	ワイファイ
+alias	Bluetooth	ブルートゥース
+alias	ミーティング	MTG
+alias	スマートウォッチ	スマートウオッチ
