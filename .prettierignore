@@ -9,3 +9,4 @@ android/
 **/generated/
 design-standard/tokens.css
 design-standard/tokens.json
+src/shared/searchdict/kotobaFiles.generated.ts

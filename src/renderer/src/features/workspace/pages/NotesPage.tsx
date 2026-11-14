@@ -62,6 +62,11 @@ import {
   type NotesKind,
 } from "../lib/domain";
 import { str, uuid } from "../lib/format";
+import {
+  createTextSearch,
+  orderByTextMatch,
+  textSearchKey,
+} from "../../../../../shared/searchdict/searchSpellings.ts";
 import { buildSaveNoteOperations } from "../domain-model/persistence";
 import {
   MARKDOWN_NOTE_IMPORT_LIMITS,
@@ -335,22 +340,36 @@ export function NotesPage({
       ? "all"
       : prefs.themeId;
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visible = useMemo(
-    () =>
-      records.filter((record) => {
-        if (scope !== "all" && recordKind(record) !== scope) return false;
-        if (themeId === "") {
-          if (str(record.project_id || record.theme_id)) return false;
-        } else if (themeId !== "all") {
-          if (str(record.project_id || record.theme_id) !== themeId) return false;
-        }
-        if (!normalizedQuery) return true;
-        return `${str(record.title)} ${recordBody(record)} ${str(record.url || record.source_url)}`
-          .toLocaleLowerCase()
-          .includes(normalizedQuery);
-      }),
-    [normalizedQuery, records, scope, themeId],
-  );
+  const textSearch = useMemo(() => createTextSearch(normalizedQuery), [normalizedQuery]);
+  // 照合のキーは記録ごとに一度だけ作る（打つたびに全部の本文を正規化し直さない）。
+  const searchKeyOf = useMemo(() => {
+    const cache = new WeakMap<Combined, string>();
+    return (record: Combined) => {
+      let key = cache.get(record);
+      if (key === undefined) {
+        key = textSearchKey(
+          `${str(record.title)} ${recordBody(record)} ${str(record.url || record.source_url)}`,
+        );
+        cache.set(record, key);
+      }
+      return key;
+    };
+  }, [records]);
+  const visible = useMemo(() => {
+    const scoped = records.filter((record) => {
+      if (scope !== "all" && recordKind(record) !== scope) return false;
+      if (themeId === "") {
+        if (str(record.project_id || record.theme_id)) return false;
+      } else if (themeId !== "all") {
+        if (str(record.project_id || record.theme_id) !== themeId) return false;
+      }
+      return true;
+    });
+    if (!textSearch) return scoped;
+    // 共通の辞書でほかの書き方（引越し → 引っ越し）にも当てる。書いたままの問いで当たった記録を先に、
+    // ほかの書き方でだけ当たった記録を後にする（それぞれの中は選んだ並び順のまま）。
+    return orderByTextMatch(scoped, (record) => textSearch.matchKey(searchKeyOf(record)));
+  }, [records, scope, searchKeyOf, textSearch, themeId]);
   const [visibleLimit, setVisibleLimit] = useState(NOTES_RENDER_BATCH_SIZE);
   const renderedRecords = visible.slice(0, visibleLimit);
   const workbenchRecords = useMemo(() => visible.filter(isWorkbenchRecord), [visible]);

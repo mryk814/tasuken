@@ -1,2 +1,4 @@
 # 共通の辞書の写し。MANIFEST の sha256 は LF の中身なので、どの checkout でも LF に固定する。
 src/shared/searchdict/kotoba/** text eol=lf
+# 写しから起こした辞書の module。試験が写しとバイトで比べるので、これも LF に固定する。
+src/shared/searchdict/kotobaFiles.generated.ts text eol=lf
