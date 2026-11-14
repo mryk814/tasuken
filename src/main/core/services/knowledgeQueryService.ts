@@ -11,6 +11,7 @@ import {
   sanitizePublicValue,
 } from "../../../shared/publicProjection.ts";
 import { noteProjectId } from "../../../shared/themeRef.mjs";
+import { createTextSearch, orderByTextMatch } from "../../../shared/searchdict/searchSpellings.ts";
 import { publicAiHeader } from "../../../shared/taskContext.mjs";
 import {
   getKnowledgeContextRequestSchema,
@@ -371,14 +372,16 @@ export class KnowledgeQueryService {
       .list("note", Boolean(request.include_archived))
       .filter((note) => !request.theme_id || noteProjectId(note) === request.theme_id);
     const filtered = this.withAiHeader("note", scoped);
-    const query = text(request.query).toLowerCase();
-    const matched = filtered.records.filter(
-      (note) =>
-        !query ||
-        [note.title, note.body_markdown].some((value) => text(value).toLowerCase().includes(query)),
-    );
+    // 共通の辞書でほかの書き方（引越し → 引っ越し）にも当て、書いたままの問いで当たった Note を先に、
+    // ほかの書き方でだけ当たった Note を後にする（それぞれの中は新しい順）。
+    const search = createTextSearch(request.query);
+    const matched = search
+      ? orderByTextMatch(sortUpdated(filtered.records), (note) =>
+          search.match([note.title, note.body_markdown]),
+        )
+      : sortUpdated(filtered.records);
     const matchedVisible = matched.length;
-    const notes = sortUpdated(matched)
+    const notes = matched
       .slice(0, limit)
       .map((note) => publicNote(note, Boolean(request.include_raw_body), textLimit));
     const truncated = matchedVisible > notes.length;

@@ -507,7 +507,8 @@ test("Notes opens directly in Edit while filling a large list in idle batches", 
   assert.match(source, /requestIdleCallback/);
   assert.match(source, /renderedRecords\.map/);
   assert.match(source, /compactNotesBodyPreview/);
-  assert.match(source, /if \(!normalizedQuery\) return true/);
+  // 問いが無ければ文で絞り込まない（辞書を効かせた検索は、問いがある時だけ作る）。
+  assert.match(source, /if \(!textSearch\) return scoped/);
   assert.match(source, /lazy\(loadMarkdownRichEditor\)/);
   assert.doesNotMatch(
     source,

@@ -14,6 +14,11 @@ import type {
   ItemQuerySnapshot,
 } from "../ports/itemQueryReadPort.ts";
 import { ItemQueryAiProjectionPolicy } from "../policies/itemQueryAiProjectionPolicy.ts";
+import {
+  createTextSearch,
+  orderByTextMatch,
+  type TextSearch,
+} from "../../../shared/searchdict/searchSpellings.ts";
 
 const DEFAULT_LIMIT = 20;
 const OPEN_ITEM_STATUSES = new Set(["todo", "doing", "waiting", "review", "inbox"]);
@@ -161,12 +166,15 @@ function itemDate(item: ItemQueryRecord) {
   return text(item.planned_end || item.planned_start || item.due_date);
 }
 
-function queryMatches(item: ItemQueryRecord, query: string | undefined) {
-  const normalized = text(query).toLowerCase();
-  if (!normalized) return true;
-  return ["title", "description", "next_action", "waiting_for"].some((field) =>
-    text(item[field]).toLowerCase().includes(normalized),
-  );
+const SEARCH_FIELDS = ["title", "description", "next_action", "waiting_for"];
+
+/**
+ * 問いで絞り込む。共通の辞書でほかの書き方（引越し → 引っ越し）にも当て、書いたままの問いで
+ * 当たった物を先に、ほかの書き方でだけ当たった物を後にする（それぞれの中は元の順のまま）。
+ */
+function filterByQuery(items: ItemQueryRecord[], search: TextSearch | null) {
+  if (!search) return items;
+  return orderByTextMatch(items, (item) => search.match(SEARCH_FIELDS.map((field) => item[field])));
 }
 
 const SEARCH_NEXT_TOOLS = [
@@ -188,9 +196,10 @@ export class ItemQueryService {
   searchItems(input: SearchItemsRequest): SearchItemsResponse {
     const request = searchItemsRequestSchema.parse(input);
     const snapshot = this.readPort.readItemQuerySnapshot(Boolean(request.include_archived));
-    const candidates = projectItems(snapshot)
-      .filter((item) => queryMatches(item, request.query))
-      .filter((item) => !request.theme_id || item.theme_id === request.theme_id);
+    const candidates = filterByQuery(
+      projectItems(snapshot),
+      createTextSearch(request.query),
+    ).filter((item) => !request.theme_id || item.theme_id === request.theme_id);
     const filtered = this.projection.project(candidates);
     const limit = request.limit ?? DEFAULT_LIMIT;
     const items = filtered.records.slice(0, limit);

@@ -10,3 +10,4 @@ android/
 design-standard/tokens.css
 design-standard/tokens.json
 src/renderer/src/styles/ishou/
+src/shared/searchdict/kotobaFiles.generated.ts
