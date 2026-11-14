@@ -16,6 +16,13 @@ import {
   workspaceEntityTypes,
 } from "../src/main/repositories/workspaceRepository.mjs";
 import { TASKEN_MOBILE_SCOPES } from "../src/shared/contracts/mobile/public.mjs";
+import { runRetiredOutputCleanupOnce } from "../src/main/services/retiredOutputCleanup.mjs";
+import {
+  fixture as retiredOutputFixture,
+  writeAiPack,
+  writeDailyContext,
+  writeThemeFolder,
+} from "./helpers/retired-output-fixture.mjs";
 
 const taskContextCoreBundle = await build({
   stdin: {
@@ -1089,5 +1096,70 @@ test("記録の数の表は、種類・件数・削除済み・最後に作ら�
   } finally {
     db.db.close();
     fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+// #755 束2 で外した AI Pack・日別 Context の、前の版の出力の片付け（retired-output-cleanup.test.mjs）。
+// 前の版が残した workspace_meta の値から保存先を拾い、済んだ印を残すところは本物の DB で確かめる。
+test("前の版の出力の起動時の片付けは一度だけ走り、済んだ印を DB に残す。ごみ箱へ移せなければ次の起動でやり直す", async () => {
+  const item = retiredOutputFixture();
+  const databasePath = path.join(item.root, "workspace.sqlite");
+  let database = new WorkspaceDatabase(databasePath);
+  try {
+    const syncRoot = path.join(item.root, "Sync");
+    fs.mkdirSync(syncRoot);
+    database.setPreference("artifactDirectory", syncRoot);
+    database.save("theme", { id: "theme-a", name: "Materials", code: "MAT" });
+    const themeFolder = path.join(syncRoot, "Themes", "MAT");
+    writeThemeFolder(themeFolder, "theme-a");
+    writeAiPack(themeFolder, "theme-a");
+    const publishRoot = path.join(item.root, "Publish");
+    const dailyDirectory = writeDailyContext(publishRoot, database.workspaceId);
+    // 前の版が残した日別 Context の設定（読む所は消したが値は残っている）。
+    database.db
+      .prepare("INSERT INTO workspace_meta(key, value) VALUES('daily_context_publication', ?)")
+      .run(JSON.stringify({ root: publishRoot, timezone: "Asia/Tokyo", refreshPending: false }));
+
+    const logs = [];
+    const log = (level, message) => logs.push({ level, message });
+    const refusing = async () => {
+      throw Object.assign(new Error(`EBUSY ${themeFolder}`), { code: "EBUSY" });
+    };
+    const first = await runRetiredOutputCleanupOnce({ repository: database, trash: refusing, log });
+    assert.equal(first.state, "retry");
+    assert.equal(database.readRetiredOutputLocations().cleanedAt, null);
+    assert.equal(
+      logs.some(({ message }) => message.includes(item.root)),
+      false,
+      "ログにパスを出さない",
+    );
+
+    const second = await runRetiredOutputCleanupOnce({
+      repository: database,
+      trash: item.trash,
+      log,
+      now: () => "2026-11-14T00:00:00.000Z",
+    });
+    assert.equal(second.state, "done");
+    assert.equal(fs.existsSync(path.join(themeFolder, "AI Pack")), false);
+    assert.equal(fs.existsSync(dailyDirectory), false);
+
+    // 再起動の後。前の版の出力がまた現れても（古い版の別の端末など）、二度目は何もしない。
+    database.db.close();
+    database = new WorkspaceDatabase(databasePath);
+    assert.equal(database.readRetiredOutputLocations().cleanedAt, "2026-11-14T00:00:00.000Z");
+    const pack = writeAiPack(themeFolder, "theme-a");
+    const count = item.trashed.length;
+    const third = await runRetiredOutputCleanupOnce({
+      repository: database,
+      trash: item.trash,
+      log,
+    });
+    assert.equal(third.state, "already_done");
+    assert.equal(item.trashed.length, count);
+    assert.equal(fs.readdirSync(pack).length, 8);
+  } finally {
+    database.db.close();
+    item.close();
   }
 });

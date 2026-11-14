@@ -922,6 +922,50 @@ export class WorkspaceDatabase {
     throw new Error(`未対応のread-only設定です: ${key}`);
   }
 
+  /**
+   * #755 束2 で外した AI Pack・日別 Context が書き出した場所を、一度だけの片付け
+   * （services/retiredOutputCleanup.mjs）のためだけに読む。日別 Context の保存先は、
+   * 前の版が daily_context_publication と daily_context_auto_state に残した値から拾う。
+   */
+  readRetiredOutputLocations() {
+    const readMeta = (metaKey) =>
+      this.db.prepare("SELECT value FROM workspace_meta WHERE key = ?").get(metaKey)?.value;
+    const parse = (raw) => {
+      try {
+        const value = JSON.parse(raw ?? "null");
+        return value && typeof value === "object" ? value : null;
+      } catch {
+        return null;
+      }
+    };
+    const publication = parse(readMeta("daily_context_publication"));
+    const automatic = parse(readMeta("daily_context_auto_state"));
+    const dailyContextRoots = [
+      publication?.root,
+      publication?.retiring?.root,
+      automatic?.config?.root,
+    ].filter((root) => typeof root === "string" && path.isAbsolute(root));
+    return {
+      workspaceId: this.workspaceId,
+      artifactDirectory: String(this.readPreference("artifactDirectory") || ""),
+      themes: this.list("theme", true).map((theme) => ({
+        themeId: String(theme.id || ""),
+        storageRoot: typeof theme.storage_root === "string" ? theme.storage_root : "",
+      })),
+      dailyContextRoots,
+      // 値は片付けが済んだ時刻。あれば二度目は走らない。
+      cleanedAt: readMeta("retired_outputs_cleanup_v1") ?? null,
+    };
+  }
+
+  markRetiredOutputsCleaned(at) {
+    this.db
+      .prepare(
+        "INSERT INTO workspace_meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      )
+      .run("retired_outputs_cleanup_v1", String(at));
+  }
+
   setPreference(key, value) {
     if (key === "themeMode") {
       if (!["light", "dark"].includes(value)) throw new Error("カラーモードの値が不正です。");
