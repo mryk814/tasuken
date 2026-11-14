@@ -1145,7 +1145,7 @@ export function ProposalDetail(props: ProposalDetailProps) {
       )}
       {preview.candidates.map((candidate, index) => (
         <div
-          className={`import-candidate ${active.status === "pending" ? "is-undecided" : "is-decided"}${candidate.action === "ignore" ? " is-skipped" : ""}${candidate.type === "task_work" ? " is-work-report" : ""}${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`}
+          className={`import-candidate${proposalLineClass(active)}${candidate.action === "ignore" ? " is-skipped" : ""}${candidate.type === "task_work" ? " is-work-report" : ""}${noteDiffHunks(candidate).length ? " has-note-diff" : ""}`}
           key={`${candidate.type}-${str(candidate.entry.title)}-${index}`}
         >
           <div>
@@ -1510,6 +1510,16 @@ export function ProposalRisk({ proposal }: { proposal: BaseRecord }) {
       {label}
     </span>
   );
+}
+
+/**
+ * 提案の中の行の線。未決は点線、採ったものだけ実線。見送ったもの・隔離中のものには線を引かない
+ * （履歴の行と同じ決まり）。
+ */
+function proposalLineClass(proposal: BaseRecord): string {
+  const status = str(proposal.status);
+  if (status === "pending") return " is-undecided";
+  return status === "accepted" || status === "partially_accepted" ? " is-decided" : "";
 }
 
 function proposalStatusLabel(proposal: BaseRecord): string {
