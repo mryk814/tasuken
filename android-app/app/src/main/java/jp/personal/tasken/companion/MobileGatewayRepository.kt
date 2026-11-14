@@ -1006,17 +1006,20 @@ class AndroidMobileTaskRepository(
         if (configuration.origin.isBlank() || token == null) return true
         return try {
             val serverId = confirmRemoteAndApplyBootstrap(configuration.origin, token)
-            if (outbox.drain(serverId) { envelope ->
-                    sendMobileCommand(configuration.origin, token, serverId, envelope)
-                }
-            ) return false
+            val drained = outbox.send(serverId) { envelope ->
+                sendMobileCommand(configuration.origin, token, serverId, envelope)
+            }
+            if (drained.connectionFailed) return false
+            // The Desktop answered, so read it even when some commands wait to be sent again. Tasks with an
+            // unsent change keep their optimistic projection: the sync only replaces Tasks without one.
             synchronize(configuration.origin, token, serverId)
             refreshTaskWorkProposals(configuration.origin, token)
-            when (val outcome = refreshThemes(configuration.origin, token)) {
+            val themesSettled = when (val outcome = refreshThemes(configuration.origin, token)) {
                 is MobileThemeRefreshOutcome.Failed -> !outcome.retryable
                 MobileThemeRefreshOutcome.Success,
                 MobileThemeRefreshOutcome.Unsupported -> true
             }
+            themesSettled && !drained.retryPending
         } catch (error: MobileOutboxServerMismatchException) {
             Log.w(MOBILE_GATEWAY_LOG_TAG, "Background sync refused a different Desktop", error)
             true
@@ -1424,6 +1427,7 @@ class AndroidMobileTaskRepository(
         expectedServerId: String,
         envelopeJson: String,
     ): MobileCommandSendResult {
+        var answered: GatewayHttpResponse? = null
         return try {
             val commandName = Json.parseToJsonElement(envelopeJson)
                 .jsonObject.getValue("command").jsonObject.getValue("name").jsonPrimitive.content
@@ -1437,6 +1441,7 @@ class AndroidMobileTaskRepository(
                 body = envelopeJson,
                 accessToken = accessToken,
             )
+            answered = response
             if (isUnsupportedLongCapture(envelopeJson, response, expectedServerId)) {
                 return MobileCommandSendResult.Rejected("capability_unavailable", LONG_CAPTURE_UPDATE_REQUIRED)
             }
@@ -1496,8 +1501,15 @@ class AndroidMobileTaskRepository(
                         )
                     }
                 }
-                response.status == 408 || response.status == 429 || response.status >= 500 ->
+                // 429 asks this device to slow down, so nothing else is sent this round. A 408 or 5xx comes
+                // right after the bootstrap read succeeded, so it is taken as this command's failure.
+                response.status == 429 ->
                     MobileCommandSendResult.Retry("Desktopへ送信できませんでした。自動で再送します。")
+                response.status == 408 || response.status >= 500 ->
+                    MobileCommandSendResult.Retry(
+                        "Desktopが操作を処理できませんでした（HTTP ${response.status}）。自動で再送します。",
+                        serverReached = true,
+                    )
                 else -> {
                     val error = runCatching { MobileTaskCommandContract.decodeError(response.body) }.getOrNull()
                     if (error != null && error.meta.serverId != expectedServerId) {
@@ -1517,9 +1529,19 @@ class AndroidMobileTaskRepository(
             }
         } catch (error: Exception) {
             Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Gateway command request failed", error)
-            MobileCommandSendResult.Retry("Desktopへ接続できませんでした。自動で再送します。")
+            // A body naming the confirmed Desktop came from it: only this command's answer was unreadable.
+            // Anything else (no answer, or a captive portal page) means the Desktop was not reached.
+            if (answered?.let { namesServer(it.body, expectedServerId) } == true) {
+                MobileCommandSendResult.Retry("Desktopの応答を読み取れませんでした。自動で再送します。", serverReached = true)
+            } else {
+                MobileCommandSendResult.Retry("Desktopへ接続できませんでした。自動で再送します。")
+            }
         }
     }
+
+    private fun namesServer(body: String, serverId: String): Boolean = runCatching {
+        Json.parseToJsonElement(body).jsonObject["meta"]?.jsonObject?.get("serverId")?.jsonPrimitive?.content == serverId
+    }.getOrDefault(false)
 
     private fun request(
         origin: String,
