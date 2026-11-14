@@ -49,10 +49,12 @@
   --color-warning-bg:        #FBF0DD;
   --color-warning-bd:        #EFD9B0;
 
-  --color-info:              #2D7FB8;
-  --color-info-strong:       #1C557D;
-  --color-info-bg:           #E8F1F8;
-  --color-info-bd:           #C3DCEE;
+  /* 情報と「進行中」は浅葱（青緑）。AI の藍とも完了の緑とも、色だけで見分けられる所に置く
+     （OKLCH の色相で藍から 53 度、緑から 56 度。前の青 #1C557D は藍から 21 度で、小さなチップでは同じ色に見えた）。 */
+  --color-info:              #0B8193; /* 線・印。白の上で 4.6、背景の上で 3.6（文字には -strong） */
+  --color-info-strong:       #006270; /* 文字。背景の上で 5.5、白の上で 7.0、-bg の上で 6.0 */
+  --color-info-bg:           #D5F2F8;
+  --color-info-bd:           #A2DAE6;
 
   /* ---- AI（藍）: AIが書いたもの・AIの提案・AIへの依頼だけに使う。情報・注意・進行中には流用しない。
          値は共通の色と用語表の藍と同じ（tests/design-tokens-ai.test.mjs が比べる）。
@@ -198,7 +200,7 @@
   --color-danger:            #E06A6A; --color-danger-strong: #E06A6A; --color-danger-bg: #2C1A1A; --color-danger-bd: #533030;
   --color-success:           #5BB98B; --color-success-strong:#5BB98B; --color-success-bg:#16271F; --color-success-bd:#2E4A3A;
   --color-warning:           #D89B4E; --color-warning-strong:#D89B4E; --color-warning-bg:#2A2114; --color-warning-bd:#4D3D22;
-  --color-info:              #5FA3D6; --color-info-strong:   #5FA3D6; --color-info-bg:   #16242F; --color-info-bd:   #294454;
+  --color-info:              #5DC5D9; --color-info-strong:   #5DC5D9; --color-info-bg:   #0A282E; --color-info-bd:   #0F4953;
   --color-ai:                #8FA6DC; --color-ai-strong:     #B3C3E8; --color-ai-bg:     #1D2638; --color-ai-bd:     #34446A;
 
   /* Workflow status: review のみ独自値（他は意味固定色の別名参照で自動追従） */
@@ -229,7 +231,7 @@
     --color-danger: #E06A6A; --color-danger-strong: #E06A6A; --color-danger-bg: #2C1A1A; --color-danger-bd: #533030;
     --color-success: #5BB98B; --color-success-strong: #5BB98B; --color-success-bg: #16271F; --color-success-bd: #2E4A3A;
     --color-warning: #D89B4E; --color-warning-strong: #D89B4E; --color-warning-bg: #2A2114; --color-warning-bd: #4D3D22;
-    --color-info: #5FA3D6; --color-info-strong: #5FA3D6; --color-info-bg: #16242F; --color-info-bd: #294454;
+    --color-info: #5DC5D9; --color-info-strong: #5DC5D9; --color-info-bg: #0A282E; --color-info-bd: #0F4953;
     --color-ai: #8FA6DC; --color-ai-strong: #B3C3E8; --color-ai-bg: #1D2638; --color-ai-bd: #34446A;
     --color-status-review-fg: #A99BEC; --color-status-review-bg: #211D33; --color-status-review-bd: #3E3760;
     --color-chart-1: #D06A78; --color-chart-2: #67A9D8; --color-chart-3: #63BD91;
