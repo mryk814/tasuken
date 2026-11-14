@@ -47,17 +47,13 @@ class AiTimelineUiTest {
                         paneState = TodayPaneState(),
                         onRetry = {}, onRetryPairing = {}, onPair = { _, _ -> },
                         onTaskSelected = { opened = it },
-                        attention = listOf(question()),
-                        attentionCounts = MobileAttentionCountsDto(needsYou = 1, working = 1, queued = 0),
-                        attentionFetchedAt = now.toString(),
-                        attentionOnline = true,
                         seenBefore = now.minusSeconds(86_400),
                     )
                 }
             }
         }
-        composeRule.onNodeWithText("対応待ち 1").assertIsDisplayed()
-        composeRule.onNodeWithText("25℃と40℃のどちらで進めますか。").assertIsDisplayed()
+        // 要対応の見出しと返信はスマホから外した（#755 束9a）。Feed は動きの流れだけを出す。
+        composeRule.onNodeWithText("対応待ち", substring = true).assertDoesNotExist()
         composeRule.onNodeWithText("最近の動き").assertIsDisplayed()
         composeRule.onNodeWithText("8分前", substring = true).assertIsDisplayed()
 
@@ -112,20 +108,6 @@ class AiTimelineUiTest {
         summary = "温度条件ごとの差を考察メモへ追記しました。", completedItems = emptyList(),
         changedOrCreatedItems = emptyList(), verification = emptyList(), remainingWork = emptyList(),
         externalReferences = emptyList(), truncated = false,
-    )
-
-    private fun question() = AttentionRow(
-        attentionId = "task-work:request:1",
-        kind = AttentionKind.AnswerRequest,
-        taskId = "task-viscosity",
-        taskTitle = "粘度測定の条件を決める",
-        taskVersion = 12,
-        headline = "測定温度が決まっていません。",
-        summary = "測定温度が決まっていません。",
-        questionOrAction = "25℃と40℃のどちらで進めますか。",
-        agentLabel = "Codex",
-        requestId = "33333333-3333-4333-8333-333333333333",
-        canReply = true,
     )
 
     private fun capture(name: String) {

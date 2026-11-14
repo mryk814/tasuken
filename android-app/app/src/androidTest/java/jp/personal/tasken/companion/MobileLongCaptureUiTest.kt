@@ -116,7 +116,7 @@ class MobileLongCaptureUiTest {
     }
 
     @Test
-    fun failedAiOrganizationCanStillSaveOriginalAsCapture() {
+    fun longTextSavesTheOriginalAsCapture() {
         val draft = mutableStateOf(MobileCaptureDraft.fresh(text = text))
         var submitted: MobileCaptureDraft? = null
         composeRule.setContent {
@@ -126,13 +126,10 @@ class MobileLongCaptureUiTest {
                     emptyList(), MobileThemeCatalogState.Available(emptyList(), "fixture", 1, ""),
                     onDraftChanged = { draft.value = draft.value.withText(it) }, onThemeSelected = {},
                     onKindSelected = { draft.value = draft.value.withKind(it) },
-                    onOrganize = { error("provider unavailable") },
                     onSubmit = { submitted = draft.value }, onStartVoice = {}, onStopVoice = {}, onDismiss = {},
                 )
             }
         }
-        composeRule.onNodeWithTag("capture-organize").performClick()
-        composeRule.onNodeWithTag("capture-organization-error").assertExists()
         composeRule.runOnIdle { assertEquals(text, draft.value.text) }
         composeRule.onNodeWithTag("capture-submit-close").assertIsEnabled().performClick()
         composeRule.runOnIdle {

@@ -219,7 +219,7 @@ internal fun SyncStatusSheet(
 }
 
 /**
- * 設定を1か所へ集める。各画面に散らばっていた通知・PCなし整理・接続をここから開く。
+ * 設定を1か所へ集める。通知の許可と接続をここから開く。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -227,17 +227,15 @@ internal fun AppSettingsSheet(
     notificationsAllowed: Boolean,
     notificationPermissionDenied: Boolean,
     onRequestNotifications: (() -> Unit)?,
-    feedNotificationsEnabled: Boolean,
-    onToggleFeedNotifications: () -> Unit,
-    onOpenDirectAiSettings: () -> Unit,
     onRepair: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         SheetColumn(Modifier.testTag("app-settings-sheet")) {
             Text("設定", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            SettingsGroupLabel("通知")
+            // 通知は場所のリマインダーだけになった。許可が無い時だけ、許可の入口を出す。
             if (onRequestNotifications != null && !notificationsAllowed) {
+                SettingsGroupLabel("通知")
                 StatusRow(
                     icon = R.drawable.ic_tabler_bell,
                     tone = StatusTone.Warn,
@@ -246,39 +244,8 @@ internal fun AppSettingsSheet(
                     onClick = onRequestNotifications,
                     modifier = Modifier.testTag("notification-permission-action"),
                 )
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp)
-                    .clickable(onClick = onToggleFeedNotifications)
-                    .testTag("attention-notifications-toggle"),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                StatusIcon(R.drawable.ic_tabler_message_circle, StatusTone.Info)
-                Column(Modifier.weight(1f)) {
-                    Text("近況の質問を通知", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        "あなたの返事を待つ投稿が届いたら知らせます",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Switch(checked = feedNotificationsEnabled, onCheckedChange = { onToggleFeedNotifications() })
-            }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            SettingsGroupLabel("入力の整理")
-            StatusRow(
-                icon = R.drawable.ic_tabler_sparkles,
-                tone = StatusTone.Info,
-                title = "PCなし整理",
-                detail = "PCがオフでも、入力をTaskへ分けられるようにします",
-                value = "開く",
-                onClick = onOpenDirectAiSettings,
-                modifier = Modifier.testTag("open-direct-ai-settings"),
-            )
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             SettingsGroupLabel("接続")
             StatusRow(
                 icon = R.drawable.ic_tabler_link,

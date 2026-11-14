@@ -8,97 +8,51 @@ import java.time.Instant
 import java.util.UUID
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.*
 import org.junit.Test
 
 class MobileWorkLogDatabaseTest {
-    @Test fun nextActionAddsOneUnscheduledTaskOnlyAfterSeparateChoice() = runBlocking {
-        val db = Room.inMemoryDatabaseBuilder(context, MobileLocalDatabase::class.java).build()
-        try {
-            val dao = db.mobileDao(); dao.upsertSyncState(state())
-            val raw = "温度が怪しい。次は条件Bを調べる。"
-            val original = WorkLogCacheEntity("action-source", "server-540", 1, raw, "2026-09-06", time, null, null, false, false, null, "original-envelope")
-            dao.upsertWorkLog(original)
-            val proposal = MobileWorkLogOrganization(emptyList(), emptyList(), listOf("温度が怪しい。"), listOf("次は条件Bを調べる。"))
-            dao.upsertWorkLogOrganization(WorkLogOrganizationEntity(original.id, original.serverId, 1, "action-proposal", time, "adopted", MobileWorkLogContract.json.encodeToString(proposal)))
-            assertEquals(0, dao.tasks().size)
-            val repository = AndroidMobileTaskRepository(context, database = db, scheduleOutboxOnStart = false)
-            val beforeChoice = Instant.now()
-            repository.createWorkLogNextAction(original.id, 0)
-            val afterChoice = Instant.now()
-            val firstCommand = dao.outboxForTask(dao.tasks().single().id).single()
-            val envelope = MobileTaskCommandContract.decodeCreateEnvelope(firstCommand.envelopeJson)
-            val issuedAt = Instant.parse(envelope.issuedAt)
-            assertFalse(issuedAt.isBefore(beforeChoice)); assertFalse(issuedAt.isAfter(afterChoice))
-            assertEquals(envelope.issuedAt, requireNotNull(envelope.command.provenance).capturedAt)
-            assertEquals(envelope.issuedAt, firstCommand.createdAt)
-            repository.createWorkLogNextAction(original.id, 0)
-            assertEquals(firstCommand, dao.outbox(firstCommand.commandId))
-            val sender = MobileOutbox(context, dao, { "device" }, now = { afterChoice.plusSeconds(86_400) }, schedule = {})
-            repeat(2) {
-                assertTrue(sender.drain("server-540") {
-                    assertEquals(firstCommand.envelopeJson, it)
-                    MobileCommandSendResult.Retry("offline")
-                })
-            }
-            val task = dao.tasks().single()
-            assertEquals("次は条件Bを調べる。", task.title)
-            assertEquals("todo", task.state)
-            assertNull(task.todayDate); assertNull(task.plannedStartTime); assertNull(task.plannedDurationMinutes)
-            assertTrue(requireNotNull(task.description).contains("action-source / version 1"))
-            assertEquals("0", dao.workLogOrganization(original.id)?.createdTaskIndices)
-            assertEquals(original, dao.workLog(original.id))
-            assertEquals(1, dao.outboxCount())
-        } finally { db.close() }
-    }
-
-    @Test fun organizationRejectsLateAndStaleResultsThenAdoptsOnceAcrossRestart() = runBlocking {
-        val name = "work-log-organization-${UUID.randomUUID()}.db"
+    /**
+     * 作業記録の AI 整理はスマホから外した（#755 束9a）。新しい版は採用の命令を作らないが、前の版が送信待ちに
+     * 残した AdoptWorkLogOrganization は消さずに送り、Desktop の受け取りを記録する（Gateway は束9b まで受ける）。
+     */
+    @Test fun legacyAdoptCommandLeftByOldVersionIsStillSentAndRecorded() = runBlocking {
+        val name = "work-log-legacy-adopt-${UUID.randomUUID()}.db"
         var db = Room.databaseBuilder(context, MobileLocalDatabase::class.java, name).build()
         val draft = MobileWorkLogDraft(id = "source", body = "原因は温度が怪しい。", enteredAt = time)
-        val proposal = MobileWorkLogOrganization(emptyList(), emptyList(), listOf(draft.body), emptyList())
         try {
             var dao = db.mobileDao(); dao.upsertSyncState(state())
-            dao.upsertWorkLog(WorkLogCacheEntity(draft.id, "server-540", 1, draft.body, draft.performedDate, draft.enteredAt, null, null, false, false, null, "original-envelope"))
-            val discarded = dao.beginWorkLogOrganization(draft.id, "discarded", time)
-            dao.discardWorkLogOrganization(draft.id)
-            assertFalse(dao.completeWorkLogOrganization(discarded, proposal))
-            val stale = dao.beginWorkLogOrganization(draft.id, "stale", time)
-            dao.upsertWorkLog(requireNotNull(dao.workLog(draft.id)).copy(serverVersion = 2))
-            assertFalse(dao.completeWorkLogOrganization(stale, proposal))
-            val current = dao.beginWorkLogOrganization(draft.id, "adopt-once", time)
-            assertTrue(dao.completeWorkLogOrganization(current, proposal))
+            // 前の版が adoptOrganization で残した形をそのまま置く。
+            val envelope = MobileWorkLogEnvelope(
+                requestId = "work-log-organization-adopt-once", commandId = "adopt-once", idempotencyKey = "adopt-once",
+                clientDeviceId = "device", issuedAt = time,
+                command = buildJsonObject {
+                    put("name", "AdoptWorkLogOrganization"); put("sourceId", draft.id); put("sourceVersion", 1)
+                    put("proposal", MobileWorkLogContract.json.parseToJsonElement("""{"done":[],"observations":[],"unresolved":["原因は温度が怪しい。"],"nextActions":[]}"""))
+                },
+            )
+            val envelopeJson = MobileWorkLogContract.json.encodeToString(envelope)
+            dao.upsertWorkLog(WorkLogCacheEntity(draft.id, "server-540", 1, draft.body, draft.performedDate, draft.enteredAt, null, null, false, false, "adopt-once", "original-envelope"))
+            dao.upsertWorkLogOrganization(WorkLogOrganizationEntity(draft.id, "server-540", 1, "adopt-once", time, "adopting", null))
+            dao.insertOutbox(OutboxCommandEntity(
+                commandId = "adopt-once", idempotencyKey = "adopt-once", requestId = envelope.requestId,
+                clientDeviceId = "device", issuedAt = time, commandName = "AdoptWorkLogOrganization",
+                envelopeJson = envelopeJson, serverId = "server-540", state = OutboxState.Pending, attemptCount = 0,
+                createdAt = time, lastAttemptAt = null, lastError = null, workLogId = draft.id,
+            ))
+            // 版を上げた後の起動を真似る。送信待ちの命令は残っている。
             db.close(); db = Room.databaseBuilder(context, MobileLocalDatabase::class.java, name).build(); dao = db.mobileDao()
-            assertEquals(proposal, dao.workLogOrganization(draft.id)?.proposal())
-            var operationTime = Instant.parse("2026-09-08T01:02:03Z")
-            var outbox = MobileWorkLogOutbox(dao, { "device" }, {}, now = { operationTime })
-            outbox.adoptOrganization(draft.id); outbox.adoptOrganization(draft.id)
-            val firstCommand = requireNotNull(dao.outbox("adopt-once"))
-            assertEquals(operationTime.toString(), firstCommand.issuedAt)
-            assertEquals(operationTime.toString(), MobileWorkLogContract.json.decodeFromString<MobileWorkLogEnvelope>(firstCommand.envelopeJson).issuedAt)
-            assertEquals(time, dao.workLogOrganization(draft.id)?.issuedAt)
-            assertEquals(draft.enteredAt, dao.workLog(draft.id)?.enteredAt)
-            operationTime = operationTime.plusSeconds(86_400)
-            db.close(); db = Room.databaseBuilder(context, MobileLocalDatabase::class.java, name).build(); dao = db.mobileDao()
-            outbox = MobileWorkLogOutbox(dao, { "device" }, {}, now = { operationTime })
-            outbox.adoptOrganization(draft.id)
-            assertEquals(firstCommand, dao.outbox("adopt-once"))
             assertEquals(1, dao.outboxCount())
-            assertEquals("original-envelope", dao.workLog(draft.id)?.creationEnvelopeJson)
             val sender = MobileOutbox(context, dao, { "device" }, schedule = {})
-            assertTrue(sender.drain("server-540") {
-                assertEquals(firstCommand.envelopeJson, it)
-                MobileCommandSendResult.Retry("offline")
-            })
-            outbox.retry(draft.id)
             assertFalse(sender.drain("server-540") {
-                assertEquals(firstCommand.envelopeJson, it)
+                assertEquals(envelopeJson, it)
                 receipt(draft, "adopt-once", 2, false)
             })
             assertEquals("adopted", dao.workLogOrganization(draft.id)?.state)
             assertEquals(draft.body, dao.workLog(draft.id)?.body)
-            assertEquals(0, dao.tasks().size)
-            outbox.adoptOrganization(draft.id)
+            assertNull(dao.workLog(draft.id)?.optimisticCommandId)
             assertEquals(0, dao.outboxCount())
         } finally { db.close(); context.deleteDatabase(name) }
     }

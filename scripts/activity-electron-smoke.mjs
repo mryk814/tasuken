@@ -147,11 +147,13 @@ async function closeElectron() {
   const processHandle = electronApp.process();
   const closed = await Promise.race([
     electronApp.close().then(() => true),
-    delay(10_000).then(() => false),
+    // Same room as live-proposal-electron-smoke: the app's own flush may take up to 10 s
+    // before Core and the backup stop.
+    delay(30_000).then(() => false),
   ]);
   if (!closed && processHandle.exitCode === null) processHandle.kill();
   electronApp = undefined;
-  assert.equal(closed, true, "Tasken did not close within ten seconds.");
+  assert.equal(closed, true, "Tasken did not close within 30 seconds.");
 }
 
 function assertNear(actual, expected, tolerance, label) {

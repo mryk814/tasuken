@@ -84,15 +84,8 @@ Today一覧の投影は `buildTodayPageProjection(domain, today)`（`lib/dailyPl
 ## 7. 検証
 
 ```powershell
-rtk npm run build
-rtk npm run audit:today-dates
 rtk node scripts/run-electron-node.mjs --test tests/today-ia.test.mjs
 ```
-
-`audit:today-dates` は一時userDataへ架空のTaskとScheduleを仕込んでからアプリを起動し、
-締切当日のTaskが実行一覧に出ること、締切が過去のTaskが候補棚「期限切れ」に置かれること、
-`today_date` だけが変わること、締切が動かないこと、Undoで戻ること、980×680で横スクロールが出ないことを実測する。
-スクリーンショットは `output/playwright/today-date-audit` へ出す。
 
 ## 8. この単位でまだ確認していないこと
 

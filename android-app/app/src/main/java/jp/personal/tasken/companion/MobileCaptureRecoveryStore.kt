@@ -16,7 +16,7 @@ data class MobileRecoveredInput(
     val raw: String,
     val snapshot: MobileCaptureDraftSnapshot? = null,
 ) {
-    val text: String get() = snapshot?.draft?.originalText ?: snapshot?.draft?.text ?: raw
+    val text: String get() = snapshot?.draft?.text ?: raw
     val byteCount: Int get() = raw.toByteArray(Charsets.UTF_8).size
 }
 

@@ -104,19 +104,21 @@ test("tokens.json の色は、tokens.css の同じ名前の値と全部一致す
   assert.ok(compared >= 37 * 3 + 6 * 3, `比べた数 ${compared}`);
 });
 
-test("Android のウィジェットに直に書いた AI の色は、tokens.json の藍と同じ値", () => {
+// Android のウィジェットに直に書いていた AI の 2 色は、束9a（#755）でウィジェットの「AI n」の札と
+// 一緒に無くなった。直に書いた色がまた増えたら、ここで tokens.json と比べる試験を足す。
+test("Android のウィジェットに AI の色を直に書いていたら、tokens.json の藍と同じ値", () => {
   const json = JSON.parse(read("design-standard/tokens.json")).color;
-  const colorOf = (xml, name) => {
-    const match = xml.match(new RegExp(`<color name="${name}">(#[0-9a-fA-F]{6})</color>`));
-    assert.ok(match, `${name} がある`);
-    return match[1].toUpperCase();
-  };
   for (const [file, theme] of [
     ["android-app/app/src/main/res/values/colors.xml", json.light],
     ["android-app/app/src/main/res/values-night/colors.xml", json.dark],
   ]) {
     const xml = read(file);
-    assert.equal(colorOf(xml, "tasken_widget_ai_container"), theme.aiBg.toUpperCase(), file);
-    assert.equal(colorOf(xml, "tasken_widget_on_ai_container"), theme.aiStrong.toUpperCase(), file);
+    for (const [name, key] of [
+      ["tasken_widget_ai_container", "aiBg"],
+      ["tasken_widget_on_ai_container", "aiStrong"],
+    ]) {
+      const match = xml.match(new RegExp(`<color name="${name}">(#[0-9a-fA-F]{6})</color>`));
+      if (match) assert.equal(match[1].toUpperCase(), theme[key].toUpperCase(), `${file} ${name}`);
+    }
   }
 });

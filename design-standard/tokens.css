@@ -91,16 +91,18 @@
   /* ---- Workflow status palette（固定の状態enum専用＝第4の役割。
          danger/success 等の「意味固定色」とも chart-* の「区別だけ」とも別ロール。
          能動的な状態を前に出し、終端・不明はニュートラルへ後退させる。色は補助、テキストは必須。
-         意味固定色を別名参照しているのでライト/ダークに自動追従する（review のみ独自値）。 ---- */
+         意味固定色を別名参照しているのでライト/ダークに自動追従する（review のみ独自値）。
+         確認待ちは赤みの紫（京紫）。AI の藍とえんじのちょうど中間に置く（OKLCH の色相で藍から 56 度、えんじから 56 度。
+         前の青紫 #564AA8 は藍から 21 度で、小さなチップでは藍と同じ色に見えた）。文字は白の上で 7.4、背景の上で 5.9、-bg の上で 6.5。 ---- */
   --color-status-idle-fg:    var(--color-text-secondary); /* 未着手・inbox・計画中（未起動） */
   --color-status-idle-bg:    var(--color-surface-muted);
   --color-status-idle-bd:    var(--color-border);
   --color-status-active-fg:  var(--color-info-strong);    /* 進行中（最も前に出す能動状態） */
   --color-status-active-bg:  var(--color-info-bg);
   --color-status-active-bd:  var(--color-info-bd);
-  --color-status-review-fg:  #564AA8;                     /* 確認待ち・レビュー中 */
-  --color-status-review-bg:  #EEEBFA;
-  --color-status-review-bd:  #D6CEF0;
+  --color-status-review-fg:  #803491;                     /* 確認待ち・レビュー中 */
+  --color-status-review-bg:  #F8EBFA;
+  --color-status-review-bd:  #E7CBED;
   --color-status-blocked-fg: var(--color-warning-strong); /* 待ち・保留（自分以外で止まっている） */
   --color-status-blocked-bg: var(--color-warning-bg);
   --color-status-blocked-bd: var(--color-warning-bd);
@@ -204,7 +206,7 @@
   --color-ai:                #8FA6DC; --color-ai-strong:     #B3C3E8; --color-ai-bg:     #1D2638; --color-ai-bd:     #34446A;
 
   /* Workflow status: review のみ独自値（他は意味固定色の別名参照で自動追従） */
-  --color-status-review-fg:  #A99BEC; --color-status-review-bg: #211D33; --color-status-review-bd: #3E3760;
+  --color-status-review-fg:  #D99EE7; --color-status-review-bg: #281B2B; --color-status-review-bd: #4F3455;
 
   --color-chart-1:           #D06A78;
   --color-chart-2:           #67A9D8;
@@ -233,7 +235,7 @@
     --color-warning: #D89B4E; --color-warning-strong: #D89B4E; --color-warning-bg: #2A2114; --color-warning-bd: #4D3D22;
     --color-info: #5DC5D9; --color-info-strong: #5DC5D9; --color-info-bg: #0A282E; --color-info-bd: #0F4953;
     --color-ai: #8FA6DC; --color-ai-strong: #B3C3E8; --color-ai-bg: #1D2638; --color-ai-bd: #34446A;
-    --color-status-review-fg: #A99BEC; --color-status-review-bg: #211D33; --color-status-review-bd: #3E3760;
+    --color-status-review-fg: #D99EE7; --color-status-review-bg: #281B2B; --color-status-review-bd: #4F3455;
     --color-chart-1: #D06A78; --color-chart-2: #67A9D8; --color-chart-3: #63BD91;
     --color-chart-4: #DCA45D; --color-chart-5: #9A8BE0; --color-chart-6: #B7ABA6;
     --focus-ring: 0 0 0 3px rgba(189, 79, 93, 0.45);

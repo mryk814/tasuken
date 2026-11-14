@@ -7,3 +7,5 @@ mcp-dist/
 architecture/
 android/
 **/generated/
+design-standard/tokens.css
+design-standard/tokens.json

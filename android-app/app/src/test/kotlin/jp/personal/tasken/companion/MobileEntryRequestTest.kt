@@ -57,11 +57,11 @@ class MobileEntryRequestTest {
         )
     }
 
-    /** 要対応の新着通知からの移動（#601）。判断IDはそのまま渡す。 */
+    /** 要対応はスマホから外した（#755 束9a）。前の版の通知に残ったリンクは、どこへも移らずアプリを開くだけ。 */
     @Test
-    fun resolves_attention_notification_link() {
+    fun retired_attention_link_opens_nothing() {
         assertEquals(
-            MobileEntryRequest.Attention(5, MobileEntrySource.DeepLink, "task-work:request:1"),
+            MobileEntryRequest.None,
             MobileEntryRequestResolver.resolve(
                 Intent.ACTION_VIEW,
                 "tasken://attention/task-work%3Arequest%3A1",
@@ -69,11 +69,6 @@ class MobileEntryRequestTest {
                 null,
                 5,
             ),
-        )
-        // 判断IDが無いリンクは開かない。
-        assertEquals(
-            MobileEntryRequest.None,
-            MobileEntryRequestResolver.resolve(Intent.ACTION_VIEW, "tasken://attention", null, null, 6),
         )
     }
 
