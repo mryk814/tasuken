@@ -304,11 +304,11 @@ test("production audit is deterministic and keeps temporary composition growth v
     assert.equal(first.stdout, second.stdout);
     const report = JSON.parse(first.stdout);
     assert.equal(report.mode, "report-only");
-    assert.equal(report.summary.newFindings, 23, unexplainedFindings(report));
-    assert.equal(report.summary.suppressedFindings, 23);
+    assert.equal(report.summary.newFindings, 24, unexplainedFindings(report));
+    assert.equal(report.summary.suppressedFindings, 24);
     assert.equal(report.summary.blockingFindings, 0, unexplainedFindings(report));
     const newFindings = report.findings.filter((entry) => !entry.baseline);
-    assert.equal(newFindings.length, 23);
+    assert.equal(newFindings.length, 24);
     assert.equal(
       newFindings.every((entry) => entry.suppressed && entry.suppression?.issue),
       true,
@@ -325,7 +325,7 @@ test("production audit is deterministic and keeps temporary composition growth v
         ["src/shared/ipc/contracts.ts", true, 407],
       ],
     );
-    assert.equal(report.summary.newCompatibilityConsumers, 18);
+    assert.equal(report.summary.newCompatibilityConsumers, 19);
     assert.deepEqual(
       newFindings
         .filter((entry) => entry.ruleId === "compatibility.consumer_added")
@@ -346,6 +346,7 @@ test("production audit is deterministic and keeps temporary composition growth v
         ],
         ["tests/agent-log-sync-history.test.mjs", "workspace-repository", true, 629],
         ["tests/agent-work-log-core-e2e.test.mjs", "workspace-repository", true, 629],
+        ["tests/agent-work-record.test.mjs", "workspace-repository", true, 751],
         ["tests/ai-item-creation.test.mjs", "workspace-repository", true, 588],
         ["tests/ai-task-start.test.mjs", "workspace-repository", true, 588],
         ["tests/automatic-snapshot-backup.test.mjs", "workspace-repository", true, 690],

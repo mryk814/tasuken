@@ -16,7 +16,9 @@ export function apiErrorStatus(value) {
   const upper = code.toUpperCase();
   // INVALID_*を503にする規則より先に、入力の誤りの400を判定する。
   if (["VALIDATION_FAILED", "INVALID_JSON"].includes(upper)) return 400;
-  if (["WRITE_NOT_ALLOWED", "FORBIDDEN"].includes(upper)) return 403;
+  if (["WRITE_NOT_ALLOWED", "FORBIDDEN", "NOT_RECORD_WRITER"].includes(upper)) return 403;
+  // AIの作業の1日の上限（#751）。retryableだが、サーバーの一時的な失敗（503）とは分ける。
+  if (upper === "DAILY_LIMIT") return 429;
   if (upper.includes("NOT_FOUND")) return 404;
   // DESKTOP_BEHIND・REPLICA_BEHINDはretryableだが、既定の503ではなく状態の食い違いの409にする。
   if (

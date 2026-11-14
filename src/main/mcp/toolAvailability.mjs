@@ -17,6 +17,7 @@ import {
   TASKEN_CORE_PROPOSAL_STATUS_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+  TASKEN_CORE_RECORD_AGENT_WORK_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
   TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
   TASKEN_CORE_TASK_START_WORK_CAPABILITY,
@@ -150,10 +151,12 @@ export const MCP_TOOL_REQUIREMENTS = Object.freeze({
     access: "direct_write",
     capability: TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   },
+  // AIの作業の記録（#751）と、task_idを付けた時の委任したTaskの作業報告の案。どちらかがあれば出す。
   "tasken.report_work": {
     toolset: "write",
     access: "proposal",
-    capability: TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+    capability: TASKEN_CORE_RECORD_AGENT_WORK_CAPABILITY,
+    alternativeCapability: TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   },
   "tasken.propose_note": {
     toolset: "write",
@@ -237,7 +240,8 @@ export function mcpToolAvailability(capabilities, options = {}) {
     else if (
       Array.isArray(capabilities) &&
       requirement.capability &&
-      !advertised.has(requirement.capability)
+      !advertised.has(requirement.capability) &&
+      !(requirement.alternativeCapability && advertised.has(requirement.alternativeCapability))
     )
       reason = `missing_capability:${requirement.capability}`;
     else if (requirement.kind && !contentKindAllowed(profile, requirement.kind))
@@ -277,6 +281,10 @@ export function mcpToolAvailability(capabilities, options = {}) {
       task_work_report:
         tools["tasken.report_work"].available &&
         advertised.has(TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY),
+      // AIの作業の記録（report_workをtask_id無しで呼ぶ）。案を通さずにすぐ残る。
+      agent_work_record:
+        tools["tasken.report_work"].available &&
+        advertised.has(TASKEN_CORE_RECORD_AGENT_WORK_CAPABILITY),
       task_start: writeEnabled && advertised.has(TASKEN_CORE_TASK_START_WORK_CAPABILITY),
     },
     tools,

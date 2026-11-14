@@ -4,6 +4,7 @@ import {
   aiChangeUndoResponseSchema,
   aiItemCreationResponseSchema,
   aiTaskChangeResponseSchema,
+  recordAgentWorkResponseSchema,
 } from "../../shared/contracts/task/public.ts";
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
@@ -72,6 +73,7 @@ import {
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
   TASKEN_CORE_SOURCE_STATUS_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+  TASKEN_CORE_RECORD_AGENT_WORK_CAPABILITY,
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
@@ -118,6 +120,7 @@ export const TASKEN_MCP_REQUIRED_CORE_CAPABILITIES = Object.freeze([
   TASKEN_CORE_LIST_PROPOSALS_CAPABILITY,
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+  TASKEN_CORE_RECORD_AGENT_WORK_CAPABILITY,
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
@@ -529,6 +532,16 @@ export class TaskenCoreClient {
       request,
       proposeTaskWorkResponseSchema,
       "propose-task-work",
+    );
+  }
+
+  async recordAgentWork(request = {}) {
+    return this.request(
+      "/v1/commands/record-agent-work",
+      TASKEN_CORE_RECORD_AGENT_WORK_CAPABILITY,
+      request,
+      recordAgentWorkResponseSchema,
+      "record-agent-work",
     );
   }
 

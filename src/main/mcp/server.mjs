@@ -1,4 +1,5 @@
 import {
+  AGENT_WORK_RECORD_LIMITS,
   aiNoteEditRequestSchema,
   aiProposalDecisionRequestSchema,
   aiChangeUndoRequestSchema,
@@ -261,7 +262,7 @@ export function createTaskenMcpServer(options = {}) {
       instructions: `${
         readOnly
           ? "Tasken is read-only; use the listed bounded context and detail tools. No writes or Proposals are exposed."
-          : "Tasken manages work and knowledge. Check tasken.get_capabilities before writes when listed; Core may still refuse them. Proposals stay unofficial until human adoption; done reports never complete Tasks. Feed posts/replies appear immediately. Direct create_* tools need the user's grant (on Desktop, a Tasken setting; get_capabilities shows it); start_task_work claims only AI Ready Tasks.Reuse idempotency_key with identical content on retries and use dry_run for validation. Read tasken://guide/{feed_post,note_article,work_report,proposals} for details; never expose secrets or publish outside Tasken."
+          : "Tasken manages work and knowledge. Check tasken.get_capabilities before writes when listed; Core may still refuse them. Proposals stay unofficial until human adoption; done reports never complete Tasks. Feed posts/replies and report_work records appear immediately. Direct create_* tools need the user's grant (on Desktop, a Tasken setting; get_capabilities shows it); start_task_work claims only AI Ready Tasks.Reuse idempotency_key with identical content on retries and use dry_run for validation. Read tasken://guide/{feed_post,note_article,work_report,proposals} for details; never expose secrets or publish outside Tasken."
       }${sourceInstruction}`,
     },
   );
@@ -1001,34 +1002,106 @@ export function createTaskenMcpServer(options = {}) {
     model: z.string().trim().max(200).optional(),
     dry_run: dryRun,
   };
+  // AIの作業（#751）の欄。上限はCoreの契約と同じ値で、超えたら切り詰めずに断る。
+  const limits = AGENT_WORK_RECORD_LIMITS;
+  const shortLine = (max) => z.string().trim().min(1).max(max);
+  const agentWorkFields = {
+    client_kind: shortLine(limits.label)
+      .optional()
+      .describe("Your client, e.g. claude_code or codex."),
+    client_label: shortLine(limits.label).optional(),
+    model_label: shortLine(limits.label).optional(),
+    started_at: optionalTimestamp.describe("Omit to start where this session's last record ended."),
+    ended_at: optionalTimestamp.describe("Omit for now."),
+    intent: shortLine(limits.intent).optional().describe("The user's first request, one line."),
+    changed: z
+      .array(shortLine(limits.changedItem))
+      .max(limits.changedReceived)
+      .optional()
+      .describe("Changed names (repo-relative files, PRs, commits, Tasks); first 10 kept."),
+    verified: z.array(shortLine(limits.listItem)).max(limits.listItems).optional(),
+    remaining: z.array(shortLine(limits.listItem)).max(limits.listItems).optional(),
+    notice: shortLine(limits.notice).optional().describe("Only what the user should notice."),
+    theme_ids: z.array(shortLine(200)).max(limits.ids).optional(),
+    task_ids: z.array(shortLine(200)).max(limits.ids).optional(),
+    repository_context_ids: z.array(shortLine(200)).max(limits.ids).optional(),
+    cwd: shortLine(2000).optional().describe("Resolved to a registered repository; never stored."),
+  };
   const workReportSchema = z
     .object({
       ...receiptProposalSchema,
       ...blockedProposalSchema,
+      ...agentWorkFields,
+      task_id: taskWorkBase.task_id
+        .optional()
+        .describe("Only for a Task delegated to you: queues its work report for adoption."),
+      expected_version: taskWorkBase.expected_version.optional(),
+      executor_label: receiptProposalSchema.executor_label.optional(),
       status: z.enum(["progress", "done", "blocked"]),
       summary: receiptProposalSchema.summary.optional(),
       blocker: blockedProposalSchema.blocker.optional(),
     })
     .superRefine((args, context) => {
-      const required = args.status === "blocked" ? ["blocker"] : ["summary", "executor_kind"];
+      // task_idを付けた時だけ、委任したTaskの作業報告の案（従来の形）。外すのは切る束10a・10b。
+      const required =
+        args.task_id === undefined
+          ? ["client_kind", ...(args.status === "blocked" && args.blocker ? [] : ["summary"])]
+          : [
+              "expected_version",
+              "executor_label",
+              ...(args.status === "blocked" ? ["blocker"] : ["summary", "executor_kind"]),
+            ];
       for (const field of required) {
         if (args[field] === undefined)
           context.addIssue({
             code: "custom",
             path: [field],
-            message: `${field} is required for status=${args.status}`,
+            message: `${field} is required for status=${args.status}${
+              args.task_id === undefined ? "" : " with task_id"
+            }`,
           });
       }
+    });
+  /**
+   * AIの作業を1件書く。本人の記録（Task・Note・Theme）には触らない。書き手はcaller（HTTPは検証済みの
+   * client名）で、Coreが記録に固定する。statusのprogressは「途中」（partial）として残す。
+   */
+  const recordAgentWork = (args) =>
+    coreClient.recordAgentWork({
+      idempotency_key: args.idempotency_key,
+      caller: args.caller,
+      source_app: sourceApp(args),
+      ...(args.source_session ? { source_session: args.source_session } : {}),
+      client_kind: args.client_kind,
+      ...(args.client_label ? { client_label: args.client_label } : {}),
+      ...((args.model_label ?? args.model) ? { model_label: args.model_label ?? args.model } : {}),
+      ...(args.started_at ? { started_at: new Date(args.started_at).toISOString() } : {}),
+      ...(args.ended_at ? { ended_at: new Date(args.ended_at).toISOString() } : {}),
+      status: args.status === "progress" ? "partial" : args.status,
+      summary: args.summary ?? args.blocker,
+      ...(args.intent ? { intent: args.intent } : {}),
+      ...(args.changed ? { changed: args.changed } : {}),
+      ...(args.verified ? { verified: args.verified } : {}),
+      ...(args.remaining ? { remaining: args.remaining } : {}),
+      ...(args.notice ? { notice: args.notice } : {}),
+      ...(args.theme_ids ? { theme_ids: args.theme_ids } : {}),
+      ...(args.task_ids ? { task_ids: args.task_ids } : {}),
+      ...(args.repository_context_ids
+        ? { repository_context_ids: args.repository_context_ids }
+        : {}),
+      ...(args.cwd ? { cwd: args.cwd } : {}),
+      ...(args.dry_run ? { dry_run: true } : {}),
     });
   server.registerTool(
     "tasken.report_work",
     {
       description:
-        "Queue a work report for human adoption; done never completes the Task. progress/done require summary and executor_kind; blocked requires blocker; see tasken://guide/work_report.",
+        "Record what you did this session, once at the end: saved at once, never changes Tasks. With task_id (a Task delegated to you) it queues that Task's report for adoption; see tasken://guide/work_report.",
       inputSchema: workReportSchema,
       annotations: PROPOSAL_ANNOTATIONS,
     },
     withCoreClient((args) => {
+      if (args.task_id === undefined) return recordAgentWork(args);
       const actions = {
         progress: "append_receipt",
         done: "report_done",

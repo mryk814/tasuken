@@ -815,6 +815,8 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
       note_images: false,
       note_edit: true,
       task_work_report: true,
+      // AIの作業の記録（#751）は、案を受ける配備で書ける。
+      agent_work_record: true,
       task_start: false,
     });
     assert.deepEqual(capabilities.structuredContent.unavailable_tools, [

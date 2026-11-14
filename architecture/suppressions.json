@@ -235,6 +235,16 @@
       "issue": 752,
       "expiresAt": "2026-11-30",
       "removalCondition": "Use the public temporary-database fixture factory once available."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "tests/agent-work-record.test.mjs",
+      "target": "workspace-repository",
+      "reason": "#751 needs the production SQLite database in temporary userData folders to verify that an AI work record writes exactly one sync change and no change history, that it cannot be rewritten, and that it round-trips between two devices together with retired (empty) sync changes. This adds no runtime repository consumer and opens no production data.",
+      "owner": "issue-751-agent-work-record",
+      "issue": 751,
+      "expiresAt": "2026-12-31",
+      "removalCondition": "Use the public temporary-database fixture factory once available."
     }
   ]
 }

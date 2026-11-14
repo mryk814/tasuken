@@ -1,5 +1,6 @@
 import {
   ActivityEntriesQueryService,
+  AgentWorkRecordService,
   AgentContextQueryService,
   AgentContextExportService,
   AgentWorkspaceQueryService,
@@ -19,6 +20,10 @@ import {
   type CaptureImagePort,
 } from "../../core/public.ts";
 import { WorkspaceAiProposalWriteAdapter } from "./workspaceAiProposalWriteAdapter.ts";
+import {
+  WorkspaceAgentWorkRecordAdapter,
+  type AgentWorkRecordWorkspacePersistence,
+} from "./workspaceAgentWorkRecordAdapter.ts";
 import {
   WorkspaceProposalStatusReadAdapter,
   type ProposalStatusWorkspacePersistence,
@@ -75,6 +80,7 @@ export { WorkspaceKnowledgeReadAdapter, type KnowledgeWorkspacePersistence };
 export { WorkspaceAgentContextReadAdapter, type AgentContextWorkspacePersistence };
 export { WorkspaceFeedContextReadAdapter, type FeedContextWorkspacePersistence };
 export { WorkspaceAiProposalWriteAdapter };
+export { WorkspaceAgentWorkRecordAdapter, type AgentWorkRecordWorkspacePersistence };
 export { WorkspaceProposalStatusReadAdapter, type ProposalStatusWorkspacePersistence };
 
 export interface AiProposalPersistence {
@@ -101,7 +107,8 @@ export type TaskenCorePersistence = AgentReadyTaskWorkspacePersistence &
   AgentContextWorkspacePersistence &
   FeedContextWorkspacePersistence &
   AiProposalPersistence &
-  ProposalStatusWorkspacePersistence;
+  ProposalStatusWorkspacePersistence &
+  AgentWorkRecordWorkspacePersistence;
 
 export function createTaskenCore(
   persistence: TaskenCorePersistence,
@@ -172,6 +179,12 @@ export function createTaskenCore(
     getProposalStatus: proposalStatus,
     listProposals: { execute: proposalStatus.list.bind(proposalStatus) },
     exportAiContext,
+    recordAgentWork: new AgentWorkRecordService(
+      new WorkspaceAgentWorkRecordAdapter(persistence, (cwd) => {
+        const match = agentWorkspace.resolveRepositoryContext({ cwd });
+        return match.status === "matched" && match.selected ? match.selected.id : null;
+      }),
+    ),
     proposeTaskWork: new ProposeTaskWorkService(
       new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),
     ),

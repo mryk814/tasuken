@@ -93,6 +93,16 @@ const CORE_ERROR_GUIDANCE = Object.freeze({
     next_action:
       "指定したIDをtasken.search_itemsやtasken.get_theme_contextで確かめてから送り直してください。",
   },
+  NOT_RECORD_WRITER: {
+    retryable: false,
+    next_action:
+      "取り消せるのは自分が書いたAIの作業の記録だけです。ほかの記録は本人にTaskenの画面で消してもらってください。",
+  },
+  DAILY_LIMIT: {
+    retryable: true,
+    next_action:
+      "AIの作業の記録は1つのclientにつき1日200件までです。作業をまとめて1件にするか、翌日に送ってください。",
+  },
   DESKTOP_BEHIND: {
     retryable: true,
     next_action: "Desktop の Tasken を最新版に上げてから再試行してください。",

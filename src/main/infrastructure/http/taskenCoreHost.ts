@@ -19,6 +19,9 @@ import {
   getSourceStatusRequestSchema,
   type GetSourceStatusRequest,
   type GetSourceStatusResponse,
+  recordAgentWorkRequestSchema,
+  type RecordAgentWorkRequest,
+  type RecordAgentWorkResponse,
 } from "../../../shared/contracts/task/public.ts";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs/promises";
@@ -158,6 +161,7 @@ import {
   TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY,
   TASKEN_CORE_SOURCE_STATUS_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
+  TASKEN_CORE_RECORD_AGENT_WORK_CAPABILITY,
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
@@ -245,6 +249,7 @@ export interface TaskenCoreHostOptions {
   listProposals?: QueryProvider<ListProposalsRequest, ListProposalsResponse>;
   exportAiContext?: QueryProvider<ExportAiContextRequest, ExportAiContextResponse>;
   proposeTaskWork?: QueryProvider<ProposeTaskWorkRequest, ProposeTaskWorkResponse>;
+  recordAgentWork?: QueryProvider<RecordAgentWorkRequest, RecordAgentWorkResponse>;
   proposeAgentSession?: QueryProvider<ProposeAgentSessionRequest, ProposeAgentSessionResponse>;
   proposeRepositoryTask?: QueryProvider<
     ProposeRepositoryTaskRequest,
@@ -594,6 +599,14 @@ const ROUTES: readonly RouteDefinition[] = [
     provider: "proposeTaskWork",
     capability: TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
     schema: proposeTaskWorkRequestSchema,
+  },
+  {
+    // AIの作業（#751）。actor・書き手・経路はCoreが決め、新しい1件を足すだけ。
+    path: "/v1/commands/record-agent-work",
+    kind: "command",
+    provider: "recordAgentWork",
+    capability: TASKEN_CORE_RECORD_AGENT_WORK_CAPABILITY,
+    schema: recordAgentWorkRequestSchema,
   },
   {
     path: "/v1/commands/propose-agent-session",

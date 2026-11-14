@@ -1,5 +1,5 @@
 {
-  "description": "Desktop と NAS の replica が読み合う、AI が replica で書く Task・Note の同期差分の形（新規作成と、既存 Task の直接変更の Task と Change Event。tests/ai-item-creation.test.mjs が replica の実際の出力と比べる）。形を変えたら、入れる前に flags の末尾へ一行足す。replica は main に入ってから 5 分で新しい形を書き始め、Desktop は本人が上げるまで古いまま。desktop_first は、古い Desktop がこの形を取り込めず、Desktop を先に上げる必要があるか。replica は、Desktop の status.json の syncShape より後に desktop_first: true の印があると、書き込みを断る。",
+  "description": "Desktop と NAS の replica が読み合う、AI が replica で書く Task・Note・AI の作業の同期差分の形（新規作成と、既存 Task の直接変更の Task と Change Event と、AI の作業の記録。tests/ai-item-creation.test.mjs が replica の実際の出力と比べる）。形を変えたら、入れる前に flags の末尾へ一行足す。replica は main に入ってから 5 分で新しい形を書き始め、Desktop は本人が上げるまで古いまま。desktop_first は、古い Desktop がこの形を取り込めず、Desktop を先に上げる必要があるか。replica は、Desktop の status.json の syncShape より後に desktop_first: true の印があると、書き込みを断る。",
   "shape": {
     "task": [
       "$.changeId: string",
@@ -258,6 +258,49 @@
       "$.revisionId: string",
       "$.workspaceId: string",
       "$: object"
+    ],
+    "agent_work_record": [
+      "$.changeId: string",
+      "$.createdAt: string",
+      "$.deviceId: string",
+      "$.deviceSequence: number",
+      "$.entity.basis: string=\"ai_report\"",
+      "$.entity.changed: array",
+      "$.entity.changed[]: string",
+      "$.entity.changed_more: number",
+      "$.entity.client_kind: string",
+      "$.entity.client_label: null",
+      "$.entity.created_at: string",
+      "$.entity.deleted_at: null",
+      "$.entity.device_id: string",
+      "$.entity.ended_at: string",
+      "$.entity.id: string",
+      "$.entity.intent: null",
+      "$.entity.model_label: null",
+      "$.entity.notice: null",
+      "$.entity.remaining: array",
+      "$.entity.repository_context_ids: array",
+      "$.entity.request_fingerprint: string",
+      "$.entity.source: string=\"mcp\"",
+      "$.entity.source_session_id: string",
+      "$.entity.started_at: null",
+      "$.entity.status: string",
+      "$.entity.summary: string",
+      "$.entity.task_ids: array",
+      "$.entity.theme_ids: array",
+      "$.entity.updated_at: string",
+      "$.entity.verified: array",
+      "$.entity.version: number",
+      "$.entity.written_by: string",
+      "$.entity: object",
+      "$.entityId: string",
+      "$.entityType: string=\"agent_work_record\"",
+      "$.format: string=\"tasken-sync-change\"",
+      "$.formatVersion: number",
+      "$.parentRevisionIds: array",
+      "$.revisionId: string",
+      "$.workspaceId: string",
+      "$: object"
     ]
   },
   "flags": [
@@ -284,6 +327,12 @@
       "shape_sha256": "202d70ae37cce3dd2bd39d8f6ac8bf509c8652709bd81ae683041bc1b4e937b7",
       "desktop_first": false,
       "note": "replica が書く Task に、場所のリマインダー（place_reminder と、Change Event の changed_fields への印）が出るようになった。古い Desktop は未知の欄を検査せずそのまま保存して取り込める。欄を使わない Task の形は変わらない"
+    },
+    {
+      "date": "2026-11-14",
+      "shape_sha256": "d60bf9ba03fec2a101a949ac27abb5971548a9862f7a0e9d7ab9098a8dc8b47c",
+      "desktop_first": true,
+      "note": "replica が AI の作業の記録（#751 の新しい種類 agent_work_record）を書くようになった。古い Desktop はこの種類を知らず、差分を取り込めずに同期が止まるので、Desktop を先に上げる。Task・Note の形は変わらない"
     }
   ]
 }

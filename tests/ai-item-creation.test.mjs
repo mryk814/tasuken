@@ -573,6 +573,19 @@ test("replica が書く AI の Task・Note の差分の形（作成・直接変�
       idempotency_key: "contract-change-1",
     };
     const changed = await client.changeTask(changeRequest);
+    // AIの作業（#751）も、replicaがAIの書き込みで出す差分。古いDesktopは知らない種類を取り込めない。
+    const workRequest = {
+      idempotency_key: "contract-work-1",
+      caller: "dot",
+      source_app: "test-dot",
+      source_session: "conversation-1",
+      client_kind: "claude_code",
+      status: "done",
+      summary: "contract work summary",
+      changed: ["src/contract.ts"],
+      ended_at: "2026-11-14T10:00:00.000Z",
+    };
+    const work = await client.recordAgentWork(workRequest);
     await core.syncNow();
     // replica が共有フォルダへ実際に出したファイル（各 Entity の最後の差分）
     const replicaDevice = fs
@@ -592,6 +605,8 @@ test("replica が書く AI の Task・Note の差分の形（作成・直接変�
       ...Object.values(changeRequest),
       ...Object.values(changeRequest.changes),
       ...Object.values(changeRequest.changes.place_reminder),
+      ...Object.values(workRequest),
+      ...workRequest.changed,
     ]);
     const changeEvent = packets
       .filter(
@@ -607,6 +622,7 @@ test("replica が書く AI の Task・Note の差分の形（作成・直接変�
       note: [...packetShape(latest(note.entity.id), inputs)].sort(),
       task_change: [...packetShape(latest(target.entity.id), inputs)].sort(),
       task_change_event: [...packetShape(changeEvent, inputs)].sort(),
+      agent_work_record: [...packetShape(latest(work.id), inputs)].sort(),
     };
     const digest = createHash("sha256").update(JSON.stringify(shape)).digest("hex");
     const contract = fs.existsSync(AI_ITEM_CONTRACT)

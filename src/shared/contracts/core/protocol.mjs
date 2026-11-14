@@ -32,6 +32,9 @@ export const TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY = "get_feed_context";
 export const TASKEN_CORE_SOURCE_STATUS_CAPABILITY = "source_status";
 export const TASKEN_CORE_EXPORT_AI_CONTEXT_CAPABILITY = "export_ai_context";
 export const TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY = "propose_task_work";
+// AIの作業（#751）。AIが自分の1回の作業を要約した1件を、案を通さずに書く。本人の記録を作らず変えないので、
+// 案を送れる配備（Desktop・NASのproposals以上）なら公開する。新規作成のような本人の設定は要らない。
+export const TASKEN_CORE_RECORD_AGENT_WORK_CAPABILITY = "agent_work.record";
 export const TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY = "propose_agent_session";
 export const TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY = "propose_repository_task";
 export const TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY = "propose_content";

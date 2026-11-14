@@ -20,6 +20,8 @@ import type { NoteProposalImagePort } from "../core/public.ts";
 import type { CaptureImagePort } from "../core/public.ts";
 import { CaptureImageStorageError } from "../services/captureImageStore.ts";
 import {
+  aiChangeUndoRequestSchema,
+  aiChangeUndoResponseSchema,
   getSourceStatusResponseSchema,
   type AiNoteEditResponse,
   type AiProposalDecisionResponse,
@@ -38,6 +40,7 @@ import {
   type AgentContextWorkspacePersistence,
   type ProposalStatusWorkspacePersistence,
   type AiProposalPersistence,
+  type AgentWorkRecordWorkspacePersistence,
 } from "../infrastructure/sqlite/public.ts";
 import {
   MobileGatewayAdapter,
@@ -98,7 +101,8 @@ type CorePersistence = AgentReadyTaskWorkspacePersistence &
   AgentContextWorkspacePersistence &
   WorkspaceTaskPersistence &
   AiProposalPersistence &
-  ProposalStatusWorkspacePersistence;
+  ProposalStatusWorkspacePersistence &
+  AgentWorkRecordWorkspacePersistence;
 
 function mobileWorkReceipt(receipt: Record<string, unknown>): MobileGatewayWorkReceiptRecord {
   return {
@@ -258,6 +262,7 @@ export class TaskenCoreRuntime {
   private readonly agentSessionContext: ReturnType<
     typeof createTaskenCore
   >["getAgentSessionContext"];
+  private readonly agentWork: ReturnType<typeof createTaskenCore>["recordAgentWork"];
   private readonly executeTaskDelegation?: (
     command: unknown,
     currentContextFingerprint: () => string,
@@ -307,6 +312,7 @@ export class TaskenCoreRuntime {
     this.taskContext = core.getTaskContext;
     this.contentProposals = core.proposeContent;
     this.agentSessionContext = core.getAgentSessionContext;
+    this.agentWork = core.recordAgentWork;
     this.executeTaskDelegation = executeTaskDelegation;
     this.taskCapability = new TaskCapabilityService(persistence, executeApplicationCommand);
     this.host = new TaskenCoreHost({
@@ -357,6 +363,9 @@ export class TaskenCoreRuntime {
             // Task作業報告もProposalであり、正式データは人の採用まで変わらない。
             // 提案受付を公開する配備では、作業報告も同じPreview/採用の境界へ合流させる。
             proposeTaskWork: core.proposeTaskWork,
+            // AIの作業（#751）は、本人の記録を作らず変えない1件だけを案を通さずに書く。
+            // 案を送れる配備なら書ける（DesktopもNASも同じ。AGENTS.md）。
+            recordAgentWork: { execute: (request) => core.recordAgentWork.record(request) },
           }
         : {}),
       // Agent Sessionは常時稼働nodeの受付対象外。
@@ -764,7 +773,21 @@ export class TaskenCoreRuntime {
   enableAiTaskChange(service: AiTaskChangeService) {
     this.host.enableAiTaskChange({
       changeTask: { execute: (request) => service.change(request) },
-      undoChange: { execute: (request) => service.undo(request) },
+      undoChange: {
+        execute: (request) => {
+          // AIの作業の記録のIDなら、書いたclientだけが消せる（#751）。書くのに設定が要らないので、
+          // 消すのにも直接の書き込みの設定は問わない。記録でなければTaskの取り消しへ回す。
+          const parsed = aiChangeUndoRequestSchema.parse(request);
+          const retracted = this.agentWork.retract(parsed);
+          if (retracted)
+            return aiChangeUndoResponseSchema.parse({
+              schema: "tasken-ai-change-undo/v1",
+              undone: [retracted],
+              stopped: null,
+            });
+          return service.undo(request);
+        },
+      },
     });
   }
 

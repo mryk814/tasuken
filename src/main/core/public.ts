@@ -112,3 +112,14 @@ export {
   AiItemCreationError,
   type AiItemCreationPort,
 } from "./services/aiItemCreationService.ts";
+export {
+  AgentWorkRecordService,
+  planAgentWorkRange,
+  type AgentWorkRangePlan,
+  type AgentWorkWriteBasis,
+} from "./services/agentWorkRecordService.ts";
+export type {
+  AgentWorkRecordPort,
+  AgentWorkRecordRow,
+  AgentWorkRecordTransaction,
+} from "./ports/agentWorkRecordPort.ts";

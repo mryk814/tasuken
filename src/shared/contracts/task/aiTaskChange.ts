@@ -163,7 +163,9 @@ export const aiChangeUndoRequestSchema = z
       .min(1)
       .max(200)
       .optional()
-      .describe("Undo every direct Task change of that source_session, newest first."),
+      .describe(
+        "Undo every direct Task change of that source_session, newest first. To retract your own AI work record, pass its id as change_id instead.",
+      ),
     ...basisFields,
     ...callFields,
   })
@@ -183,7 +185,19 @@ export const aiChangeUndoResponseSchema = z
   .object({
     schema: z.literal("tasken-ai-change-undo/v1"),
     undone: z.array(
-      z.object({ change_id: z.string(), undo_change_id: z.string(), task_id: z.string() }).strict(),
+      z.union([
+        z
+          .object({ change_id: z.string(), undo_change_id: z.string(), task_id: z.string() })
+          .strict(),
+        // AIの作業の記録（#751）を、書いたclientが取り消した時。
+        z
+          .object({
+            change_id: z.string(),
+            undo_change_id: z.string(),
+            agent_work_record_id: z.string(),
+          })
+          .strict(),
+      ]),
     ),
     /** 途中で止まった変更（後から別の変更が入った、など）。それより古い変更は戻していない。 */
     stopped: z
