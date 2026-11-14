@@ -3,7 +3,7 @@
 Tasken内のEntityをMicrosoft 365 CopilotやCoding Agentへ渡すとき、Entityごとに独自の渡し方を作らないための共通契約。
 本文schemaは種別ごとに別のまま、**概要・鮮度・根拠・出典**だけを同じ意味で持つ。
 
-正本は [`src/shared/aiMetadata.mjs`](../src/shared/aiMetadata.mjs)。MCP・AI Pack・Context Previewはすべてこの関数群を通す。
+正本は [`src/shared/aiMetadata.mjs`](../src/shared/aiMetadata.mjs)。MCP・Context Previewはすべてこの関数群を通す。
 
 ## 対象Entity
 
@@ -31,7 +31,7 @@ DB migrationは不要（Entityは `entities.data_json` のJSON blob）。既存E
 
 ## AIへ渡す範囲
 
-**AIに見せる・見せないを決める概念は無い**（本人の判断、2026-11-08・11-12）。MCP・AI Pack・Context Preview・Mobileのtask-contextは、同じ共通metadata（header）を付けて全Entityを返す。
+**AIに見せる・見せないを決める概念は無い**（本人の判断、2026-11-08・11-12）。MCP・Context Preview・Mobileのtask-contextは、同じ共通metadata（header）を付けて全Entityを返す。
 かつて `ai_visibility` / `default_ai_visibility`（Entity・Theme単位の公開先）と、workspaceの既定（端末設定 `aiVisibilityDefault`）があったが、実データに明示設定が無いことを確かめて削除した。
 
 更新前の端末（NAS replica・別PCのDesktop・Android）は、同期やコマンドに `ai_visibility` / `default_ai_visibility` を載せることがある。**拒否せず、保存せずに捨てる**（`normalizeEntity` が全種別で落とす。Taskの作成・変更の入力 `taskDraftSchema` も受けて、値は使わない）。DB上の古い値は移行せず、そのまま残るが、どこからも読まれない。
@@ -60,10 +60,10 @@ storage_root_id? relative_path?
 
 正本Markdown（#291 / #306）はprivateな絶対パスに依存させず、`storage_root_id + relative_path` で辿れるようにする。
 
-## MCP / AI Packとの接続
+## MCPとの接続
 
 - 全一覧tool（items / notes / knowledge / theme context / health）は、各Entityへ `buildAiEntityHeader` のheaderを付ける。
-- `export_ai_context`（Core/HTTP。MCP非公開）に公開先の引数は無い。OneDrive AI Pack（#295）は別に組み立てる。
+- `export_ai_context`（Core/HTTP。MCP非公開）に公開先の引数は無い。
 - Markdown出力では `stale` / `superseded` / `ai_generated` 等を項目の横へ短く添える。
 
 ## UI

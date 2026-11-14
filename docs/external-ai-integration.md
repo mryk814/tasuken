@@ -162,7 +162,6 @@ node scripts/tasken-core-client.mjs revoke awai                                 
 | 目的                 | 入口                                                 | 返り先                     |
 | -------------------- | ---------------------------------------------------- | -------------------------- |
 | 日報                 | MCP Prompt `daily-report`、Debriefの依頼文           | Note Proposal → Agent Desk |
-| M365へThemeを渡す    | Theme AI Pack（`themeAiPack.mjs`）                   | OneDrive上の読み取り投影   |
 | 選択会話を公開する   | Conversation AI Context（`conversationContext.mjs`） | 明示公開したMarkdown       |
 | AI作業の履歴を集める | [Agent Session hooks](agent-session-provenance.md)   | Session記録／Debrief       |
 
