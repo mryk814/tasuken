@@ -793,7 +793,7 @@ internal fun TodayApp(
                                 onPair = todayViewModel::pair,
                                 onTaskSelected = onTaskSelected,
                                 refreshing = refreshing,
-                                onRefresh = todayViewModel::refreshFeed,
+                                onRefresh = todayViewModel::load,
                                 seenBefore = aiSeenBefore,
                                 replyDictation = replyDictation,
                             )
