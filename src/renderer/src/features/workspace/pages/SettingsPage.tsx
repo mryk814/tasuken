@@ -471,10 +471,10 @@ export function SettingsPage({
   async function copyRecordCounts() {
     try {
       await workspaceApi.copyRecordCounts();
-      setToast("記録の数を写しました。", "success");
+      setToast("記録の数をコピーしました。", "success");
     } catch (error) {
       setToast(
-        `記録の数を写せませんでした。${error instanceof Error ? error.message : String(error)}`,
+        `記録の数をコピーできませんでした。${error instanceof Error ? error.message : String(error)}`,
         "danger",
       );
     }
@@ -1092,7 +1092,7 @@ export function SettingsPage({
               <p className="field-help">種類ごとの件数と日付だけを写します。中身は含みません。</p>
               <div className="settings-action-row">
                 <Button variant="secondary" onClick={copyRecordCounts}>
-                  記録の数を写す
+                  記録の数をコピー
                 </Button>
               </div>
             </section>

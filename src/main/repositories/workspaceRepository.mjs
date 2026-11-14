@@ -728,7 +728,8 @@ export class WorkspaceDatabase {
     };
   }
 
-  // 種類ごとの数と日付だけを返す。data_json と id は読まない（#755 束 0a）。
+  // 種類ごとの数と日付だけを返す。data_json と id は取り出さない（#755 束 0a）。created_at と deleted_at は
+  // 索引に無いので、SQLite は行を引く（1.5 万行で約 0.1 秒。ボタンを押した時だけなので索引は足していない）。
   countRecordsByType() {
     return this.db
       .prepare(
