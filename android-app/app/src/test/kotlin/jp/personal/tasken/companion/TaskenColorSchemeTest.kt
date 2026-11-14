@@ -17,6 +17,24 @@ class TaskenColorSchemeTest {
         verifyTheme("dark", TaskenMaterialColorTokens.dark, tokens.getValue("dark").jsonObject)
     }
 
+    /** AI の藍は Material の役割の外に持つので、役割の数（48）とは別に、同じ tokens.json と比べる。 */
+    @Test
+    fun aiColorsReferenceTheCheckedInDesignTokenValue() {
+        val tokens = Json.parseToJsonElement(
+            requireNotNull(javaClass.classLoader?.getResource("tokens.json")).readText(),
+        ).jsonObject.getValue("color").jsonObject
+        for ((name, mapping) in listOf("light" to TaskenAiColorTokens.light, "dark" to TaskenAiColorTokens.dark)) {
+            assertEquals("$name ai role count", 4, mapping.size)
+            mapping.forEach { (role, reference) ->
+                assertEquals(
+                    "$name.$role must equal color.$name.${reference.token}",
+                    tokens.getValue(name).jsonObject.getValue(reference.token).jsonPrimitive.content.uppercase(),
+                    reference.hex.uppercase(),
+                )
+            }
+        }
+    }
+
     private fun verifyTheme(
         name: String,
         mapping: Map<String, TokenColorReference>,

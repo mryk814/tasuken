@@ -57,7 +57,7 @@ internal fun MobileLocalSearchSheet(
         Surface(Modifier.widthIn(max = 800.dp).fillMaxWidth().fillMaxHeight(0.94f).testTag("local-search"), shape = MaterialTheme.shapes.large) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("端末内の記録を検索", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                    Text("端末内の記録をさがす", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                     TextButton(onClick = onDismiss) { Text("閉じる") }
                 }
                 OutlinedTextField(value = query, onValueChange = { query = it; resetPage() }, singleLine = true,

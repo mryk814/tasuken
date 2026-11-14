@@ -146,7 +146,7 @@ internal fun MobileWorkLogSheet(
                                     }
                                     HorizontalDivider()
                                     if (record.deleted) {
-                                        TextButton(onClick = { action { repository.restoreWorkLog(record.id) } }, enabled = !busy && item.pending == null) { Text("削除を元に戻す") }
+                                        TextButton(onClick = { action { repository.restoreWorkLog(record.id) } }, enabled = !busy && item.pending == null) { Text("削除を取り消す") }
                                     } else {
                                         Text("Taskの状態を変えずに記録を削除します。元に戻せます。", style = MaterialTheme.typography.bodySmall)
                                         TextButton(onClick = { action { repository.deleteWorkLog(record.id) } },

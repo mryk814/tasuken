@@ -35,7 +35,7 @@ class ProposalReviewUiTest {
         }
 
         composeRule.onNodeWithTag("proposal-detail-${proposal.id}").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("AI Proposal").assertIsDisplayed()
+        composeRule.onNodeWithText("AIの提案").assertIsDisplayed()
         composeRule.onNodeWithText("完了報告").assertIsDisplayed()
         composeRule.onNodeWithText("• Gateway contract").assertIsDisplayed()
         composeRule.onNodeWithTag("proposal-approve-${proposal.id}").assertIsEnabled().performClick()
@@ -59,7 +59,7 @@ class ProposalReviewUiTest {
         }
 
         composeRule.onNodeWithTag("proposal-detail-${proposal.id}").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Taskが更新されています。承認せず、AIへ再報告を依頼してください。")
+        composeRule.onNodeWithText("Taskが更新されています。採らずに、AIへ再報告を依頼してください。")
             .assertIsDisplayed()
         composeRule.onNodeWithTag("proposal-approve-${proposal.id}").assertIsNotEnabled()
         composeRule.onNodeWithTag("proposal-reject-${proposal.id}").assertIsNotEnabled()

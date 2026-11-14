@@ -20,8 +20,9 @@ internal fun AiOriginMark(origin: MobileAiOrigin?, modifier: Modifier = Modifier
     Box(modifier) {
         IconButton(onClick = { expanded = !expanded }, modifier = Modifier.size(48.dp)) {
             Box(Modifier.size(24.dp)) {
+                // AI が作ったものの印は藍。未読の点は本人に向けた知らせなので、えんじのまま。
                 Icon(painterResource(R.drawable.ic_tabler_sparkles), contentDescription = "$label。作成元を表示",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp).align(Alignment.Center))
+                    tint = taskenAiColors().ai, modifier = Modifier.size(20.dp).align(Alignment.Center))
                 if (origin.seenAt == null) Box(Modifier.size(6.dp).align(Alignment.TopEnd)
                     .background(MaterialTheme.colorScheme.primary, CircleShape))
             }

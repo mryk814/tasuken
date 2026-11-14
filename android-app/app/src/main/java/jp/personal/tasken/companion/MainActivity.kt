@@ -607,7 +607,7 @@ internal fun TodayApp(
                 coroutineScope.launch {
                     val result = snackbarHostState.showSnackbar(
                         message = "${queuedEntityIds.size}件のTaskを追加しました。Desktopへ自動送信します。",
-                        actionLabel = "元に戻す",
+                        actionLabel = "取り消す",
                         duration = SnackbarDuration.Long,
                     )
                     if (result == SnackbarResult.ActionPerformed) {
@@ -631,7 +631,7 @@ internal fun TodayApp(
             coroutineScope.launch {
                 if (!undoTargetSaved) {
                     snackbarHostState.showSnackbar(
-                        "追加は保存しましたが、再起動後のUndo対象を保持できませんでした。空き容量を確認してください。",
+                        "追加は保存しましたが、再起動後の取り消しの対象を保持できませんでした。空き容量を確認してください。",
                     )
                 }
                 val entityLabel = if (queued.kind == MobileCaptureKind.Task) "Task" else "Capture"
@@ -669,7 +669,7 @@ internal fun TodayApp(
             is TaskActionUiState.ConflictResolved -> {
                 val resolved = taskActionState as TaskActionUiState.ConflictResolved
                 snackbarHostState.showSnackbar(
-                    if (resolved.keptLocal) "この端末の変更を再送します。" else "Desktopの状態を採用しました。",
+                    if (resolved.keptLocal) "この端末の変更を再送します。" else "Desktopの状態を採りました。",
                 )
                 todayViewModel.resetTaskActionState()
             }
@@ -684,7 +684,7 @@ internal fun TodayApp(
         when (val state = proposalReviewState) {
             is ProposalReviewUiState.Applied -> {
                 snackbarHostState.showSnackbar(
-                    if (state.decision == "accept") "Proposalを承認しました。" else "Proposalを却下しました。",
+                    if (state.decision == "accept") "提案を採りました。" else "提案を見送りました。",
                 )
                 todayViewModel.resetProposalReviewState()
             }
@@ -699,7 +699,7 @@ internal fun TodayApp(
         when (val state = humanReviewState) {
             is HumanReviewUiState.Applied -> {
                 snackbarHostState.showSnackbar(
-                    if (state.action == "accept") "Work Receiptを承認してTaskを完了しました。" else "AIへ返信しました。",
+                    if (state.action == "accept") "Work Receiptを採ってTaskを完了しました。" else "AIへ返信しました。",
                 )
                 todayViewModel.resetHumanReviewState()
             }
@@ -2286,7 +2286,7 @@ internal fun FeedListPane(
                                         TaskThemeLabel(proposal.themeId, themes)
                                         Text(
                                             taskWorkProposalActionLabel(proposal.action),
-                                            color = MaterialTheme.colorScheme.tertiary,
+                                            color = taskenAiColors().ai,
                                             style = MaterialTheme.typography.labelMedium,
                                         )
                                         Text(
@@ -2296,7 +2296,7 @@ internal fun FeedListPane(
                                         )
                                     }
                                     if (proposal.stale) {
-                                        Text("Task更新済み · 承認不可", color = MaterialTheme.colorScheme.error)
+                                        Text("Task更新済み · 採れません", color = MaterialTheme.colorScheme.error)
                                     }
                                 }
                             }
@@ -3045,7 +3045,7 @@ internal fun TodayTaskList(
                                     color = if (conflict) {
                                         MaterialTheme.colorScheme.errorContainer
                                     } else {
-                                        MaterialTheme.colorScheme.tertiaryContainer
+                                        taskenAiColors().aiBg
                                     },
                                     shape = RoundedCornerShape(7.dp),
                                 ) {
@@ -3055,7 +3055,7 @@ internal fun TodayTaskList(
                                         color = if (conflict) {
                                             MaterialTheme.colorScheme.onErrorContainer
                                         } else {
-                                            MaterialTheme.colorScheme.onTertiaryContainer
+                                            taskenAiColors().aiStrong
                                         },
                                         fontSize = 11.sp,
                                     )
@@ -3518,13 +3518,13 @@ internal fun TodayDetailPane(
                             Button(
                                 onClick = { onConflictResolution(task, true) },
                                 enabled = actionState !is TaskActionUiState.Saving,
-                            ) { Text(if (task.heldChanges.isEmpty()) "この端末を採用" else "この端末と後続変更を再送") }
+                            ) { Text(if (task.heldChanges.isEmpty()) "この端末を採る" else "この端末と後続変更を再送") }
                             TextButton(
                                 onClick = { onConflictResolution(task, false) },
                                 enabled = actionState !is TaskActionUiState.Saving,
                                 colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
                                     contentColor = if (task.heldChanges.isEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error),
-                            ) { Text(if (task.heldChanges.isEmpty()) "Desktopを採用" else "Desktopを採用・後続変更を破棄") }
+                            ) { Text(if (task.heldChanges.isEmpty()) "Desktopを採る" else "Desktopを採る・後続変更を破棄") }
                         }
                     }
                 }
@@ -3931,7 +3931,7 @@ private fun TaskWorkHumanReviewCard(
                         enabled = canReview,
                         modifier = Modifier.testTag("human-review-accept-${task.id}"),
                     ) {
-                        Text(if (reviewing && reviewState.pending.action == "accept") "承認中" else "承認して完了")
+                        Text(if (reviewing && reviewState.pending.action == "accept") "処理中" else "採って完了")
                     }
                 }
                 TextButton(
@@ -3963,9 +3963,13 @@ private fun TaskWorkProposalReviewCard(
 ) {
     val reviewing = reviewState is ProposalReviewUiState.Reviewing && reviewState.proposalId == proposal.id
     val uriHandler = LocalUriHandler.current
+    val ai = taskenAiColors()
+    // 本人が答えるまで未決なので、藍の点線で囲む。藍は面に塗らず、見出しと線にだけ使う。
     Card(
-        modifier = Modifier.fillMaxWidth().testTag("proposal-detail-${proposal.id}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        modifier = Modifier.fillMaxWidth().testTag("proposal-detail-${proposal.id}")
+            .dashedOutline(ai.ai, cornerRadius = 7.dp),
+        shape = RoundedCornerShape(7.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(14.dp),
@@ -3976,12 +3980,12 @@ private fun TaskWorkProposalReviewCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("AI Proposal", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(taskWorkProposalActionLabel(proposal.action), color = MaterialTheme.colorScheme.tertiary)
+                Text("AIの提案", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = ai.ai)
+                Text(taskWorkProposalActionLabel(proposal.action), color = ai.ai)
             }
             Text(
                 "${proposal.caller} · ${proposal.sourceApp}",
-                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             proposal.executorLabel?.let { Text("実行  $it") }
             proposal.summary?.let { Text(it) }
@@ -4004,11 +4008,11 @@ private fun TaskWorkProposalReviewCard(
             }
             when {
                 proposal.stale -> Text(
-                    "Taskが更新されています。承認せず、AIへ再報告を依頼してください。",
+                    "Taskが更新されています。採らずに、AIへ再報告を依頼してください。",
                     color = MaterialTheme.colorScheme.error,
                 )
                 !online -> Text(
-                    "Offline cache · Desktop接続時に承認できます",
+                    "Offline cache · Desktop接続時に採れます",
                     color = MaterialTheme.colorScheme.secondary,
                 )
                 proposal.truncated -> Text(
@@ -4021,16 +4025,16 @@ private fun TaskWorkProposalReviewCard(
                 Button(
                     onClick = { onDecision(proposal, "accept") },
                     enabled = online && !proposal.stale && !reviewing,
-                    modifier = Modifier.testTag("proposal-approve-${proposal.id}"),
+                    modifier = Modifier.widthIn(min = 88.dp).testTag("proposal-approve-${proposal.id}"),
                 ) {
-                    Text(if (reviewing && reviewState.decision == "accept") "承認中" else "承認")
+                    Text(if (reviewing && reviewState.decision == "accept") "処理中" else "採る")
                 }
                 TextButton(
                     onClick = { onDecision(proposal, "reject") },
                     enabled = online && !reviewing,
-                    modifier = Modifier.testTag("proposal-reject-${proposal.id}"),
+                    modifier = Modifier.widthIn(min = 88.dp).testTag("proposal-reject-${proposal.id}"),
                 ) {
-                    Text(if (reviewing && reviewState.decision == "reject") "却下中" else "却下")
+                    Text(if (reviewing && reviewState.decision == "reject") "処理中" else "見送る")
                 }
             }
         }
@@ -4828,7 +4832,7 @@ private suspend fun showCreateUndoSnackbar(
 ) {
     val result = snackbarHostState.showSnackbar(
         message = message,
-        actionLabel = "元に戻す",
+        actionLabel = "取り消す",
         withDismissAction = true,
         duration = duration,
     )

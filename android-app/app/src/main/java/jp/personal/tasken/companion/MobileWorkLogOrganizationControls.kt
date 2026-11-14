@@ -35,7 +35,7 @@ internal fun MobileWorkLogOrganizationControls(item: MobileWorkLog, repository: 
     val available = enabled && !source.deleted && source.serverVersion != null && item.pending == null
     Column(Modifier.fillMaxWidth().testTag("work-log-organization"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("AIで整理（任意）", style = MaterialTheme.typography.titleSmall)
-        Text("保存した原文1件をDesktopで設定したAIへ送り、文ごとに分類します。採用すると別の補足として保存します。", style = MaterialTheme.typography.bodySmall)
+        Text("保存した原文1件をDesktopで設定したAIへ送り、文ごとに分類します。採ると別の補足として保存します。", style = MaterialTheme.typography.bodySmall)
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (value == null || value.state in setOf("discarded", "generating") || (!current && value.state == "proposal")) {
             if (!current && value != null) Text("原文が更新されています。新しく整理してください。")
@@ -59,7 +59,7 @@ internal fun MobileWorkLogOrganizationControls(item: MobileWorkLog, repository: 
             }
             if (value?.state == "proposal") {
                 Button(onClick = { action { repository.adoptWorkLogOrganization(source.id) } }, enabled = available && current && !busy,
-                    modifier = Modifier.testTag("work-log-adopt")) { Text("整理案を補足として採用") }
+                    modifier = Modifier.testTag("work-log-adopt")) { Text("整理案を補足として採る") }
                 TextButton(onClick = { action { repository.discardWorkLogOrganization(source.id) } }, enabled = !busy) { Text("整理案を破棄") }
             }
             if (value?.state == "adopting") Text("補足を端末に保存済み・Desktopへ送信中")

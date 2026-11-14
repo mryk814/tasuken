@@ -129,7 +129,7 @@ internal object MobileRecallContract {
         "planned" -> "計画・Task作成"
         "work_recorded" -> if (kind == "task_completed") "Task完了" else "作業記録"
         "ai_reported" -> "AIの報告"
-        "human_accepted" -> "人間が採用"
+        "human_accepted" -> "本人が採った"
         "organized" -> "Captureを整理"
         else -> "変更の記録"
     }

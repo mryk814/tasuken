@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -51,12 +52,21 @@ internal fun CaptureOrganizationEditor(
             modifier = Modifier.testTag("organization-counts"))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(proposals.size, key = { it }) { index ->
+                // 候補は、追加するまで未決。枠を薄い墨の点線にし、面は選んでいる候補にだけ付ける。
                 FilterChip(
                     selected = selected == index,
                     onClick = { selectedIndex = index },
                     enabled = enabled,
                     label = { Text("候補 ${index + 1}${if (proposals[index].excluded) " · 除外" else ""}") },
-                    modifier = Modifier.testTag("organization-select-$index"),
+                    border = null,
+                    colors = FilterChipDefaults.filterChipColors(
+                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                    modifier = Modifier.testTag("organization-select-$index").dashedOutline(
+                        MaterialTheme.colorScheme.onSurfaceVariant,
+                        cornerRadius = 4.dp,
+                        visualHeight = FilterChipDefaults.Height,
+                    ),
                 )
             }
         }
