@@ -15,6 +15,14 @@ export interface MarkdownFileExportResult {
   exportedAt?: string;
 }
 
+/** 手入れの書き出し（#755 束9b）。1 件ずつ別の Markdown にする。 */
+export interface MaintenanceMarkdownExportResult {
+  canceled: boolean;
+  directory?: string;
+  /** 書いたファイルの数。既にある名前は上書きせず番号を付けて書く。 */
+  count?: number;
+}
+
 /** Markdown本文の変更検知用。Document Publish の再出力判定に使う。 */
 export function noteExportSignature(value: string): string {
   let hash = 0x811c9dc5;

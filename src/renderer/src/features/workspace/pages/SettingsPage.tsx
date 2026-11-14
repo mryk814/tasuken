@@ -76,6 +76,7 @@ function backupTime(value: string): string {
 }
 
 export function SettingsPage({
+  data,
   domain,
   themeMode,
   setThemeMode,
@@ -412,6 +413,28 @@ export function SettingsPage({
       );
     } finally {
       setSyncBusy(false);
+    }
+  }
+
+  // 手入れの画面は #755 束9b で外した。記録は残っているので、本人の操作で 1 件ずつ Markdown に書き出せる。
+  const maintenanceCount = (data.maintenances || []).filter((item) => !item.deleted_at).length;
+  const [maintenanceExportBusy, setMaintenanceExportBusy] = useState(false);
+  async function exportMaintenance() {
+    setMaintenanceExportBusy(true);
+    try {
+      const result = await workspaceApi.exportMaintenanceMarkdown();
+      if (!result.canceled)
+        setToast(
+          `手入れ ${result.count ?? 0} 件を書き出しました（${result.directory}）。`,
+          "success",
+        );
+    } catch (error) {
+      setToast(
+        `手入れを書き出せませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    } finally {
+      setMaintenanceExportBusy(false);
     }
   }
 
@@ -996,6 +1019,23 @@ export function SettingsPage({
                 </Button>
               </div>
             </section>
+            {maintenanceCount > 0 && (
+              <section className="panel settings-form" hidden={activeSection !== "advanced"}>
+                <h2>手入れの記録</h2>
+                <p className="field-help">
+                  手入れの画面は外しました。記録は残っていて、1件ずつMarkdownに書き出せます。同じ名前のファイルは上書きしません。
+                </p>
+                <div className="settings-action-row">
+                  <Button
+                    variant="secondary"
+                    disabled={maintenanceExportBusy}
+                    onClick={() => void exportMaintenance()}
+                  >
+                    {maintenanceExportBusy ? "書き出し中" : `手入れ${maintenanceCount}件を書き出す`}
+                  </Button>
+                </div>
+              </section>
+            )}
             <section
               className="panel settings-form sync-settings-panel"
               hidden={activeSection !== "storage"}

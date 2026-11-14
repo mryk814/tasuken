@@ -49,11 +49,13 @@ import type {
   MarkdownImageAttachmentResult,
 } from "../../shared/attachments";
 import type {
+  MaintenanceMarkdownExportResult,
   MarkdownFileExportRequest,
   MarkdownFileExportResult,
   MarkdownPdfExportRequest,
   MarkdownPdfExportResult,
 } from "../../shared/fileExport";
+import { buildMaintenanceExport, writeMaintenanceMarkdownFiles } from "./maintenanceExport";
 import type {
   AppUpdateCheckResult,
   ConversationContextPreviewResult,
@@ -186,7 +188,6 @@ import {
   publishConversationContextFile,
   removeConversationContextFile,
 } from "./conversationContextPublisher.mjs";
-
 
 const MARKDOWN_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
 /** アプリ内ビューア用。インフォグラフィック等の大きめ画像も許容する。 */
@@ -2826,6 +2827,28 @@ export class WorkspaceService {
   async writeClipboard(text: unknown): Promise<boolean> {
     await clipboard.writeText(String(text));
     return true;
+  }
+
+  /**
+   * 手入れを 1 件ずつ Markdown に書き出す（#755 束9b）。本人がフォルダーを選んだ時だけ書く。
+   * 既定の場所は、ほかの書き出しと同じく Theme なしの Exports/（Inbox/Exports）。既にあるファイルは上書きしない。
+   */
+  async exportMaintenanceMarkdown(): Promise<MaintenanceMarkdownExportResult> {
+    const documents = buildMaintenanceExport({
+      list: (type) => this.repository.list(type) as Record<string, unknown>[],
+    });
+    if (documents.length === 0) throw new Error("書き出す手入れがありません。");
+    const location = this.resolveThemeContentDirectory(null, "exports");
+    const result = await dialog.showOpenDialog({
+      title: `手入れ ${documents.length} 件を書き出すフォルダを選択`,
+      defaultPath: location.kind === "ok" ? location.directory : app.getPath("documents"),
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (result.canceled || !result.filePaths[0]) return { canceled: true };
+    const directory = result.filePaths[0];
+    fs.mkdirSync(directory, { recursive: true });
+    const written = writeMaintenanceMarkdownFiles(directory, documents);
+    return { canceled: false, directory, count: written.length };
   }
 
   async writeClipboardRecordCounts(): Promise<boolean> {

@@ -301,6 +301,7 @@ const api: ResearchDeskApi = {
     markdownFile: (request) => ipcRenderer.invoke(IPC.markdownFileExport, request),
     markdownPdf: (request) => ipcRenderer.invoke(IPC.markdownPdfExport, request),
     sketch: (request) => ipcRenderer.invoke(IPC.sketchExport, request),
+    maintenanceMarkdown: () => ipcRenderer.invoke(IPC.maintenanceMarkdownExport),
     slideTimeline: (request) => ipcRenderer.invoke(IPC.slideTimelineExport, request),
     mermaidSvg: (request) => ipcRenderer.invoke(IPC.mermaidSvgExport, request),
     mermaidPptx: (request) => ipcRenderer.invoke(IPC.mermaidPptxExport, request),

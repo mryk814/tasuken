@@ -416,6 +416,9 @@ export const workspaceApi = {
   exportSketch(request: SketchExportRequest) {
     return desktopApi().exports.sketch(request);
   },
+  exportMaintenanceMarkdown() {
+    return desktopApi().exports.maintenanceMarkdown();
+  },
   exportSlideTimeline(request: SlideTimelineExportRequest) {
     return desktopApi().exports.slideTimeline(request);
   },

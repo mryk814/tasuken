@@ -847,6 +847,7 @@ export function registerIpc(
   ipcMain.handle(IPC.markdownFileExport, (_event, request) => service.exportMarkdownFile(request));
   ipcMain.handle(IPC.markdownPdfExport, (_event, request) => service.exportMarkdownPdf(request));
   ipcMain.handle(IPC.sketchExport, (_event, request) => service.exportSketch(request));
+  ipcMain.handle(IPC.maintenanceMarkdownExport, () => service.exportMaintenanceMarkdown());
   ipcMain.handle(IPC.slideTimelineExport, (_event, request) =>
     service.exportSlideTimeline(request),
   );

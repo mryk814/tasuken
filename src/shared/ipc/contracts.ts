@@ -238,6 +238,7 @@ export const IPC = {
   markdownFileExport: "markdown-file:export",
   markdownPdfExport: "markdown-pdf:export",
   sketchExport: "sketch:export",
+  maintenanceMarkdownExport: "maintenance:export-markdown",
   slideTimelineExport: "slide-timeline:export",
   mermaidSvgExport: "mermaid:svg-export",
   mermaidPptxExport: "mermaid:pptx-export",
@@ -888,6 +889,8 @@ export interface ResearchDeskApi {
     markdownFile(request: MarkdownFileExportRequest): Promise<MarkdownFileExportResult>;
     markdownPdf(request: MarkdownPdfExportRequest): Promise<MarkdownPdfExportResult>;
     sketch(request: SketchExportRequest): Promise<SketchExportResult>;
+    /** 手入れを 1 件ずつ Markdown に書き出す（#755 束9b）。フォルダーは本人が選ぶ。 */
+    maintenanceMarkdown(): Promise<import("../fileExport").MaintenanceMarkdownExportResult>;
     slideTimeline(request: SlideTimelineExportRequest): Promise<SlideTimelineExportResult>;
     mermaidSvg(
       request: MermaidPowerPointSvgExportRequest,
