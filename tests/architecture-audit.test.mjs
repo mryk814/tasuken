@@ -304,11 +304,11 @@ test("production audit is deterministic and keeps temporary composition growth v
     assert.equal(first.stdout, second.stdout);
     const report = JSON.parse(first.stdout);
     assert.equal(report.mode, "report-only");
-    assert.equal(report.summary.newFindings, 22, unexplainedFindings(report));
-    assert.equal(report.summary.suppressedFindings, 22);
+    assert.equal(report.summary.newFindings, 23, unexplainedFindings(report));
+    assert.equal(report.summary.suppressedFindings, 23);
     assert.equal(report.summary.blockingFindings, 0, unexplainedFindings(report));
     const newFindings = report.findings.filter((entry) => !entry.baseline);
-    assert.equal(newFindings.length, 22);
+    assert.equal(newFindings.length, 23);
     assert.equal(
       newFindings.every((entry) => entry.suppressed && entry.suppression?.issue),
       true,
@@ -325,7 +325,7 @@ test("production audit is deterministic and keeps temporary composition growth v
         ["src/shared/ipc/contracts.ts", true, 407],
       ],
     );
-    assert.equal(report.summary.newCompatibilityConsumers, 17);
+    assert.equal(report.summary.newCompatibilityConsumers, 18);
     assert.deepEqual(
       newFindings
         .filter((entry) => entry.ruleId === "compatibility.consumer_added")
@@ -353,6 +353,7 @@ test("production audit is deterministic and keeps temporary composition growth v
         ["tests/helpers/mobile-offline-gateway.mjs", "workspace-repository", true, 537],
         ["tests/repository-read-indexes.test.mjs", "workspace-repository", true, 690],
         ["tests/tasken-headless-core.test.mjs", "workspace-repository", true, 588],
+        ["tests/workspace-restore.test.mjs", "workspace-repository", true, 752],
       ],
     );
     assert.equal(report.summary.unclassifiedSharedFiles, 0);
