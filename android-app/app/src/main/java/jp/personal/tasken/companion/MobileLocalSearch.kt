@@ -76,6 +76,75 @@ internal fun localSearchTerms(query: String): List<String> = query.trim().split(
 /** Literal substrings: %, _, quotes and SQL-looking input have no operator meaning. */
 internal fun matchesLocalSearch(text: String, terms: List<String>): Boolean = terms.all { text.contains(it, ignoreCase = true) }
 
+/**
+ * 共通の辞書。build の時に写し（src/shared/searchdict/kotoba）の dict の各 tsv が Java の資源として入る
+ * （app/build.gradle.kts の kotobaDictionaryResources）。初めて検索する時に一度だけ読む。
+ */
+internal object LocalSearchDictionary {
+    private const val DIRECTORY = "kotoba"
+
+    /** 読めなければ辞書なし（書いたままの語だけ）で検索する。読めることは KotobaTest が見張る。 */
+    val shared: KotobaDictionary? by lazy { runCatching { load() }.getOrNull() }
+
+    fun load(): KotobaDictionary {
+        fun read(name: String): String = requireNotNull(LocalSearchDictionary::class.java.getResourceAsStream("$DIRECTORY/$name")) {
+            "辞書の資源 $DIRECTORY/$name がありません"
+        }.use { it.readBytes().toString(Charsets.UTF_8) }
+        val names = read("files.txt").lines().filter { it.isNotBlank() }
+        return KotobaDictionary.load(names.associateWith(::read))
+    }
+}
+
+/**
+ * 問いの一語を、ほかにどう書くか（その語自身は含めない）。語が辞書の書き方そのものなら丸ごと広げ（expand）、
+ * 語が文（引越しの段取り）なら、文の中の書き方の所だけを書き換える（locate）。
+ * Desktop の src/shared/searchdict/searchSpellings.ts の termSpellings と同じ。
+ */
+internal fun localSearchSpellings(term: String, dictionary: KotobaDictionary): List<String> {
+    val whole = dictionary.expand(term)
+    if (whole.isNotEmpty()) return whole
+    val points = kotobaKey(term).codePoints().toArray()
+    val seen = mutableSetOf(kotobaKey(term))
+    val result = mutableListOf<String>()
+    for (found in dictionary.locate(term)) {
+        for (spelling in dictionary.expand(found.form)) {
+            val variant = String(points, 0, found.at) + spelling +
+                String(points, found.at + found.length, points.size - found.at - found.length)
+            if (seen.add(kotobaKey(variant))) result += variant
+        }
+    }
+    return result
+}
+
+/** 問いの語と、語ごとのほかの書き方（照合のキー）。 */
+internal class LocalSearchQuery(val terms: List<String>, dictionary: KotobaDictionary?) {
+    private val keys = terms.map { term ->
+        (listOf(term) + dictionary?.let { localSearchSpellings(term, it) }.orEmpty()).map(::kotobaKey).distinct()
+    }
+    private val widened = keys.zip(terms).any { (forms, term) -> forms.size > 1 || forms[0] != term.lowercase() }
+
+    /** 抜粋の位置を探す語（書いたままの語を先に、ほかの書き方を後に）。 */
+    val excerptTerms: List<String> = terms + keys.flatMap { it.drop(1) }
+
+    /**
+     * 書いたままの語がどれも入っていれば [LocalSearchMatch.Direct]（全角と半角の違いは照合のキーで吸収する）、
+     * ほかの書き方を含めてどれも入っていれば [LocalSearchMatch.Alias]、そうでなければ null。
+     */
+    fun match(text: String): LocalSearchMatch? {
+        if (matchesLocalSearch(text, terms)) return LocalSearchMatch.Direct
+        if (!widened) return null
+        val key = kotobaKey(text)
+        if (keys.all { forms -> key.contains(forms[0]) }) return LocalSearchMatch.Direct
+        return if (keys.all { forms -> forms.any { key.contains(it) } }) LocalSearchMatch.Alias else null
+    }
+}
+
+/** 並べる順でもある: 書いたままの語で当たった記録を、ほかの書き方でだけ当たった記録より先にする。 */
+internal enum class LocalSearchMatch { Direct, Alias }
+
+internal fun localSearchQuery(query: String, dictionary: KotobaDictionary? = LocalSearchDictionary.shared) =
+    LocalSearchQuery(localSearchTerms(query), dictionary)
+
 internal fun localSearchExcerpt(text: String, terms: List<String>, limit: Int = 180): String {
     val flattened = text.replace(Regex("\\s+"), " ").trim()
     val match = terms.map { flattened.indexOf(it, ignoreCase = true) }.filter { it >= 0 }.minOrNull() ?: 0
