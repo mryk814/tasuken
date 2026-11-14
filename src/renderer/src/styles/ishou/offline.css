@@ -1,0 +1,176 @@
+/*
+  割印と日付印 — つながらない時の見せ方の型（tokens.css の色を使う。kotoba-copy の意匠の組（-set ishou）で tokens.css と一緒に写す）
+
+  ここに置くのは形と決まりだけ。アプリの名前・本人の語・記録の中身は置かない（公開のリポジトリにも写すため）。
+  言葉は tokens.css の用語表（写し・未送信・届いた・受け取られなかった・送り直す・つながる／つながらない・持ち出す）にそろえる。
+
+  ---- 決まり ----
+  考え: 状態は、それが当てはまる物の上に印で示す。丸い印は時刻、四角い印は本人、墨の面は戻ってきた物。印が言うことは文にしない。
+
+  色
+  - 写しの日付印は補足の墨（--color-ink-secondary）。
+  - 未送信の割印は朱（--color-seal）。未送信は本人が決めた後の物なので朱のまま使い、届いていないことは「半分」の形で示す。
+  - 「戻」（受け取られなかった）と「!」（本人が直す）は、墨の面（--color-ink）に紙色の字。
+  - 藍は使わない。道具の一色は押せる物だけ（つなぎ直す・今すぐ送る）。
+  - 赤に別の意味がある画面では、割印は形だけにして色を白にする（.ofl-white）。
+
+  形
+  - いつの写しか: 見出しの右に丸い日付印（上に「写し」、中に日付、下に時刻）。その左に「3 時間前」。古さは横の文で読ませる。
+    最後に届いた時刻を言う画面では、上の語を「届いた」にする。行ごとに持ち出す画面では、行にも保存の日付（✓ 11/14）を出す。
+  - 未送信: 行やカードの右の端に割印の左半分を付ける（カードの端が切れ目）。数は上の帯に「割印＋数」。理由は三つ。
+      割印だけ           つながったら送る（一時的。自分で送る）
+      割印＋墨の「!」    直すと送れる（認証・設定。道具の色のボタンを添える）
+      墨の四角の「戻」   受け取られなかった（相手が断った。捨てずに端末に残し、理由の文と「開いて決める」を添える）
+  - 候補との見分け: 候補は薄い墨の字＋点線の枠＋印なし。未送信は濃い墨の字＋実線の枠＋半分の印。
+  - 点線は候補だけ。作っている途中の物は薄い実線の枠、まだ無い物は枠なし。
+  - ここは使えない: 道具の色を抜いて薄い墨の実線の枠にし、電波なしの絵を添える。
+    開けない物（持ち出していない行）は面を抜いて輪郭だけにし、字は補足の墨。半透明にはしない（字が読めなくなる）。
+  - 絵は一つ: 電波なしの絵（扇形の電波に斜線）。飛行機（機内モードに見える）や雲は使わない。
+
+  言葉
+  - 「未送信 3」「つながったら送る」「直すと送れる」「受け取られなかった」「3 時間前」。
+  - 使えない物を押した時は、その場に「つながると使えます」（動詞は場面に合わせる。「つながると聴けます」など）。
+    「つなぐと」とは言わない（相手の機械が止まっている時、本人にはつなぐ手段が無い）。
+
+  動き
+  - 届いた時: 半分の印が一つになり、0.6 秒で薄れる（.ofl-arrived）。
+  - 使えない物を押した時: 電波なしの絵が小さく首を振る（.ofl-shake、0.4 秒）。
+  - 動きを減らす設定（prefers-reduced-motion）では、形の入れ替えだけ。
+
+  ---- 大きさ ----
+  どの部品も font-size: 10px が基準で、寸法は em。大きくする時は、その部品の font-size だけ変える（時計なら 19px など）。
+  CSS を使えないアプリ（Android の Compose や Canvas）は、下の寸法（基準の時。px は dp と読む）と ishou/offline/*.svg の元絵から描く。
+  元絵は kotoba にだけあり、アプリへは写さない。
+
+  部品               | 寸法                                                                      | 元絵
+  -------------------|---------------------------------------------------------------------------|----------------
+  日付印             | 直径 56、輪郭 1.5、傾き -7°。中の帯は高さ 20.5（上下の線 1.5）。           | stamp.svg
+                     | 上下の語 10 太字、中の日付 12.5 極太（等幅の数字）                         |
+  割印（全体）       | 32×30、傾き -5°、角の丸み 6。左 16 は朱の面。彫りは「[」の形で、           | wari.svg
+                     | 左 5・上下 6 の位置に幅 6、線の太さ 2。面を抜く（下の色が見える）。        |
+                     | 右 16 は薄い墨（--color-ink-faint）の輪郭 1.5、面なし                      |
+  割印（行の端）     | 左半分だけ 16×30、傾きなし。行の右の端に付け、縦は中央                     | wari-half.svg
+  届いた時の印       | 右半分も朱の面になる（彫りは左右対称の「]」）                             | wari-whole.svg
+  「!」              | 直径 20 の墨の丸に紙色の「!」（13 極太）。割印の右に 4 あけて置く          | bang.svg
+  「戻」             | 22×22、角の丸み 3、墨の面に紙色の「戻」（12 太字）、傾き +4°               | modo.svg
+  電波なしの絵       | 18×18（元絵は 24 の升目、線 1.8、端は丸）。色は添える字と同じ              | nowave.svg
+  行の保存の日付     | ✓ 11×11（24 の升目で線 2.6）＋日付 11 太字、補足の墨                                | —
+  使えない           | 枠 1、薄い墨の実線。面なし、影なし。字は補足の墨                           | —
+
+  届いた時の動き: 右半分が 6 右から 0.25 秒で寄って一つになり、続けて全体が 0.6 秒で薄れる。行の端の半分は、薄れるだけ。
+  首振り: 0.4 秒で -14°、+12°、-8°、+5°、0° と回す。
+
+  ---- 部品と HTML ----
+  日付印         <span class="ofl-stamp" role="img" aria-label="写し 11月13日 9:12"><i>写し</i><b>11.13</b><i>9:12</i></span>
+                 上の <i> は「写し」か「届いた」。
+  日付印の行     <span class="ofl-stampline">3 時間前 <span class="ofl-stamp">…</span></span>
+  割印           <span class="ofl-wari" role="img" aria-label="未送信"></span>（中身なし）
+  行の端の割印   <span class="ofl-wari ofl-edge" role="img" aria-label="未送信"></span>
+                 行やカードの最後の子に置く。親に position: relative と overflow: hidden が要る。
+                 行の右に 20px ほど余白を取り、字や押す所と重ねない。
+  数             <span class="ofl-count"><span class="ofl-wari"></span>5</span>
+  直すと送れる   <span class="ofl-wari"></span><span class="ofl-bang" role="img" aria-label="直すと送れる"></span>
+  戻             <span class="ofl-modo" role="img" aria-label="受け取られなかった"></span>（字は CSS が入れる）
+  届いた         割印に .ofl-arrived を足す。animationend のうち e.animationName === "ofl-fade" の時に要素を取り除く
+                 （右半分の寄り ofl-join の終わりも同じ要素に届くので、名前で分けないと薄れる前に消える）。
+                 動きを減らす設定では、少し置いて取り除く。
+  使えない       <button class="… ofl-off" aria-disabled="true"><span class="ofl-nowave"></span>まるごと</button>
+                 disabled 属性は使わない（押した時に首を振って一言を出すため）。
+  開けない物     <li class="… ofl-away">…<span class="ofl-nowave"></span></li>
+  首振りと一言   押された時に .ofl-nowave へ .ofl-shake を足し（animationend で外す）、そばに <span class="ofl-say">つながると使えます</span> を出す。
+  行の保存の日付 <span class="ofl-kept">11/14</span>
+  白い割印       赤に別の意味がある画面の、割印か、その親に .ofl-white。
+                 白は暗い地のための色。墨の割印は作らない（墨の面は「戻」の意味なので混ざる）。
+
+  ---- 使う側の準備 ----
+  割印・電波なしの絵・✓ の形は、CSS の mask に data: の SVG で持たせている。Content-Security-Policy を出すアプリは
+  img-src に data: を入れる（無いと形が抜けず、割印の朱の面と絵が消える）。
+*/
+
+/* ---- 日付印（丸い印＝時刻） ---- */
+.ofl-stamp {
+  display: inline-grid; grid-template-rows: 1fr auto 1fr; flex: none; box-sizing: border-box;
+  width: 5.6em; height: 5.6em; overflow: hidden;
+  border: .15em solid var(--color-ink-secondary); border-radius: 50%;
+  color: var(--color-ink-secondary); background: transparent;
+  font-size: 10px; line-height: 1; text-align: center; transform: rotate(-7deg);
+}
+.ofl-stamp i { font-style: normal; font-size: 1em; font-weight: 700; letter-spacing: .05em; align-self: end; padding-bottom: .3em; }
+.ofl-stamp b + i { align-self: start; padding: .3em 0 0; }
+.ofl-stamp b { font-size: 1.25em; font-weight: 800; font-variant-numeric: tabular-nums; padding: .2em 0; border-block: .12em solid var(--color-ink-secondary); }
+.ofl-stampline { display: inline-flex; align-items: center; gap: 8px; color: var(--color-ink-secondary); font-size: 13px; font-weight: 600; white-space: nowrap; }
+
+/* ---- 割印（四角い印＝本人。半分＝まだ届いていない） ----
+   左の半分は朱の面で、彫りは mask で抜く（下の面の色が見える）。右の半分は薄い墨の輪郭。 */
+.ofl-wari {
+  display: inline-flex; flex: none; position: relative; vertical-align: middle;
+  width: 3.2em; height: 3em; font-size: 10px; transform: rotate(-5deg);
+}
+.ofl-wari::before, .ofl-wari::after { content: ""; box-sizing: border-box; width: 1.6em; height: 3em; }
+.ofl-wari::before, .ofl-wari.ofl-arrived::after {
+  background: var(--ofl-seal, var(--color-seal));
+  -webkit-mask: var(--ofl-wari-mask) center / 100% 100% no-repeat;
+          mask: var(--ofl-wari-mask) center / 100% 100% no-repeat;
+}
+.ofl-wari::after { border: .15em solid var(--color-ink-faint); border-left: 0; border-radius: 0 .6em .6em 0; }
+.ofl-wari.ofl-edge { position: absolute; right: 0; top: 50%; width: 1.6em; margin-top: -1.5em; transform: none; }
+.ofl-wari.ofl-edge::after { display: none; }
+/* 届いた: 右の半分も朱の面になり、一つの印になる */
+.ofl-wari.ofl-arrived::after { border: 0; border-radius: 0; transform: scaleX(-1); }
+
+.ofl-white { --ofl-seal: #ece6dc; }
+
+.ofl-count { display: inline-flex; align-items: center; gap: 4px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---- 「!」（直すと送れる）と「戻」（受け取られなかった）。墨の面に紙色の字 ---- */
+.ofl-bang, .ofl-modo {
+  display: inline-grid; place-items: center; flex: none; vertical-align: middle;
+  background: var(--color-ink); color: var(--color-paper); font-size: 10px; line-height: 1; font-style: normal;
+}
+.ofl-bang { width: 2em; height: 2em; border-radius: 50%; font-weight: 800; }
+.ofl-modo { width: 2.2em; height: 2.2em; border-radius: .3em; font-weight: 700; transform: rotate(4deg); }
+.ofl-bang::before { content: "!"; font-size: 1.3em; }
+.ofl-modo::before { content: "戻"; font-size: 1.2em; }
+.ofl-wari + .ofl-bang { margin-left: 4px; }
+
+/* ---- 使えない・開けない（押す前に分かる） ---- */
+.ofl-off, .ofl-away {
+  background: transparent !important; box-shadow: none !important;
+  border: 1px solid var(--color-ink-faint) !important; color: var(--color-ink-secondary) !important;
+}
+.ofl-away *:not(.ofl-bang, .ofl-modo) { color: inherit !important; }
+
+/* ---- 電波なしの絵・保存の ✓（色は添える字と同じ） ---- */
+.ofl-nowave, .ofl-kept::before {
+  display: inline-block; flex: none; vertical-align: -.2em; background: currentColor;
+  -webkit-mask: var(--ofl-icon) center / 100% 100% no-repeat;
+          mask: var(--ofl-icon) center / 100% 100% no-repeat;
+}
+.ofl-nowave { --ofl-icon: var(--ofl-nowave-mask); width: 1.8em; height: 1.8em; font-size: 10px; }
+.ofl-kept { display: inline-flex; align-items: center; gap: 3px; color: var(--color-ink-secondary); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ofl-kept::before { content: ""; --ofl-icon: var(--ofl-check-mask); width: 1em; height: 1em; }
+.ofl-say { color: var(--color-ink-secondary); font-size: 12px; white-space: nowrap; }
+
+:root {
+  --ofl-wari-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 30' preserveAspectRatio='none'%3E%3Cpath fill-rule='evenodd' d='M6 0h10v30H6a6 6 0 0 1-6-6V6a6 6 0 0 1 6-6zM5 8v14a2 2 0 0 0 2 2h4v-2H7V8h4V6H7a2 2 0 0 0-2 2z'/%3E%3C/svg%3E");
+  --ofl-nowave-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' d='M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M12 19.5h.01M3 3l18 18'/%3E%3C/svg%3E");
+  --ofl-check-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round' d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+}
+
+/* ---- 動き。動きを減らす設定では形の入れ替えだけ（届いた＝一つの印が見える。首は振らず、一言だけ出る） ---- */
+@media (prefers-reduced-motion: no-preference) {
+  .ofl-wari.ofl-arrived { animation: ofl-fade .6s ease-in .25s forwards; }
+  .ofl-wari.ofl-arrived::after { animation: ofl-join .25s ease-out; }
+  .ofl-wari.ofl-edge.ofl-arrived { animation-delay: 0s; }
+  .ofl-nowave.ofl-shake { animation: ofl-shake .4s ease-in-out; }
+  .ofl-say { animation: ofl-appear .15s ease-out; }
+}
+@keyframes ofl-join { from { transform: scaleX(-1) translateX(-.6em); opacity: 0; } }
+@keyframes ofl-fade { to { opacity: 0; } }
+@keyframes ofl-appear { from { opacity: 0; } }
+@keyframes ofl-shake {
+  20% { transform: rotate(-14deg); }
+  40% { transform: rotate(12deg); }
+  60% { transform: rotate(-8deg); }
+  80% { transform: rotate(5deg); }
+}
