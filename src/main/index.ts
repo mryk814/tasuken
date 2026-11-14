@@ -1111,7 +1111,10 @@ flowchart LR
   if (!stickyWindow) throw new Error("sticky memo smoke window was not registered");
   if (stickyWindow.webContents.isLoading()) {
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("sticky memo smoke load timeout")), 10_000);
+      // Today Mini を外してから（#755）、付箋がこの smoke で最初に開く切り離し窓になり、
+      // renderer の初回の読み込みの重さを付箋が負う。PC が重いと 10 秒を超えて2回続けて落ちた
+      // （上限を 60 秒にした時は 3.3 秒で読めた）。読み込みの完了を待つ形への直しは #748。
+      const timer = setTimeout(() => reject(new Error("sticky memo smoke load timeout")), 30_000);
       stickyWindow.webContents.once("did-finish-load", () => {
         clearTimeout(timer);
         resolve();
