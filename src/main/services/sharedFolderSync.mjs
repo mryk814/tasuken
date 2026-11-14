@@ -643,6 +643,14 @@ export class SharedFolderSyncService {
     this.repository.repairSyncWorkspacePackets();
     const deviceDirectory = path.join(directory, DEVICE_DIRECTORY, this.repository.deviceId);
     await fs.promises.mkdir(deviceDirectory, { recursive: true });
+    // 古い控えへ戻したDBが、同期を切ったまま作った差分を、公開済みと同じ連番で書き足さないよう、
+    // 自動の公開（publishPending）と同じく、中継や書き出しの前に確かめる。
+    this.assertOwnSequenceNotRolledBack(
+      new Set(
+        (await fs.promises.readdir(deviceDirectory)).filter((name) => name.endsWith(".json")),
+      ),
+      this.repository.syncPacketHeaders(),
+    );
     this.relayCheckedKey = null;
     await this.relayOrphanedChanges(directory);
     let republished = 0;

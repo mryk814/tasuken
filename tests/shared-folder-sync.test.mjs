@@ -1705,3 +1705,48 @@ test("古い写しへ戻したDBは、連番が重なる前に公開と取り込
     pair.close();
   }
 });
+
+test("古い写しへ戻したDBで同期を切ったまま作った記録は、差分の再公開でも公開済みの連番に重ねない", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-a", "公開済み1"));
+    await pair.firstSync.configure(pair.shared);
+    const snapshot = path.join(pair.root, "old-snapshot.sqlite");
+    await pair.first.backupTo(snapshot);
+    pair.first.save("task", task("task-b", "写しの後の変更"));
+    await pair.firstSync.syncNow();
+    const deviceDirectory = path.join(pair.shared, "devices", pair.first.deviceId);
+    const packets = () =>
+      fs
+        .readdirSync(deviceDirectory)
+        .filter((name) => SYNC_PACKET_FILE_PATTERN.test(name))
+        .sort();
+    const published = packets();
+
+    // 控えから戻すと同期は止まる。止めたまま記録を作り、設定の「差分を再公開」を押す。
+    pair.first.db.close();
+    fs.copyFileSync(snapshot, path.join(pair.root, "first", "research-desk.sqlite"));
+    const restored = new WorkspaceDatabase(path.join(pair.root, "first", "research-desk.sqlite"));
+    const restoredSync = new SharedFolderSyncService(
+      restored,
+      () => {},
+      pair.firstAttachments,
+      pair.firstPhotos,
+    );
+    try {
+      restored.setPreference("sharedSyncEnabled", false);
+      restored.save("task", task("task-c", "同期を切ったまま作った記録"));
+      await assert.rejects(restoredSync.republishMissing(pair.shared), (error) => {
+        assert.equal(error.code, "SYNC_SEQUENCE_ROLLBACK");
+        return true;
+      });
+      assert.equal(restoredSync.isPublishBlocked(), true);
+      assert.deepEqual(packets(), published);
+    } finally {
+      await restoredSync.stop();
+      restored.db.close();
+    }
+  } finally {
+    pair.close();
+  }
+});
