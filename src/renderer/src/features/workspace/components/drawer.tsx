@@ -12,7 +12,6 @@ import {
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
-import { captureOrganizerApi } from "../../../services/captureOrganizerApi";
 import { useUiStore } from "../../../stores/uiStore";
 import { noteExportSignature } from "../../../../../shared/fileExport";
 import { noteProjectId } from "../../../../../shared/themeRef.mjs";
@@ -69,8 +68,6 @@ import {
 } from "../lib/chatServices";
 import { isConversationMarkdown } from "../lib/conversationParser";
 import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
-import type { Entity } from "../../../../../shared/types/workspace";
-import { TaskScheduleProposal } from "./TaskScheduleProposal";
 import { AiCreationMark } from "./AiCreationMark";
 import { AiContextFields, AiContextSummary } from "./aiContext";
 import { ArtifactSection } from "./artifacts";
@@ -1362,22 +1359,6 @@ export function EntityDrawer({
               </>
             )}
           </dl>
-          {executeCommand && (
-            <TaskScheduleProposal
-              key={task.id}
-              task={task as unknown as Entity}
-              schedule={(schedule as unknown as Entity) ?? null}
-              initiallyOpen={Boolean(entity._scheduleProposalOpen)}
-              executeCommand={executeCommand}
-              onEdit={(instruction) =>
-                close({
-                  type: "task",
-                  mode: "edit",
-                  entity: { ...task, _schedule: schedule, _scheduleInstruction: instruction },
-                })
-              }
-            />
-          )}
           {saveEntities && (
             <details className="drawer-subsection drawer-disclosure">
               <summary>AIへの依頼・任せ直す</summary>
@@ -1700,24 +1681,6 @@ export function EntityDrawer({
           />
           <AiContextSummary type="capture_entry" entity={entity} />
           <div className="drawer-actions">
-            {entry.state === "untriaged" && (
-              <button
-                className="secondary-button"
-                data-testid="saved-capture-organize"
-                onClick={async () => {
-                  try {
-                    await captureOrganizerApi.openSaved(entry.id, Number(entity.version || 0));
-                  } catch {
-                    setToast(
-                      "Captureを開けませんでした。再読み込みしてから再試行してください。",
-                      "danger",
-                    );
-                  }
-                }}
-              >
-                AIでTask候補を整理
-              </button>
-            )}
             <button
               className="secondary-button"
               onClick={() => close({ type: "capture_entry", mode: "edit", entity })}
@@ -1980,17 +1943,6 @@ function EditDrawer({
               onChecklistSavePending={registerChecklistSave}
               onChecklistSaved={markChecklistSaved}
               onChecklistDraftChange={markChecklistDraftChange}
-              onScheduleProposal={
-                entityId && _executeCommand
-                  ? () =>
-                      close({
-                        type: "task",
-                        mode: "view",
-                        entity: { ...taskFormEntity, _scheduleProposalOpen: true },
-                      })
-                  : undefined
-              }
-              scheduleProposalDisabled={isFormDirty}
             />
           )}
           {type === "waiting" && <WaitingFields entity={entity} data={data} />}

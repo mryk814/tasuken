@@ -45,18 +45,13 @@ export const proposal = {
   supplement: "前回は条件が違った",
   warnings: [],
 };
-export const batch = { tasks: [proposal], warnings: [] };
 export const submission = (tasks = [proposal], warnings = []) => ({
   submissionId: randomUUID(),
   issuedAt: "2026-09-06T14:58:00.000Z",
   tasks,
   warnings,
 });
-export function createQuickCaptureOrganizationFixture(
-  organizeCapture = async () => batch,
-  executeCommand,
-  overrides = {},
-) {
+export function createQuickCaptureOrganizationFixture(executeCommand, overrides = {}) {
   globalThis.captureFixture = { handlers: new Map(), messages: [] };
   const commands = [],
     batches = [],
@@ -91,7 +86,6 @@ export function createQuickCaptureOrganizationFixture(
       notifications.push(receipt);
       overrides.notifyCommandApplied?.(receipt);
     },
-    organizeCapture,
     isMainSender: overrides.isMainSender,
     showMainWindow: overrides.showMainWindow,
   });

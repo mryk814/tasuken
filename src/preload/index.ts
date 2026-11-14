@@ -8,20 +8,6 @@ type Unsubscribe = () => void;
 
 const api: ResearchDeskApi = {
   openTaskCapture: (mode) => ipcRenderer.invoke(IPC.quickCaptureOpenTask, mode),
-  captureOrganizer: {
-    openSaved: (captureId, version) =>
-      ipcRenderer.invoke(IPC.captureOrganizerOpenSaved, captureId, version),
-    proposeTaskSchedule: (input) => ipcRenderer.invoke(IPC.taskSchedulePropose, input),
-    getSettings: () => ipcRenderer.invoke(IPC.captureOrganizerGetSettings),
-    saveSettings: (input) => ipcRenderer.invoke(IPC.captureOrganizerSaveSettings, input),
-    testConnection: (input) => ipcRenderer.invoke(IPC.captureOrganizerTestConnection, input),
-    clearSettings: () => ipcRenderer.invoke(IPC.captureOrganizerClearSettings),
-    chatGptState: () => ipcRenderer.invoke(IPC.captureOrganizerChatGptState),
-    chatGptConnect: () => ipcRenderer.invoke(IPC.captureOrganizerChatGptConnect),
-    chatGptCancel: () => ipcRenderer.invoke(IPC.captureOrganizerChatGptCancel),
-    chatGptDisconnect: () => ipcRenderer.invoke(IPC.captureOrganizerChatGptDisconnect),
-    chatGptModels: () => ipcRenderer.invoke(IPC.captureOrganizerChatGptModels),
-  },
   workspace: {
     load: () => ipcRenderer.invoke(IPC.workspaceLoad),
     bootstrap: (legacy) => ipcRenderer.invoke(IPC.workspaceBootstrap, legacy),

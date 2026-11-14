@@ -13,7 +13,6 @@ function fixture(options = {}) {
   };
   const messages = [];
   const f = createQuickCaptureOrganizationFixture(
-    undefined,
     (command) => {
       if (options.failSave) throw new Error("保存失敗");
       tasks.set(command.payload.task.id, command.payload.task);

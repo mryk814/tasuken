@@ -13,9 +13,7 @@ const result = (tasks = [proposal]) => ({
 });
 
 test("External AI clipboard prompt includes only the entered text and selected Theme", () => {
-  const f = fixture(() => {
-    throw new Error("network must not run");
-  });
+  const f = fixture();
   f.call("external-prompt", {
     text: "",
     themeId: "research",
@@ -34,9 +32,7 @@ test("External AI clipboard prompt includes only the entered text and selected T
 });
 
 test("External results preview without provider calls or saving, and use the existing confirmed batch path", () => {
-  const f = fixture(() => {
-    throw new Error("network must not run");
-  });
+  const f = fixture();
   const raw = result([proposal, { ...proposal, title: "結果を共有" }]);
   const parsed = f.call("external-import", "```json\n" + JSON.stringify(raw) + "\n```");
   assert.equal(parsed.ok, true);

@@ -123,17 +123,6 @@ export const IPC = {
   workspaceBootstrap: "workspace:bootstrap",
   workspaceMeta: "workspace:meta",
   mobileGatewayDiagnostics: "mobile-gateway:diagnostics",
-  captureOrganizerGetSettings: "capture-organizer:get-settings",
-  captureOrganizerSaveSettings: "capture-organizer:save-settings",
-  captureOrganizerTestConnection: "capture-organizer:test-connection",
-  captureOrganizerClearSettings: "capture-organizer:clear-settings",
-  captureOrganizerChatGptState: "capture-organizer:chatgpt-state",
-  captureOrganizerChatGptConnect: "capture-organizer:chatgpt-connect",
-  captureOrganizerChatGptCancel: "capture-organizer:chatgpt-cancel",
-  captureOrganizerChatGptDisconnect: "capture-organizer:chatgpt-disconnect",
-  captureOrganizerChatGptModels: "capture-organizer:chatgpt-models",
-  captureOrganizerOpenSaved: "capture-organizer:open-saved",
-  taskSchedulePropose: "task-schedule:propose",
   mobileGatewayIssuePairing: "mobile-gateway:issue-pairing",
   mobileGatewayCancelPairing: "mobile-gateway:cancel-pairing",
   mobileGatewayRevokeDevice: "mobile-gateway:revoke-device",
@@ -267,7 +256,6 @@ export const IPC = {
   capturedTaskFocusOpen: "workspace:captured-task-focus-open",
   capturedTaskFocusResult: "workspace:captured-task-focus-result",
   quickCapturePreviewDue: "quick-capture:preview-due",
-  quickCaptureOrganize: "quick-capture:organize",
   quickCaptureOpenTask: "quick-capture:open-task",
   quickCaptureExternalPrompt: "quick-capture:external-prompt",
   quickCaptureExternalImport: "quick-capture:external-import",
@@ -672,27 +660,6 @@ export type FeedLinkPreviewResult =
 
 export interface ResearchDeskApi {
   openTaskCapture(mode?: "today-task" | "feed"): Promise<void>;
-  captureOrganizer: {
-    openSaved(captureId: string, version: number): Promise<void>;
-    proposeTaskSchedule(
-      input: import("../taskScheduleProposal.ts").TaskScheduleProposalRequest,
-    ): Promise<import("../taskScheduleProposal.ts").TaskScheduleProposal>;
-    getSettings(): Promise<import("../captureOrganizerSettings.ts").CaptureOrganizerSettingsState>;
-    saveSettings(
-      input: import("../captureOrganizerSettings.ts").CaptureOrganizerSettingsInput,
-    ): Promise<import("../captureOrganizerSettings.ts").CaptureOrganizerSettingsState>;
-    testConnection(
-      input: import("../captureOrganizerSettings.ts").CaptureOrganizerSettingsInput,
-    ): Promise<import("../captureOrganizerSettings.ts").CaptureOrganizerConnectionResult>;
-    clearSettings(): Promise<
-      import("../captureOrganizerSettings.ts").CaptureOrganizerSettingsState
-    >;
-    chatGptState(): Promise<import("../captureOrganizerSettings.ts").ChatGptAccountState>;
-    chatGptConnect(): Promise<import("../captureOrganizerSettings.ts").ChatGptAccountState>;
-    chatGptCancel(): Promise<void>;
-    chatGptDisconnect(): Promise<import("../captureOrganizerSettings.ts").ChatGptAccountState>;
-    chatGptModels(): Promise<import("../captureOrganizerSettings.ts").ChatGptModelOption[]>;
-  };
   workspace: {
     load(): Promise<Workspace>;
     bootstrap(legacy: Workspace): Promise<Workspace>;

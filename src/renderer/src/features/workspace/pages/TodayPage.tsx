@@ -20,7 +20,6 @@ import type {
 } from "../../../../../shared/calendar";
 import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID } from "../../../../../shared/themeRef.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
-import { captureOrganizerApi } from "../../../services/captureOrganizerApi";
 import { playCompleteSound } from "../../../utils/sounds";
 import type { BaseRecord, PageProps } from "../types";
 import { themeColor } from "../lib/domain";
@@ -1535,7 +1534,7 @@ export function TodayPage({
           onTitleChange={setAddTitle}
           onThemeChange={setAddTheme}
           onSubmit={() => runPending("today-add-task", addTask)}
-          onOrganize={() => captureOrganizerApi.openTaskCapture()}
+          onOrganize={() => workspaceApi.openTaskCapture()}
         />
       )}
 

@@ -34,16 +34,6 @@ export {
   type MobileGatewayClientOptions,
 } from "./mobileGatewayClient.ts";
 export {
-  createCaptureOrganizerFromEnvironment,
-  CaptureOrganizerUserError,
-  CHATGPT_PLAN_API,
-  type CaptureOrganizerOptions,
-  type ChatGptTokenSource,
-  type CaptureOrganizerBatch,
-  type CaptureOrganizerInput,
-  type CaptureOrganizerProposal,
-} from "./captureOrganizer.ts";
-export {
   guardMobileWrites,
   type MobileWriteGuard,
   type MobileWriteIntent,

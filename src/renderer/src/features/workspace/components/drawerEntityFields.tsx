@@ -68,8 +68,6 @@ export function TaskFields({
   onChecklistSavePending,
   onChecklistSaved,
   onChecklistDraftChange,
-  onScheduleProposal,
-  scheduleProposalDisabled = false,
 }: {
   entity: DrawerConfig["entity"];
   data: WorkspaceData;
@@ -77,8 +75,6 @@ export function TaskFields({
   onChecklistSavePending?: (promise: Promise<boolean>) => void;
   onChecklistSaved?: () => void;
   onChecklistDraftChange?: () => void;
-  onScheduleProposal?: () => void;
-  scheduleProposalDisabled?: boolean;
 }) {
   const schedule = findSchedule(data, "task", str(entity.id), entity._schedule);
   const taskSections = listTaskSections(data.views || [], str(entity.project_id));
@@ -268,11 +264,6 @@ export function TaskFields({
           defaultValue={normalizeReminderDateTime(entity.reminder_at) || ""}
         />
       </Field>
-      {str(entity._scheduleInstruction) && (
-        <Field label="日程変更の原指示">
-          <textarea readOnly rows={3} value={str(entity._scheduleInstruction)} />
-        </Field>
-      )}
       <div className="form-grid">
         <Field label="予定時刻">
           <input
@@ -332,22 +323,6 @@ export function TaskFields({
             </label>
           ))}
         </fieldset>
-      )}
-      {/* 日程欄の直後に置き、何を変える操作かを位置で伝える。 */}
-      {onScheduleProposal && (
-        <div className="schedule-proposal-trigger">
-          <button
-            type="button"
-            className="text-button compact"
-            disabled={scheduleProposalDisabled}
-            onClick={onScheduleProposal}
-          >
-            文章から日程を変更
-          </button>
-          {scheduleProposalDisabled && (
-            <p className="field-help">編集中の内容を保存してから日程変更案を確認できます。</p>
-          )}
-        </div>
       )}
       <Field label="ひとこと / Context">
         <textarea

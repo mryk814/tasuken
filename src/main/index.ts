@@ -23,9 +23,7 @@ import {
   createMobileRoutineWriter,
   createMobileWorkLogWriter,
 } from "./composition/taskenCoreRuntime.ts";
-import { CaptureOrganizerSettingsService } from "./services/captureOrganizerSettings";
-import { ChatGptAccountService } from "./services/chatgptAccount";
-import { proposeTaskSchedule } from "./services/taskScheduleProposal";
+import { retireCaptureOrganizerKeys } from "./services/captureOrganizerKeyRetirement";
 import { registerAttachmentProtocol, registerAttachmentScheme } from "./attachmentProtocol";
 import { registerMediaProtocol, registerMediaScheme } from "./mediaProtocol";
 import { registerWebArtifactProtocol, registerWebArtifactScheme } from "./webArtifactProtocol";
@@ -282,7 +280,6 @@ function applyApplicationMenu(): void {
  */
 function isAuxiliaryWindow(win: BrowserWindow): boolean {
   if (win === quickCaptureController?.getWindow()) return true;
-  if (win === quickCaptureController?.getSavedWindow()) return true;
   return satelliteWindows?.has(win) === true;
 }
 
@@ -2268,6 +2265,9 @@ async function startDesktopApp(): Promise<void> {
   migrateLegacyUserDataIfNeeded();
   applyEmbeddedAiRetirementMigration(app.getPath("userData"));
   configureMainLog(app.getPath("userData"));
+  // 入力の AI 整理と ChatGPT の接続（#755 束9b で外した）の鍵を消す。ログにはファイル名と code だけを出す。
+  for (const { file, code } of retireCaptureOrganizerKeys(app.getPath("userData")).failed)
+    logMain("warn", "retired-keys", `could not remove ${file} (${code})`);
   setPerformanceDiagnosticsWriter((line) => logMain("info", "performance", line));
   installMainPerformanceDiagnostics();
   registerAttachmentProtocol();
@@ -2287,39 +2287,6 @@ async function startDesktopApp(): Promise<void> {
   workspaceRepository = new WorkspaceDatabase(
     path.join(app.getPath("userData"), "research-desk.sqlite"),
   );
-  // Tasken自身の入力整理がChatGPTの契約枠を使うための認証。MCP（外部AI→Tasken）とは別の境界。
-  const chatGptAccount = new ChatGptAccountService(app.getPath("userData"), safeStorage, {
-    openExternal: (url) => shell.openExternal(url),
-  });
-  const captureOrganizerSettings = new CaptureOrganizerSettingsService(
-    app.getPath("userData"),
-    safeStorage,
-    process.env,
-    fetch,
-    fs,
-    chatGptAccount,
-  );
-  ipcMain.handle(IPC.captureOrganizerChatGptState, () => chatGptAccount.getState());
-  ipcMain.handle(IPC.captureOrganizerChatGptConnect, () => chatGptAccount.signIn());
-  ipcMain.handle(IPC.captureOrganizerChatGptCancel, () => chatGptAccount.cancelSignIn());
-  ipcMain.handle(IPC.captureOrganizerChatGptDisconnect, () => chatGptAccount.disconnect());
-  ipcMain.handle(IPC.captureOrganizerChatGptModels, () => chatGptAccount.listModels());
-  ipcMain.handle(IPC.captureOrganizerGetSettings, () => captureOrganizerSettings.getSettings());
-  ipcMain.handle(IPC.captureOrganizerSaveSettings, (_event, input) =>
-    captureOrganizerSettings.saveSettings(input),
-  );
-  ipcMain.handle(IPC.captureOrganizerTestConnection, (_event, input) =>
-    captureOrganizerSettings.testConnection(input),
-  );
-  ipcMain.handle(IPC.captureOrganizerClearSettings, () => captureOrganizerSettings.clearSettings());
-  ipcMain.handle(IPC.taskSchedulePropose, async (_event, input) => {
-    const organizer = captureOrganizerSettings.createOrganizer();
-    if (!organizer)
-      throw new Error("AI整理が未設定です。Settingsで設定するか、通常の日程編集を使ってください。");
-    return proposeTaskSchedule(workspaceRepository, input, (request) =>
-      organizer.proposeTaskSchedule(request),
-    );
-  });
   const composition = (desktopComposition = new TaskenDesktopComposition({
     workLogWriter: createMobileWorkLogWriter(
       {
@@ -2514,7 +2481,6 @@ async function startDesktopApp(): Promise<void> {
   quickCaptureController = createQuickCaptureController({
     showMainWindow,
     isMainSender: (senderId) => findMainWindow()?.webContents.id === senderId,
-    organizeCapture: (input) => captureOrganizerSettings.organize(input),
     repository: workspaceRepository,
     notifyWorkspaceChanged: notifyMainWindowRefresh,
     notifyCommandApplied,

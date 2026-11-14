@@ -11,10 +11,6 @@ export const adoptWorkLogOrganizationSchema = z.strictObject({
   proposal: workLogOrganizationSchema,
 });
 export type AdoptWorkLogOrganizationCommand = z.input<typeof adoptWorkLogOrganizationSchema>;
-export const workLogOrganizationRequestSchema = z.strictObject({
-  sourceId: entityIdSchema,
-  sourceVersion: entityVersionSchema,
-});
 
 export function validateWorkLogOrganization(value: unknown, source: string): WorkLogOrganization {
   const proposal = workLogOrganizationSchema.parse(value);

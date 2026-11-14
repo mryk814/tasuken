@@ -50,7 +50,7 @@
 1. Ink Captureは素早い入口であり、保存後は通常のSketchとして同じ編集面に到達する。
 2. SketchはSidebarのKnowledge配下に独立した棚と編集面を持ち、Markdown本文へ生の軌跡データを埋め込まない。
 3. NoteはSketchの派生画像を参照する利用側とし、編集可能な正本はSketch棚へ残す。現在のPNG添付＋`derived_from`参照は、Note側から埋め込んで再編集できる経路へ置換するまでの既存契約とする。
-4. Sketchの推論実行はCodex等の外部Agentへ委ねる。SketchにLLM APIキー、provider設定、model選択、streaming実行を持たない。Desktop・Android共通の入力整理だけは上記の限定API連携を例外とする。
+4. Sketchの推論実行はCodex等の外部Agentへ委ねる。SketchにLLM APIキー、provider設定、model選択、streaming実行を持たない。
 5. 既存のNotes・Snapshot・Import/Export形式を壊さず、Sketchを追加コレクションとして扱う。
 6. PageとInfiniteは同じ編集可能オブジェクト文書の表示モードであり、ライフサイクルが分かれるまでは別テーブル・別エンティティへ分裂させない。
 

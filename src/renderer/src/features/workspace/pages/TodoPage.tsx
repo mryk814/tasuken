@@ -12,7 +12,6 @@ import {
 
 import { AI_ICON } from "../../../pages/semanticIcons";
 import { workspaceApi } from "../../../services/workspaceApi";
-import { captureOrganizerApi } from "../../../services/captureOrganizerApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { usePreference } from "../../../utils/usePreference";
 import { playCompleteSound } from "../../../utils/sounds";
@@ -736,7 +735,7 @@ export function TodoPage({
           onTitleChange={setAddTitle}
           onThemeChange={setAddTheme}
           onSubmit={addTask}
-          onOrganize={() => captureOrganizerApi.openTaskCapture()}
+          onOrganize={() => workspaceApi.openTaskCapture()}
           extraFields={
             <input
               type="date"

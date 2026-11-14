@@ -47,10 +47,9 @@ export const workspaceApi = {
   markAiItemSeen(type: "task" | "note", id: string) {
     return desktopApi().entities.markAiItemSeen(type, id);
   },
-  proposeTaskSchedule(
-    request: Parameters<Window["api"]["captureOrganizer"]["proposeTaskSchedule"]>[0],
-  ) {
-    return desktopApi().captureOrganizer.proposeTaskSchedule(request);
+  /** 音声入力や外部 AI の整理結果から Task を足す入力の窓を開く。 */
+  openTaskCapture() {
+    return desktopApi().openTaskCapture();
   },
   recordWorkLog(command: Parameters<Window["api"]["workLog"]["record"]>[0]) {
     return desktopApi().workLog.record(command);

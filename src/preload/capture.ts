@@ -24,26 +24,13 @@ contextBridge.exposeInMainWorld("captureApi", {
     ),
   startFocus: (taskId: string) => ipcRenderer.invoke(IPC.quickCaptureFocus, taskId),
   pathForFile: (file: File) => webUtils.getPathForFile(file),
-  organize: (input: unknown) => ipcRenderer.invoke(IPC.quickCaptureOrganize, input),
   copyExternalPrompt: (input: unknown) => ipcRenderer.invoke(IPC.quickCaptureExternalPrompt, input),
   importExternalResult: (text: string) => ipcRenderer.invoke(IPC.quickCaptureExternalImport, text),
   resize: (expanded: boolean) => ipcRenderer.send(IPC.quickCaptureResize, expanded),
   previewDue: (text: string) => ipcRenderer.invoke(IPC.quickCapturePreviewDue, text),
   hide: () => ipcRenderer.send(IPC.quickCaptureHide),
-  onShow: (
-    callback: (
-      mode: string,
-      source?: import("../shared/savedCaptureOrganization").SavedCaptureOrganizationSource,
-    ) => void,
-  ) => {
-    ipcRenderer.on(
-      IPC.quickCaptureShown,
-      (
-        _event,
-        mode: string,
-        source?: import("../shared/savedCaptureOrganization").SavedCaptureOrganizationSource,
-      ) => callback(mode, source),
-    );
+  onShow: (callback: (mode: string) => void) => {
+    ipcRenderer.on(IPC.quickCaptureShown, (_event, mode: string) => callback(mode));
   },
   onHide: (callback: () => void) => {
     ipcRenderer.on(IPC.quickCaptureHidden, () => callback());

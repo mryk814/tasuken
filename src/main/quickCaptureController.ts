@@ -33,9 +33,6 @@ import {
   buildExternalCapturePrompt,
   parseExternalCaptureOrganization,
 } from "./quickCaptureExternal";
-import type { CaptureOrganizerBatch, CaptureOrganizerInput } from "./gateway/mobile/public";
-import { SavedCaptureOrganizer } from "./services/savedCaptureOrganizer";
-import type { SavedCaptureOrganizationSource } from "../shared/savedCaptureOrganization";
 
 export type QuickCaptureMode = "feed" | "today-task" | "micro-memo" | "done-task";
 
@@ -49,7 +46,6 @@ interface QuickCaptureControllerOptions {
   notifyCommandApplied: (receipt: CommandReceipt | CommandReceipt[], senderId: number) => void;
   executeCommand: (envelope: CommandEnvelope) => CommandReceipt;
   executeCommands: (envelopes: CommandEnvelope[]) => CommandReceipt[];
-  organizeCapture?: (input: CaptureOrganizerInput) => Promise<CaptureOrganizerBatch>;
   isMainSender?: (senderId: number) => boolean;
   showMainWindow?: () => BrowserWindow;
 }
@@ -77,7 +73,6 @@ function parseSchedule(expression: string, today: string): QuickCaptureScheduleP
 
 export interface QuickCaptureController {
   getWindow: () => BrowserWindow | null;
-  getSavedWindow: () => BrowserWindow | null;
   show: (mode?: QuickCaptureMode) => void;
   registerIpc: () => void;
   menuItems: () => Electron.MenuItemConstructorOptions[];
@@ -87,15 +82,6 @@ export function createQuickCaptureController(
   options: QuickCaptureControllerOptions,
 ): QuickCaptureController {
   let captureWindow: BrowserWindow | null = null;
-  let savedCaptureWindow: BrowserWindow | null = null;
-  const savedOrganizer = new SavedCaptureOrganizer({
-    repository: options.repository,
-    organize: (input) => {
-      if (!options.organizeCapture) throw new Error("AI整理を設定画面で設定してください。");
-      return options.organizeCapture(input);
-    },
-    executeCommands: options.executeCommands,
-  });
   let visibleMode: QuickCaptureMode = "feed";
   const capturedTaskIds = new Set<string>();
   const focusRequests = new Map<string, { senderId: number; finish: (ok: boolean) => void }>();
@@ -140,11 +126,7 @@ export function createQuickCaptureController(
     return win;
   }
 
-  function sendWindowState(
-    win: BrowserWindow,
-    mode: QuickCaptureMode | "saved-capture",
-    source?: SavedCaptureOrganizationSource,
-  ): void {
+  function sendWindowState(win: BrowserWindow, mode: QuickCaptureMode): void {
     const themeMode = options.repository.getPreference("themeMode") ?? "light";
     const themes = [
       ...(options.repository.list("theme") as Entity[]).map((theme) => ({
@@ -161,7 +143,7 @@ export function createQuickCaptureController(
     );
     win.webContents.send(IPC.quickCaptureTheme, themeMode);
     win.webContents.send(IPC.quickCaptureThemes, uniqueThemes);
-    win.webContents.send(IPC.quickCaptureShown, mode, source);
+    win.webContents.send(IPC.quickCaptureShown, mode);
   }
 
   function show(mode: QuickCaptureMode = "feed"): void {
@@ -331,23 +313,6 @@ export function createQuickCaptureController(
       captureWindow?.hide();
       if (!mainWindow.isDestroyed()) mainWindow.focus();
     });
-    ipcMain.handle(IPC.captureOrganizerOpenSaved, (event, captureId: string, version: number) => {
-      if (!options.isMainSender?.(event.sender.id))
-        throw new Error("メイン画面からCaptureを開いてください。");
-      const source = savedOrganizer.source(captureId, version);
-      if (!savedCaptureWindow || savedCaptureWindow.isDestroyed())
-        savedCaptureWindow = createWindow();
-      const win = savedCaptureWindow;
-      win.setSize(420, 680);
-      win.center();
-      win.show();
-      win.focus();
-      const send = () => {
-        if (!win.isDestroyed()) sendWindowState(win, "saved-capture", source);
-      };
-      if (win.webContents.isLoading()) win.webContents.once("did-finish-load", send);
-      else send();
-    });
     ipcMain.handle(IPC.quickCaptureOpenTask, (event, mode = "today-task") => {
       if (!options.isMainSender?.(event.sender.id)) throw new Error("この画面からは開けません。");
       if (mode !== "today-task" && mode !== "feed")
@@ -389,31 +354,7 @@ export function createQuickCaptureController(
         };
       }
     });
-    ipcMain.handle(IPC.quickCaptureOrganize, async (event, input: unknown) => {
-      if (event.sender === savedCaptureWindow?.webContents) return savedOrganizer.organize(input);
-      if (event.sender !== captureWindow?.webContents)
-        throw new Error("この画面からは整理できません。");
-      if (!options.organizeCapture) throw new Error("AI整理を設定画面で設定してください。");
-      const parsed = mobileCaptureOrganizationRequestSchema.parse(input);
-      const themes = (options.repository.list("theme") as Entity[])
-        .slice(0, 200)
-        .map((theme) => ({ id: theme.id, title: String(theme.name || theme.title || "Theme") }));
-      const organized = mobileCaptureOrganizationTimedBatchSchema.parse(
-        await options.organizeCapture({ ...parsed, themes, maxTasks: 8, includePlannedTime: true }),
-      );
-      if (
-        organized.tasks.some(
-          (proposal) => proposal.themeId && !themes.some((theme) => theme.id === proposal.themeId),
-        )
-      )
-        throw new Error("Themeを確認して再試行してください。");
-      return organized;
-    });
     ipcMain.on(IPC.quickCaptureResize, (event, expanded: boolean) => {
-      if (event.sender === savedCaptureWindow?.webContents) {
-        savedCaptureWindow.setSize(420, 680);
-        return;
-      }
       if (event.sender === captureWindow?.webContents)
         captureWindow.setSize(
           420,
@@ -431,21 +372,13 @@ export function createQuickCaptureController(
       (
         event,
         text: string,
-        mode: QuickCaptureMode | "saved-capture" = "feed",
+        mode: QuickCaptureMode = "feed",
         themeId?: string,
         selectedRangeSemantics?: "once_within_window" | "ongoing",
         organization?: unknown,
         attachmentsValue?: unknown,
         taskSubmissionValue?: unknown,
       ) => {
-        if (event.sender === savedCaptureWindow?.webContents) {
-          if (mode !== "saved-capture" || organization === undefined)
-            throw new Error("選択した候補を確認してください。");
-          const result = savedOrganizer.save(organization);
-          if (!Array.isArray(result)) return result;
-          options.notifyCommandApplied(result, event.sender.id);
-          return { status: "saved" as const, count: result.length };
-        }
         if (organization !== undefined) {
           if (event.sender !== captureWindow?.webContents || mode !== "today-task")
             throw new Error("整理案はTask入力から追加してください。");
@@ -656,10 +589,8 @@ export function createQuickCaptureController(
     });
 
     ipcMain.on(IPC.quickCaptureHide, (event) => {
-      const win = [captureWindow, savedCaptureWindow].find(
-        (candidate) => candidate?.webContents === event.sender,
-      );
-      if (win && !win.isDestroyed()) win.hide();
+      if (captureWindow?.webContents === event.sender && !captureWindow.isDestroyed())
+        captureWindow.hide();
     });
   }
 
@@ -686,7 +617,6 @@ export function createQuickCaptureController(
 
   return {
     getWindow: () => captureWindow,
-    getSavedWindow: () => savedCaptureWindow,
     show,
     registerIpc,
     menuItems,

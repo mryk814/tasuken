@@ -7004,12 +7004,6 @@ textarea:hover {
   align-self: flex-start;
   width: auto;
 }
-.schedule-proposal-trigger {
-  display: grid;
-  justify-items: start;
-  gap: var(--space-1);
-  margin-top: calc(var(--space-1) * -1);
-}
 .drawer-form .large-textarea {
   min-height: 280px;
   font-family: var(--font-mono);

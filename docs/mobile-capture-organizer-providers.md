@@ -1,169 +1,26 @@
-# Desktop・Android共通の入力AI整理
+# Desktopのタスク追加と外部AIからの取り込み
 
-2026-09-06更新: 音声向け指示、現地日時・相対日の実日付・曜日表、固有語辞書、Androidの複数Task案を追加。関連Nodeテスト32件、typecheck、変更箇所のESLint、Desktop buildが成功。隔離Electronでは辞書の入力・保存・再起動後の復元・保存失敗時の入力保持・削除を実画面で確認した。実APIでの今回の整理品質は未検証。
-
-Desktopの`src/main/gateway/mobile/captureOrganizer.ts`が、利用者の整理要求に対して提案だけを返す。
-Taskの保存や既存データの変更は行わない。採用まで原文を保持し、返答をプレビューで確認する。
-Androidの整理操作はTask入力にだけ表示する。整理を取り消すと原文と整理前のThemeへ戻る。
-DesktopのQuick CaptureではTask入力の「AIで整理」から同じ処理を使う。整理案のタイトル・Theme・日付・チェック項目・補足を修正し、「追加」で保存する。元の入力へ戻すこともできる。
-DesktopのAPIキーはDesktopで管理し、Android・ログ・返答・プロンプトへ含めない。
-AndroidでPCなしの整理を使う場合は[Androidの通知・音声入力・PCなしのAI整理](android-capture-requests.md)に従い、専用設定とキーを端末で明示的に有効化する。Desktopのキーは転送しない。
+アプリの中からAIへ送る入力の整理（設定・ChatGPTの接続・Androidからの整理の受け口）は #755 で外した（Androidの操作は束9a、Desktopの設定と受け口は束9b）。
+保存してあった接続の鍵（userDataの`capture-organizer-settings.json`・`chatgpt-account.json`）は、外した版の起動で消える。
+残っているのは、外部AIへ渡す依頼文のコピーと、その返答（JSON）の取り込みだけで、アプリから外部サービスへは送らない。
 
 ## Windowsのタスク追加と外部AIからの取り込み
 
 Today / ToDoの「タスクを追加」を開き、「音声・AI整理から追加」でQuick CaptureのTask入力へ進む。
 Windowsでは入力欄にカーソルを置いて `Win + H` を押すとOSの音声入力を使える。マイクとインターネット接続が必要で、音声認識はWindows側の設定に従う（[Microsoftの音声入力ガイド](https://support.microsoft.com/en-us/accessibility/windows/use-voice-typing-to-talk-instead-of-type-on-your-pc)）。
-Task入力は音声入力パネルへfocusが移っても閉じず、「閉じる」またはEscで閉じられる。話し終えたら「AIで整理」を押し、候補を確認・修正してまとめて追加する。
+Task入力は音声入力パネルへfocusが移っても閉じず、「閉じる」またはEscで閉じられる。
 
-アプリ内AIが未設定・接続できない場合は「外部AIで整理した内容を取り込む」を開く。
+「外部AIで整理した内容を取り込む」を開く。
 「依頼文をコピー」は入力原文・選択中のTheme・日時の基準・返答形式だけをクリップボードへ出し、外部サービスへ自動送信しない。
 入力を空にしてコピーすれば、別のAIとの会話から作業を整理して持ち帰る用途にも使える。
-返答のJSONを貼り、「整理案を確認」で既存の候補編集へ進む。アプリ内AIの設定や接続は不要。
+返答のJSONを貼り、「整理案を確認」で候補の編集へ進む。
 
 貼り付け形式は `schema: "tasken-task-drafts/v1"`、非空の `originalText`、1〜8件の `tasks`、`warnings`。
-各Taskは上記の予定時刻付き整理案と同じ形式とし、余分なキー・存在しないTheme・不正日付・上限超過は拒否する。JSONコードフェンスは受け付ける。
+各Taskはタイトル・Theme・開始日・期限・期間の意味・予定開始・所要時間・チェック項目・補足・注意を持ち、余分なキー・存在しないTheme・不正日付・上限超過は拒否する。JSONコードフェンスは受け付ける。
 取り込みプレビューでは保存せず、利用者の「追加」で既存の一括CreateTaskへ渡す。入力原文がある場合はそれを正本として保持し、空の場合は返答のoriginalTextを本文へ残す。
 形式エラーや保存失敗でも入力・貼り付け結果を保持する。追加が成功した後だけ貼り付け欄を空にする。
 
-## 画面から設定する
-
-既定のプロバイダーは「ChatGPTの契約（推奨）」。「ChatGPTで続ける」でブラウザから許可し、モデルを選んで保存する。APIキーは不要で、利用上限に達しても従量APIへ自動では切り替えない。仕組みと保存内容は[内部AIの実行方針](internal-ai-execution.md)を正本とする。
-
-従量APIを使う場合は「Settings → AI & Context → 入力のAI整理」でプロバイダー、モデル（Azureではデプロイ名）、APIキーを入力する。Azureのみ接続先も指定する。「月間の送信上限（回）」を指定すると、その月の送信回数が上限に達した時点で送信前に止める。音声認識で誤記されやすい固有語は「音声・固有語辞書」へ1行に1語で登録できる。
-「接続を確認」は入力中の設定で短い固定テキストを送信する。API利用料が発生する場合があり、設定の保存やTaskの作成は行わない。
-「保存」するとDesktopと、Desktop経由で利用するAndroidの次の整理要求から適用され、再起動は不要。
-保存済みのキーは空欄のまま再利用できるが、プロバイダーまたはAzure接続先を変えると再入力が必要になる。
-
-設定はElectronのuserData配下の`capture-organizer-settings.json`へ保存し、APIキーはOSのsafeStorageで暗号化する。暗号化が利用できない環境では保存しない。
-キーは画面へ再表示せず、TaskのDB・同期・Exportには含めない。別端末では設定し直す。
-保存済み設定を削除すると環境変数の設定へ戻る。環境変数もなければ未設定になる。
-壊れた設定は画面から削除するか、キーを再入力して保存し直せる。
-
-## 環境変数で設定する場合
-
-画面で保存した設定が優先され、保存済み設定がない場合だけ以下を使う。
-このモジュールは`.env`ファイルを自動では読まない。
-`.env.example`は変数名の見本として使う。OSまたは起動用シェルの環境変数へ設定した後、Desktopを終了して同じ環境から起動し直す。
-Desktop経由の場合はAndroid側にAPIキーを設定せず、Desktop Gatewayとの既存のペアリングを利用する。
-
-## 設定
-
-| 環境変数                      | 内容                                                            |
-| ----------------------------- | --------------------------------------------------------------- |
-| `TASKEN_CAPTURE_LLM_PROVIDER` | `openai` / `azure` / `gemini` / `opencode-zen` / `opencode-go`  |
-| `TASKEN_CAPTURE_LLM_MODEL`    | 利用するモデルID。Azureではデプロイ名。必須であり自動選択しない |
-| `TASKEN_CAPTURE_LLM_API_KEY`  | 選んだプロバイダーのAPIキー                                     |
-| `TASKEN_CAPTURE_LLM_ENDPOINT` | Azureのみ。例: `https://YOUR-RESOURCE.openai.azure.com/`        |
-
-provider・model・APIキーのどれかが未設定なら整理機能を無効として返す。
-不正なprovider、モデルID、Azure接続先は設定エラーになる。
-AzureはHTTPSのresource originだけを受け付け、パス・ユーザー情報・query・独自portを認めない。
-`*.openai.azure.com`と`*.services.ai.azure.com`のresourceに対応する。
-それ以外のプロバイダーの接続先は固定で、任意URLへの送信機能は持たない。
-
-## API方式と対象範囲
-
-- OpenAI: `/v1/chat/completions`のstrict JSON Schema出力。Chat CompletionsのStructured Outputs対応モデルを指定する。[OpenAI公式ガイド](https://developers.openai.com/api/docs/guides/structured-outputs)
-- Azure OpenAI: resourceの`/openai/v1/chat/completions`へAPIキーで認証。Structured Outputs対応デプロイを指定する。[Microsoft公式ガイド](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/structured-outputs)
-- Gemini: `generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`へ`x-goog-api-key`で認証。`generationConfig.responseMimeType`と`responseJsonSchema`を送る。[Google公式API参照](https://ai.google.dev/api/generate-content)
-- OpenCode Zen / Go: OpenAI互換Chat Completionsのみ。Zenは`https://opencode.ai/zen/v1/chat/completions`、Goは`https://opencode.ai/zen/go/v1/chat/completions`を使用する。[Zen公式](https://opencode.ai/docs/zen/)、[Go公式](https://opencode.ai/docs/go/)
-
-OpenCodeは同じプロバイダー内でもモデルごとにwire形式が異なる。
-2026-09-05に公式のChat Completions欄を確認した以下のモデルIDだけを許可する。
-
-| プロバイダー | この実装で受け付けるID                                                                                                                                                                                                                               |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Zen          | `deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, `minimax-m3`, `minimax-m2.7`, `minimax-m2.5`, `glm-5.3-flash`, `glm-5.3`, `glm-5.2`, `glm-5.1`, `glm-5`, `kimi-k2.5`, `kimi-k2.6`, `kimi-k2.7-code`, `kimi-k3`, `big-pickle` |
-| Go           | `glm-5.3-flash`, `glm-5.3`, `glm-5.2`, `glm-5.1`, `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.6`, `longcat-2.0`, `deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, `mimo-v2.5`, `mimo-v2.5-pro`                                      |
-
-ZenのGPT・Claude・Gemini系やGoのMiniMaxなど別形式のモデルは、この実装では設定エラーにする。
-同じChat CompletionsでもモデルによるJSON Schema対応の差があるため、上記は経路の対応表であり実通信成功の保証ではない。
-非対応モデルへの自動切替、形式を緩めた再送、他プロバイダーへの転送はしない。
-
-## 入力と提案の境界
-
-- 入力は原文最大12000文字、録音時刻`capturedAt`、IANA time zone、選択Theme、最大200件のTheme候補。辞書は最大4000文字で保存し、送信時は改行またはカンマで最大100語に分ける。
-- 相対日は録音時刻を指定time zoneへ変換した現地日付・時刻・曜日に基づく。今日から14日先までの日付と曜日の対応表も渡し、「次の金曜」などは表を正本に解決させる。日付の言及がなければ予定はnull、曖昧な場合はwarningを返すよう指示する。
-- 「今日・明日・明後日」はそれぞれの実日付も渡す。数値の日付と曜日が食い違う場合は推測で選ばず、日付を未設定にして注意を返すよう指示する。発話の言い直しは最後の明示的な訂正を優先し、不確かな専門語は断定して置換しない。
-- Androidでは認識開始時の時刻とtime zoneを音声Draftに保持する。数日前に作った下書きへ話した場合もDraft作成日を発話日に流用しない。既存Draftにこの情報がない場合だけ従来の作成日時を使う。
-- 原文とTheme名はJSONデータとしてsystem指示と分離する。作業の捏造を禁止し、背景・迷いはsupplementへ残すよう指示する。
-- AndroidとDesktop Quick Captureは一度の入力から最大8件の提案を受け取る。独立した成果は別Taskにし、同じ成果へ向かう手順はchecklistにまとめる。提案ごとにタイトル500文字、checklist最大20件×200文字、supplement12000文字、warnings最大10件×500文字。
-- 不正な日付、逆転した日付範囲、候補外Theme、余分なキー、途中終了・拒否・形式不正は採用可能な提案として返さない。
-- 意味の正しさはJSON Schemaだけでは証明できない。日付やTask分解は利用者の確認を要する。
-
-Mobile要求の`maxTasks`は省略時1件。新Androidは8件を要求し、`proposals`配列をプレビューする。Desktopは従来の`proposal`も返し、旧Androidの1件入力を維持する。
-
-予定時刻に対応するAndroidは`includePlannedTime:true`も要求する。
-この場合だけ、Desktopは`plannedTimeSupported:true`と、各提案に必須nullableの`plannedStartTime`（`HH:mm`）・`plannedDurationMinutes`（整数1〜10080分）を返す。
-指定のない旧クライアントには時刻フィールドを追加せず、時刻の言及は補足・注意に残す。
-旧Desktopが`validation_failed`で拒否した場合、新Androidは時刻拡張を外した複数提案要求、その要求も拒否された場合だけ従来の1件要求へ戻す。
-その整理案では時刻・所要時間を編集できず、Desktop更新後の再整理を案内する。対応状態は下書きとともに保存する。
-
-「明日の15時から30分」は実行日・予定開始・所要時間へ、「15時、いや16時」は最後の明示訂正へ接続するよう指示する。
-「30分」だけで日付や開始時刻を補わず、「午後」など幅のある指定を固定時刻へ変換しない。判断できない部分は未指定にして注意と原文を残す。
-開始時刻は期限時刻ではなく、今日の割当を自動で追加する情報でもない。
-DesktopとAndroidで確認・編集した値だけを、既存CreateTaskの予定項目と日付へ一度に保存する。
-旧GatewayがCreateTaskの予定項目を拒否した場合も、それを削って再送せず、入力・未送信コマンドを保持する。
-Desktopの相対日基準も入力開始時に固定し、整理失敗・再整理で日付が変わらないようにする。
-
-Desktop Quick Captureでは候補を切り替えて、タイトル・Theme・日付・予定開始・所要時間・チェック項目・補足を編集できる。
+候補を切り替えて、タイトル・Theme・日付・予定開始・所要時間・チェック項目・補足を編集できる。
 不要な候補を除外し、追加件数・注意・元の入力を確認してからまとめて追加する。全件を除外した場合は保存せず、元の入力に戻せる。
 採用時は既存CreateTaskの一括transactionを使い、Task・日付・イベントを全件保存するか全件戻す。
 保存要求のID・日時・候補内容は最初の送信時に固定する。応答を確認できなかった場合は編集を止め、同じ要求の再送で保存を再確認する。
-入力ごとの識別子をイベントのsessionIdへ、原文と注意を各Taskの本文へ残す。ローカル保存の完了はクラウドや公開の完了を意味しない。
-整理待ち中の入力変更・画面を閉じる操作・再表示で古い応答を破棄し、元の入力を保持する。
-
-1回の要求は30秒で中止し、応答本文は展開後256KiBまで読む。
-Mobile Gatewayの要求本文も256KiBを上限とし、日本語の原文・補足を含む整理済みTaskを受け付ける。
-リダイレクトは拒否する。raw providerエラーや入力本文を例外へ含めず、共通の再試行案内だけを返す。
-OpenAI/Azureには`store:false`を指定するが、プロバイダーの処理・保持方針全般を無効にするものではない。
-
-## 保存済みCaptureからTask候補を作る
-
-Inboxの未整理Captureで「AIでTask候補」を開き、「AIへ送って整理」を押す。
-外部AIを許可した原文・入力日時・タイムゾーンと、許可された所属Theme名だけを送る。
-入力時のタイムゾーンが未記録の場合は指定を求める。整理を実行した日の日時で原文の相対日を解釈しない。
-記録日だけを持つ既存Captureは、その日を基準にし、未記録の入力時刻を補わない。
-
-保存済みCapture専用の応答は0〜8件。感想・疑問・曖昧な過去の記述から行動を補わず、明示された次の行動がなければ0件を返すよう指示する。
-新規入力の1〜8件契約は変えない。候補の意味は利用者が確認し、不要な候補を除外して採用する。
-
-採用は既存の`CreateTaskFromCapture`に`extract_task`を指定し、Task・予定・出典参照を一括保存する。
-元Captureの原文・状態・日時・添付は変更しない。Taskへ原文を複製せず、Task編集の「元のCaptureを開く」から戻れる。
-全除外・0件・中止でも原文は残る。元Captureの更新・削除があれば未保存の候補を拒否する。
-保存結果が不明な場合は候補を固定し、同じ送信IDで再確認する。確定済みの再送ではTaskを増やさない。
-
-## 検証
-
-`rtk node scripts/run-electron-node.mjs --test tests/mobile-capture-organizer.test.mjs tests/mobile-capture-organization-gateway.test.mjs tests/quick-capture-organization.test.mjs tests/application-command.test.mjs`
-
-fake fetchで5プロバイダーの送信形式、日付基準、ローカル検証、拒否、サイズ制限、timeout、秘密を含めない失敗を確認する。
-APIキーを使う実通信とモデルごとの整理品質は別の検証境界であり、このテストでは確認しない。
-
-共通設定とDesktop入力の回帰確認:
-
-```sh
-rtk node --test tests/capture-organizer-settings.test.mjs tests/settings-ia.test.mjs
-rtk npm run typecheck
-rtk npm run package
-```
-
-2026-09-05の隔離Electron実動確認では、設定の暗号化保存・再起動後の復元・削除、失敗時の入力保持、Azure欄、ライト／ダーク表示を確認した。
-Quick Captureは推論応答だけを固定fixtureへ置き換え、編集したタイトル・補足・原文・チェック項目・期限を実際のCreateTask経路で保存して正本から読み戻した。
-日付逆転時の入力保持、元の入力への復元、整理待ち中の編集に対する古い結果の破棄も確認した。
-接続成功の画面表示にはテスト応答を用い、実APIの成功とは区別した。実キーによる通信・整理品質は未検証。
-2026-09-06にはWindows配布版でも、隔離userDataでTaskの原文・3件のチェック項目の復元、設定の保存・再起動後の復元・削除を確認した。NSIS／portableの生成も成功した。
-
-同日の予定時刻対応では、Androidのunit 140件、整理UI 7件、Gateway互換6件、Outbox 54件、Draft保存7件が成功した。
-予定開始・所要時間の編集、無効値で追加を止める動作、追加Taskの整理案と編集中の時刻の復元、CreateコマンドとRoomの保存後再読込を確認した。
-検証用Androidエミュレータの展開幅とcompact幅で、日付と時刻の区別、追加Taskの編集欄、キーボード表示中のfocusとスクロールを目視した。
-Windowsの隔離Electronでも、整理失敗・元の入力への復元・再整理を経て入力開始時の日時とtime zoneが維持されること、無効な所要時間で保存を止めること、保存失敗後も編集値が残ることを確認した。
-予定開始16:30・所要75分へ編集してCreateTaskへ保存し、SQLiteを開き直して原文・日付・予定値を読み戻した。ライト／ダーク表示も目視した。
-これらの提案は固定fixtureであり、実音声認識・実APIによる時刻解釈の品質を示す結果ではない。
-
-同日のDesktop複数候補対応では、Quick Captureと共通Commandの40テスト、architectureの18テストが成功した。
-実SQLiteで2候補目の失敗による全件rollback、保存応答喪失後の再起動・同一要求の再送、再送時の候補集合や内容の改変拒否を確認した。
-隔離Electronの420px幅で1・2・8候補の切替・編集・除外、全除外から原文への復元、入力変更・非表示・再表示による古い応答の破棄を確認した。
-2候補の編集値を保存してDBを開き直し、2Task・2Schedule・4Eventと原文・予定値が一致した。応答喪失後の再送でも件数は増えなかった。
-ライト／ダーク表示、原文・注意と件数の表示、キーボード操作、非表示前後のfocusとスクロール保持を目視した。
-検証では実controller・Preload・Renderer・Command・SQLiteを使い、推論応答と通信失敗だけをfixtureで置き換えた。実APIの整理品質とメイン画面のメニューからの起動は今回の検証対象外。

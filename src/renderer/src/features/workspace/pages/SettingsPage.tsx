@@ -24,7 +24,6 @@ import { entityTitle } from "../lib/domain";
 import { Button, IntegrationStatus, PageHeader } from "../components/common";
 import { StampLine, UnsentRow } from "../components/OfflineMarks";
 import { RestoreBackupDialog } from "../components/RestoreBackupDialog";
-import { CaptureOrganizerSettings } from "../components/CaptureOrganizerSettings";
 import {
   DIRECT_SHORTCUT_DEFINITIONS,
   formatShortcutLabel,
@@ -47,7 +46,7 @@ const SETTINGS_SECTIONS: Array<{ id: SettingsSectionId; label: string; descripti
   { id: "storage", label: "Storage & Files", description: "保存と同期" },
   { id: "integrations", label: "Integrations", description: "外部サービス" },
   { id: "mobile", label: "Mobile", description: "Android接続" },
-  { id: "ai-mcp", label: "AI & Context", description: "入力整理と外部Agent連携" },
+  { id: "ai-mcp", label: "AI & Context", description: "外部Agent連携" },
   { id: "advanced", label: "Advanced", description: "更新と復元" },
 ];
 
@@ -755,7 +754,6 @@ export function SettingsPage({
             <p>{activeSectionDefinition.description}</p>
           </div>
           <div className="settings-grid">
-            {activeSection === "ai-mcp" && <CaptureOrganizerSettings />}
             <section className="panel settings-form" hidden={activeSection !== "general"}>
               <h2>Themeの表示範囲</h2>
               <p className="field-help">

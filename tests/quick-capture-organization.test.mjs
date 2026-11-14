@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   proposal,
-  batch,
   submission,
   createQuickCaptureOrganizationFixture as fixture,
 } from "./helpers/quick-capture-organization.mjs";
@@ -24,7 +23,7 @@ test("Memo shortcut defaults to a direct Feed post without an untriaged Capture"
 });
 
 test("Feed capture command opens the same posting window and rejects other senders", () => {
-  const f = fixture(undefined, undefined, { isMainSender: (id) => id === 19 });
+  const f = fixture(undefined, { isMainSender: (id) => id === 19 });
   f.call("open-task", "feed");
   assert.equal(f.messages.at(-1)[1], "feed");
   assert.throws(() => f.handlers.get("quick-capture:open-task")({ sender: { id: 99 } }, "feed"));
@@ -75,30 +74,6 @@ test("Desktop invalid candidate counts and missing Themes reject before executio
   assert.equal(f.batches.length, 0);
 });
 
-test("Desktop organization passes only current capture and canonical Theme candidates without saving", async () => {
-  let input;
-  const f = fixture(async (value) => {
-    input = value;
-    return batch;
-  });
-  const request = {
-    text: "来週金曜までに比較実験を準備",
-    capturedAt: "2026-09-05T12:00:00.000Z",
-    timeZone: "Asia/Tokyo",
-    themeId: "research",
-  };
-  assert.deepEqual(await f.call("organize", request), batch);
-  assert.deepEqual(input, {
-    ...request,
-    themes: [{ id: "research", title: "研究" }],
-    maxTasks: 8,
-    includePlannedTime: true,
-  });
-  assert.equal(f.commands.length, 0);
-  assert.equal(f.saves.length, 0);
-  await assert.rejects(f.handlers.get("quick-capture:organize")({ sender: { id: 99 } }, request));
-});
-
 test("Desktop confirmed proposal saves original text, supplement, checklist and deadline atomically", () => {
   const f = fixture();
   const original = "  前回は条件が違った。\n" + "比較実験を準備する。".repeat(80);
@@ -136,17 +111,6 @@ test("Desktop confirmed proposal saves original text, supplement, checklist and 
     "not_saved",
   );
   assert.equal(f.commands.length, 1);
-});
-
-test("Desktop preview keeps transcript-wide date warnings", async () => {
-  const f = fixture(async () => ({ tasks: [proposal], warnings: ["日付と曜日が一致しません"] }));
-  const result = await f.call("organize", {
-    text: "来週金曜まで",
-    capturedAt: "2026-09-05T12:00:00.000Z",
-    timeZone: "Asia/Tokyo",
-    themeId: null,
-  });
-  assert.deepEqual(result.warnings, ["日付と曜日が一致しません"]);
 });
 
 test("Desktop sticky memo stays a raw Capture and a dateless organized Task stays unscheduled", () => {

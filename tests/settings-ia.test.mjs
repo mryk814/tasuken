@@ -85,8 +85,9 @@ test("Settings keeps integrations together and hides details until requested", (
   assert.doesNotMatch(settings, /AI Provider|APIキーを削除|saveAiSettings/);
 });
 
-test("Settings includes shared input organization and remains compact at narrow widths", () => {
-  assert.match(settings, /<CaptureOrganizerSettings/);
+test("Settings no longer carries input AI organization and remains compact at narrow widths", () => {
+  // 入力の AI 整理の設定と ChatGPT の接続は #755 束9b で外した。
+  assert.doesNotMatch(settings, /CaptureOrganizerSettings|captureOrganizer|ChatGPT/);
   assert.match(styles, /\.settings-layout \{[\s\S]*grid-template-columns/);
   assert.match(styles, /\.settings-category-nav \{\s*position: static;\s*display: flex/);
   assert.match(styles, /\.settings-summary-list \{\s*grid-template-columns: 1fr;/);
