@@ -398,9 +398,6 @@ rtk npm run audit:feed:bulk       # 120件の履歴を20件単位で読み進め
 rtk npm run audit:feed:note       # 既存Noteへの参照を読書面へつなげられるか実測
 rtk npm run audit:feed:media      # 画像と外部リンクの四状態（画像あり・なし・取得失敗・壊れた参照）を実測
 rtk npm run audit:feed:empty      # 何も無いworkspaceのゼロ状態（0件の面と次の行動）を実測
-rtk npm run audit:theme           # Themeの四面、Theme IDでの投影、面の復元を実測
-rtk npm run audit:inbox-feed      # 未整理の付箋メモを通常のMemoとしてFeedへ載せ、出所と整理結果を実測
-rtk npm run audit:today-arrivals  # TodayのAI非表示とToDoの委任状態、Feed「対応待ち」の配置を実測
 rtk node scripts/run-electron-node.mjs --test tests/agent-desk.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/feed-posts.test.mjs
 rtk node scripts/run-electron-node.mjs --test tests/feed-post-proposals.test.mjs
@@ -490,18 +487,6 @@ Cookie/Authorization/Refererを送らないことを確かめる。
 「投稿 → Proposal → Feedの投影 → 要対応は増えない → 再送は増えない → Noteに保存 →
 投稿とブックマークは残る」を通し、読み物のpayloadだけでは正式データを変更できないこと、
 採用したNoteを削除すると参照先の不在になり、元に戻すと同じIDのNoteからまた読めることも確認する。
-
-`audit:theme` は隔離workspaceへTheme・現在地・未完了Task・報告書Note・Knowledge・Theme一致の投稿を入れて、
-**四面（概要／タスク／投稿／Notes）を一度の切り替えで行き来でき、目的・次の仕事・最近の投稿・
-保存した記事へそれぞれ到達できること**、概要だけが目的と現在地とRecent AI workを見せること、
-「連携と設定」を開くまでRepositoryとAI Packが出ないこと、投稿から元のFeed投稿の会話へ渡ること、
-別画面へ離れて戻ると同じ面へ復帰することを1536×960と980×680で実測する。
-
-`audit:today-arrivals` はAI委任の行（`ready_for_agent`の`work_attempt_id`あり／なし、`in_progress`、
-`needs_human_review`、`work_review_note`付きの`self`、該当なし）と回答待ちProposal、学びの投稿を入れて、
-**ToDoの五行が正しい行だけに出ること**、Todayに「AIから届いたこと」のセクションと見出しが出ないこと、
-ToDoの確認待ちの「Feedで確認」がFeedへ移動すること、Feedの「対応待ち」タブに要対応の一覧と
-「提案の確認」が出ること、該当が無いときもTodayにAIの見出しが出ないことを確かめる。
 
 `audit:agent-desk`（旧・独立画面の状態別一覧）は2026-09-26の集約で廃止した。同じ境界は
 `audit:feed` の右レールと報告の確認、`tests/agent-desk.test.mjs`（#599/#602の文言と操作名）、
