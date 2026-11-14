@@ -60,3 +60,63 @@ test("共通の色の写しは、写した時のまま（手で直していな�
     .digest("hex");
   assert.equal(actual, recorded[1]);
 });
+
+// ---- tokens.css と tokens.json は同じ標準の二つの写し。片方だけが動くと Desktop と Android の色がずれる
+//      （地・入れ子の面・無効の面がずれていたことがある）。対応する値を全部比べる。 ----
+
+const cssName = (key) => `--color-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+
+function cssHex(block, name) {
+  const match = block.match(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6})\\b`));
+  return match ? match[1].toUpperCase() : null;
+}
+
+test("tokens.json の色は、tokens.css の同じ名前の値と全部一致する", () => {
+  const css = themeBlocks(read("design-standard/tokens.css"));
+  const json = JSON.parse(read("design-standard/tokens.json"));
+  let compared = 0;
+  for (const [key, value] of Object.entries(json.color.light)) {
+    assert.equal(cssHex(css.light, cssName(key)), value.toUpperCase(), `light ${key}`);
+    compared += 1;
+  }
+  // 暗い表示の定義に無い名前は、明るい表示の値をそのまま使う（CSS の継承と同じ）。
+  for (const block of ["darkManual", "darkMedia"]) {
+    for (const [key, value] of Object.entries(json.color.dark)) {
+      const actual = cssHex(css[block], cssName(key)) ?? cssHex(css.light, cssName(key));
+      assert.equal(actual, value.toUpperCase(), `${block} ${key}`);
+      compared += 1;
+    }
+  }
+  for (const [theme, blocks] of [
+    ["light", ["light"]],
+    ["dark", ["darkManual", "darkMedia"]],
+  ]) {
+    for (const block of blocks) {
+      json.chart[theme].forEach((value, index) => {
+        assert.equal(cssHex(css[block], `--color-chart-${index + 1}`), value.toUpperCase());
+        compared += 1;
+      });
+    }
+  }
+  // 名前の変換や正規表現が外れて、何も比べずに通ることを防ぐ。
+  assert.ok(Object.keys(json.color.light).length >= 37, "明るい表示の色の数");
+  assert.ok(Object.keys(json.color.dark).length >= 37, "暗い表示の色の数");
+  assert.ok(compared >= 37 * 3 + 6 * 3, `比べた数 ${compared}`);
+});
+
+test("Android のウィジェットに直に書いた AI の色は、tokens.json の藍と同じ値", () => {
+  const json = JSON.parse(read("design-standard/tokens.json")).color;
+  const colorOf = (xml, name) => {
+    const match = xml.match(new RegExp(`<color name="${name}">(#[0-9a-fA-F]{6})</color>`));
+    assert.ok(match, `${name} がある`);
+    return match[1].toUpperCase();
+  };
+  for (const [file, theme] of [
+    ["android-app/app/src/main/res/values/colors.xml", json.light],
+    ["android-app/app/src/main/res/values-night/colors.xml", json.dark],
+  ]) {
+    const xml = read(file);
+    assert.equal(colorOf(xml, "tasken_widget_ai_container"), theme.aiBg.toUpperCase(), file);
+    assert.equal(colorOf(xml, "tasken_widget_on_ai_container"), theme.aiStrong.toUpperCase(), file);
+  }
+});
