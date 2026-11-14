@@ -857,7 +857,6 @@ internal fun TodayApp(
                                 routines = routines,
                                 routineSavingId = routineSavingId,
                                 onRecordHabit = todayViewModel::recordHabit,
-                                onRecordMaintenance = todayViewModel::recordMaintenance,
                                 refreshing = refreshing,
                                 themes = themes,
                                 paneState = paneState,
@@ -1795,7 +1794,6 @@ internal fun TodayListPane(
     routines: MobileRoutinesDataDto? = null,
     routineSavingId: String? = null,
     onRecordHabit: (MobileRoutineHabitDto) -> Unit = {},
-    onRecordMaintenance: (MobileRoutineMaintenanceDto) -> Unit = {},
 ) {
     val tasks = when (uiState) {
         is TodayUiState.Success -> uiState.tasks
@@ -1862,7 +1860,6 @@ internal fun TodayListPane(
                         routines = routines,
                         routineSavingId = routineSavingId,
                         onRecordHabit = onRecordHabit,
-                        onRecordMaintenance = onRecordMaintenance,
                     )
                 }
             }
@@ -2885,7 +2882,6 @@ internal fun TodayTaskList(
     routines: MobileRoutinesDataDto? = null,
     routineSavingId: String? = null,
     onRecordHabit: (MobileRoutineHabitDto) -> Unit = {},
-    onRecordMaintenance: (MobileRoutineMaintenanceDto) -> Unit = {},
 ) {
     val listState = rememberLazyListState(
         initialFirstVisibleItemIndex = if (allTasksMode) paneState.taskListScrollIndex else paneState.listScrollIndex,
@@ -3122,7 +3118,7 @@ internal fun TodayTaskList(
         }
         if (!allTasksMode && routines != null && !routines.isEmpty) {
             item(key = "today-routines") {
-                TodayRoutinesSection(routines, routineSavingId, onRecordHabit, onRecordMaintenance)
+                TodayRoutinesSection(routines, routineSavingId, onRecordHabit)
             }
         }
         if (agentSessions.isNotEmpty() || agentSessionsUnavailable) {
