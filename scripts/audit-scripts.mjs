@@ -30,6 +30,8 @@ const manualAllowlist = {
     "Internal isolated-workspace seeder spawned by feed-surface-audit; not a CLI entry point.",
   "seed-materials-informatics-workspace.mjs":
     "Internal fixture seeder spawned by activity-electron-smoke (release:check); writes only to --target, never the owner's database.",
+  "test-temp-root.mjs":
+    "Internal per-run temp root helper imported by run-electron-node (--test) and run-ci; not a CLI entry point.",
   "tasken-core-client.mjs":
     "Manual owner CLI that issues, lists and revokes read-only Core client tokens; prints a new token to stdout only.",
 };
