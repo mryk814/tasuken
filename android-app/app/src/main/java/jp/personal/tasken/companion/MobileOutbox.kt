@@ -181,11 +181,37 @@ sealed interface MobileCommandSendResult {
 /**
  * retryPending: some command is still waiting to be sent again.
  * connectionFailed: the drain stopped because the Desktop could not be reached; reading it would fail too.
+ * triedAll: every command free to go was tried, so whatever still waits failed on its own at the Desktop.
  */
 data class MobileOutboxDrainResult(
     val retryPending: Boolean,
     val connectionFailed: Boolean,
+    val triedAll: Boolean = !connectionFailed,
 )
+
+/** What a background sync left behind, which decides how soon WorkManager runs it again. */
+internal enum class MobileSyncOutcome {
+    /** Everything was sent and read. */
+    Settled,
+
+    /**
+     * The Desktop answered and was read, and only commands it failed on their own still wait. Retrying soon
+     * would not help them, while the growing backoff would hold back the next operation's send: the
+     * one-time work is enqueued with KEEP, so a new schedule() joins the waiting work. The periodic work
+     * sends them again.
+     */
+    CommandsWaiting,
+
+    /** The connection, the read or the round itself failed: run again soon. */
+    RetrySoon,
+}
+
+internal fun mobileSyncOutcome(drained: MobileOutboxDrainResult, readSettled: Boolean): MobileSyncOutcome = when {
+    drained.connectionFailed || !readSettled -> MobileSyncOutcome.RetrySoon
+    !drained.retryPending -> MobileSyncOutcome.Settled
+    drained.triedAll -> MobileSyncOutcome.CommandsWaiting
+    else -> MobileSyncOutcome.RetrySoon
+}
 
 data class MobileStateActionResult(
     val commandId: String?,
@@ -1040,13 +1066,16 @@ class MobileOutbox(
         require(serverId.isNotBlank())
         val skipped = mutableSetOf<String>()
         var failuresInRow = 0
-        fun stopped(connectionFailed: Boolean = false) =
-            MobileOutboxDrainResult(retryPending = connectionFailed || skipped.isNotEmpty(), connectionFailed = connectionFailed)
+        fun stopped(connectionFailed: Boolean = false, triedAll: Boolean = false) = MobileOutboxDrainResult(
+            retryPending = connectionFailed || skipped.isNotEmpty(),
+            connectionFailed = connectionFailed,
+            triedAll = triedAll,
+        )
         while (true) {
             require(dao.syncState()?.serverId == serverId) { "確認済みDesktopと同期状態が一致しません。" }
             if (failuresInRow >= MOBILE_OUTBOX_FAILURES_IN_ROW_LIMIT) return stopped()
             val attemptedAt = now().toString()
-            val command = dao.claimNext(serverId, attemptedAt, skipped) ?: return stopped()
+            val command = dao.claimNext(serverId, attemptedAt, skipped) ?: return stopped(triedAll = true)
             fun setAside() {
                 skipped += command.commandId
                 failuresInRow += 1
@@ -1473,7 +1502,7 @@ class MobileOutboxWorker(
         }
         if (synchronized) repository.deliverPendingTaskNotifications()
         TaskenTodayWidget.updateAllNow(applicationContext)
-        return if (synchronized) Result.success() else Result.retry()
+        return if (repository.lastSyncOutcome == MobileSyncOutcome.RetrySoon) Result.retry() else Result.success()
     }
 }
 
@@ -1494,6 +1523,6 @@ class MobileBackgroundSyncWorker(
         }
         if (synchronized) repository.deliverPendingTaskNotifications()
         TaskenTodayWidget.updateAllNow(applicationContext)
-        return if (synchronized) Result.success() else Result.retry()
+        return if (repository.lastSyncOutcome == MobileSyncOutcome.RetrySoon) Result.retry() else Result.success()
     }
 }
