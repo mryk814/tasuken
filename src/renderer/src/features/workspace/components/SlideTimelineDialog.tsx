@@ -59,6 +59,9 @@ export function SlideTimelineDialog({
   const activity = useActivityEvents(
     showActivity && start && end && start <= end ? { from: start, to: end } : null,
   );
+  useEffect(() => {
+    if (activity.error) setToast(`Activityを読み込めませんでした。${activity.error}`, "danger");
+  }, [activity.error, setToast]);
   const changeEvents = activity.events as unknown as WorkspaceDomain["change_events"];
   const candidates = useMemo(
     () =>
@@ -342,7 +345,7 @@ export function SlideTimelineDialog({
           <span>PNG 3200 × 1800 / SVG 1600 × 900</span>
           <button
             className="secondary-button"
-            disabled={busy !== null}
+            disabled={busy !== null || (showActivity && !activity.ready)}
             onClick={() => void exportSvg()}
           >
             <IconFileTypeSvg size={17} />
@@ -350,7 +353,7 @@ export function SlideTimelineDialog({
           </button>
           <button
             className="primary-button"
-            disabled={busy !== null}
+            disabled={busy !== null || (showActivity && !activity.ready)}
             onClick={() => void copyForPowerPoint()}
           >
             <IconCopy size={17} />

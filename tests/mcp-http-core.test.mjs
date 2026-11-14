@@ -235,7 +235,7 @@ test("production HTTP and stdio bridges share the isolated Headless Core; restar
     await stdioClient?.close();
     await http?.stop();
     await core?.stop();
-    fs.rmSync(bundleDirectory, { recursive: true, force: true });
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(bundleDirectory, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

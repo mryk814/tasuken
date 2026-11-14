@@ -48,10 +48,12 @@ export function useActivityEvents(query: ActivityEventsQuery | null): {
     };
   }, [key, revision]);
 
-  const ready = Boolean(key && loaded?.key === key);
+  const settled = Boolean(key && loaded?.key === key);
+  // 読み出しに失敗した時は ready にしない。空の来歴のまま「コピー」や「出力」が押せると、
+  // 既にある書き出しを空で上書きしてしまう。
   return {
-    events: ready ? loaded!.events : NO_EVENTS,
-    ready,
-    error: ready ? loaded!.error : "",
+    events: settled ? loaded!.events : NO_EVENTS,
+    ready: settled && !loaded!.error,
+    error: settled ? loaded!.error : "",
   };
 }

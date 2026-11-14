@@ -89,5 +89,9 @@ test("既定Themeは常設としてSidebarへ出し、グループ絞り込み�
 test("起動のたびに既定Themeを確認する（#282）", () => {
   const repositorySource = readFileSync("src/main/repositories/workspaceRepository.mjs", "utf8");
   assert.match(repositorySource, /ensurePersonalDefaultTheme\(\) \{/);
-  assert.match(repositorySource, /loadWorkspace\(includeDeleted = false\) \{\s*\n\s*this\.ensurePersonalDefaultTheme\(\);/);
+  // 引数（来歴を外すかどうか、#755 束0b）が増えても、読み込みの最初に既定Themeを確かめることを守る。
+  assert.match(
+    repositorySource,
+    /loadWorkspace\(includeDeleted = false(?:, \{[^)]*\} = \{\})?\) \{\s*\n\s*this\.ensurePersonalDefaultTheme\(\);/,
+  );
 });
