@@ -15351,7 +15351,8 @@ kbd {
   color: var(--color-accent-strong);
 }
 .slide-timeline-kind.is-activity {
-  color: var(--color-info);
+  /* 10px の文字なので、線と印の色（白の上で 4.59）ではなく文字の色を使う。 */
+  color: var(--color-info-strong);
 }
 .slide-timeline-item-title {
   overflow: hidden;

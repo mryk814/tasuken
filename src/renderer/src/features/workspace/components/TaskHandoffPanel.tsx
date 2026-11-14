@@ -272,7 +272,12 @@ export function TaskHandoffPanel({
         {waitingForStart ? (
           <span className="task-handoff-state">開始待ち</span>
         ) : workState === "in_progress" ? (
-          <span className="task-handoff-state is-working">作業中</span>
+          // 藍（is-working）は AI が作業中の時だけ。人の作業報告を採って in_progress になった Task は中立の色。
+          <span
+            className={`task-handoff-state${task.intended_executor === "ai_agent" ? " is-working" : ""}`}
+          >
+            作業中
+          </span>
         ) : null}
       </div>
       {waitingForStart ? (
