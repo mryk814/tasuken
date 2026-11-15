@@ -13,6 +13,7 @@
   - 「戻」（受け取られなかった）と「!」（本人が直す）は、墨の面（--color-ink）に紙色の字。
   - 藍は使わない。道具の一色は押せる物だけ（つなぎ直す・今すぐ送る）。
   - 赤に別の意味がある画面では、割印は形だけにして色を白にする（.ofl-white）。
+    白い印には、形に沿った暗い縁が付く（暗い地では見えず、明るい写真や白い縁の絵の上でだけ効く）。
 
   形
   - いつの写しか: 見出しの右に丸い日付印（上に「写し」、中に日付、下に時刻）。その左に「3 時間前」。古さは横の文で読ませる。
@@ -44,18 +45,27 @@
 
   部品               | 寸法                                                                      | 元絵
   -------------------|---------------------------------------------------------------------------|----------------
-  日付印             | 直径 56、輪郭 1.5、傾き -7°。中の帯は高さ 20.5（上下の線 1.5）。           | stamp.svg
-                     | 上下の語 10 太字、中の日付 12.5 極太（等幅の数字）                         |
+  日付印             | 直径 56、輪郭 1.5、傾き -7°。中の帯は高さ 20.5（上下の線 1.5）で、         | stamp.svg
+                     | 縦の中央（上から 17.75〜38.25）。                                          |
+                     | 上下の語 10 太字、中の日付 12.5 極太（等幅の数字）。字間は空けない。       |
+                     | 上の語は、字の升（高さ 10）の下の端を帯の 1 上に置く（升は上から           |
+                     | 6.75〜16.75、中心 11.75）。下の語は、升の上の端を帯の 1 下に置く           |
+                     | （39.25〜49.25、中心 44.25）。帯に寄せるのは、円の幅が広い所に字を置いて、 |
+                     | 3 文字の語（届いた）と 2 桁の時（23:05）の角を輪郭に当てないため           |
   割印（全体）       | 32×30、傾き -5°、角の丸み 6。左 16 は朱の面。彫りは「[」の形で、           | wari.svg
                      | 左 5・上下 6 の位置に幅 6、線の太さ 2。面を抜く（下の色が見える）。        |
                      | 右 16 は薄い墨（--color-ink-faint）の輪郭 1.5、面なし                      |
   割印（行の端）     | 左半分だけ 16×30、傾きなし。行の右の端に付け、縦は中央                     | wari-half.svg
-  届いた時の印       | 右半分も朱の面になる（彫りは左右対称の「]」）                             | wari-whole.svg
+  届いた時の印       | 右半分も朱の面になる（彫りは左右対称の「]」）。左右の間に継ぎ目を見せない | wari-whole.svg
+                     | （一つの形で描くか、真ん中に幅 2 の同じ色の帯を敷く）                      |
+  白い印の縁         | 白い割印と白い電波なしの絵の、形の外に沿う黒い影を二つ重ねる:              | —
+                     | ぼかし 1・濃さ 90% と、ぼかし 3・濃さ 55%（どちらもずらさない）            |
   「!」              | 直径 20 の墨の丸に紙色の「!」（13 極太）。割印の右に 4 あけて置く          | bang.svg
   「戻」             | 22×22、角の丸み 3、墨の面に紙色の「戻」（12 太字）、傾き +4°               | modo.svg
   電波なしの絵       | 18×18（元絵は 24 の升目、線 1.8、端は丸）。色は添える字と同じ              | nowave.svg
   行の保存の日付     | ✓ 11×11（24 の升目で線 2.6）＋日付 11 太字、補足の墨                                | —
-  使えない           | 枠 1、薄い墨の実線。面なし、影なし。字は補足の墨                           | —
+  使えない           | 枠 1、薄い墨の実線。面なし、影なし。字は補足の墨。                         | —
+                     | 枠は元の大きさの外の端に沿わせ、中身を動かさない。中の絵より上に引く       |
 
   届いた時の動き: 右半分が 6 右から 0.25 秒で寄って一つになり、続けて全体が 0.6 秒で薄れる。行の端の半分は、薄れるだけ。
   首振り: 0.4 秒で -14°、+12°、-8°、+5°、0° と回す。
@@ -63,6 +73,8 @@
   ---- 部品と HTML ----
   日付印         <span class="ofl-stamp" role="img" aria-label="写し 11月13日 9:12"><i>写し</i><b>11.13</b><i>9:12</i></span>
                  上の <i> は「写し」か「届いた」。
+                 中の <i>・<b> の字と余白は型が決める（アプリの見出しの b や i の決まりより強い）。
+                 大きさは .ofl-stamp の font-size で変える。
   日付印の行     <span class="ofl-stampline">3 時間前 <span class="ofl-stamp">…</span></span>
   割印           <span class="ofl-wari" role="img" aria-label="未送信"></span>（中身なし）
   行の端の割印   <span class="ofl-wari ofl-edge" role="img" aria-label="未送信"></span>
@@ -76,11 +88,23 @@
                  動きを減らす設定では、少し置いて取り除く。
   使えない       <button class="… ofl-off" aria-disabled="true"><span class="ofl-nowave"></span>まるごと</button>
                  disabled 属性は使わない（押した時に首を振って一言を出すため）。
+                 枠は ::after で引く（元の枠は太さを変えず、色だけ薄い墨にする）ので、付けても中身は動かない。
+                 付ける要素の ::after は型が使う。要素には position: relative が付く（アプリが position を
+                 決めていればそのまま。static に戻すと枠の置き場がずれる）。
+                 枠を出したくない物は、アプリの側で ::after を content: none にし、border-color を決める。
+                 重なりの順を要素の中に閉じる（isolation）ので、中から外へ重なる物（メニュー・ポップアップ）は
+                 この要素の中に置かず、外に置く。
   開けない物     <li class="… ofl-away">…<span class="ofl-nowave"></span></li>
+                 枠は「使えない」と同じ。中の字は補足の墨になるが、中の押せる物
+                 （a・button・summary・role="button"・role="link"。aria-disabled="true" の物は除く）は元の色のまま。
+                 ほかの要素を押せる物にしている時は、その要素に .ofl-on を付ける。
   首振りと一言   押された時に .ofl-nowave へ .ofl-shake を足し（animationend で外す）、そばに <span class="ofl-say">つながると使えます</span> を出す。
   行の保存の日付 <span class="ofl-kept">11/14</span>
   白い割印       赤に別の意味がある画面の、割印か、その親に .ofl-white。
                  白は暗い地のための色。墨の割印は作らない（墨の面は「戻」の意味なので混ざる）。
+                 写真の上にも置ける（暗い縁が付く）。写真の上の電波なしの絵は、絵そのものに .ofl-white:
+                 <span class="ofl-nowave ofl-white"></span>（白い絵に同じ縁）。
+  隠す           どの部品も hidden 属性で消える。
 
   ---- 使う側の準備 ----
   割印・電波なしの絵・✓ の形は、CSS の mask に data: の SVG で持たせている。Content-Security-Policy を出すアプリは
@@ -95,9 +119,19 @@
   color: var(--color-ink-secondary); background: transparent;
   font-size: 10px; line-height: 1; text-align: center; transform: rotate(-7deg);
 }
-.ofl-stamp i { font-style: normal; font-size: 1em; font-weight: 700; letter-spacing: .05em; align-self: end; padding-bottom: .3em; }
-.ofl-stamp b + i { align-self: start; padding: .3em 0 0; }
-.ofl-stamp b { font-size: 1.25em; font-weight: 800; font-variant-numeric: tabular-nums; padding: .2em 0; border-block: .12em solid var(--color-ink-secondary); }
+/* 印の中の字は型が決める。<i>・<b> は要素名で指すので、アプリの見出しの決まり（.head b など）に負けないよう !important にする。
+   上下の語は帯に寄せる（帯から .1em）。円は帯の近くほど幅が広いので、3 文字の語（届いた）の上の角と、
+   2 桁の時（23:05）の下の角が、輪郭に当たらない。字間も空けない。 */
+.ofl-stamp i, .ofl-stamp b {
+  display: block !important; margin: 0 !important; background: none !important; color: inherit !important;
+  font-style: normal !important; line-height: 1 !important; letter-spacing: 0 !important; text-decoration: none !important;
+}
+.ofl-stamp i { font-size: 1em !important; font-weight: 700 !important; align-self: end; padding: 0 0 .1em !important; border: 0 !important; }
+.ofl-stamp b + i { align-self: start; padding: .1em 0 0 !important; }
+.ofl-stamp b {
+  font-size: 1.25em !important; font-weight: 800 !important; font-variant-numeric: tabular-nums; padding: .2em 0 !important;
+  border: 0 solid currentColor !important; border-block-width: .12em !important;
+}
 .ofl-stampline { display: inline-flex; align-items: center; gap: 8px; color: var(--color-ink-secondary); font-size: 13px; font-weight: 600; white-space: nowrap; }
 
 /* ---- 割印（四角い印＝本人。半分＝まだ届いていない） ----
@@ -115,10 +149,27 @@
 .ofl-wari::after { border: .15em solid var(--color-ink-faint); border-left: 0; border-radius: 0 .6em .6em 0; }
 .ofl-wari.ofl-edge { position: absolute; right: 0; top: 50%; width: 1.6em; margin-top: -1.5em; transform: none; }
 .ofl-wari.ofl-edge::after { display: none; }
-/* 届いた: 右の半分も朱の面になり、一つの印になる */
+/* 届いた: 右の半分も朱の面になり、一つの印になる。
+   二つの面を並べただけだと、傾いた印の真ん中に下の色の細い継ぎ目が出るので、同じ色の細い帯を真ん中に敷く
+   （真ん中は彫りの無い所。行の端の半分には敷かない）。 */
 .ofl-wari.ofl-arrived::after { border: 0; border-radius: 0; transform: scaleX(-1); }
+.ofl-wari.ofl-arrived:not(.ofl-edge) {
+  background: linear-gradient(var(--ofl-seal, var(--color-seal)) 0 0) center / .2em 100% no-repeat;
+}
 
 .ofl-white { --ofl-seal: #ece6dc; }
+/* 白い印は写真の上にも置く。明るい写真や白い縁の絵の上で消えないよう、形に沿った暗い縁を付ける（暗い地では見えない）。
+   写真の上の電波なしの絵は、絵そのものに .ofl-white を付けると、白い絵に同じ縁が付く。
+   縁（filter）は mask より先に掛かるので、mask を持つ要素に付けると縁ごと抜かれる。形は中の ::before に描き、縁は外の要素に付ける。 */
+.ofl-white .ofl-wari, .ofl-wari.ofl-white, .ofl-nowave.ofl-white {
+  filter: drop-shadow(0 0 .1em rgba(0, 0, 0, .9)) drop-shadow(0 0 .3em rgba(0, 0, 0, .55));
+}
+.ofl-nowave.ofl-white { color: var(--ofl-seal); background: none; -webkit-mask: none; mask: none; }
+.ofl-nowave.ofl-white::before {
+  content: ""; display: block; width: 100%; height: 100%; background: currentColor;
+  -webkit-mask: var(--ofl-nowave-mask) center / 100% 100% no-repeat;
+          mask: var(--ofl-nowave-mask) center / 100% 100% no-repeat;
+}
 
 .ofl-count { display: inline-flex; align-items: center; gap: 4px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
 
@@ -134,11 +185,33 @@
 .ofl-wari + .ofl-bang { margin-left: 4px; }
 
 /* ---- 使えない・開けない（押す前に分かる） ---- */
+/* 枠は、付けても中身が動かないように引く（border を足すと、枠の無い物では中身が 1px ずれる）。
+   - 元の枠は、太さを変えずに色だけ薄い墨にする。
+   - その上に、同じ外の端に沿う 1px の枠を ::after で重ねる。枠の無い物の枠はこれで、枠のある物では元の枠と重なる。
+     写真を全面に敷いたタイル（position を持つ子が中を覆う）でも、子の上に出る。
+     ::after は、元の枠の太さを写して（border: inherit）中央に置くことで、要素の外の端と同じ大きさにしている
+     （inset: 0 だけだと元の枠の内側になり、枠が二重になる）。
+   - 要素には position: relative と isolation を足す（::after の置き場と、重なりの順を要素の中に閉じるため）。
+     :where で詳細度 0 にしてあるので、アプリが position を決めている物（absolute・fixed・sticky）はそのまま。
+   outline は使わない（キーボードの印はアプリの物がそのまま出る）。 */
 .ofl-off, .ofl-away {
   background: transparent !important; box-shadow: none !important;
-  border: 1px solid var(--color-ink-faint) !important; color: var(--color-ink-secondary) !important;
+  border-color: var(--color-ink-faint) !important; color: var(--color-ink-secondary) !important;
 }
-.ofl-away *:not(.ofl-bang, .ofl-modo) { color: inherit !important; }
+:where(.ofl-off, .ofl-away) { position: relative; isolation: isolate; }
+:is(.ofl-off, .ofl-away)::after {
+  content: ""; position: absolute; top: 50%; left: 50%; z-index: 1; box-sizing: content-box; width: 100%; height: 100%;
+  margin: 0; padding: 0; border: inherit; border-color: transparent !important; border-radius: inherit;
+  transform: translate(-50%, -50%); background: none; pointer-events: none;
+  outline: 1px solid var(--color-ink-faint); outline-offset: -1px;
+}
+/* 開けない物の中の字は補足の墨。中の押せる物は、押せると分かる元の色のままにする
+   （aria-disabled の物は押せないので、補足の墨）。白い電波なしの絵（.ofl-white）の色も変えない。 */
+.ofl-away *:not(
+  .ofl-bang, .ofl-modo, .ofl-white, .ofl-on, .ofl-on *,
+  .ofl-away :is(a, button, summary, [role="button"], [role="link"]):not([aria-disabled="true"]),
+  .ofl-away :is(a, button, summary, [role="button"], [role="link"]):not([aria-disabled="true"]) *
+) { color: inherit !important; }
 
 /* ---- 電波なしの絵・保存の ✓（色は添える字と同じ） ---- */
 .ofl-nowave, .ofl-kept::before {
@@ -150,6 +223,10 @@
 .ofl-kept { display: inline-flex; align-items: center; gap: 3px; color: var(--color-ink-secondary); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ofl-kept::before { content: ""; --ofl-icon: var(--ofl-check-mask); width: 1em; height: 1em; }
 .ofl-say { color: var(--color-ink-secondary); font-size: 12px; white-space: nowrap; }
+
+/* hidden 属性は、部品の display の指定より強い（付ければ消える） */
+:is(.ofl-stamp, .ofl-stampline, .ofl-wari, .ofl-count, .ofl-bang, .ofl-modo, .ofl-nowave, .ofl-kept, .ofl-say)[hidden],
+.ofl-stamp :is(i, b)[hidden] { display: none !important; }
 
 :root {
   --ofl-wari-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 30' preserveAspectRatio='none'%3E%3Cpath fill-rule='evenodd' d='M6 0h10v30H6a6 6 0 0 1-6-6V6a6 6 0 0 1 6-6zM5 8v14a2 2 0 0 0 2 2h4v-2H7V8h4V6H7a2 2 0 0 0-2 2z'/%3E%3C/svg%3E");
