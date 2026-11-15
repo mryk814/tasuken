@@ -100,8 +100,8 @@ function publicThemeGraphEntity(
     const ai = (publicAiHeader as any)(record, budget);
     return ai ? { ...output, ai } : output;
   }
-  // Knowledge の節（knowledge_node）は #755 束8 で応答から外した。記録は残るが、ここでは形にせず、
-  // 呼び出し側が theme_context_scope の対象外として数える（本文の字数も使わない）。
+  // Knowledge の節（knowledge_node）は #755 束8 で応答から外した。記録は残るが、図を作る前に外すので
+  // ここへは来ない。
   if (["task", "waiting", "plan_node", "item"].includes(type)) {
     const output = {
       id: String(record.id),
@@ -176,6 +176,10 @@ export class ThemeContextQueryService {
         .map((record) => access.records.get(entityKey(entityType, record.id)))
         .filter(Boolean);
     }
+    // Knowledge の節と線は応答に出さない（#755 束8）。図に入れると、節が関係の図の枠（max_nodes・
+    // max_edges）を黙って使い、Task と Note が押し出されるので、図を作る前に外す。
+    for (const entityType of ["knowledge_node", "knowledge_edge"] as const)
+      visibleWorkspace[collectionKeyForEntityType(entityType)] = [];
     const graph = projectContextGraph(visibleWorkspace);
     const subgraph = getContextSubgraph(
       graph,

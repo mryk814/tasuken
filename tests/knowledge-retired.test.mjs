@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
+import { build } from "esbuild";
+
 import { projectContextGraph } from "../src/shared/contextGraph.mjs";
 import { entityTypes } from "../src/shared/entityRegistry.mjs";
 
@@ -95,4 +97,67 @@ test("種類の登録は残り、節と線は記録どうしの関係として�
     ),
     edgeIds.join(", "),
   );
+});
+
+async function loadThemeContextQueryService() {
+  const output = await build({
+    entryPoints: ["src/main/core/services/themeContextQueryService.ts"],
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    write: false,
+    logLevel: "silent",
+  });
+  const module = await import(
+    `data:text/javascript;base64,${Buffer.from(output.outputFiles[0].text).toString("base64")}`
+  );
+  return module.ThemeContextQueryService;
+}
+
+test("get_theme_context: テーマに節が多くても、関係の図の枠を節が使わず、Task と Note が押し出されない", async () => {
+  const ThemeContextQueryService = await loadThemeContextQueryService();
+  const theme = { id: "theme-many", name: "節の多いテーマ", state: "active" };
+  const workspace = {
+    projects: [theme],
+    tasks: [
+      { id: "task-open", title: "比べる", state: "todo", project_id: theme.id },
+      { id: "task-open-2", title: "まとめる", state: "todo", project_id: theme.id },
+    ],
+    notes: [{ id: "note-recent", title: "所見", body_markdown: "本文", project_id: theme.id }],
+    // 節は Task と Note より新しく、数も多い。
+    knowledge_nodes: Array.from({ length: 40 }, (_, index) => ({
+      id: `kn-${index}`,
+      node_type: "claim",
+      title: `節 ${index}`,
+      body: "節の本文",
+      theme_id: theme.id,
+      updated_at: `2026-11-${String(10 + (index % 5)).padStart(2, "0")}T00:00:00.000Z`,
+    })),
+    knowledge_edges: Array.from({ length: 39 }, (_, index) => ({
+      id: `ke-${index}`,
+      source_node_id: `kn-${index}`,
+      target_node_id: `kn-${index + 1}`,
+      relation_type: "supports",
+    })),
+  };
+  const service = new ThemeContextQueryService({
+    loadThemeContextWorkspace: () => structuredClone(workspace),
+  });
+  // limit はテーマ自身を含む図の節の数。Task 2 件と Note 1 件が入る 10 と、既定の 50 で見る。
+  for (const limit of [10, 50]) {
+    const response = service.execute({ theme_id: theme.id, limit });
+    assert.deepEqual(
+      response.open_items.map((item) => item.id).sort(),
+      ["task-open", "task-open-2"],
+      `limit=${limit}`,
+    );
+    assert.deepEqual(
+      response.recent_notes.map((note) => note.id),
+      ["note-recent"],
+      `limit=${limit}`,
+    );
+    // 節は図にも、対象外の数にも出ない（図を作る前に外す）。
+    const serialized = JSON.stringify(response);
+    assert.doesNotMatch(serialized, /knowledge_node|knowledge_edge|節の本文/u, `limit=${limit}`);
+  }
 });

@@ -331,7 +331,7 @@ test("Wave 6 repository/theme reads are exact across legacy, Core, HTTP, and pur
       /REFERENCE_SECRET|EVIDENCE_SECRET|METADATA_SECRET|OBJECT_KEY_SECRET|reference-hidden-secret/,
     );
     // Knowledge の欄は #755 束8 で応答から外した。節の記録（knowledge-wave6）は残っているが、
-    // 欄にも、関係の図にも、本文にも出ない（対象外として数えるだけ）。
+    // 欄にも、関係の図にも、本文にも、対象外の数にも出ない（図を作る前に外し、枠を使わせない）。
     const wideTheme = await client.getThemeContext({ theme_id: "theme-wave6", max_chars: 8000 });
     for (const response of [theme, wideTheme]) {
       assert.equal("knowledge" in response, false);
@@ -343,10 +343,8 @@ test("Wave 6 repository/theme reads are exact across legacy, Core, HTTP, and pur
       assert.doesNotMatch(JSON.stringify(response), /Wave knowledge/);
     }
     assert.equal(
-      wideTheme.context_selection.excluded.some(
-        (entry) => entry.ref.type === "knowledge_node" && entry.reason === "theme_context_scope",
-      ),
-      true,
+      wideTheme.context_selection.excluded.some((entry) => entry.ref.type === "knowledge_node"),
+      false,
     );
     for (const [limit, expectedNodes, expectedEdges] of [
       [1, 1, 4],
