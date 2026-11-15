@@ -156,6 +156,15 @@ npm run release:check
 - 戻す直前まで使っていたデータベースも、データのフォルダに`research-desk.before-restore-<日時>.sqlite`（と同じ名前の`-wal`・`-shm`）として残ります。控えを取った後、終了までに届いた記録（MCPやAndroid、同期の受信）も入っています。場所は設定の「控えと復元」の結果に出ます。これも自動では消さないので、要らなくなったら3つまとめて手で消します。
 - 2026-11より前の版が作った`tasken-auto-*.zip`と、手で書き出したWorkspace SnapshotのZIPは、Taskenからは読めません。ファイルは消さないので、手元に残ります。
 
+画面から戻せないとき（Taskenが起動しない、など）は、手で同じことをします。
+
+1. Taskenを終了する（トレイに残っていればトレイのメニューから）。
+2. `%APPDATA%\tasken`の`research-desk.sqlite`と、あれば`-wal`・`-shm`を、別のフォルダーへ移す（消さない。別のDBの`-wal`を当てると壊れるので、3つとも移す）。
+3. 戻したい控えの`tasken-auto-*.sqlite`（または`tasken-before-restore-*.sqlite`）を`%APPDATA%\tasken`へコピーし、名前を`research-desk.sqlite`にする。控えは単体のファイルなので、`-wal`・`-shm`は要らない。
+4. Taskenを起動し、件数を確かめる。
+
+戻すときは、今の版のDesktopかCoreで開きます。古い版は、新しいschemaのデータベースを開けません。NASのreplicaのように、PCの外にある写しから戻す場合も同じです。replicaは同期の相手で、正本の控えではありません（replicaの復旧は[NASの手順](./deploy/synology/README.md)）。
+
 ### 新しい端末へ引っ越す
 
 1. 古い端末で、Settings →「Advanced」→「控えを今すぐ作る」→「フォルダを開く」。
@@ -183,6 +192,17 @@ SQLiteファイルそのものは共有せず、端末別の変更差分だけ�
 詳細は [`docs/shared-folder-sync.md`](./docs/shared-folder-sync.md) を参照してください。
 
 NASの開始専用権限は`task.start_work`です。本人の個人業務のAI Ready Taskだけを対象にし、`create-only`とは独立して有効化します。開始にはUUIDの`work_attempt_id`も必須です。同じ要求の再送はversionを含む内容を保持し、返却されたTaskが現在も同じ作業単位・実行者のin_progressであることを確認してください。設定・撤回と報告採用の境界は[開始専用権限](docs/ai-task-start.md)を参照してください。
+
+## 運用の要点
+
+変更を入れる前、検証、本番に触る前に決めてあることです。コマンドと理由の正本は[AGENTS.md](./AGENTS.md)の「実データと検証」です。
+
+- 正本はPCのDesktopのデータベースです。NASのreplicaは同期で受けた写しで、正本として扱いません。NASにしか無い機能も作りません。
+- mainへ入れる前の品質ゲートは`npm run ci`です。ソースを変えたらbuildし直してからsmokeを流します（古い成果物での成功は数えません）。保存→再起動→再表示は`npm run smoke:model`と`npm run smoke:desktop`で確かめます。
+- 検証では実プロファイル（`%APPDATA%\tasken`）を開きません。画面を確かめるときは、`TASKEN_DEV_USER_DATA_DIR`に検証用の場所を指定して`npm run dev`で起動します。
+- NASはmainの更新を自動で取り込みます。入れ替えの後は、起動の同期が通ったか・まだ取り込んでいない差分を読めるかも見て、駄目なら前の版へ戻ります（[プル型の更新](./deploy/synology/README.md)）。
+- NASで止めてあるサービス（ChatGPT向けのSecure MCP Tunnelなど）は、導入のときに記録した物（`TASKEN_KEEP_STOPPED`）だけ、更新で起こさず止めたままにします。止めてあるサービスには外部AIから届きません。今動いているかはNASで確かめます（[DEPLOYED.md](./deploy/synology/DEPLOYED.md)は最後に観測した状態で、今の状態ではありません）。
+- mergeした後でも、PCのTasken Desktop（正本）の入れ替えと、本番のレコードの削除は、先に本人へ確かめます。
 
 ## 主な画面
 
