@@ -10,7 +10,15 @@ import {
   IconZoomOut,
   IconZoomReset,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type WheelEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent,
+  type WheelEvent,
+} from "react";
 
 import { artifactOpenTarget, isHttpUrl } from "../../../../../shared/artifactLinks.mjs";
 import { formatMediaDuration } from "../../../../../shared/mediaArtifact.mjs";
@@ -18,7 +26,15 @@ import type { MediaAvailability } from "../../../../../shared/mediaArtifact.mjs"
 import { isWebArtifact, webArtifactPreviewUrl } from "../../../../../shared/webArtifact.mjs";
 import { videoAvailabilityMessage } from "../videoArtifactView";
 import { workspaceApi } from "../../../services/workspaceApi";
-import type { Artifact, BaseRecord, ContentViewerTarget, Note, OpenContentViewer, OpenDrawer, WorkspaceData } from "../types";
+import type {
+  Artifact,
+  BaseRecord,
+  ContentViewerTarget,
+  Note,
+  OpenContentViewer,
+  OpenDrawer,
+  WorkspaceData,
+} from "../types";
 import {
   headingNumberOptionsFromProperties,
   openSafeMarkdownLink,
@@ -126,9 +142,10 @@ async function resolveTarget(target: ContentViewerTarget, data: WorkspaceData): 
     if (!note) {
       return { status: "error", message: "メモが見つかりません。削除済みの可能性があります。" };
     }
-    const properties = note.properties_json && typeof note.properties_json === "object"
-      ? note.properties_json as Record<string, unknown>
-      : {};
+    const properties =
+      note.properties_json && typeof note.properties_json === "object"
+        ? (note.properties_json as Record<string, unknown>)
+        : {};
     const headingOptions = headingNumberOptionsFromProperties(properties).preview;
     return {
       status: "ready",
@@ -142,14 +159,21 @@ async function resolveTarget(target: ContentViewerTarget, data: WorkspaceData): 
   }
 
   if (target.type === "chat_log") {
-    const resource = [...(data.resources || []), ...data.links]
-      .find((entry) => str((entry as BaseRecord).id) === target.resourceId) as BaseRecord | undefined;
+    const resource = [...(data.resources || []), ...data.links].find(
+      (entry) => str((entry as BaseRecord).id) === target.resourceId,
+    ) as BaseRecord | undefined;
     if (!resource) {
-      return { status: "error", message: "チャット参照が見つかりません。削除済みの可能性があります。" };
+      return {
+        status: "error",
+        message: "チャット参照が見つかりません。削除済みの可能性があります。",
+      };
     }
     const body = str(resource.body_markdown);
     if (!body) {
-      return { status: "error", message: "この参照には会話ログが保存されていません。取り込み直してください。" };
+      return {
+        status: "error",
+        message: "この参照には会話ログが保存されていません。取り込み直してください。",
+      };
     }
     return {
       status: "ready",
@@ -183,9 +207,17 @@ async function resolveTarget(target: ContentViewerTarget, data: WorkspaceData): 
   }
 
   if (artifact.media_kind === "audio" || artifact.media_kind === "video") {
-    const inspection = artifact.media_kind === "video" ? await workspaceApi.inspectMediaArtifact(artifact.id) : { availability: "available" as const };
+    const inspection =
+      artifact.media_kind === "video"
+        ? await workspaceApi.inspectMediaArtifact(artifact.id)
+        : { availability: "available" as const };
     if (artifact.media_kind === "video" && inspection.availability !== "available") {
-      return { status: "error", message: videoAvailabilityMessage(inspection.availability), artifact, mediaAvailability: inspection.availability };
+      return {
+        status: "error",
+        message: videoAvailabilityMessage(inspection.availability),
+        artifact,
+        mediaAvailability: inspection.availability,
+      };
     }
     return {
       status: "ready",
@@ -280,7 +312,12 @@ export function ContentViewer({
   const expandedRef = useRef(false);
   expandedRef.current = expanded;
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const dragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
+  const dragRef = useRef<{
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
@@ -375,7 +412,8 @@ export function ContentViewer({
       if (artifact.media_kind === "audio" || artifact.media_kind === "video") {
         try {
           const result = await workspaceApi.openMediaArtifactExternal(artifact.id);
-          if (!result.ok) setToast(result.error || "Mediaを外部アプリで開けませんでした。", "danger");
+          if (!result.ok)
+            setToast(result.error || "Mediaを外部アプリで開けませんでした。", "danger");
         } catch {
           setToast("Mediaを外部アプリで開けませんでした。もう一度お試しください。", "danger");
         }
@@ -477,20 +515,33 @@ export function ContentViewer({
   const isImage = load.status === "ready" && load.mode === "image";
   const isVideo = load.status === "ready" && load.mode === "video";
   // 動画は開いた時点でTasken全体を使う。画像・文書は必要なときだけ拡大する（#387）。
-  const canExpand = load.status === "ready" && (load.mode === "image" || load.mode === "markdown" || load.mode === "conversation" || load.mode === "web");
+  const canExpand =
+    load.status === "ready" &&
+    (load.mode === "image" ||
+      load.mode === "markdown" ||
+      load.mode === "conversation" ||
+      load.mode === "web");
   const loadArtifact = loadedArtifact(load);
-  const targetArtifact = target.type === "artifact"
-    ? (data.artifacts || []).find((entry) => entry.id === target.artifactId)
-    : undefined;
+  const targetArtifact =
+    target.type === "artifact"
+      ? (data.artifacts || []).find((entry) => entry.id === target.artifactId)
+      : undefined;
   const loadFilePath = loadedFilePath(load);
   const canOpenFolder = Boolean(
-    load.status === "ready" && load.mode !== "audio" && load.mode !== "video" &&
-    loadArtifact
+    load.status === "ready" && load.mode !== "audio" && load.mode !== "video" && loadArtifact
       ? !isHttpUrl(String(artifactOpenTarget(loadArtifact) || ""))
       : loadFilePath && !isHttpUrl(loadFilePath),
   );
-  const canCopyPath = Boolean(load.status === "ready" && load.mode !== "audio" && load.mode !== "video" && (loadFilePath || loadArtifact));
-  const canOpenExternal = Boolean(load.status === "ready" && (load.mode === "video" || (load.mode !== "audio" && (loadFilePath || loadArtifact))));
+  const canCopyPath = Boolean(
+    load.status === "ready" &&
+    load.mode !== "audio" &&
+    load.mode !== "video" &&
+    (loadFilePath || loadArtifact),
+  );
+  const canOpenExternal = Boolean(
+    load.status === "ready" &&
+    (load.mode === "video" || (load.mode !== "audio" && (loadFilePath || loadArtifact))),
+  );
   const canEditNote = load.status === "ready" && load.mode === "markdown" && Boolean(load.note);
 
   function trapFocus(event: ReactKeyboardEvent<HTMLDivElement>) {
@@ -528,7 +579,9 @@ export function ContentViewer({
       >
         <header className="content-viewer-header">
           <div className="content-viewer-heading">
-            <strong id="content-viewer-title" className="content-viewer-title" title={title}>{title}</strong>
+            <strong id="content-viewer-title" className="content-viewer-title" title={title}>
+              {title}
+            </strong>
             {load.status === "ready" && load.mode === "markdown" && (
               <span className="content-viewer-badge">Markdown</span>
             )}
@@ -551,46 +604,97 @@ export function ContentViewer({
           <div className="content-viewer-actions">
             {canEditNote && (
               <button type="button" className="secondary-button compact" onClick={editNote}>
-                <IconPencil size={15} />編集する
+                <IconPencil size={15} />
+                編集する
               </button>
             )}
             {load.status === "ready" && load.mode === "markdown" && (
               <>
-                <button type="button" className="secondary-button compact" onClick={() => { void copyMarkdown(); }}>
-                  <IconCopy size={15} />Markdownをコピー
+                <button
+                  type="button"
+                  className="secondary-button compact"
+                  onClick={() => {
+                    void copyMarkdown();
+                  }}
+                >
+                  <IconCopy size={15} />
+                  Markdownをコピー
                 </button>
-                <button type="button" className="text-button compact" onClick={() => { void copyPreviewText(); }}>
+                <button
+                  type="button"
+                  className="text-button compact"
+                  onClick={() => {
+                    void copyPreviewText();
+                  }}
+                >
                   表示をコピー
                 </button>
               </>
             )}
             {load.status === "ready" && load.mode === "conversation" && (
               <>
-                <button type="button" className="secondary-button compact" onClick={editConversationRef}>
-                  <IconPencil size={15} />参照を編集
+                <button
+                  type="button"
+                  className="secondary-button compact"
+                  onClick={editConversationRef}
+                >
+                  <IconPencil size={15} />
+                  参照を編集
                 </button>
-                <button type="button" className="secondary-button compact" onClick={() => { void copyConversationMarkdown(); }}>
-                  <IconCopy size={15} />会話ログをコピー
+                <button
+                  type="button"
+                  className="secondary-button compact"
+                  onClick={() => {
+                    void copyConversationMarkdown();
+                  }}
+                >
+                  <IconCopy size={15} />
+                  会話ログをコピー
                 </button>
                 {Boolean(load.sourceUrl) && (
-                  <button type="button" className="secondary-button compact" onClick={openConversationSource}>
-                    <IconExternalLink size={15} />元チャットを開く
+                  <button
+                    type="button"
+                    className="secondary-button compact"
+                    onClick={openConversationSource}
+                  >
+                    <IconExternalLink size={15} />
+                    元チャットを開く
                   </button>
                 )}
               </>
             )}
             {canOpenExternal && (
-              <button type="button" className="secondary-button compact" onClick={() => { void openExternal(); }}>
-                <IconExternalLink size={15} />ファイルを開く
+              <button
+                type="button"
+                className="secondary-button compact"
+                onClick={() => {
+                  void openExternal();
+                }}
+              >
+                <IconExternalLink size={15} />
+                ファイルを開く
               </button>
             )}
             {canOpenFolder && (
-              <button type="button" className="secondary-button compact" onClick={() => { void openFolder(); }}>
-                <IconFolder size={15} />フォルダを開く
+              <button
+                type="button"
+                className="secondary-button compact"
+                onClick={() => {
+                  void openFolder();
+                }}
+              >
+                <IconFolder size={15} />
+                フォルダを開く
               </button>
             )}
             {canCopyPath && (
-              <button type="button" className="text-button compact" onClick={() => { void copyPath(); }}>
+              <button
+                type="button"
+                className="text-button compact"
+                onClick={() => {
+                  void copyPath();
+                }}
+              >
                 パスをコピー
               </button>
             )}
@@ -601,7 +705,8 @@ export function ContentViewer({
                 aria-pressed={expanded}
                 onClick={() => setExpanded((current) => !current)}
               >
-                {expanded ? <IconMinimize size={15} /> : <IconMaximize size={15} />}{expanded ? "縮小" : "大きく見る"}
+                {expanded ? <IconMinimize size={15} /> : <IconMaximize size={15} />}
+                {expanded ? "縮小" : "大きく見る"}
               </button>
             )}
             <button
@@ -618,17 +723,39 @@ export function ContentViewer({
 
         {isImage && load.status === "ready" && (
           <div className="content-viewer-image-toolbar" role="toolbar" aria-label="画像表示">
-            <button type="button" className="secondary-button compact" onClick={zoomOut} disabled={zoom === FIT_ZOOM || zoom === ZOOM_STEPS[0]}>
-              <IconZoomOut size={15} />縮小
+            <button
+              type="button"
+              className="secondary-button compact"
+              onClick={zoomOut}
+              disabled={zoom === FIT_ZOOM || zoom === ZOOM_STEPS[0]}
+            >
+              <IconZoomOut size={15} />
+              縮小
             </button>
-            <button type="button" className="secondary-button compact" onClick={zoomIn} disabled={zoom === ZOOM_STEPS[ZOOM_STEPS.length - 1]}>
-              <IconZoomIn size={15} />拡大
+            <button
+              type="button"
+              className="secondary-button compact"
+              onClick={zoomIn}
+              disabled={zoom === ZOOM_STEPS[ZOOM_STEPS.length - 1]}
+            >
+              <IconZoomIn size={15} />
+              拡大
             </button>
-            <button type="button" className={`secondary-button compact ${zoom === FIT_ZOOM ? "is-active" : ""}`} onClick={fitToScreen}>
-              <IconMaximize size={15} />画面に合わせる
+            <button
+              type="button"
+              className={`secondary-button compact ${zoom === FIT_ZOOM ? "is-active" : ""}`}
+              onClick={fitToScreen}
+            >
+              <IconMaximize size={15} />
+              画面に合わせる
             </button>
-            <button type="button" className={`secondary-button compact ${zoom === 1 ? "is-active" : ""}`} onClick={actualSize}>
-              <IconZoomReset size={15} />元サイズ
+            <button
+              type="button"
+              className={`secondary-button compact ${zoom === 1 ? "is-active" : ""}`}
+              onClick={actualSize}
+            >
+              <IconZoomReset size={15} />
+              元サイズ
             </button>
             <span className="content-viewer-zoom-label">
               {zoom === FIT_ZOOM ? "フィット" : `${Math.round(zoom * 100)}%`}
@@ -646,29 +773,46 @@ export function ContentViewer({
 
         <div className="content-viewer-body">
           {load.status === "loading" && (
-            <div className="content-viewer-state" role="status">読み込み中…</div>
+            <div className="content-viewer-state" role="status">
+              読み込み中…
+            </div>
           )}
           {load.status === "error" && (
             <div className="content-viewer-state is-error" role="alert">
               <strong>表示できませんでした</strong>
               <p>{load.message}</p>
-              {load.artifact?.media_kind === "video" && (load.mediaAvailability === "available" || load.mediaAvailability === "unsupported_codec") && (
-                <button type="button" className="secondary-button compact" onClick={() => { void openExternal(); }}>
-                  <IconExternalLink size={15} />外部で開く
-                </button>
-              )}
-              {target.type === "artifact" && targetArtifact?.media_kind !== "audio" && targetArtifact?.media_kind !== "video" && Boolean(artifactOpenTarget(targetArtifact)) && (
-                <button
-                  type="button"
-                  className="secondary-button compact"
-                  onClick={() => {
-                    const artifact = (data.artifacts || []).find((entry) => entry.id === target.artifactId);
-                    if (artifact) void openArtifactFile(artifact, setToast);
-                  }}
-                >
-                  <IconExternalLink size={15} />外部で開く
-                </button>
-              )}
+              {load.artifact?.media_kind === "video" &&
+                (load.mediaAvailability === "available" ||
+                  load.mediaAvailability === "unsupported_codec") && (
+                  <button
+                    type="button"
+                    className="secondary-button compact"
+                    onClick={() => {
+                      void openExternal();
+                    }}
+                  >
+                    <IconExternalLink size={15} />
+                    外部で開く
+                  </button>
+                )}
+              {target.type === "artifact" &&
+                targetArtifact?.media_kind !== "audio" &&
+                targetArtifact?.media_kind !== "video" &&
+                Boolean(artifactOpenTarget(targetArtifact)) && (
+                  <button
+                    type="button"
+                    className="secondary-button compact"
+                    onClick={() => {
+                      const artifact = (data.artifacts || []).find(
+                        (entry) => entry.id === target.artifactId,
+                      );
+                      if (artifact) void openArtifactFile(artifact, setToast);
+                    }}
+                  >
+                    <IconExternalLink size={15} />
+                    外部で開く
+                  </button>
+                )}
             </div>
           )}
           {load.status === "ready" && load.mode === "markdown" && (
@@ -681,7 +825,11 @@ export function ContentViewer({
           {load.status === "ready" && load.mode === "conversation" && (
             <>
               <ConversationContextPanel resource={load.resource} setToast={setToast} />
-              <ConversationPreview className="content-viewer-conversation" body={load.body} showCount={false} />
+              <ConversationPreview
+                className="content-viewer-conversation"
+                body={load.body}
+                showCount={false}
+              />
             </>
           )}
           {load.status === "ready" && load.mode === "audio" && (
@@ -691,15 +839,20 @@ export function ContentViewer({
                 preload="metadata"
                 src={load.src}
                 aria-label={`${load.title}の音声プレーヤー`}
-                onError={() => setLoad({
-                  status: "error",
-                  message: "音声を再生できませんでした。元ファイルの変更・削除、または対応形式を確認してください。",
-                })}
+                onError={() =>
+                  setLoad({
+                    status: "error",
+                    message:
+                      "音声を再生できませんでした。元ファイルの変更・削除、または対応形式を確認してください。",
+                  })
+                }
               />
               <div className="content-viewer-audio-meta">
                 <span>{formatMediaDuration(load.artifact.duration_ms)}</span>
                 <span>{formatArtifactFileSize(load.artifact.file_size)}</span>
-                <span>{load.artifact.media_availability === "available" ? "保存済み" : "要確認"}</span>
+                <span>
+                  {load.artifact.media_availability === "available" ? "保存済み" : "要確認"}
+                </span>
               </div>
               <BatchTranscriptionPanel key={load.artifact.id} artifactId={load.artifact.id} />
             </div>
@@ -711,18 +864,25 @@ export function ContentViewer({
                 src={load.src}
                 editable={load.artifact.storage_mode !== "linked"}
                 setToast={setToast}
-                onError={() => setLoad({
-                  status: "error",
-                  message: "この動画を内蔵decoderで再生できませんでした。ファイルの変更・削除を確認するか、外部アプリで開いてください。",
-                  artifact: load.artifact,
-                  mediaAvailability: "available",
-                })}
+                onError={() =>
+                  setLoad({
+                    status: "error",
+                    message:
+                      "この動画を内蔵decoderで再生できませんでした。ファイルの変更・削除を確認するか、外部アプリで開いてください。",
+                    artifact: load.artifact,
+                    mediaAvailability: "available",
+                  })
+                }
               />
               <div className="content-viewer-video-meta">
                 <span>{formatMediaDuration(load.artifact.duration_ms)}</span>
-                <span>{load.artifact.width_px} × {load.artifact.height_px}px</span>
+                <span>
+                  {load.artifact.width_px} × {load.artifact.height_px}px
+                </span>
                 <span>{formatArtifactFileSize(load.artifact.file_size)}</span>
-                <span>{load.artifact.media_availability === "available" ? "利用可能" : "要確認"}</span>
+                <span>
+                  {load.artifact.media_availability === "available" ? "利用可能" : "要確認"}
+                </span>
               </div>
             </div>
           )}
@@ -752,14 +912,18 @@ export function ContentViewer({
                 src={load.src}
                 alt={load.title}
                 draggable={false}
-                style={zoom === FIT_ZOOM ? undefined : {
-                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                  transformOrigin: "center center",
-                  maxWidth: "none",
-                  maxHeight: "none",
-                  width: "auto",
-                  height: "auto",
-                }}
+                style={
+                  zoom === FIT_ZOOM
+                    ? undefined
+                    : {
+                        transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                        transformOrigin: "center center",
+                        maxWidth: "none",
+                        maxHeight: "none",
+                        width: "auto",
+                        height: "auto",
+                      }
+                }
               />
             </div>
           )}
@@ -780,9 +944,6 @@ export function openArtifactInViewer(
   return true;
 }
 
-export function openNoteInViewer(
-  note: Note,
-  openContentViewer: OpenContentViewer,
-): void {
+export function openNoteInViewer(note: Note, openContentViewer: OpenContentViewer): void {
   openContentViewer({ type: "note", noteId: note.id });
 }

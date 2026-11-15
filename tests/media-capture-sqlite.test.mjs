@@ -12,11 +12,22 @@ import { projectContextGraph } from "../src/shared/contextGraph.mjs";
 import { buildEntityLineage } from "../src/shared/conversationLineage.mjs";
 
 async function importBundled(relativePath) {
-  const result = await build({ entryPoints: [path.resolve(relativePath)], bundle: true, platform: "node", format: "esm", write: false, logLevel: "silent" });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  const result = await build({
+    entryPoints: [path.resolve(relativePath)],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    write: false,
+    logLevel: "silent",
+  });
+  return import(
+    `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
+  );
 }
 
-const { ApplicationCommandService } = await importBundled("src/main/services/applicationCommandService.ts");
+const { ApplicationCommandService } = await importBundled(
+  "src/main/services/applicationCommandService.ts",
+);
 const { MediaCaptureService } = await importBundled("src/main/services/mediaCaptureService.ts");
 const { projectWorkspaceForRenderer } = await importBundled("src/main/rendererMediaProjection.ts");
 
@@ -24,10 +35,19 @@ function tinyPcmWav() {
   const samples = 800;
   const dataBytes = samples * 2;
   const bytes = Buffer.alloc(44 + dataBytes);
-  bytes.write("RIFF", 0); bytes.writeUInt32LE(36 + dataBytes, 4); bytes.write("WAVE", 8);
-  bytes.write("fmt ", 12); bytes.writeUInt32LE(16, 16); bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22);
-  bytes.writeUInt32LE(8000, 24); bytes.writeUInt32LE(16000, 28); bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34);
-  bytes.write("data", 36); bytes.writeUInt32LE(dataBytes, 40);
+  bytes.write("RIFF", 0);
+  bytes.writeUInt32LE(36 + dataBytes, 4);
+  bytes.write("WAVE", 8);
+  bytes.write("fmt ", 12);
+  bytes.writeUInt32LE(16, 16);
+  bytes.writeUInt16LE(1, 20);
+  bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(8000, 24);
+  bytes.writeUInt32LE(16000, 28);
+  bytes.writeUInt16LE(2, 32);
+  bytes.writeUInt16LE(16, 34);
+  bytes.write("data", 36);
+  bytes.writeUInt32LE(dataBytes, 40);
   return bytes;
 }
 
@@ -59,7 +79,10 @@ test("real SQLite recovery is idempotent and projects one owner edge/backlink af
     resolveManagedDirectory: () => ({ kind: "ok", directory: managedDirectory }),
   });
   const prepared = firstMedia.prepareFile(sourcePath);
-  assert.throws(() => firstMedia.commit({ sessionId: prepared.sessionId, durationMs: 100 }), /injected media DB failure/);
+  assert.throws(
+    () => firstMedia.commit({ sessionId: prepared.sessionId, durationMs: 100 }),
+    /injected media DB failure/,
+  );
   assert.equal(firstDb.list("capture_entry").length, 0);
   firstDb.db.close();
 
@@ -83,15 +106,33 @@ test("real SQLite recovery is idempotent and projects one owner edge/backlink af
   assert.equal(artifact.source_type, "capture_entry");
   assert.equal(artifact.source_id, capture.id);
   assert.deepEqual(fs.readFileSync(artifact.stored_path), tinyPcmWav());
-  assert.ok(JSON.parse(workspace.change_events[0].receipt_json).changes.some((change) => change.type === "artifact"));
+  assert.ok(
+    JSON.parse(workspace.change_events[0].receipt_json).changes.some(
+      (change) => change.type === "artifact",
+    ),
+  );
 
-  const ownerEdges = projectContextGraph(workspace).edges.filter((edge) =>
-    edge.source.type === "artifact" && edge.source.id === artifact.id
-      && edge.target.type === "capture_entry" && edge.target.id === capture.id
-      && edge.predicate === "derived_from" && edge.origin === "artifact.source");
+  const ownerEdges = projectContextGraph(workspace).edges.filter(
+    (edge) =>
+      edge.source.type === "artifact" &&
+      edge.source.id === artifact.id &&
+      edge.target.type === "capture_entry" &&
+      edge.target.id === capture.id &&
+      edge.predicate === "derived_from" &&
+      edge.origin === "artifact.source",
+  );
   assert.equal(ownerEdges.length, 1);
-  const lineage = buildEntityLineage(workspace, { type: "artifact", id: artifact.id }, { maxDepth: 1 });
-  assert.equal(lineage.ancestors.filter((item) => item.ref.type === "capture_entry" && item.ref.id === capture.id).length, 1);
+  const lineage = buildEntityLineage(
+    workspace,
+    { type: "artifact", id: artifact.id },
+    { maxDepth: 1 },
+  );
+  assert.equal(
+    lineage.ancestors.filter(
+      (item) => item.ref.type === "capture_entry" && item.ref.id === capture.id,
+    ).length,
+    1,
+  );
 
   assert.deepEqual(reopenedMedia.recoverPending(), { recovered: 0, pending: 0 });
   assert.equal(reopenedDb.list("capture_entry").length, 1);
@@ -109,10 +150,50 @@ test("video imports persist once for Task, Note, Capture, and active Focus Note 
 
   const db = new WorkspaceDatabase(dbPath);
   const owners = [
-    { label: "Task", sourceType: "task", id: "task-1", entityType: "task", entity: { id: "task-1", title: "Legacy Task", state: "todo", project_id: null } },
-    { label: "Note", sourceType: "note", id: "note-1", entityType: "note", entity: { id: "note-1", title: "Evidence Note", body_markdown: "", project_id: null } },
-    { label: "Capture", sourceType: "capture_entry", id: "capture-1", entityType: "capture_entry", entity: { id: "capture-1", text: "Captured evidence", captured_at: "2026-08-09T00:00:00.000Z", state: "untriaged", project_id: null } },
-    { label: "Focus", sourceType: "note", id: "focus-note-1", entityType: "note", entity: { id: "focus-note-1", title: "Focus session", body_markdown: "", project_id: null, properties_json: JSON.stringify({ document_role: "focus_session", task_id: "task-1", session_state: "active" }) } },
+    {
+      label: "Task",
+      sourceType: "task",
+      id: "task-1",
+      entityType: "task",
+      entity: { id: "task-1", title: "Legacy Task", state: "todo", project_id: null },
+    },
+    {
+      label: "Note",
+      sourceType: "note",
+      id: "note-1",
+      entityType: "note",
+      entity: { id: "note-1", title: "Evidence Note", body_markdown: "", project_id: null },
+    },
+    {
+      label: "Capture",
+      sourceType: "capture_entry",
+      id: "capture-1",
+      entityType: "capture_entry",
+      entity: {
+        id: "capture-1",
+        text: "Captured evidence",
+        captured_at: "2026-08-09T00:00:00.000Z",
+        state: "untriaged",
+        project_id: null,
+      },
+    },
+    {
+      label: "Focus",
+      sourceType: "note",
+      id: "focus-note-1",
+      entityType: "note",
+      entity: {
+        id: "focus-note-1",
+        title: "Focus session",
+        body_markdown: "",
+        project_id: null,
+        properties_json: JSON.stringify({
+          document_role: "focus_session",
+          task_id: "task-1",
+          session_state: "active",
+        }),
+      },
+    },
   ];
   for (const owner of owners) db.save(owner.entityType, owner.entity);
   const commands = new ApplicationCommandService(db);
@@ -126,9 +207,30 @@ test("video imports persist once for Task, Note, Capture, and active Focus Note 
   for (const [ownerIndex, owner] of owners.entries()) {
     for (const [storageIndex, storageMode] of ["managed", "linked"].entries()) {
       const sourcePath = path.join(root, `owner-${ownerIndex}-${storageMode}.webm`);
-      fs.writeFileSync(sourcePath, Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.from(`tasken-${owner.label}-${storageMode}`)]));
-      const prepared = media.prepareVideoFile(sourcePath, { storageMode, sourceType: owner.sourceType, sourceId: owner.id });
-      committed.push({ owner, storageMode, sourcePath, prepared, result: media.commitVideo({ sessionId: prepared.sessionId, durationMs: 1000 + ownerIndex * 2 + storageIndex, widthPx: 640, heightPx: 360 }) });
+      fs.writeFileSync(
+        sourcePath,
+        Buffer.concat([
+          Buffer.from([0x1a, 0x45, 0xdf, 0xa3]),
+          Buffer.from(`tasken-${owner.label}-${storageMode}`),
+        ]),
+      );
+      const prepared = media.prepareVideoFile(sourcePath, {
+        storageMode,
+        sourceType: owner.sourceType,
+        sourceId: owner.id,
+      });
+      committed.push({
+        owner,
+        storageMode,
+        sourcePath,
+        prepared,
+        result: media.commitVideo({
+          sessionId: prepared.sessionId,
+          durationMs: 1000 + ownerIndex * 2 + storageIndex,
+          widthPx: 640,
+          heightPx: 360,
+        }),
+      });
     }
   }
   assert.equal(db.list("artifact").length, 8);
@@ -146,7 +248,9 @@ test("video imports persist once for Task, Note, Capture, and active Focus Note 
     assert.equal("captureId" in result.publicResult, false);
     assert.equal(result.publicResult.sourceType, owner.sourceType);
     assert.equal(result.publicResult.sourceId, owner.id);
-    const artifact = workspace.artifacts.find((entry) => entry.id === result.publicResult.artifactId);
+    const artifact = workspace.artifacts.find(
+      (entry) => entry.id === result.publicResult.artifactId,
+    );
     assert.ok(artifact, owner.label);
     assert.equal(artifact.storage_mode, storageMode);
     assert.equal(Object.hasOwn(artifact, "capture_method"), false);
@@ -156,13 +260,31 @@ test("video imports persist once for Task, Note, Capture, and active Focus Note 
     assert.equal(Object.hasOwn(projected, "target"), false);
     assert.equal(Object.hasOwn(projected, "stored_path"), false);
     assert.equal(Object.hasOwn(projected, "linked_source_real_path"), false);
-    assert.equal(graph.edges.filter((edge) => (
-      edge.source.type === "artifact" && edge.source.id === artifact.id
-      && edge.target.type === owner.entityType && edge.target.id === owner.id
-      && edge.predicate === "derived_from" && edge.origin === "artifact.source"
-    )).length, 1, owner.label);
-    const lineage = buildEntityLineage(workspace, { type: "artifact", id: artifact.id }, { maxDepth: 1 });
-    assert.equal(lineage.ancestors.filter((item) => item.ref.type === owner.entityType && item.ref.id === owner.id).length, 1, owner.label);
+    assert.equal(
+      graph.edges.filter(
+        (edge) =>
+          edge.source.type === "artifact" &&
+          edge.source.id === artifact.id &&
+          edge.target.type === owner.entityType &&
+          edge.target.id === owner.id &&
+          edge.predicate === "derived_from" &&
+          edge.origin === "artifact.source",
+      ).length,
+      1,
+      owner.label,
+    );
+    const lineage = buildEntityLineage(
+      workspace,
+      { type: "artifact", id: artifact.id },
+      { maxDepth: 1 },
+    );
+    assert.equal(
+      lineage.ancestors.filter(
+        (item) => item.ref.type === owner.entityType && item.ref.id === owner.id,
+      ).length,
+      1,
+      owner.label,
+    );
   }
   assert.equal(workspace.references.length, 0);
   reopened.db.close();
@@ -188,9 +310,20 @@ test("screen recording provenance persists on only its Video Artifact after SQLi
   });
   const started = media.startRecording({ mediaKind: "video", mimeType: "video/webm" });
   currentNow = "2026-08-09T00:00:01.000Z";
-  media.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(tinyWebm("screen-provenance")) });
+  media.appendRecordingChunk({
+    sessionId: started.sessionId,
+    sequence: 0,
+    chunk: asArrayBuffer(tinyWebm("screen-provenance")),
+  });
   const prepared = media.stopRecording(started.sessionId);
-  const committed = media.commitVideo({ sessionId: prepared.sessionId, durationMs: prepared.durationMs, widthPx: 1280, heightPx: 720, sourceType: "task", sourceId: "task-1" });
+  const committed = media.commitVideo({
+    sessionId: prepared.sessionId,
+    durationMs: prepared.durationMs,
+    widthPx: 1280,
+    heightPx: 720,
+    sourceType: "task",
+    sourceId: "task-1",
+  });
   db.db.close();
 
   const reopened = new WorkspaceDatabase(dbPath);
@@ -224,8 +357,21 @@ test("managed and linked video DB failures recover idempotently in real SQLite",
       commands: { executeMediaCapture: (command) => firstCommands.executeMediaCapture(command) },
       resolveManagedDirectory: () => ({ kind: "ok", directory: managedDirectory }),
     });
-    const prepared = firstMedia.prepareVideoFile(sourcePath, { storageMode, sourceType: "task", sourceId: "task-1" });
-    assert.throws(() => firstMedia.commitVideo({ sessionId: prepared.sessionId, durationMs: 900, widthPx: 320, heightPx: 180 }), /injected video DB failure/);
+    const prepared = firstMedia.prepareVideoFile(sourcePath, {
+      storageMode,
+      sourceType: "task",
+      sourceId: "task-1",
+    });
+    assert.throws(
+      () =>
+        firstMedia.commitVideo({
+          sessionId: prepared.sessionId,
+          durationMs: 900,
+          widthPx: 320,
+          heightPx: 180,
+        }),
+      /injected video DB failure/,
+    );
     assert.equal(firstDb.list("artifact").length, 0);
     assert.equal(firstDb.list("change_event").length, 0);
     firstDb.db.close();
@@ -263,7 +409,13 @@ test("Capture to Task transfer preserves managed video storage identity and owne
   const db = new WorkspaceDatabase(dbPath);
   db.save("project", { id: "theme-personal-default", name: "Personal", state: "active" });
   db.save("theme", { id: "theme-personal-default", name: "Personal" });
-  const capture = db.save("capture_entry", { id: "capture-1", text: "Video capture", captured_at: "2026-08-09T00:00:00.000Z", state: "untriaged", project_id: "theme-personal-default" });
+  const capture = db.save("capture_entry", {
+    id: "capture-1",
+    text: "Video capture",
+    captured_at: "2026-08-09T00:00:00.000Z",
+    state: "untriaged",
+    project_id: "theme-personal-default",
+  });
   const commands = new ApplicationCommandService(db);
   const media = new MediaCaptureService({
     userDataPath,
@@ -271,8 +423,17 @@ test("Capture to Task transfer preserves managed video storage identity and owne
     commands: { executeMediaCapture: (command) => commands.executeMediaCapture(command) },
     resolveManagedDirectory: () => ({ kind: "ok", directory: managedDirectory }),
   });
-  const prepared = media.prepareVideoFile(sourcePath, { storageMode: "managed", sourceType: "capture_entry", sourceId: capture.id });
-  const committed = media.commitVideo({ sessionId: prepared.sessionId, durationMs: 1200, widthPx: 640, heightPx: 360 });
+  const prepared = media.prepareVideoFile(sourcePath, {
+    storageMode: "managed",
+    sourceType: "capture_entry",
+    sourceId: capture.id,
+  });
+  const committed = media.commitVideo({
+    sessionId: prepared.sessionId,
+    durationMs: 1200,
+    widthPx: 640,
+    heightPx: 360,
+  });
   const artifactBefore = db.get("artifact", committed.publicResult.artifactId);
   const taskId = randomUUID();
   commands.execute({
@@ -314,10 +475,27 @@ test("Capture to Task transfer preserves managed video storage identity and owne
   fs.closeSync(resolution.fileDescriptor);
   const workspace = reopened.loadWorkspace();
   const graph = projectContextGraph(workspace);
-  assert.equal(graph.edges.filter((edge) => edge.source.type === "artifact" && edge.source.id === artifactBefore.id
-    && edge.target.type === "task" && edge.target.id === taskId && edge.predicate === "derived_from").length, 1);
-  assert.equal(graph.edges.filter((edge) => edge.source.type === "artifact" && edge.source.id === artifactBefore.id
-    && edge.target.type === "capture_entry" && edge.target.id === capture.id).length, 0);
+  assert.equal(
+    graph.edges.filter(
+      (edge) =>
+        edge.source.type === "artifact" &&
+        edge.source.id === artifactBefore.id &&
+        edge.target.type === "task" &&
+        edge.target.id === taskId &&
+        edge.predicate === "derived_from",
+    ).length,
+    1,
+  );
+  assert.equal(
+    graph.edges.filter(
+      (edge) =>
+        edge.source.type === "artifact" &&
+        edge.source.id === artifactBefore.id &&
+        edge.target.type === "capture_entry" &&
+        edge.target.id === capture.id,
+    ).length,
+    0,
+  );
   assert.equal(workspace.references.length, 0);
   reopened.db.close();
 });
@@ -341,10 +519,19 @@ test("紐づけ先未選択の画面録画は実DBでCaptureEntryごと確定し
   });
   const started = media.startRecording({ mediaKind: "video", mimeType: "video/webm" });
   currentNow = "2026-08-09T00:00:01.000Z";
-  media.appendRecordingChunk({ sessionId: started.sessionId, sequence: 0, chunk: asArrayBuffer(tinyWebm("screen-inbox")) });
+  media.appendRecordingChunk({
+    sessionId: started.sessionId,
+    sequence: 0,
+    chunk: asArrayBuffer(tinyWebm("screen-inbox")),
+  });
   const prepared = media.stopRecording(started.sessionId);
   // ownerを渡さない。既定のInbox行きが実Command経由で通ることを確かめる。
-  const committed = media.commitVideo({ sessionId: prepared.sessionId, durationMs: prepared.durationMs, widthPx: 1280, heightPx: 720 });
+  const committed = media.commitVideo({
+    sessionId: prepared.sessionId,
+    durationMs: prepared.durationMs,
+    widthPx: 1280,
+    heightPx: 720,
+  });
   db.db.close();
 
   const reopened = new WorkspaceDatabase(dbPath);

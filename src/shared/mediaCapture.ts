@@ -40,7 +40,8 @@ export interface ScreenRecordingStartRequest {
   themeId?: string | null;
 }
 
-export type MediaRecordingStartRequest = MicrophoneRecordingStartRequest | ScreenRecordingStartRequest;
+export type MediaRecordingStartRequest =
+  MicrophoneRecordingStartRequest | ScreenRecordingStartRequest;
 
 export interface MediaRecordingStarted {
   sessionId: string;
@@ -76,7 +77,15 @@ export interface AudioCapturePrepared {
   mediaUrl: string;
   status: "ready" | "recovery_required";
   availability: MediaAvailability;
-  recoveryReason?: "manifest_invalid" | "media_missing" | "media_changed" | "unsafe_source" | "unsupported_codec" | "commit_failed" | "recovery_pending" | "recording_interrupted";
+  recoveryReason?:
+    | "manifest_invalid"
+    | "media_missing"
+    | "media_changed"
+    | "unsafe_source"
+    | "unsupported_codec"
+    | "commit_failed"
+    | "recovery_pending"
+    | "recording_interrupted";
   durationMs?: number;
   canCommit: boolean;
   canRetry: boolean;
@@ -105,8 +114,7 @@ export interface VideoImportPrepared extends AudioCapturePrepared {
 }
 
 export type VideoImportPrepareResult =
-  | { canceled: true }
-  | ({ canceled: false } & VideoImportPrepared);
+  { canceled: true } | ({ canceled: false } & VideoImportPrepared);
 
 export interface VideoImportCommitRequest {
   sessionId: string;
@@ -165,8 +173,7 @@ export interface MediaArtifactInspection {
 }
 
 export type AudioCapturePrepareResult =
-  | { canceled: true }
-  | ({ canceled: false } & AudioCapturePrepared);
+  { canceled: true } | ({ canceled: false } & AudioCapturePrepared);
 
 export interface AudioCaptureCommitRequest {
   sessionId: string;
@@ -186,7 +193,11 @@ export interface AudioCaptureCancelRequest {
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function requireExactObject(value: unknown, allowedKeys: readonly string[], label: string): Record<string, unknown> {
+function requireExactObject(
+  value: unknown,
+  allowedKeys: readonly string[],
+  label: string,
+): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} requestが不正です。画面を再読み込みして、もう一度試してください。`);
   }
@@ -222,9 +233,9 @@ export function parseAudioCapturePrepareRequest(value: unknown): AudioCapturePre
   const input = requireExactObject(value, ["themeId"], "音声Capture prepare");
   if (input.themeId === undefined || input.themeId === null || input.themeId === "") return {};
   if (
-    typeof input.themeId !== "string"
-    || input.themeId !== input.themeId.trim()
-    || (!UUID_PATTERN.test(input.themeId) && input.themeId !== PERSONAL_DEFAULT_THEME_ID)
+    typeof input.themeId !== "string" ||
+    input.themeId !== input.themeId.trim() ||
+    (!UUID_PATTERN.test(input.themeId) && input.themeId !== PERSONAL_DEFAULT_THEME_ID)
   ) {
     throw new Error("音声CaptureのTheme IDが不正です。");
   }
@@ -233,20 +244,40 @@ export function parseAudioCapturePrepareRequest(value: unknown): AudioCapturePre
 
 export function parseMediaRecordingStartRequest(value: unknown): MediaRecordingStartRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("media recording start requestが不正です。画面を再読み込みして、もう一度試してください。");
+    throw new Error(
+      "media recording start requestが不正です。画面を再読み込みして、もう一度試してください。",
+    );
   }
   const mediaKind = (value as Record<string, unknown>).mediaKind;
   if (mediaKind === "audio") {
-    const input = requireExactObject(value, ["mediaKind", "themeId", "mimeType"], "media recording start");
+    const input = requireExactObject(
+      value,
+      ["mediaKind", "themeId", "mimeType"],
+      "media recording start",
+    );
     const theme = parseAudioCapturePrepareRequest({ themeId: input.themeId });
-    if (typeof input.mimeType !== "string" || !MICROPHONE_RECORDING_MIME_TYPES.includes(input.mimeType as MicrophoneRecordingMimeType)) {
+    if (
+      typeof input.mimeType !== "string" ||
+      !MICROPHONE_RECORDING_MIME_TYPES.includes(input.mimeType as MicrophoneRecordingMimeType)
+    ) {
       throw new Error("対応していない録音形式です。アプリを再起動して、もう一度試してください。");
     }
-    return { ...theme, mediaKind: "audio", mimeType: input.mimeType as MicrophoneRecordingMimeType };
+    return {
+      ...theme,
+      mediaKind: "audio",
+      mimeType: input.mimeType as MicrophoneRecordingMimeType,
+    };
   }
   if (mediaKind === "video") {
-    const input = requireExactObject(value, ["mediaKind", "mimeType", "themeId"], "screen recording start");
-    if (typeof input.mimeType !== "string" || !SCREEN_RECORDING_MIME_TYPES.includes(input.mimeType as ScreenRecordingMimeType)) {
+    const input = requireExactObject(
+      value,
+      ["mediaKind", "mimeType", "themeId"],
+      "screen recording start",
+    );
+    if (
+      typeof input.mimeType !== "string" ||
+      !SCREEN_RECORDING_MIME_TYPES.includes(input.mimeType as ScreenRecordingMimeType)
+    ) {
       throw new Error("対応していない画面録画形式です。Windows版Taskenを再起動してください。");
     }
     const theme = parseAudioCapturePrepareRequest({ themeId: input.themeId });
@@ -256,14 +287,22 @@ export function parseMediaRecordingStartRequest(value: unknown): MediaRecordingS
 }
 
 export function parseMediaRecordingAppendRequest(value: unknown): MediaRecordingAppendRequest {
-  const input = requireExactObject(value, ["sessionId", "sequence", "chunk"], "microphone recording append");
+  const input = requireExactObject(
+    value,
+    ["sessionId", "sequence", "chunk"],
+    "microphone recording append",
+  );
   if (!Number.isSafeInteger(input.sequence) || Number(input.sequence) < 0) {
     throw new Error("録音chunkの順序が不正です。録音を停止し、保存待ち音声を確認してください。");
   }
   if (!(input.chunk instanceof ArrayBuffer)) {
     throw new Error("録音chunkが不正です。録音を停止し、もう一度試してください。");
   }
-  return { sessionId: requireSessionId(input.sessionId), sequence: Number(input.sequence), chunk: input.chunk };
+  return {
+    sessionId: requireSessionId(input.sessionId),
+    sequence: Number(input.sequence),
+    chunk: input.chunk,
+  };
 }
 
 export function parseMediaRecordingControlRequest(value: unknown): MediaRecordingControlRequest {
@@ -291,11 +330,18 @@ export function parseAudioCaptureCancelRequest(value: unknown): AudioCaptureCanc
 }
 
 export function parseVideoImportPrepareRequest(value: unknown): VideoImportPrepareRequest {
-  const input = requireExactObject(value, ["storageMode", "sourceType", "sourceId"], "動画Import prepare");
+  const input = requireExactObject(
+    value,
+    ["storageMode", "sourceType", "sourceId"],
+    "動画Import prepare",
+  );
   if (input.storageMode !== "managed" && input.storageMode !== "linked") {
     throw new Error("動画Importのstorage modeが不正です。");
   }
-  if (typeof input.sourceType !== "string" || !VIDEO_ARTIFACT_SOURCE_TYPES.includes(input.sourceType as VideoArtifactSourceType)) {
+  if (
+    typeof input.sourceType !== "string" ||
+    !VIDEO_ARTIFACT_SOURCE_TYPES.includes(input.sourceType as VideoArtifactSourceType)
+  ) {
     throw new Error("動画Importの添付先種別が不正です。");
   }
   return {
@@ -306,10 +352,19 @@ export function parseVideoImportPrepareRequest(value: unknown): VideoImportPrepa
 }
 
 export function parseVideoImportCommitRequest(value: unknown): VideoImportCommitRequest {
-  const input = requireExactObject(value, ["sessionId", "durationMs", "widthPx", "heightPx", "sourceType", "sourceId"], "動画Import commit");
+  const input = requireExactObject(
+    value,
+    ["sessionId", "durationMs", "widthPx", "heightPx", "sourceType", "sourceId"],
+    "動画Import commit",
+  );
   for (const field of ["durationMs", "widthPx", "heightPx"] as const) {
     const maximum = field === "durationMs" ? 7 * 24 * 60 * 60 * 1000 : 16_384;
-    if (!Number.isSafeInteger(input[field]) || Number(input[field]) < 0 || Number(input[field]) > maximum || (field !== "durationMs" && Number(input[field]) === 0)) {
+    if (
+      !Number.isSafeInteger(input[field]) ||
+      Number(input[field]) < 0 ||
+      Number(input[field]) > maximum ||
+      (field !== "durationMs" && Number(input[field]) === 0)
+    ) {
       throw new Error(`動画Importの${field}が不正です。動画を読み直してください。`);
     }
   }
@@ -319,7 +374,11 @@ export function parseVideoImportCommitRequest(value: unknown): VideoImportCommit
     throw new Error("動画の紐づけ先が中途半端です。保存先を選び直してください。");
   }
   const owner = hasOwner
-    ? parseVideoImportPrepareRequest({ storageMode: "managed", sourceType: input.sourceType, sourceId: input.sourceId })
+    ? parseVideoImportPrepareRequest({
+        storageMode: "managed",
+        sourceType: input.sourceType,
+        sourceId: input.sourceId,
+      })
     : null;
   return {
     sessionId: requireSessionId(input.sessionId),
@@ -341,7 +400,11 @@ export function parseVideoTrimSourceRequest(value: unknown): MediaArtifactOpenRe
 }
 
 export function parseVideoTrimExportRequest(value: unknown): VideoTrimExportRequest {
-  const input = requireExactObject(value, ["operationId", "destinationArtifactId", "trimPlan"], "動画trim export");
+  const input = requireExactObject(
+    value,
+    ["operationId", "destinationArtifactId", "trimPlan"],
+    "動画trim export",
+  );
   // 詳細なrevision・範囲検証はscreenRecordingEditの共有契約をMainでも再実行する。
   return input as unknown as VideoTrimExportRequest;
 }
