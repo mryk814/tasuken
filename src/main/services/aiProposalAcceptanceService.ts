@@ -777,6 +777,14 @@ export class AiProposalAcceptanceService {
             : "partially_accepted";
       if (payload.proposal.status !== expectedStatus)
         throw new Error("Content Proposal statusがentry decisionと一致しません。");
+      // Knowledge の節と線は入力を外した（#755 束8）。画面は見送りしか送らないが、ほかの道から
+      // 採る判断が届いても、記録を増やさない。見送り（reject・ignore）は今までどおり受ける。
+      if (
+        selectedCandidates.some(
+          (candidate) => candidate.type === "knowledge_node" || candidate.type === "knowledge_edge",
+        )
+      )
+        throw new Error("Knowledgeの節と線は採れません。見送ってください。");
       const acceptedNote = selectedCandidates.find((candidate) => candidate.type === "note");
       if (acceptedNote && noteImageManifest !== null) {
         if (!this.artifacts.verifyProposalMarkdownImages) {

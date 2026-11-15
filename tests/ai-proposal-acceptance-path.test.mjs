@@ -102,6 +102,8 @@ const {
   stabilizeProposalOperations,
 } = await importBundled("src/renderer/src/features/workspace/components/AiProposalPanel.tsx");
 
+const SKETCH_SVG = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>';
+
 function root() {
   return fs.mkdtempSync(path.join(process.cwd(), ".tasken-ai-acceptance-"));
 }
@@ -210,7 +212,10 @@ function noteCandidates(proposal, notes) {
   );
 }
 
-test("preview candidates commit entities, relation, Activity events and exactly-once receipt through ApplyAiProposal", () => {
+// 受け取りが一度きりであることを見る試験。#755 束8 までは Knowledge の節と線の案で見ていたが、
+// Knowledge は採れなくなったので、複数の候補を持てて、画面の値を正本から組み直す手書きの案で見る
+// （Note の案は 1 件ずつなので使えない）。
+test("preview candidates commit entities, Activity events and exactly-once receipt through ApplyAiProposal", () => {
   const directory = root();
   const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
   try {
@@ -218,77 +223,33 @@ test("preview candidates commit entities, relation, Activity events and exactly-
       id: "proposal-preview-path",
       source: "mcp",
       source_app: "fixture",
-      payload_type: "knowledge_nodes",
+      payload_type: "sketches",
       payload: {
-        knowledge_nodes: [
-          { action: "create", temp_id: "claim", title: "Claim", body: "C", node_type: "claim" },
-          {
-            action: "create",
-            temp_id: "evidence",
-            title: "Evidence",
-            body: "E",
-            node_type: "evidence",
-          },
-        ],
-        knowledge_edges: [
-          {
-            action: "create",
-            source_temp_id: "evidence",
-            target_temp_id: "claim",
-            relation_type: "supports",
-          },
+        sketches: [
+          { action: "create", title: "Claim", svg: SKETCH_SVG },
+          { action: "create", title: "Evidence", svg: SKETCH_SVG },
         ],
       },
-      request: { tool: "tasken.propose_knowledge" },
+      request: { tool: "tasken.propose_sketch" },
       status: "pending",
       received_at: "2026-08-21T00:00:00.000Z",
     });
-    const preview = buildPreview(proposal, {
-      data: { knowledge_nodes: [], knowledge_edges: [] },
-      themes: [],
-      items: [],
-    });
-    // 画面は Knowledge の節と線を採らなくなった（#755 束8）。前の版が受け取った案は、中身を見せて
-    // 見送るだけにする。採る口は Main に残っているので、受け取りが一度きりであることは、画面を
-    // 通さずに、同じ形の候補を手元で組み立てて確かめる。
+    const preview = buildPreview(proposal, { data: {}, themes: [], items: [] });
+    const firstOperations = stabilizeProposalOperations(
+      proposal.id,
+      buildCandidateOperations(preview.candidates),
+    );
+    const secondOperations = stabilizeProposalOperations(
+      proposal.id,
+      buildCandidateOperations(preview.candidates),
+    );
     assert.deepEqual(
-      preview.candidates.map((candidate) => [candidate.type, candidate.action]),
-      [
-        ["knowledge_node", "ignore"],
-        ["knowledge_node", "ignore"],
-        ["knowledge_edge", "ignore"],
-      ],
+      firstOperations.map((operation) => operation.entity.id),
+      secondOperations.map((operation) => operation.entity.id),
     );
-    assert.deepEqual(buildCandidateOperations(preview.candidates), []);
-    assert.match(preview.payloadIssues.join(" / "), /Knowledgeの節と線は採れません/);
-    const nodeIds = [0, 1].map((index) =>
-      stableProposalEntityId(proposal.id, "knowledge_node", index),
-    );
-    const firstOperations = [
-      {
-        type: "knowledge_node",
-        entity: { id: nodeIds[0], node_type: "claim", title: "Claim", body: "C" },
-      },
-      {
-        type: "knowledge_node",
-        entity: { id: nodeIds[1], node_type: "evidence", title: "Evidence", body: "E" },
-      },
-      {
-        type: "knowledge_edge",
-        entity: {
-          id: stableProposalEntityId(proposal.id, "knowledge_edge", 2),
-          source_node_id: nodeIds[1],
-          target_node_id: nodeIds[0],
-          relation_type: "supports",
-        },
-      },
-    ];
     const candidates = firstOperations.map((operation) => ({
       type: operation.type,
-      entity:
-        operation.type === "knowledge_node"
-          ? { ...operation.entity, title: "Renderer forged title", body: "Renderer forged body" }
-          : operation.entity,
+      entity: { ...operation.entity, title: "Renderer forged title", document: { forged: true } },
     }));
     const commands = new ApplicationCommandService(database);
     const acceptance = new AiProposalAcceptanceService(
@@ -304,23 +265,21 @@ test("preview candidates commit entities, relation, Activity events and exactly-
     const command = envelope(proposal, candidates);
     const first = acceptance.execute(command);
     const counts = {
-      nodes: database.list("knowledge_node").length,
-      edges: database.list("knowledge_edge").length,
+      sketches: database.list("sketch").length,
       events: database.list("change_event").length,
     };
     assert.equal(first.status, "applied");
-    assert.equal(counts.nodes, 2);
+    assert.equal(counts.sketches, 2);
     assert.deepEqual(
       database
-        .list("knowledge_node")
+        .list("sketch")
         .map((entry) => entry.title)
         .sort(),
       ["Claim", "Evidence"],
     );
-    assert.equal(counts.edges, 1);
     assert.equal(database.get("ai_proposal", proposal.id).status, "accepted");
-    assert.equal(counts.events, 4);
-    assert.equal(first.events.length, 4);
+    assert.equal(counts.events, 3);
+    assert.equal(first.events.length, 3);
     const eventVersionsBeforeReplay = first.events.map(
       (id) => database.get("change_event", id, true).version,
     );
@@ -334,8 +293,7 @@ test("preview candidates commit entities, relation, Activity events and exactly-
     );
     assert.deepEqual(
       {
-        nodes: database.list("knowledge_node").length,
-        edges: database.list("knowledge_edge").length,
+        sketches: database.list("sketch").length,
         events: database.list("change_event").length,
       },
       counts,
@@ -1357,34 +1315,36 @@ test("typed decisions preserve partial and rejected states with exactly-once rec
       id: "proposal-partial-decisions",
       source: "mcp",
       source_app: "fixture",
-      payload_type: "knowledge_nodes",
+      // #755 束8 までは Knowledge の節の案で見ていた。Knowledge は採れなくなったので、複数の
+      // 候補を持てる手書きの案で見る。
+      payload_type: "sketches",
       payload: {
-        knowledge_nodes: [
-          { action: "create", title: "Accepted", body: "A", node_type: "insight" },
-          { action: "create", title: "Ignored", body: "B", node_type: "insight" },
+        sketches: [
+          { action: "create", title: "Accepted", svg: SKETCH_SVG },
+          { action: "create", title: "Ignored", svg: SKETCH_SVG },
         ],
       },
-      request: { tool: "tasken.propose_knowledge" },
+      request: { tool: "tasken.propose_sketch" },
       status: "pending",
       received_at: "2026-08-21T02:00:00.000Z",
     });
     const acceptedCandidate = {
-      type: "knowledge_node",
-      entity: { id: stableProposalEntityId(partialProposal.id, "knowledge_node", 0) },
+      type: "sketch",
+      entity: { id: stableProposalEntityId(partialProposal.id, "sketch", 0) },
     };
     const partialCommand = envelope(
       partialProposal,
       [acceptedCandidate],
       [
-        { entryIndex: 0, type: "knowledge_node", action: "accept" },
-        { entryIndex: 1, type: "knowledge_node", action: "ignore" },
+        { entryIndex: 0, type: "sketch", action: "accept" },
+        { entryIndex: 1, type: "sketch", action: "ignore" },
       ],
     );
     partialCommand.payload.proposal.status = "partially_accepted";
     const partialReceipt = acceptance.execute(partialCommand);
     assert.equal(database.get("ai_proposal", partialProposal.id).status, "partially_accepted");
     assert.deepEqual(
-      database.list("knowledge_node").map((entry) => entry.title),
+      database.list("sketch").map((entry) => entry.title),
       ["Accepted"],
     );
     const partialEvents = database.list("change_event").length;
@@ -1412,7 +1372,8 @@ test("typed decisions preserve partial and rejected states with exactly-once rec
     rejectCommand.payload.proposal.status = "rejected";
     const rejectReceipt = acceptance.execute(rejectCommand);
     assert.equal(database.get("ai_proposal", rejectedProposal.id).status, "rejected");
-    assert.equal(database.list("knowledge_node").length, 1);
+    assert.equal(database.list("knowledge_node").length, 0);
+    assert.equal(database.list("sketch").length, 1);
     const rejectEvents = database.list("change_event").length;
     assert.deepEqual(acceptance.execute(rejectCommand).events, rejectReceipt.events);
     assert.equal(database.list("change_event").length, rejectEvents);
@@ -1918,6 +1879,76 @@ test("the screen can only dismiss a Knowledge proposal, and dismissing it leaves
     assert.equal(database.get("ai_proposal", proposal.id).status, "rejected");
     assert.equal(database.list("knowledge_node").length, 0);
     assert.equal(database.list("knowledge_edge").length, 0);
+  } finally {
+    database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+// #755 束8。画面は Knowledge の案を見送るしか送らないが、採る判断が届いても Main が断る。
+test("Main refuses to accept Knowledge nodes or edges and keeps the proposal pending", () => {
+  const directory = root();
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  const acceptance = new AiProposalAcceptanceService(
+    new ApplicationCommandService(database),
+    {
+      materializeArtifactProposal() {
+        throw new Error("unexpected artifact");
+      },
+      rollbackMaterializedArtifactProposal() {},
+    },
+    database,
+  );
+  try {
+    const proposal = database.save("ai_proposal", {
+      id: "proposal-knowledge-accept-refused",
+      source: "mcp",
+      source_app: "fixture",
+      payload_type: "knowledge_nodes",
+      payload: {
+        knowledge_nodes: [
+          { action: "create", temp_id: "claim", title: "Claim", body: "C", node_type: "claim" },
+          { action: "create", temp_id: "evidence", title: "Evidence", node_type: "evidence" },
+        ],
+        knowledge_edges: [
+          {
+            action: "create",
+            source_temp_id: "evidence",
+            target_temp_id: "claim",
+            relation_type: "supports",
+          },
+        ],
+      },
+      request: { tool: "tasken.propose_knowledge" },
+      status: "pending",
+      received_at: "2026-11-15T01:00:00.000Z",
+    });
+    const nodeId = (index) => stableProposalEntityId(proposal.id, "knowledge_node", index);
+    const all = [
+      { type: "knowledge_node", entity: { id: nodeId(0) } },
+      { type: "knowledge_node", entity: { id: nodeId(1) } },
+      {
+        type: "knowledge_edge",
+        entity: { id: stableProposalEntityId(proposal.id, "knowledge_edge", 2) },
+      },
+    ];
+    // 全部を採る、節を 1 つだけ採る、のどちらも断る。
+    const partial = envelope(
+      proposal,
+      [all[0]],
+      [
+        { entryIndex: 0, type: "knowledge_node", action: "accept" },
+        { entryIndex: 1, type: "knowledge_node", action: "ignore" },
+        { entryIndex: 2, type: "knowledge_edge", action: "ignore" },
+      ],
+    );
+    partial.payload.proposal.status = "partially_accepted";
+    for (const command of [envelope(proposal, all), partial]) {
+      assert.throws(() => acceptance.execute(command), /Knowledgeの節と線は採れません/);
+    }
+    assert.equal(database.list("knowledge_node").length, 0);
+    assert.equal(database.list("knowledge_edge").length, 0);
+    assert.equal(database.get("ai_proposal", proposal.id).status, "pending");
   } finally {
     database.db.close();
     fs.rmSync(directory, { recursive: true, force: true });
