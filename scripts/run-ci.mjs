@@ -20,6 +20,9 @@ const steps = [
   ["Renderer and main build", "build", []],
   ["Focused Electron smoke", "smoke:desktop:focused", []],
   ["Live MCP Proposal Electron smoke", "smoke:proposal-live:focused", []],
+  // Release の時だけ流れていた日誌の実画面の smoke。画面の言葉や AI の作業の見せ方を変えると、ここで先に落ちる
+  // （v0.1.92 は Release の段で初めて落ちた。FAILURES.md 2026-11-16）。
+  ["Activity Electron smoke", "smoke:activity:focused", []],
 ];
 
 function runSteps() {

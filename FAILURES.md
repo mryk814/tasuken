@@ -2,6 +2,14 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-16 v0.1.92 の Release が、Release の時だけ流れる日誌の smoke で落ちた
+
+- しようとしたこと: #751 PR 2（AI の作業を同じカードで読む）などを入れた main（`npm run ci` 通過）に v0.1.92 のタグを付けて Release する。
+- 起きたこと: Windows release の `smoke:activity:packaged` が `Fixture row must match time/origin/title exactly once: 08:30–11:00 (終了) / Codex / 集中実験と解析` で落ちた。Release は作られず、タグ v0.1.92 だけが残った。
+- 原因: PR 2 で日誌のカードの題が「最初の依頼」から「要約」になり、時刻の後ろの「(終了)」も無くなった。日誌の実画面の smoke（`scripts/activity-electron-smoke.mjs`）は Release の時にしか流れず、`npm run ci` では誰も見ていなかった（v0.1.89 の帯の文と同じ型の取りこぼし）。
+- 直し方: 期待する行を今の見せ方（題は要約、時刻に「(終了)」なし）に直した。タグは動かさず v0.1.93 を切った。
+- 再発防止: `smoke:activity:focused`（開発の build で同じ台本を流す）を足し、`scripts/run-ci.mjs` の段に入れた。画面の言葉や見せ方を変えると `npm run ci` で先に落ちる。
+
 ## 2026-11-16 行番号で範囲を消したら、範囲の端を 1 行ずらして、閉じ括弧や次の関数の頭を消した
 
 - しようとしたこと: #755 束8（棚卸し）で、CRLF を保ったまま大きな塊（ドロワーの関数、CSS、Data Health の口）を消すために、行番号の範囲を渡して消す小さな script を使った。
