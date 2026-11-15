@@ -97,6 +97,8 @@ function seedVoice(database, { captureId, artifactId, title, revisions, deleted 
     transcription_revisions: revisions,
     created_at: "2026-08-09T09:00:00.000Z",
     updated_at: "2026-08-09T10:05:00.000Z",
+    // 録音を消した形（付箋と添付の両方）。添付が生きている形は別の試験で見る。
+    ...(deleted ? { deleted_at: "2026-10-01T00:00:00.000Z" } : {}),
   });
 }
 
@@ -286,4 +288,85 @@ test("同じ題名と日付の文字起こしも、1 件ずつ別のファイル
     buildTranscriptionExport(database).map((document) => document.baseName),
     ["文字起こし - 同じ題名 - 2026-08-09", "文字起こし - 同じ題名 - 2026-08-09 [2]"],
   );
+});
+
+test("付箋を消しても、Task に付け替えて生きている添付の文字起こしは書き出す（付箋の題名は出さない）", async (t) => {
+  const context = await setup(t);
+  context.database.save("capture_entry", {
+    id: "capture-moved",
+    title: "消した付箋の題名",
+    transcription_revisions: [revision("rev-moved", "completed", "添付に残った本文")],
+    updated_at: "2026-08-09T10:05:00.000Z",
+    deleted_at: "2026-10-01T00:00:00.000Z",
+  });
+  context.database.save("artifact", {
+    id: "artifact-moved",
+    title: "Task の音声",
+    filename: "task-voice.webm",
+    source_type: "task",
+    source_id: "task-1",
+    media_kind: "audio",
+    transcription_revisions: [revision("rev-moved", "completed", "添付に残った本文")],
+    updated_at: "2026-08-09T10:05:00.000Z",
+  });
+  // 添付の写ししか無く、添付を消した物は出ない。
+  context.database.save("artifact", {
+    id: "artifact-gone",
+    title: "消した添付",
+    source_type: "task",
+    source_id: "task-1",
+    transcription_revisions: [revision("rev-artifact-gone", "completed", "出てはいけない本文")],
+    deleted_at: "2026-10-01T00:00:00.000Z",
+  });
+
+  const { result } = run(context, { syncRoot: "" });
+
+  assert.equal(result.state, "done");
+  assert.deepEqual(names(context.userDataExports), ["文字起こし - Task の音声 - 2026-08-09.md"]);
+  const markdown = fs.readFileSync(
+    path.join(context.userDataExports, "文字起こし - Task の音声 - 2026-08-09.md"),
+    "utf8",
+  );
+  assert.match(markdown, /添付に残った本文/u);
+  assert.match(markdown, /- 添付: artifact-moved/u);
+  assert.doesNotMatch(markdown, /消した付箋の題名|出てはいけない本文/u);
+});
+
+test("ID の無い文字起こしも、operation_id か持ち主と並び順を鍵にして 1 件ずつ書き出す", () => {
+  const withoutId = (operationId, rawText) => {
+    const value = revision("", "completed", rawText);
+    delete value.id;
+    if (operationId) value.operation_id = operationId;
+    else delete value.operation_id;
+    return value;
+  };
+  const revisions = [withoutId("op-1", "operation_id だけある本文"), withoutId("", "鍵の無い本文")];
+  const records = [
+    {
+      type: "capture_entry",
+      entity: { id: "capture-1", title: "鍵の無い音声", transcription_revisions: revisions },
+    },
+    // 前の版と同じく、同じ文字起こしの写しを添付にも持つ。2 件のまま増えない。
+    {
+      type: "artifact",
+      entity: {
+        id: "artifact-1",
+        filename: "voice.webm",
+        source_type: "capture_entry",
+        source_id: "capture-1",
+        transcription_revisions: revisions,
+      },
+    },
+  ];
+  const database = {
+    list: (type) => records.filter((entry) => entry.type === type).map((entry) => entry.entity),
+  };
+  const documents = buildTranscriptionExport(database);
+  assert.equal(documents.length, 2);
+  assert.deepEqual(documents.map((document) => document.revisionId).sort(), [
+    "capture_entry:capture-1#1",
+    "op-1",
+  ]);
+  assert.match(documents.map((document) => document.markdown).join("\n"), /鍵の無い本文/u);
+  assert.match(documents.map((document) => document.markdown).join("\n"), /- Tasken の ID: op-1/u);
 });

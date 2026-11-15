@@ -16,8 +16,10 @@ import {
  *
  * - 置き場は userData と、同期ルート（設定してある時だけ）の Exports/retired/transcriptions/。
  * - 完了済みの文字起こし 1 件につき 1 ファイル。同じ文字起こしは付箋（capture_entry）と添付
- *   （artifact）の両方に写しがあるので、ID で 1 件にまとめる。0 件なら何も書かず、印も付けない。
- * - 削除した付箋・添付の文字起こしは書き出さない（本人が消した物の中身を、控えに新しく書き写さない）。
+ *   （artifact）の両方に写しがあるので、1 件にまとめる（ID、無ければ operation_id、それも無ければ
+ *   持ち主の付箋と並び順を鍵にする）。0 件なら何も書かず、印も付けない。
+ * - 添付の写しがあれば添付が、付箋の写ししか無ければ付箋が、削除されていれば書き出さない
+ *   （本人が消した物の中身を、控えに新しく書き写さない）。削除した付箋の題名も書かない。
  * - 印には件数と、いちばん新しい更新の時刻を持たせ、どちらかが変われば書き出し直す。
  * - 既にあるファイルは上書きしない。中身が同じなら書かず、違えば番号を付ける。中身に書き出した
  *   時刻は入れない。
@@ -69,16 +71,18 @@ function isLive(entry: RecordLike): boolean {
   return !entry.deleted_at;
 }
 
-/** 本文のある、完了した文字起こし。 */
-function completedRevisions(entry: RecordLike): RecordLike[] {
-  return (Array.isArray(entry.transcription_revisions) ? entry.transcription_revisions : [])
-    .map(record)
+/** 本文のある、完了した文字起こし。並び順（index）は、ID の無い物の代わりの鍵に使う。 */
+function completedRevisions(entry: RecordLike): { revision: RecordLike; index: number }[] {
+  const revisions = Array.isArray(entry.transcription_revisions)
+    ? entry.transcription_revisions
+    : [];
+  return revisions
+    .map((value, index) => ({ revision: record(value), index }))
     .filter(
-      (revision): revision is RecordLike =>
-        Boolean(revision) &&
-        text(revision?.status) === "completed" &&
-        Boolean(text(revision?.id)) &&
-        Boolean(text(revision?.raw_text)),
+      (item): item is { revision: RecordLike; index: number } =>
+        Boolean(item.revision) &&
+        text(item.revision?.status) === "completed" &&
+        Boolean(text(item.revision?.raw_text)),
     );
 }
 
@@ -97,72 +101,108 @@ function fileBaseName(label: string): string {
 }
 
 interface CollectedRevision {
+  /** 1 件にまとめる鍵。文字起こしの ID、無ければ operation_id、それも無ければ持ち主と並び順。 */
+  key: string;
+  revision: RecordLike;
+  /** 生きている付箋だけ。削除した付箋の題名は出さない。 */
+  capture: RecordLike | null;
+  /** 付箋が削除されている時の、その ID（題名は出さずに ID だけを書く）。 */
+  deletedCaptureId: string;
+  artifact: RecordLike | null;
+}
+
+interface RevisionCopies {
   revision: RecordLike;
   capture: RecordLike | null;
   artifact: RecordLike | null;
 }
 
 /**
- * 削除していない付箋・添付から、完了した文字起こしを ID で 1 件にまとめて集める。
- * どちらかの持ち主が削除されていれば、その文字起こしは書き出さない。
+ * 付箋・添付から、完了した文字起こしを 1 件にまとめて集める。
+ * 前の版は同じ文字起こしを付箋と添付の両方に持つ。添付の写しがあれば、添付が生きているかで
+ * 書き出すかを決める（付箋を消しても、Task などに付け替えた添付は生きている）。付箋の写ししか
+ * 無い時だけ、付箋が生きているかで決める。
  */
 function collectRevisions(source: TranscriptionExportSource): CollectedRevision[] {
-  const byId = new Map<string, CollectedRevision>();
-  const deleted = new Set<string>();
+  const captures = new Map<string, RecordLike>();
+  const listed: Record<(typeof OWNER_TYPES)[number], RecordLike[]> = {
+    capture_entry: [],
+    artifact: [],
+  };
   for (const type of OWNER_TYPES) {
-    let entries: RecordLike[] = [];
     try {
-      entries = source.list(type, true);
+      listed[type] = source.list(type, true);
     } catch {
-      continue;
+      // 読めない種類は飛ばす。
     }
-    for (const entry of entries) {
-      for (const revision of completedRevisions(entry)) {
-        const id = text(revision.id);
-        if (!isLive(entry)) {
-          deleted.add(id);
-          continue;
-        }
-        const collected = byId.get(id) || { revision, capture: null, artifact: null };
-        if (type === "capture_entry") collected.capture = entry;
-        else collected.artifact = entry;
-        byId.set(id, collected);
+  }
+  for (const capture of listed.capture_entry) captures.set(text(capture.id), capture);
+
+  /** 添付の持ち主が付箋なら、その付箋の ID。ID の無い文字起こしの鍵を、付箋の写しとそろえる。 */
+  const ownerCaptureId = (type: string, entry: RecordLike) =>
+    type === "capture_entry"
+      ? text(entry.id)
+      : text(entry.source_type) === "capture_entry"
+        ? text(entry.source_id)
+        : "";
+  const keyOf = (type: string, entry: RecordLike, revision: RecordLike, index: number) => {
+    const id = text(revision.id) || text(revision.operation_id);
+    if (id) return id;
+    const captureId = ownerCaptureId(type, entry);
+    return captureId ? `capture_entry:${captureId}#${index}` : `${type}:${text(entry.id)}#${index}`;
+  };
+
+  const copies = new Map<string, RevisionCopies>();
+  for (const type of OWNER_TYPES) {
+    for (const entry of listed[type]) {
+      for (const { revision, index } of completedRevisions(entry)) {
+        const key = keyOf(type, entry, revision, index);
+        const found = copies.get(key) || { revision, capture: null, artifact: null };
+        if (type === "capture_entry") found.capture = entry;
+        else found.artifact = entry;
+        copies.set(key, found);
       }
     }
   }
-  // 添付の側にしか無い文字起こしは、添付の持ち主（付箋）を引く。
-  const captures = new Map<string, RecordLike>();
-  try {
-    for (const capture of source.list("capture_entry", true))
-      captures.set(text(capture.id), capture);
-  } catch {
-    // 付箋が読めなければ、持ち主の名前なしで書く。
-  }
+
   const result: CollectedRevision[] = [];
-  for (const [id, collected] of byId) {
-    if (deleted.has(id)) continue;
-    if (!collected.capture && collected.artifact) {
-      const owner =
-        text(collected.artifact.source_type) === "capture_entry"
-          ? captures.get(text(collected.artifact.source_id))
-          : undefined;
-      if (owner && !isLive(owner)) continue;
-      collected.capture = owner || null;
-    }
-    result.push(collected);
+  for (const [key, found] of copies) {
+    const owner = found.artifact || found.capture;
+    if (!owner || !isLive(owner)) continue;
+    // 添付の写ししか無い時は、添付の持ち主の付箋を引く（名前を書くため）。
+    const capture =
+      found.capture ||
+      (found.artifact && text(found.artifact.source_type) === "capture_entry"
+        ? captures.get(text(found.artifact.source_id)) || null
+        : null);
+    const captureLive = capture && isLive(capture) ? capture : null;
+    result.push({
+      key,
+      revision: found.revision,
+      capture: captureLive,
+      deletedCaptureId: capture && !captureLive ? text(capture.id) : "",
+      artifact: found.artifact && isLive(found.artifact) ? found.artifact : null,
+    });
   }
   return result.sort(
     (left, right) =>
       text(left.revision.completed_at).localeCompare(text(right.revision.completed_at)) ||
-      text(left.revision.id).localeCompare(text(right.revision.id)),
+      left.key.localeCompare(right.key),
   );
 }
 
 function transcriptionMarkdown(input: CollectedRevision & { title: string }): string {
-  const { revision, capture, artifact, title } = input;
+  const { key, revision, capture, deletedCaptureId, artifact, title } = input;
   const facts: [string, string][] = [
     ["音声", oneLine(text(artifact?.filename) || text(capture?.text))],
-    ["付箋", capture ? `「${oneLine(text(capture.title)) || "無題"}」（${text(capture.id)}）` : ""],
+    [
+      "付箋",
+      capture
+        ? `「${oneLine(text(capture.title)) || "無題"}」（${text(capture.id)}）`
+        : deletedCaptureId
+          ? `削除した付箋（${deletedCaptureId}）`
+          : "",
+    ],
     ["添付", artifact ? text(artifact.id) : text(revision.source_artifact_id)],
     ["言語", text(revision.language)],
     [
@@ -178,7 +218,7 @@ function transcriptionMarkdown(input: CollectedRevision & { title: string }): st
     ["始めた時刻", text(revision.started_at)],
     ["終えた時刻", text(revision.completed_at)],
     ["原音の hash", text(revision.source_content_hash)],
-    ["Tasken の ID", text(revision.id)],
+    ["Tasken の ID", text(revision.id) || text(revision.operation_id) || key],
   ];
   const lines = [
     `# 文字起こし - ${title}`,
@@ -212,7 +252,7 @@ export function buildTranscriptionExport(
     const count = (used.get(key) || 0) + 1;
     used.set(key, count);
     return {
-      revisionId: text(collected.revision.id),
+      revisionId: collected.key,
       baseName: count === 1 ? base : `${base} [${count}]`,
       markdown: transcriptionMarkdown({ ...collected, title }),
     };
