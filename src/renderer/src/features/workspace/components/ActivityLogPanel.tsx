@@ -5,13 +5,7 @@ import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import {
-  IconLink,
-  IconUnlink,
-  IconChevronLeft,
-  IconChevronRight,
-  IconFileImport,
-} from "@tabler/icons-react";
+import { IconLink, IconUnlink, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { taskWorkPeriods } from "../../../../../shared/contracts/task/public";
@@ -383,13 +377,11 @@ export function ActivityLogPanel({
   saveEntities,
   removeEntityQuiet,
   removeEntity,
-  onImport,
 }: Pick<PageProps, "data" | "domain" | "themes" | "openDrawer" | "setToast"> & {
   saveEntities?: PageProps["saveEntities"];
   removeEntityQuiet?: PageProps["removeEntityQuiet"];
   /** AI の作業のカードを消す（消した印を付ける。すぐ後の「元に戻す」で戻せる）。 */
   removeEntity?: PageProps["removeEntity"];
-  onImport?(): void;
   date: string;
   onDateChange(date: string): void;
 }) {
@@ -900,17 +892,6 @@ export function ActivityLogPanel({
           <p>人の活動と AI の作業を、同じ一日に。時刻は日本時間です。</p>
         </div>
         <div className="inline-actions">
-          {onImport && (
-            <Button
-              variant="secondary"
-              compact
-              onClick={onImport}
-              aria-label="AIの生ログを選んで取り込む"
-              title="AIの生ログを選んで取り込む"
-            >
-              <IconFileImport size={18} />
-            </Button>
-          )}
           {expanded && (
             <>
               <Button

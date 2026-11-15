@@ -3,14 +3,14 @@ import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import {
   createNativeAgentLogAccumulator,
-  NATIVE_AGENT_LOG_PARSER_VERSION,
-  type ImportedAgentWorkLog,
-} from "../../shared/agentWorkLogImport.ts";
-import type {
-  AgentLogProbe,
-  AgentLogService,
-  AgentLogSourceConfig,
-  AgentLogSyncStatus,
+  type AgentLogPickup,
+} from "../../shared/agentLogPickup.ts";
+import {
+  AGENT_LOG_QUIET_MS,
+  type AgentLogProbe,
+  type AgentLogService,
+  type AgentLogSourceConfig,
+  type AgentLogSyncStatus,
 } from "../../shared/agentLogSync.ts";
 
 export function agentLogCandidates(
@@ -41,7 +41,7 @@ const digest = (value: string) => createHash("sha256").update(value).digest("hex
 const serviceValid = (value: unknown): value is AgentLogService =>
   value === "codex" || value === "claude_code";
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
-/** 内容が変わるまで同じ結果になる解析失敗。IO・採用失敗は含めない。 */
+/** 内容が変わるまで同じ結果になる解析失敗。IO・保存の失敗は含めない。 */
 class AgentLogFormatError extends Error {}
 const errorPrefix = (source: Pick<AgentLogSourceConfig, "service" | "path">) =>
   `${digest(source.service + "\0" + source.path)}:error:`;
@@ -58,15 +58,28 @@ const blank = (): AgentLogSyncStatus => ({
   background: false,
   state: "idle",
   scanned: 0,
-  queued: 0,
+  recorded: 0,
   unchanged: 0,
-  deferred: 0,
+  active: 0,
   errors: [],
 });
 
+/** recorded = 新しく 1 件書いた。covered = もう数えてある（判定は Core の受け口の 1 か所）。 */
+export type AgentLogPickupOutcome = "recorded" | "covered";
+
+/**
+ * 本人が登録した保存先のログから、静かになった会話だけを 1 件ずつ拾う（#751）。
+ *
+ * - 動いている会話（最後の動きから 60 分たっていない）は読まない。会話が伸びるたびに読み直して
+ *   書き換える事はしない（1 件は 1 回だけ書く）。
+ * - 同じ作業かどうかは、ここでは決めない。拾った物を `submit`（Core の受け口）に渡し、
+ *   そこが「書いた」か「もう数えてある」かを返す。
+ * - `picked` は「このファイルのこの大きさ・更新時刻は、もう見た」の控え。無くしても、
+ *   Core が同じ会話を 2 件にしない（読み直しの手間が増えるだけ）。
+ */
 export class AgentLogSync {
   private value = blank();
-  private fingerprints: Record<string, string> = {};
+  private picked: Record<string, string> = {};
   private running: Promise<AgentLogSyncStatus> | null = null;
   private abort: AbortController | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -75,46 +88,18 @@ export class AgentLogSync {
   private writing: Promise<void> = Promise.resolve();
   private readonly directory: string;
   private readonly submit: (
-    log: ImportedAgentWorkLog,
+    pickup: AgentLogPickup,
     destination: string,
-  ) => Promise<"queued" | "duplicate" | "deferred">;
-  /** 単独のSessionにしない委任thread（subagent等）について、残っている採用待ちを取り下げる。 */
-  private readonly retract?: (service: AgentLogService, sourceSession: string) => void;
+  ) => Promise<AgentLogPickupOutcome>;
+  private readonly now: () => number;
   constructor(
     directory: string,
-    submit: (
-      log: ImportedAgentWorkLog,
-      destination: string,
-    ) => Promise<"queued" | "duplicate" | "deferred">,
-    retract?: (service: AgentLogService, sourceSession: string) => void,
+    submit: (pickup: AgentLogPickup, destination: string) => Promise<AgentLogPickupOutcome>,
+    options: { now?: () => number } = {},
   ) {
     this.directory = directory;
     this.submit = submit;
-    this.retract = retract;
-  }
-  /** Codexの会話名（`<CODEX_HOME>/session_index.jsonl` の thread_name）。読めなければ空。 */
-  private async codexThreadNames(sessionsRoot: string, signal: AbortSignal) {
-    const names = new Map<string, string>();
-    if (path.basename(sessionsRoot) !== "sessions") return names;
-    const index = path.join(path.dirname(sessionsRoot), "session_index.jsonl");
-    try {
-      const stat = await fs.promises.stat(index);
-      if (!stat.isFile() || stat.size > 16 * 1024 * 1024) return names;
-      const raw = await fs.promises.readFile(index, { encoding: "utf8", signal });
-      for (const line of raw.split(/\r?\n/)) {
-        if (!line.trim()) continue;
-        try {
-          const entry = JSON.parse(line) as { id?: unknown; thread_name?: unknown };
-          if (typeof entry.id === "string" && typeof entry.thread_name === "string")
-            names.set(entry.id, entry.thread_name.slice(0, 200));
-        } catch {
-          /* A torn line while Codex writes; the next scan reads it. */
-        }
-      }
-    } catch {
-      /* Missing index: fall back to the request-derived title. */
-    }
-    return names;
+    this.now = options.now || (() => Date.now());
   }
   async load() {
     if (this.loaded) return;
@@ -133,8 +118,9 @@ export class AgentLogSync {
           serviceValid(s.service) && typeof s.path === "string" && path.isAbsolute(s.path),
       );
       this.value.background = stored.background === true;
-      this.fingerprints =
-        stored.fingerprints && typeof stored.fingerprints === "object" ? stored.fingerprints : {};
+      // 前の版の控え（fingerprints）は読まない。前の版は動いている会話も読んでいたので、
+      // 「見た」の意味が違う。古い形でもう入っている会話は、Core が拾い直さない。
+      this.picked = stored.picked && typeof stored.picked === "object" ? stored.picked : {};
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
         this.value.state = "error";
@@ -156,9 +142,9 @@ export class AgentLogSync {
     return next;
   }
   private async writeState() {
-    const keys = Object.keys(this.fingerprints);
+    const keys = Object.keys(this.picked);
     if (keys.length > 50000)
-      for (const key of keys.slice(0, keys.length - 50000)) delete this.fingerprints[key];
+      for (const key of keys.slice(0, keys.length - 50000)) delete this.picked[key];
     await fs.promises.mkdir(this.directory, { recursive: true });
     const file = path.join(this.directory, "sources.json");
     await fs.promises.writeFile(
@@ -166,7 +152,7 @@ export class AgentLogSync {
       JSON.stringify({
         sources: this.value.sources,
         background: this.value.background,
-        fingerprints: this.fingerprints,
+        picked: this.picked,
       }),
     );
     await fs.promises.rename(file + ".tmp", file);
@@ -197,11 +183,12 @@ export class AgentLogSync {
     );
     if (existing) {
       existing.destination = destination;
+      // 読めなかったログを、同じ中身でもう一度試す。
       const prefix = errorPrefix(existing);
-      for (const key of Object.keys(this.fingerprints)) {
+      for (const key of Object.keys(this.picked)) {
         if (!key.startsWith(prefix)) continue;
-        delete this.fingerprints[key.slice(prefix.length)];
-        delete this.fingerprints[key];
+        delete this.picked[key.slice(prefix.length)];
+        delete this.picked[key];
       }
       await this.persist();
       return this.status();
@@ -213,7 +200,7 @@ export class AgentLogSync {
       path: selected,
       destination,
       lastScan: null,
-      message: "未同期",
+      message: "まだ見ていません",
     });
     await this.persist();
     return this.status();
@@ -288,7 +275,7 @@ export class AgentLogSync {
         count: files.length,
         lastUpdated: latest ? new Date(latest).toISOString() : null,
         message: files.length
-          ? "JSONL 候補。対応形式は同期時に確認します。"
+          ? "JSONL 候補。対応形式は拾う時に確認します。"
           : "フォルダーはありますが JSONL はありません。",
       };
     } catch (error) {
@@ -314,16 +301,18 @@ export class AgentLogSync {
       };
     }
   }
-  private async read(
-    file: string,
-    service: AgentLogService,
-    signal: AbortSignal,
-    titles: Map<string, string>,
-  ) {
+  /** 静かになったログ 1 つを読む。拾わない物（subagent などの委任 thread）は pickup が null。 */
+  private async read(file: string, service: AgentLogService, signal: AbortSignal) {
     const accumulator = createNativeAgentLogAccumulator(service);
-    const add = (value: unknown) => {
+    const add = (line: string) => {
+      let decoded;
       try {
-        accumulator.add(value);
+        decoded = JSON.parse(line);
+      } catch {
+        throw new AgentLogFormatError("JSONL に壊れた行があります。形式を確認してください。");
+      }
+      try {
+        accumulator.add(decoded);
       } catch (error) {
         throw new AgentLogFormatError(message(error));
       }
@@ -335,7 +324,6 @@ export class AgentLogSync {
     });
     let buffer = "";
     let bytes = 0;
-    let incomplete = false;
     try {
       for await (const chunk of stream) {
         signal.throwIfAborted();
@@ -348,42 +336,25 @@ export class AgentLogSync {
           buffer = buffer.slice(newline + 1);
           if (Buffer.byteLength(line) > 8 * 1024 * 1024)
             throw new AgentLogFormatError("1行8MBの上限です。");
-          if (line.trim()) {
-            let decoded;
-            try {
-              decoded = JSON.parse(line);
-            } catch {
-              throw new AgentLogFormatError(
-                "JSONL に壊れた行があります。保存中か形式を確認してください。",
-              );
-            }
-            add(decoded);
-          }
+          if (line.trim()) add(line);
         }
         if (Buffer.byteLength(buffer) > 8 * 1024 * 1024)
           throw new AgentLogFormatError("1行8MBの上限です。");
       }
       if (buffer.trim()) {
-        let value;
+        // 改行で終わっていない最後の行。静かになった後も壊れたままなら、書きかけで終わった行なので捨てる。
+        let whole = true;
         try {
-          value = JSON.parse(buffer);
+          JSON.parse(buffer);
         } catch {
-          incomplete = true;
+          whole = false;
         }
-        if (!incomplete) add(value);
+        if (whole) add(buffer);
       }
-      if (accumulator.skipReason())
-        return { log: null, skipped: accumulator.sourceSession(), incomplete };
-      const source = accumulator.sourceSession();
+      if (accumulator.skipReason()) return { pickup: null };
       try {
-        return {
-          log: accumulator.finish({ title: titles.get(source) }),
-          skipped: null,
-          incomplete,
-        };
+        return { pickup: accumulator.finish() };
       } catch (error) {
-        // 末尾の書込途中は次回に続くため、形式失敗として固定しない。
-        if (incomplete) throw error;
         throw new AgentLogFormatError(message(error));
       }
     } finally {
@@ -405,36 +376,33 @@ export class AgentLogSync {
     Object.assign(this.value, {
       state: "running",
       scanned: 0,
-      queued: 0,
+      recorded: 0,
       unchanged: 0,
-      deferred: 0,
+      active: 0,
       errors: [],
     });
     let bytes = 0;
     try {
       for (const source of this.value.sources) {
         let issues = 0;
+        let active = 0;
         try {
           const files = await this.files(source.path, signal);
-          const titles =
-            source.service === "codex"
-              ? await this.codexThreadNames(source.path, signal)
-              : new Map<string, string>();
           for (const file of files) {
             signal.throwIfAborted();
             const key = digest(source.service + "\0" + file.file);
             const errorKey = errorPrefix(source) + key;
-            const sessionKey = `${key}:session`;
-            const titleFingerprint = (session: string) => digest(titles.get(session) ?? "");
-            // parserの版を含める。正規化を変えた版では、変更のないファイルも一度だけ読み直す。
-            // 会話名はrolloutとは別に更新されるため、そのSessionの見出しも指紋へ含める。
-            const statKeyFor = (session: string) =>
-              `p${NATIVE_AGENT_LOG_PARSER_VERSION}:${file.size}:${file.mtime}:${titleFingerprint(session)}`;
-            const statKey = statKeyFor(this.fingerprints[sessionKey] ?? "");
             this.value.scanned++;
-            if (this.fingerprints[key] === statKey) {
+            // 動いている会話は読まない。静かになってから 1 回だけ拾う。
+            if (this.now() - file.mtime < AGENT_LOG_QUIET_MS) {
+              this.value.active++;
+              active++;
+              continue;
+            }
+            const statKey = `${file.size}:${file.mtime}`;
+            if (this.picked[key] === statKey) {
               this.value.unchanged++;
-              const priorError = this.fingerprints[errorKey];
+              const priorError = this.picked[errorKey];
               if (priorError) {
                 issues++;
                 source.message = `読込できないログ: ${priorError}`;
@@ -455,57 +423,36 @@ export class AgentLogSync {
               continue;
             }
             if (bytes + file.size > 512 * 1024 * 1024)
-              throw new Error("1回512MBの上限です。次回同期で残りを読みます。");
+              throw new Error("1回512MBの上限です。次回に残りを読みます。");
             bytes += file.size;
             try {
-              const { log, skipped, incomplete } = await this.read(
-                file.file,
-                source.service,
-                signal,
-                titles,
-              );
-              delete this.fingerprints[errorKey];
-              if (!log) {
-                // subagent・レビュー用threadは親の会話の一部。単独では並べず、旧版の採用待ちを取り下げる。
-                if (skipped) this.retract?.(source.service, skipped);
+              const { pickup } = await this.read(file.file, source.service, signal);
+              delete this.picked[errorKey];
+              if (!pickup) {
+                // subagent・レビュー用threadは親の会話の一部。単独では拾わない。
                 this.value.unchanged++;
-                if (!incomplete) this.fingerprints[key] = statKey;
+                this.picked[key] = statKey;
                 continue;
               }
-              this.fingerprints[sessionKey] = log.source_session;
-              const contentKey = digest(
-                `${source.service}\0${log.source_session}\0${log.started_at}`,
-              );
-              const contentDigest = digest(JSON.stringify(log));
-              const result =
-                this.fingerprints[contentKey] === contentDigest
-                  ? "duplicate"
-                  : await this.submit(log, source.destination);
-              if (result === "queued") this.value.queued++;
-              else if (result === "duplicate") this.value.unchanged++;
-              if (result === "deferred" || incomplete) {
-                this.value.deferred++;
-                issues++;
-                source.message = incomplete
-                  ? "書き込み途中。次回に続きます。"
-                  : "提案の採用待ち。変更は次回に続きます。";
+              // ファイルの更新時刻が古くても、ログの中の最後の動きが新しければ、まだ動いている。
+              if (this.now() - Date.parse(pickup.ended_at) < AGENT_LOG_QUIET_MS) {
+                this.value.active++;
+                active++;
+                continue;
               }
-              if (result !== "deferred") this.fingerprints[contentKey] = contentDigest;
+              const result = await this.submit(pickup, source.destination);
+              if (result === "recorded") this.value.recorded++;
+              else this.value.unchanged++;
               const after = await fs.promises.stat(file.file);
-              if (
-                !incomplete &&
-                result !== "deferred" &&
-                after.size === file.size &&
-                after.mtimeMs === file.mtime
-              )
-                this.fingerprints[key] = statKeyFor(log.source_session);
+              if (after.size === file.size && after.mtimeMs === file.mtime)
+                this.picked[key] = statKey;
               // Checkpoint in batches; rewriting a growing index for every small log is quadratic IO.
               if (this.value.scanned % 100 === 0) await this.persist();
             } catch (error) {
               signal.throwIfAborted();
               if (error instanceof AgentLogFormatError) {
-                this.fingerprints[key] = statKey;
-                this.fingerprints[errorKey] = message(error);
+                this.picked[key] = statKey;
+                this.picked[errorKey] = message(error);
               }
               issues++;
               source.message = `読込できないログ: ${message(error)}`;
@@ -516,16 +463,18 @@ export class AgentLogSync {
             }
           }
           if (!issues)
-            source.message = files.length
-              ? "同期済み（新規・変更だけを収集）"
-              : "JSONL がありません。";
+            source.message = !files.length
+              ? "JSONL がありません。"
+              : active
+                ? `静かになった会話を拾いました（動いている ${active} 件は、静かになってから）`
+                : "静かになった会話を拾いました";
         } catch (error) {
           signal.throwIfAborted();
           source.message = locationMessage(error);
           if (this.value.errors.length < 20)
             this.value.errors.push(`${source.service}: ${locationMessage(error)}`);
         } finally {
-          source.lastScan = new Date().toISOString();
+          source.lastScan = new Date(this.now()).toISOString();
         }
       }
       this.value.state = this.value.errors.length ? "error" : "idle";
@@ -538,7 +487,7 @@ export class AgentLogSync {
     } catch (error) {
       this.value.state = "error";
       if (this.value.errors.length < 20)
-        this.value.errors.push(`設定・差分の保存に失敗しました: ${message(error)}`);
+        this.value.errors.push(`設定・控えの保存に失敗しました: ${message(error)}`);
     }
     return this.status();
   }

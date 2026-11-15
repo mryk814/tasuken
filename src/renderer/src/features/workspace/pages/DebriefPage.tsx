@@ -12,7 +12,6 @@ import { AgentWorkTimeline, AgentLogSyncPanel } from "../components/AgentWorkTim
 export function DebriefPage(props: PageProps) {
   const { data, domain, themes, notes, setToast, openDrawer, openNoteForEditing } = props;
   const [date, setDate] = useState(agentDateText(new Date()));
-  const [importing, setImporting] = useState(false);
   const [weeklyOpen, setWeeklyOpen] = useState(false);
   const history = notes
     .flatMap((note) => {
@@ -39,10 +38,6 @@ export function DebriefPage(props: PageProps) {
           saveEntities={props.saveEntities}
           removeEntityQuiet={props.removeEntityQuiet}
           removeEntity={props.removeEntity}
-          onImport={() => {
-            setWeeklyOpen(true);
-            setImporting(true);
-          }}
         />
         <AgentLogSyncPanel />
         <details
@@ -50,14 +45,8 @@ export function DebriefPage(props: PageProps) {
           open={weeklyOpen}
           onToggle={(event) => setWeeklyOpen(event.currentTarget.open)}
         >
-          <summary>AI の週次振り返り・ログ取り込み</summary>
-          <AgentWorkTimeline
-            {...props}
-            date={date}
-            onDateChange={setDate}
-            importing={importing}
-            onImportingChange={setImporting}
-          />
+          <summary>AI の週次振り返り</summary>
+          <AgentWorkTimeline {...props} date={date} onDateChange={setDate} />
         </details>
         <TaskenDebriefPanel
           date={date}

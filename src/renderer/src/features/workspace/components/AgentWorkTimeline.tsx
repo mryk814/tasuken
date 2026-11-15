@@ -4,7 +4,6 @@ import {
   IconArrowRight,
   IconCalendarWeek,
   IconClock,
-  IconFileImport,
   IconX,
   IconCopy,
   IconPlayerPause,
@@ -15,7 +14,6 @@ import {
   buildAgentWorkProjection,
   type AgentWorkProjectionRow,
 } from "../domain-model/agentSessionProjection";
-import type { AgentSession } from "../domain-model/types";
 import {
   agentWorkCardClientLabel,
   type AgentWorkCard,
@@ -31,8 +29,6 @@ import {
 } from "./AgentWorkCardDetail";
 import type { BaseRecord, PageProps } from "../types";
 import { Button } from "./common";
-import { AgentWorkLogImportDialog } from "./AgentWorkLogImportDialog";
-import { ProposalDetail } from "./AiProposalPanel";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { SEMANTIC_ICONS } from "../../../pages/semanticIcons";
 import "./AgentWorkTimeline.css";
@@ -108,12 +104,12 @@ export function AgentLogSyncPanel() {
   return (
     <details className="panel agent-log-sync">
       <summary>
-        ログ同期{" "}
+        AI のログから拾う{" "}
         <small>
           {setup?.state === "error"
             ? "要確認"
             : setup?.state === "running"
-              ? "収集中"
+              ? "読み込み中"
               : setup?.sources.length
                 ? `${setup.sources.length}か所`
                 : "保存先を設定"}
@@ -121,14 +117,14 @@ export function AgentLogSyncPanel() {
       </summary>
       {!desktop ? (
         <p>
-          ログの収集・保存先の設定は PC の Tasken
-          で行います。スマートフォンには取り込んだ記録が表示されます。
+          ログの保存先の設定は PC の Tasken で行います。スマートフォンには拾った記録が表示されます。
         </p>
       ) : (
         <>
           <p>
-            PC
-            に保存されたログの新規・変更を収集し、そのままActivityの履歴に入れます。対応待ちには並べません。
+            登録した保存先のログから、静かになった会話（最後の動きから 60 分）を 1 件ずつ拾い、AI
+            の作業として日誌に並べます。動いている会話は読みません。AI
+            が自分で書いた作業は、重ねて拾いません。
           </p>
           {setup && (
             <>
@@ -140,18 +136,18 @@ export function AgentLogSyncPanel() {
                       ...setup,
                       state: "running",
                       scanned: 0,
-                      queued: 0,
+                      recorded: 0,
                       unchanged: 0,
-                      deferred: 0,
+                      active: 0,
                     });
                     void act(() => workspaceApi.syncAgentLogs());
                   }}
                 >
-                  ログ同期
+                  今すぐ拾う
                 </Button>
                 {setup.state === "running" && (
                   <Button onClick={() => void act(() => workspaceApi.cancelAgentLogSync())}>
-                    同期を停止
+                    止める
                   </Button>
                 )}
                 <label>
@@ -165,24 +161,18 @@ export function AgentLogSyncPanel() {
                       void act(() => workspaceApi.setAgentLogBackground(enabled));
                     }}
                   />
-                  Tasken 起動中に5分ごとに同期
+                  Tasken 起動中に5分ごとに拾う
                 </label>
               </div>
               <p role="status" className="agent-log-sync-status">
                 {setup.state === "running"
-                  ? "収集中"
+                  ? "読み込み中"
                   : setup.state === "cancelled"
-                    ? "停止しました。残りは次回に続きます。"
-                    : "同期状況"}{" "}
-                · 確認 {setup.scanned} · 新規・更新 {setup.queued} · 変更なし {setup.unchanged} ·
-                保留 {setup.deferred}
+                    ? "止めました。残りは次回に続きます。"
+                    : "前回の結果"}{" "}
+                · 見たログ {setup.scanned} · 拾った {setup.recorded} · 変更なし {setup.unchanged} ·
+                動いている {setup.active}
               </p>
-              {setup.pendingRecords > 0 && (
-                <p className="agent-log-sync-pending" role="note">
-                  以前の版で未決のまま残った記録が {setup.pendingRecords}{" "}
-                  件あります。次の「ログ同期」で読み直し、自分の会話は履歴へ入れ、subagentやレビュー用のthreadは取り下げます。
-                </p>
-              )}
               {setup.sources.length ? (
                 <ul className="agent-log-source-list">
                   {setup.sources.map((source) => (
@@ -305,8 +295,7 @@ export function AgentLogSyncPanel() {
                   </p>
                   <p>
                     Codex は CODEX_HOME / sessions（標準 ~/.codex/sessions）、Claude Code は
-                    CLAUDE_CONFIG_DIR / projects（標準
-                    ~/.claude/projects）。ほかのサービスはファイル取込を利用してください。
+                    CLAUDE_CONFIG_DIR / projects（標準 ~/.claude/projects）。
                   </p>
                 </details>
                 {probe && (
@@ -328,8 +317,11 @@ export function AgentLogSyncPanel() {
                   </div>
                 )}
                 <p>
-                  保存するのは時刻・サービス・Session ID
-                  と、会話名、AIが動いた時間、依頼の短い抜粋（最大5件・各200文字）と最後の回答（500文字以内）です（秘匿処理済み）。生ログの全文は保存しません。subagentやレビュー用のthreadは親の会話の一部として単独では取り込みません。取り込んだ記録は既存の共有同期設定に従います。
+                  保存するのは、会話 1 つにつき 1 件です。時刻・サービス・会話の ID
+                  と、最初の依頼の先頭（160 字まで）・最後の回答の先頭（400
+                  字まで）だけを残します（秘匿処理済み）。作業場所はリポジトリを見分けるためだけに使い、保存しません。生ログの全文は保存しません。subagent
+                  やレビュー用の thread
+                  は親の会話の一部として、単独では拾いません。拾った記録は既存の共有同期設定に従います。
                 </p>
                 <pre className="agent-log-destination">{setup.destination}</pre>
                 <label>
@@ -366,7 +358,7 @@ export function AgentLogSyncPanel() {
                     {setup.errors.length >= 20 ? "以上" : ""}
                   </strong>
                   <p>
-                    取り込めた記録はActivityに保存されています。下の詳細でファイル名と理由を確認できます。内容が変わったログは次の同期で読み直します。同じ内容で再試行するには「保存先を再確認」から登録してください。
+                    拾えた会話は日誌に並んでいます。下の詳細でファイル名と理由を確認できます。内容が変わったログは次に読み直します。同じ内容で再試行するには「保存先を再確認」から登録してください。
                   </p>
                   <details>
                     <summary>ファイル名と理由を確認</summary>
@@ -418,29 +410,6 @@ function intervalText(card: AgentWorkCard) {
   if (!card.started_at) return stamp(card.ended_at);
   return `${stamp(card.started_at)} ～ ${card.running ? "作業中" : stamp(card.ended_at)}`;
 }
-function pendingRecords(proposals: PageProps["domain"]["ai_proposals"]) {
-  return proposals.flatMap((proposal) => {
-    if (proposal.status !== "pending" || proposal.payload_type !== "agent_sessions") return [];
-    let payload = proposal.payload;
-    if (typeof payload === "string") {
-      try {
-        payload = JSON.parse(payload);
-      } catch {
-        return [];
-      }
-    }
-    const entries =
-      (
-        payload as {
-          agent_sessions?: Array<{
-            session: AgentSession;
-            references?: PageProps["domain"]["references"];
-          }>;
-        }
-      )?.agent_sessions || [];
-    return entries.map((entry) => ({ ...entry, proposal }));
-  });
-}
 function StatusIcon({ card }: { card: Pick<AgentWorkCard, "status" | "running"> }) {
   const Icon = card.running
     ? IconClock
@@ -456,8 +425,6 @@ export function AgentWorkTimeline(
   props: PageProps & {
     date: string;
     onDateChange(date: string): void;
-    importing?: boolean;
-    onImportingChange?(value: boolean): void;
   },
 ) {
   const { domain, date, onDateChange } = props;
@@ -465,30 +432,10 @@ export function AgentWorkTimeline(
   const [client, setClient] = useState("");
   const [repository, setRepository] = useState("");
   const [selected, setSelected] = useState("");
-  const [localImporting, setLocalImporting] = useState(false);
-  const importing = props.importing ?? localImporting;
-  const setImporting = props.onImportingChange ?? setLocalImporting;
   const [narrow, setNarrow] = useState(false);
   const root = useRef<HTMLElement>(null);
   const detailDialog = useRef<HTMLDialogElement>(null);
-  const pending = useMemo(() => pendingRecords(domain.ai_proposals), [domain.ai_proposals]);
-  const rows = useMemo(
-    () =>
-      buildAgentWorkProjection(
-        {
-          ...domain,
-          agent_sessions: [
-            ...domain.agent_sessions.filter(
-              (session) => !pending.some((entry) => entry.session.id === session.id),
-            ),
-            ...pending.map((entry) => entry.session),
-          ],
-          references: [...domain.references, ...pending.flatMap((entry) => entry.references || [])],
-        },
-        { limit: Infinity },
-      ),
-    [domain, pending],
-  );
+  const rows = useMemo(() => buildAgentWorkProjection(domain, { limit: Infinity }), [domain]);
   useEffect(() => {
     const element = root.current;
     if (!element) return;
@@ -509,8 +456,6 @@ export function AgentWorkTimeline(
   const dayLayouts = days.map((day) => buildAgentDayLayout(filtered, day, now));
   const visibleIds = new Set(dayLayouts.flatMap((layout) => layout.map((entry) => entry.id)));
   const selectedRow = rows.find((row) => row.card.id === selected);
-  const selectedProposal = pending.find((entry) => entry.session.id === selected)?.proposal as
-    BaseRecord | undefined;
   useEffect(() => {
     const dialog = detailDialog.current;
     if (narrow && selected && dialog && !dialog.open) dialog.showModal();
@@ -539,7 +484,6 @@ export function AgentWorkTimeline(
           <span>
             <StatusIcon card={card} />
             {agentWorkCardStatusLabel(card)}
-            {selectedProposal ? " · 未決" : ""}
           </span>
           <Button aria-label="詳細を閉じる" onClick={closeDetail}>
             <IconX size={18} aria-hidden="true" />
@@ -555,15 +499,10 @@ export function AgentWorkTimeline(
         </p>
         <AgentWorkCardDetail
           row={row}
-          // 採る前の記録（まだ保存されていない）は、消す物が無い。
-          removeEntity={
-            selectedProposal
-              ? undefined
-              : async (type, entity) => {
-                  await props.removeEntity(type, entity);
-                  closeDetail();
-                }
-          }
+          removeEntity={async (type, entity) => {
+            await props.removeEntity(type, entity);
+            closeDetail();
+          }}
         >
           {(row.tasks.length > 0 || row.receipts.length > 0) && (
             <div className="agent-work-links" aria-label="関連タスクと報告">
@@ -614,13 +553,6 @@ export function AgentWorkTimeline(
             </p>
           )}
         </AgentWorkCardDetail>
-        {selectedProposal && (
-          <ProposalDetail
-            {...props}
-            proposal={selectedProposal}
-            onDecided={() => setSelected("")}
-          />
-        )}
       </>
     );
   }
@@ -667,14 +599,6 @@ export function AgentWorkTimeline(
             </Button>
           </div>
         )}
-        <Button
-          aria-label="AI作業ログを取り込む"
-          title="AI作業ログを取り込む"
-          onClick={() => setImporting(true)}
-        >
-          <IconFileImport size={18} aria-hidden="true" />
-          <span>取込</span>
-        </Button>
       </div>
       <div className="agent-log-filters">
         <label>
@@ -829,12 +753,7 @@ export function AgentWorkTimeline(
               </div>
             </>
           )}
-          {!visibleIds.size && (
-            <p className="agent-log-empty">
-              この期間のAI作業はありません。
-              <Button onClick={() => setImporting(true)}>ログを取り込む</Button>
-            </p>
-          )}
+          {!visibleIds.size && <p className="agent-log-empty">この期間のAI作業はありません。</p>}
         </div>
         {!narrow && (
           <aside className="agent-log-detail" aria-label="選択Sessionの詳細">
@@ -858,17 +777,6 @@ export function AgentWorkTimeline(
         >
           {renderDetail(selectedRow)}
         </dialog>
-      )}
-      {importing && (
-        <AgentWorkLogImportDialog
-          domain={domain}
-          setToast={props.setToast}
-          close={() => setImporting(false)}
-          onQueued={(id, startedAt) => {
-            setSelected(id);
-            onDateChange(dateText(new Date(startedAt)));
-          }}
-        />
       )}
     </section>
   );

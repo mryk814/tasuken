@@ -6,6 +6,9 @@ import path from "node:path";
 import test from "node:test";
 import { AgentLogSync, agentLogCandidates } from "../src/main/services/agentLogSync.ts";
 
+// 拾うのは静かになった会話だけ（最後の動きから 60 分）。試験のログは今作るので、時計を 2 時間先に置く。
+const quiet = { now: () => Date.now() + 2 * 60 * 60_000 };
+
 test("unchanged format failures retain diagnostics without rereading, and change or reconfirm retries", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-log-retry-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -20,35 +23,26 @@ test("unchanged format failures retain diagnostics without rereading, and change
     return original(...args);
   });
   const config = { service: "codex", path: source, consent: true, destination: "local" };
-  let sync = new AgentLogSync(path.join(root, "state"), async () => "queued");
+  let sync = new AgentLogSync(path.join(root, "state"), async () => "recorded", quiet);
   await sync.configure(config, "local");
   const first = await sync.run();
   assert.match(first.errors[0], /壊れた行/);
-  sync = new AgentLogSync(path.join(root, "state"), async () => "queued");
+  sync = new AgentLogSync(path.join(root, "state"), async () => "recorded", quiet);
   assert.deepEqual((await sync.run()).errors, first.errors);
   assert.equal(reads, 1);
-  const stateFile = path.join(root, "state", "sources.json");
-  const stored = JSON.parse(await fs.readFile(stateFile, "utf8"));
-  for (const key of Object.keys(stored.fingerprints))
-    if (/^p\d+:/.test(stored.fingerprints[key]))
-      stored.fingerprints[key] = stored.fingerprints[key].replace(/^p\d+:/, "p0:");
-  await fs.writeFile(stateFile, JSON.stringify(stored));
-  sync = new AgentLogSync(path.join(root, "state"), async () => "queued");
-  await sync.run();
-  assert.equal(reads, 2, "parser version change retries even an unchanged format failure");
   await fs.appendFile(file, "{changed\n");
   await sync.run();
-  assert.equal(reads, 3);
+  assert.equal(reads, 2);
   await sync.configure(config, "local");
   await sync.run();
-  assert.equal(reads, 4);
+  assert.equal(reads, 3);
   const raw = await fs.readFile(
     new URL("../fixtures/agent-work-logs/codex-rollout.jsonl", import.meta.url),
     "utf8",
   );
   await fs.writeFile(file, raw);
   assert.equal((await sync.run()).state, "idle");
-  assert.equal(reads, 5);
+  assert.equal(reads, 4);
 });
 
 test("cached format failures do not exhaust the next scan's read budget", async (t) => {
@@ -81,10 +75,14 @@ test("cached format failures do not exhaust the next scan's read budget", async 
     return originalRead(...args);
   });
   const submitted = [];
-  const sync = new AgentLogSync(path.join(root, "state"), async (log) => {
-    submitted.push(log);
-    return "queued";
-  });
+  const sync = new AgentLogSync(
+    path.join(root, "state"),
+    async (log) => {
+      submitted.push(log);
+      return "recorded";
+    },
+    quiet,
+  );
   await sync.configure(
     { service: "codex", path: source, consent: true, destination: "local" },
     "local",
@@ -130,14 +128,18 @@ test("new logs are read first and transient read or submit failures retry", asyn
     }
     return original(...args);
   });
-  const sync = new AgentLogSync(path.join(root, "state"), async (log) => {
-    seen.push(log.source_session);
-    if (failSubmit) {
-      failSubmit = false;
-      throw new Error("synthetic database conflict");
-    }
-    return "queued";
-  });
+  const sync = new AgentLogSync(
+    path.join(root, "state"),
+    async (log) => {
+      seen.push(log.source_session);
+      if (failSubmit) {
+        failSubmit = false;
+        throw new Error("synthetic database conflict");
+      }
+      return "recorded";
+    },
+    quiet,
+  );
   await sync.configure(
     { service: "codex", path: source, consent: true, destination: "local" },
     "local",
@@ -163,10 +165,14 @@ test("repeated metadata is collected once and genuinely mixed Codex sessions rem
   const file = path.join(source, "rollout.jsonl");
   await fs.writeFile(file, raw + JSON.stringify(metadata) + "\n");
   const submitted = [];
-  const sync = new AgentLogSync(path.join(root, "state"), async (log) => {
-    submitted.push(log);
-    return "queued";
-  });
+  const sync = new AgentLogSync(
+    path.join(root, "state"),
+    async (log) => {
+      submitted.push(log);
+      return "recorded";
+    },
+    quiet,
+  );
   await sync.configure(
     { service: "codex", path: source, consent: true, destination: "local" },
     "local",
@@ -189,53 +195,19 @@ test("repeated metadata is collected once and genuinely mixed Codex sessions rem
   assert.equal(submitted.length, 1);
 });
 
-test("renaming a completed Codex thread updates its title without modifying its rollout", async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-log-rename-"));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const source = path.join(root, "sessions");
-  await fs.mkdir(source);
-  const raw = await fs.readFile(
-    new URL("../fixtures/agent-work-logs/codex-rollout.jsonl", import.meta.url),
-    "utf8",
-  );
-  await fs.writeFile(path.join(source, "rollout.jsonl"), raw);
-  const index = path.join(root, "session_index.jsonl");
-  const writeTitle = (title) =>
-    fs.writeFile(index, JSON.stringify({ id: "synthetic-rollout", thread_name: title }) + "\n");
-  await writeTitle("変更前");
-  const submitted = [];
-  const make = () =>
-    new AgentLogSync(path.join(root, "state"), async (log) => {
-      submitted.push(log);
-      return "queued";
-    });
-  let sync = make();
-  await sync.configure(
-    { service: "codex", path: source, consent: true, destination: "local" },
-    "local",
-  );
-  await sync.run();
-  assert.equal(submitted[0].intent.title, "変更前");
-  await writeTitle("変更後");
-  sync = make();
-  await sync.load();
-  await sync.run();
-  assert.equal(submitted.length, 2);
-  assert.equal(submitted[1].intent.title, "変更後");
-  await sync.run();
-  assert.equal(submitted.length, 2);
-});
-
 test("changed sessions, adoption deferral, cancellation and errors remain recoverable", async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-sync-states-"));
   const submitted = [];
-  let defer = false;
   let cancelOnSubmit = false;
-  const sync = new AgentLogSync(path.join(root, "state"), async (log) => {
-    submitted.push(log);
-    if (cancelOnSubmit) sync.cancel();
-    return defer ? "deferred" : "queued";
-  });
+  const sync = new AgentLogSync(
+    path.join(root, "state"),
+    async (log) => {
+      submitted.push(log);
+      if (cancelOnSubmit) sync.cancel();
+      return "recorded";
+    },
+    quiet,
+  );
   try {
     const folder = path.join(root, "claude");
     await fs.mkdir(folder);
@@ -259,12 +231,9 @@ test("changed sessions, adoption deferral, cancellation and errors remain recove
       message: { role: "assistant", content: "changed outcome" },
     });
     await fs.appendFile(file, "\n" + extra + "\n");
-    defer = true;
     await sync.run();
-    assert.equal(sync.status().deferred, 1);
-    defer = false;
-    await sync.run();
-    assert.equal(submitted.at(-1).outcome.summary, "changed outcome");
+    assert.equal(submitted.length, 2);
+    assert.equal(submitted.at(-1).summary, "changed outcome");
     assert.equal(submitted[0].source_session, submitted.at(-1).source_session);
     await fs.writeFile(path.join(folder, "unsupported.jsonl"), '{"other":"not a session"}\n');
     await sync.run();
@@ -308,7 +277,7 @@ test("changed sessions, adoption deferral, cancellation and errors remain recove
     await sync.background(true);
     await Promise.all([sync.background(false), sync.background(true)]);
     sync.stop();
-    const restored = new AgentLogSync(path.join(root, "state"), async () => "duplicate");
+    const restored = new AgentLogSync(path.join(root, "state"), async () => "covered");
     await restored.load();
     assert.equal(restored.status().background, true);
     restored.stop();
@@ -321,7 +290,8 @@ test("changed sessions, adoption deferral, cancellation and errors remain recove
 test("permission failures differ from an empty or unsupported location", async (t) => {
   const sync = new AgentLogSync(
     path.join(os.tmpdir(), "unused-synthetic-state"),
-    async () => "queued",
+    async () => "recorded",
+    quiet,
   );
   t.mock.method(fs, "opendir", async () => {
     const error = new Error("synthetic denied");
@@ -373,10 +343,14 @@ test("streaming difference sync preserves privacy, retries incomplete writes, su
     );
     const submitted = [];
     const make = () =>
-      new AgentLogSync(path.join(root, "state"), async (log) => {
-        submitted.push(log);
-        return "queued";
-      });
+      new AgentLogSync(
+        path.join(root, "state"),
+        async (log) => {
+          submitted.push(log);
+          return "recorded";
+        },
+        quiet,
+      );
     let sync = make();
     const probe = await sync.probe("codex", source);
     assert.equal(probe.state, "ready");
@@ -387,27 +361,33 @@ test("streaming difference sync preserves privacy, retries incomplete writes, su
     );
     await sync.run();
     assert.equal(submitted.length, 1);
-    assert.equal(submitted[0].status, "unknown");
-    // #629: 依頼は短い抜粋（最大5件×200文字）だけを残し、回答の途中経過は残さない。
-    assert.deepEqual(
-      submitted[0].request_events.map((event) => event.text),
-      ["合成デモ: Activityを確認する"],
-    );
-    assert.deepEqual(submitted[0].response_checkpoints, []);
-    assert.doesNotMatch(JSON.stringify(submitted), /DO-NOT-IMPORT|cwd|reasoning/);
+    // 残すのは最初の依頼の先頭と最後の回答の先頭だけ。途中の依頼と回答・tool の入出力は残さない。
+    // 作業場所（cwd）はリポジトリに直すためだけに Core へ渡す（保存しない事は agent-work-record の試験で守る）。
+    assert.deepEqual(submitted[0], {
+      client_kind: "codex",
+      source_session: "synthetic-rollout",
+      started_at: "2026-10-03T00:00:00.000Z",
+      ended_at: "2026-10-03T00:03:00.000Z",
+      intent: "合成デモ: Activityを確認する",
+      summary: "合成デモ: 日次表示を確認した",
+      cwd: "DO-NOT-IMPORT",
+    });
     await sync.run();
     assert.equal(submitted.length, 1);
     sync = make();
     await sync.load();
     await sync.run();
-    assert.equal(submitted.length, 1);
+    assert.equal(submitted.length, 1, "控えは再起動をまたぐ");
+    // 静かになった後も壊れたままの最後の行は、書きかけで終わった行。捨てて読む（誤りにしない）。
     await fs.appendFile(file, '{"type":"response_item"');
-    await sync.run();
-    assert.equal(submitted.length, 1);
-    assert.match(sync.status().sources[0].message, /書き込み途中/);
+    assert.equal((await sync.run()).state, "idle");
+    assert.equal(submitted.length, 2);
+    assert.deepEqual(submitted[1], submitted[0]);
+    // 名前の変わったログは読み直して渡す。2 件にしないのは Core（読み直しで増えない）。
     await fs.rename(file, path.join(source, "rotated.jsonl"));
     await sync.run();
-    assert.equal(submitted.length, 1);
+    assert.equal(submitted.length, 3);
+    assert.equal(submitted[2].source_session, "synthetic-rollout");
     assert.equal((await sync.probe("claude_code", path.join(root, "missing"))).state, "missing");
     await assert.rejects(
       sync.configure(
@@ -419,4 +399,118 @@ test("streaming difference sync preserves privacy, retries incomplete writes, su
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+test("拾い上げ: 動いている会話は読まず、静かになってから 1 回だけ渡す", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-log-quiet-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const source = path.join(root, "sessions");
+  await fs.mkdir(source);
+  const raw = await fs.readFile(
+    new URL("../fixtures/agent-work-logs/codex-rollout.jsonl", import.meta.url),
+    "utf8",
+  );
+  const file = path.join(source, "rollout.jsonl");
+  await fs.writeFile(file, raw);
+  let reads = 0;
+  const original = nativeFs.createReadStream;
+  t.mock.method(nativeFs, "createReadStream", (...args) => {
+    reads++;
+    return original(...args);
+  });
+  const submitted = [];
+  let clock = Date.now();
+  const sync = new AgentLogSync(
+    path.join(root, "state"),
+    async (pickup) => {
+      submitted.push(pickup);
+      return "recorded";
+    },
+    { now: () => clock },
+  );
+  await sync.configure(
+    { service: "codex", path: source, consent: true, destination: "local" },
+    "local",
+  );
+
+  // 書かれたばかりのログ（最後の動きから 60 分たっていない）は、開きもしない。
+  const active = await sync.run();
+  assert.equal(active.state, "idle");
+  assert.deepEqual(
+    [active.scanned, active.recorded, active.unchanged, active.active],
+    [1, 0, 0, 1],
+  );
+  assert.match(active.sources[0].message, /動いている 1 件/);
+  assert.equal(reads, 0);
+  clock += 59 * 60_000;
+  assert.equal((await sync.run()).active, 1);
+  assert.equal(reads, 0);
+
+  // 60 分たったら 1 件として渡す。もう一度見ても、読み直さない。
+  clock += 2 * 60_000;
+  const quietRun = await sync.run();
+  assert.deepEqual([quietRun.recorded, quietRun.active], [1, 0]);
+  assert.equal(submitted.length, 1);
+  assert.equal(reads, 1);
+  const again = await sync.run();
+  assert.deepEqual([again.recorded, again.unchanged], [0, 1]);
+  assert.equal(submitted.length, 1);
+  assert.equal(reads, 1);
+
+  // 会話が再開したら、また静かになるまで読まない。静かになったら渡す（続きだけにするのは Core）。
+  const resumed = {
+    timestamp: "2026-10-03T03:00:00Z",
+    type: "response_item",
+    payload: {
+      type: "message",
+      role: "assistant",
+      content: [{ type: "output_text", text: "合成デモ: 続きを終えた" }],
+    },
+  };
+  await fs.appendFile(file, `${JSON.stringify(resumed)}${os.EOL}`);
+  clock = Date.now() + 10 * 60_000;
+  assert.equal((await sync.run()).active, 1);
+  assert.equal(submitted.length, 1);
+  clock = Date.now() + 2 * 60 * 60_000;
+  assert.equal((await sync.run()).recorded, 1);
+  assert.equal(submitted.length, 2);
+  assert.equal(submitted[1].summary, "合成デモ: 続きを終えた");
+  assert.equal(submitted[1].ended_at, "2026-10-03T03:00:00.000Z");
+});
+
+test("拾い上げ: ファイルの更新時刻が古くても、ログの中の最後の動きが新しければ待つ", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-log-inner-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const source = path.join(root, "sessions");
+  await fs.mkdir(source);
+  const raw = await fs.readFile(
+    new URL("../fixtures/agent-work-logs/codex-rollout.jsonl", import.meta.url),
+    "utf8",
+  );
+  const file = path.join(source, "rollout.jsonl");
+  await fs.writeFile(file, raw);
+  const old = new Date("2026-10-01T00:00:00Z");
+  await fs.utimes(file, old, old);
+  const submitted = [];
+  // ログの最後の動きは 2026-10-03T00:02Z。その 30 分後に見る。
+  let clock = Date.parse("2026-10-03T00:32:00Z");
+  const sync = new AgentLogSync(
+    path.join(root, "state"),
+    async (pickup) => {
+      submitted.push(pickup);
+      return "covered";
+    },
+    { now: () => clock },
+  );
+  await sync.configure(
+    { service: "codex", path: source, consent: true, destination: "local" },
+    "local",
+  );
+  assert.equal((await sync.run()).active, 1);
+  assert.equal(submitted.length, 0);
+  clock = Date.parse("2026-10-03T01:02:00Z");
+  const done = await sync.run();
+  // Core が「もう数えてある」と答えた会話は、拾った数に入れない。
+  assert.deepEqual([done.recorded, done.unchanged, done.active], [0, 1, 0]);
+  assert.equal(submitted.length, 1);
 });

@@ -36,7 +36,6 @@ import {
   listProposalsResponseSchema,
   exportAiContextResponseSchema,
   proposeTaskWorkResponseSchema,
-  proposeAgentSessionResponseSchema,
   proposeRepositoryTaskResponseSchema,
   proposeContentResponseSchema,
   taskCommandResponseSchema,
@@ -552,16 +551,6 @@ export class TaskenCoreClient {
       request,
       // 版のずれた Core の応答も読めるよう、呼ぶ側は寛容に読む（#751）。
       getAgentSessionContextClientResponseSchema,
-    );
-  }
-
-  async proposeAgentSession(request = {}) {
-    return this.request(
-      "/v1/commands/propose-agent-session",
-      TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
-      request,
-      proposeAgentSessionResponseSchema,
-      "propose-agent-session",
     );
   }
 

@@ -72,12 +72,6 @@ import type {
 } from "../../shared/ipc/contracts";
 import { createMcpBridgeInfo } from "../../shared/ipc/contracts";
 import { coreWriteProfile } from "../../shared/contracts/core/public.mjs";
-import { parseAgentWorkLog } from "../../shared/agentWorkLogImport";
-import { isAgentLogSyncProposal } from "../../shared/agentSessionProposalAcceptance";
-import type {
-  ProposeAgentSessionRequest,
-  ProposeAgentSessionResponse,
-} from "../../shared/contracts/task/public";
 import type { SketchExportRequest, SketchExportResult } from "../../shared/sketchExport";
 import {
   validateMermaidPptxDiagram,
@@ -728,7 +722,6 @@ export class WorkspaceService {
   private readonly conversationContextRecoveryDirectory: string;
   private readonly proposalMarkdownImages: ProposalMarkdownImageStore;
   private readonly taskenCoreClient?: {
-    proposeAgentSession?(request: ProposeAgentSessionRequest): Promise<ProposeAgentSessionResponse>;
     getTaskContext(request: { task_id: string }): Promise<unknown>;
     inspect(): Promise<{ api_version: string; capabilities: string[] }>;
   };
@@ -737,9 +730,6 @@ export class WorkspaceService {
     private readonly userDataPath: string,
     private readonly now: () => string = () => new Date().toISOString(),
     taskenCoreClient?: {
-      proposeAgentSession?(
-        request: ProposeAgentSessionRequest,
-      ): Promise<ProposeAgentSessionResponse>;
       getTaskContext(request: { task_id: string }): Promise<unknown>;
       inspect(): Promise<{ api_version: string; capabilities: string[] }>;
     },
@@ -3082,102 +3072,47 @@ export class WorkspaceService {
     return `この PC の Tasken: ${this.userDataPath}${enabled ? `\n共有同期先: ${directory}` : "\n共有同期: 無効"}`;
   }
   /**
-   * 保存先を登録した時点で本人が読み込みを許可しているため、ログ同期の記録は採用待ちにせず
-   * そのまま履歴（Agent Session）へ入れる（#629）。`adopt` は既存のApplyAiProposal経路を使う。
+   * 本人が登録した保存先のログから、静かになった会話を 1 件ずつ拾う（#751）。
+   * 書くのは `pickUp`（Core の AI の作業の入口。Desktop の composition が渡す）で、同じ作業を
+   * 2 回数えない判定もそこにある。ここは「保存先が登録の時のままか」だけを見て渡す。
    */
-  private adoptAgentLogProposal?: (proposalId: string) => void;
   initializeAgentLogSync(
     notify: () => void,
-    adopt?: (proposalId: string) => void,
-    reject?: (proposalId: string) => void,
+    pickUp: (request: {
+      client_kind: string;
+      source_session: string;
+      started_at: string;
+      ended_at: string;
+      summary: string;
+      intent?: string | null;
+      cwd?: string | null;
+    }) => { status: "recorded" | "covered" },
+    options: { now?: () => number } = {},
   ) {
-    this.adoptAgentLogProposal = adopt;
-    const pendingFor = (source_app: string, sourceSession: string) =>
-      this.repository.list("ai_proposal").filter((proposal) => {
-        const request = proposal.request as Record<string, unknown> | undefined;
-        return (
-          proposal.status === "pending" &&
-          proposal.source_app === source_app &&
-          request?.source_session === sourceSession
-        );
-      });
     this.localAgentLogs = new AgentLogSync(
       path.join(this.userDataPath, "agent-log-sources"),
-      async (imported, destination) => {
+      async (pickup, destination) => {
         if (destination !== this.agentLogDestination())
           throw new Error("Tasken の保存先が変更されています。場所を再確認して登録してください。");
-        if (!this.taskenCoreClient?.proposeAgentSession)
-          throw new Error("Tasken Core に接続できません。");
-        const source_app = `tasken-log-sync:${imported.client_kind}`;
-        // 旧版で残った採用待ちは先に履歴へ入れ、その上で今回の内容へ更新する。
-        for (const proposal of pendingFor(source_app, imported.source_session)) {
-          try {
-            this.adoptAgentLogProposal?.(String(proposal.id));
-          } catch {
-            /* 採用できなければ今回は保留し、次回に再試行する。 */
-          }
-        }
-        if (pendingFor(source_app, imported.source_session).length) return "deferred";
-        const current = this.repository
-          .list("agent_session")
-          .find(
-            (session) =>
-              session.client_kind === imported.client_kind &&
-              session.source_session_id === imported.source_session &&
-              session.started_at === imported.started_at &&
-              (session.observation as { adapter?: string })?.adapter ===
-                imported.observation.adapter,
-          );
-        const result = await this.taskenCoreClient.proposeAgentSession({
-          ...imported,
-          action: "capture",
-          ...(current ? { expected_version: Number(current.version) } : {}),
-          idempotency_key: `local-log-v1:${createHash("sha256")
-            .update(JSON.stringify({ imported, version: current?.version || null }))
-            .digest("hex")}`,
-          caller: "Tasken local log sync",
-          source: "mcp",
-          source_app,
-          actor: { kind: "ai_agent" },
+        const result = pickUp({
+          ...pickup,
+          // 回答が 1 つも読めない会話（依頼だけで止めた物）も、あった事は残す。中身は作らない。
+          summary: pickup.summary || "回答の記録がありません。",
         });
-        if (result.status === "queued" && this.adoptAgentLogProposal) {
-          try {
-            this.adoptAgentLogProposal(result.proposal_id);
-          } catch {
-            // 採用できなかった記録は受け身の観測として残る（対応待ちには数えない）。次の一括処理で再試行できる。
-          }
-        }
-        notify();
+        if (result.status === "recorded") notify();
         return result.status;
       },
-      (service, sourceSession) => {
-        const proposals = pendingFor(`tasken-log-sync:${service}`, sourceSession);
-        for (const proposal of proposals) {
-          try {
-            reject?.(String(proposal.id));
-          } catch {
-            /* 取り下げられなかった記録は受け身の観測として残り、対応待ちには数えない。 */
-          }
-        }
-        if (proposals.length) notify();
-      },
+      options,
     );
     void this.localAgentLogs.load();
   }
 
-  pendingAgentLogRecordCount(): number {
-    return this.repository
-      .list("ai_proposal")
-      .filter((proposal) => proposal.status === "pending" && isAgentLogSyncProposal(proposal))
-      .length;
-  }
   async agentLogSetup(): Promise<AgentLogSetup> {
     if (!this.localAgentLogs) throw new Error("ログ同期を初期化できません。");
     await this.localAgentLogs.load();
     return {
       ...this.localAgentLogs.status(),
       destination: this.agentLogDestination(),
-      pendingRecords: this.pendingAgentLogRecordCount(),
       candidates: [
         ...agentLogCandidates("codex", os.homedir(), process.env),
         ...agentLogCandidates("claude_code", os.homedir(), process.env),
@@ -3204,34 +3139,6 @@ export class WorkspaceService {
   }
   stopAgentLogSync() {
     this.localAgentLogs?.stop();
-  }
-
-  /** User-selected, redacted text becomes a proposal through the existing Core. */
-  async importAgentWorkLog(raw: string, repositoryContextIds: string[]) {
-    const imported = parseAgentWorkLog(raw);
-    if (
-      !Array.isArray(repositoryContextIds) ||
-      repositoryContextIds.length > 1 ||
-      repositoryContextIds.some(
-        (id) => typeof id !== "string" || !this.repository.get("repository_context", id),
-      )
-    )
-      throw new Error("関連Repositoryを選び直してください。");
-    if (!this.taskenCoreClient?.proposeAgentSession)
-      throw new Error("取込受付に接続できません。Taskenを再起動してお試しください。");
-    const request: ProposeAgentSessionRequest = {
-      ...imported,
-      action: "capture",
-      idempotency_key: `file-v1:${createHash("sha256").update(JSON.stringify({ imported, repositoryContextIds })).digest("hex")}`,
-      caller: "Tasken file ingestion",
-      source: "mcp",
-      source_app: ["codex-rollout/1", "claude-transcript/1"].includes(imported.observation.adapter)
-        ? `tasken-log-sync:${imported.client_kind}`
-        : `tasken-session-hook:${imported.client_kind}`,
-      actor: { kind: "ai_agent" },
-      repository_context_ids: repositoryContextIds,
-    };
-    return this.taskenCoreClient.proposeAgentSession(request);
   }
 
   /** アプリ内ビューア用にローカルの画像・Markdown・テキストを読む。 */

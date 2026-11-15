@@ -2390,6 +2390,11 @@ async function startDesktopApp(): Promise<void> {
     },
   });
   registerWebArtifactProtocol(workspaceService);
+  // 登録した保存先のログから、静かになった会話を1件ずつ拾う（#751）。書く口はCoreのAIの作業の入口。
+  workspaceService.initializeAgentLogSync(
+    () => notifyMainWindowRefresh(),
+    (request) => composition.pickUpAgentWork(request),
+  );
   agentLogSyncService = workspaceService;
   const mediaCapture = new MediaCaptureService({
     userDataPath: app.getPath("userData"),

@@ -1,14 +1,13 @@
 import { createHash } from "node:crypto";
 
-import { normalizeAgentSession } from "../../../shared/agentSession.mjs";
 import {
   proposeAgentSessionRequestSchema,
   proposeAgentSessionResponseSchema,
   type ProposeAgentSessionRequest,
   type ProposeAgentSessionResponse,
 } from "../../../shared/contracts/task/public.ts";
-import type { AiProposalRecord, AiProposalWritePort } from "../ports/aiProposalWritePort.ts";
 
+/** 受け口（taskenCoreHost）の誤りの対応表が名前で引く。この service はもう投げない。受け口と一緒に消す。 */
 export class ProposeAgentSessionError extends Error {
   constructor(
     readonly code:
@@ -27,262 +26,32 @@ function uuidFrom(parts: string[]) {
   return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20, 32)}`;
 }
 
-function digest(value: unknown) {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
-}
-
-function relationEntries(
-  request: Extract<ProposeAgentSessionRequest, { action: "start" | "capture" }>,
-  sessionId: string,
-  proposalId: string,
-) {
-  const targets = [
-    ...(request.theme_ids || []).map((id) => ["project", id, "worked_on"]),
-    ...(request.task_ids || []).map((id) => ["task", id, "worked_on"]),
-    ...(request.repository_context_ids || []).map((id) => ["repository_context", id, "worked_on"]),
-    ...(request.working_copy_ids || []).map((id) => ["working_copy", id, "executed_in"]),
-  ] as Array<[string, string, string]>;
-  return [...new Map(targets.map((target) => [`${target[0]}:${target[1]}`, target])).values()].map(
-    ([type, id, predicate]) => ({
-      id: uuidFrom(["agent-session-reference", sessionId, type, id, predicate]),
-      source_type: "agent_session",
-      source_id: sessionId,
-      target_type: type,
-      target_id: id,
-      relation_type: predicate,
-      layer: "provenance",
-      status: "asserted",
-      origin: "ai_suggested",
-      metadata: { accepted_from_proposal_id: proposalId },
-    }),
-  );
-}
-
+/**
+ * 古い会話（Agent Session）の受け口。もう保存しない（#751 PR 3）。
+ *
+ * AI の作業は、AI が書く 1 件（`record-agent-work`）と、Desktop がログから拾う 1 件に替わった。
+ * ここへ送ってくるのは、古い hooks がまだ入っている PC だけ。その hook は、受け口が誤りを返すと
+ * 手元の控えを残して送り続けるので、形の合う要求には「受信済み」と答える（hook が控えを捨てる）。
+ * 案も会話も作らない。各 PC で hooks を外したら、受け口ごと消す（#751 PR 5）。
+ */
 export class ProposeAgentSessionService {
-  constructor(
-    private readonly writePort: AiProposalWritePort,
-    private readonly now: () => string = () => new Date().toISOString(),
-  ) {}
-
   execute(input: ProposeAgentSessionRequest): ProposeAgentSessionResponse {
     const request = proposeAgentSessionRequestSchema.parse(input);
-    const proposalId = uuidFrom([request.source_app, "agent_sessions", request.idempotency_key]);
-    let sessionId =
-      request.action !== "finish"
-        ? uuidFrom([
-            request.source_app,
-            "agent_session",
-            request.source_session,
-            ...(request.action === "capture" ? [new Date(request.started_at).toISOString()] : []),
-          ])
-        : request.agent_session_id;
-    const receivedAt = this.now();
-    const requestDigest = digest(request);
-
-    const status = this.writePort.runTransaction((transaction) => {
-      const existingProposal = transaction.get(proposalId);
-      if (existingProposal) {
-        const existingDigest = String(existingProposal.request.request_digest || "");
-        if (
-          existingProposal.source !== "mcp" ||
-          existingProposal.payload_type !== "agent_sessions" ||
-          existingDigest !== requestDigest
-        ) {
-          throw new ProposeAgentSessionError(
-            "IDEMPOTENCY_CONFLICT",
-            "同じ idempotency_key に異なる Agent Session 内容を送信できません。",
-            { proposal_id: proposalId },
-          );
-        }
-        const entries = existingProposal.payload.agent_sessions as Array<{
-          session: { id: string };
-        }>;
-        sessionId = entries[0].session.id;
-        return "duplicate" as const;
-      }
-
-      // Keep already-adopted pre-generation captures addressable without migration.
-      if (request.action === "capture") {
-        const legacyId = uuidFrom([request.source_app, "agent_session", request.source_session]);
-        const legacy = transaction.getEntityIncludingDeleted("agent_session", legacyId);
-        if (legacy && Date.parse(String(legacy.started_at)) === Date.parse(request.started_at)) {
-          sessionId = legacyId;
-        }
-      }
-      // 本人が日誌から消した会話は、ログの読み取りや hooks が同じ会話を送り直しても戻さない
-      // （#751）。案も作らない（採用待ちの案が「未確定の受信記録」として日誌に戻るため）。
-      // 送り手には受信済みと答える（送り手が手元の控えを捨て、同じ物を送り続けないように）。
-      if (transaction.getEntityIncludingDeleted("agent_session", sessionId)?.deleted_at) {
-        return "removed" as const;
-      }
-      const current =
-        request.action === "finish" || (request.action === "capture" && request.expected_version)
-          ? transaction.getEntity("agent_session", sessionId)
-          : null;
-      const refreshing = request.action === "capture" && request.expected_version !== undefined;
-      if (
-        refreshing &&
-        (!current ||
-          Number(current.version) !== request.expected_version ||
-          current.deleted_at ||
-          request.source_app !== `tasken-log-sync:${request.client_kind}` ||
-          !["codex", "claude_code"].includes(request.client_kind) ||
-          request.observation?.mode !== "history" ||
-          request.observation?.coverage !== "partial" ||
-          request.ended_at !== request.observation?.observed_until ||
-          current.client_kind !== request.client_kind ||
-          current.source_session_id !== request.source_session ||
-          current.status !== "unknown" ||
-          request.status !== "unknown" ||
-          !["codex-rollout/1", "claude-transcript/1"].includes(
-            request.observation?.adapter || "",
-          ) ||
-          (current.observation as { adapter?: string; mode?: string })?.adapter !==
-            request.observation?.adapter ||
-          (current.observation as { mode?: string })?.mode !== "history" ||
-          Date.parse(request.ended_at) < Date.parse(String(current.ended_at)))
-      )
-        throw new ProposeAgentSessionError(
-          "SESSION_CONFLICT",
-          "履歴ログの版または収録範囲が更新できません。再同期してください。",
-        );
-      if (request.action === "finish") {
-        if (!current) {
-          throw new ProposeAgentSessionError(
-            "SESSION_NOT_FOUND",
-            "終了対象の Agent Session がありません。",
-            { agent_session_id: sessionId },
-          );
-        }
-        if (Number(current.version || 0) !== request.expected_version) {
-          throw new ProposeAgentSessionError(
-            "SESSION_CONFLICT",
-            "Agent Session が更新されています。再取得してから終了してください。",
-            { agent_session_id: sessionId },
-          );
-        }
-        if (current.status !== "active") {
-          throw new ProposeAgentSessionError(
-            "SESSION_CONFLICT",
-            "active 以外の Agent Session は終了できません。",
-            { agent_session_id: sessionId },
-          );
-        }
-        if (current.source_session_id !== request.source_session) {
-          throw new ProposeAgentSessionError(
-            "SESSION_CONFLICT",
-            "source_session が Agent Session と一致しません。",
-            { agent_session_id: sessionId },
-          );
-        }
-      }
-      if (
-        request.action !== "finish" &&
-        !refreshing &&
-        transaction.getEntity("agent_session", sessionId)
-      ) {
-        throw new ProposeAgentSessionError(
-          "SESSION_CONFLICT",
-          "同じ source_session の Agent Session はすでに存在します。",
-          { agent_session_id: sessionId },
-        );
-      }
-
-      const session = normalizeAgentSession(
-        request.action !== "finish"
-          ? refreshing && request.action === "capture"
-            ? {
-                ...current,
-                ended_at: request.ended_at,
-                status: "unknown",
-                observation: request.observation,
-                // 履歴の読み直しでは、parserの正規化を直した依頼の要旨も置き換える（#629）。
-                intent: request.intent,
-                request_events: request.request_events || [],
-                outcome: {
-                  ...(current!.outcome as Record<string, unknown>),
-                  summary: request.outcome.summary,
-                },
-              }
-            : {
-                id: sessionId,
-                started_at: request.started_at,
-                ended_at: request.action === "capture" ? request.ended_at : null,
-                status: request.action === "capture" ? request.status : "active",
-                client_kind: request.client_kind,
-                client_label: request.client_label || null,
-                agent_label: request.agent_label || null,
-                provider_label: request.provider_label || null,
-                model_label: request.model_label || null,
-                source_session_id: request.source_session,
-                ...(request.observation ? { observation: request.observation } : {}),
-                request_events: request.request_events || [],
-                response_checkpoints: request.response_checkpoints || [],
-                intent: request.intent,
-                outcome: request.action === "capture" ? request.outcome : null,
-                source: "ai_proposal",
-              }
-          : {
-              ...current,
-              ended_at: request.ended_at,
-              status: request.status,
-              outcome: request.outcome,
-            },
-      );
-      const references =
-        request.action !== "finish" && !refreshing
-          ? relationEntries(request, sessionId, proposalId)
-          : [];
-      for (const reference of references) {
-        if (!transaction.getEntity(reference.target_type, reference.target_id)) {
-          throw new ProposeAgentSessionError(
-            "INVALID_REFERENCE",
-            "Agent Session の関連先が存在しません。",
-            { type: reference.target_type, id: reference.target_id },
-          );
-        }
-      }
-      const payload = { agent_sessions: [{ action: request.action, session, references }] };
-      const proposal: AiProposalRecord = {
-        id: proposalId,
-        source: "mcp",
-        source_app: request.source_app,
-        payload_type: "agent_sessions",
-        payload,
-        request: {
-          tool:
-            request.action === "start"
-              ? "tasken.start_agent_session"
-              : request.action === "finish"
-                ? "tasken.finish_agent_session"
-                : "tasken.submit_agent_session_record",
-          idempotency_key: request.idempotency_key,
-          caller: request.caller,
-          actor: request.actor,
-          source: request.source,
-          source_session: request.source_session,
-          request_digest: requestDigest,
-          payload_digest: digest(payload),
-          ...(refreshing ? { history_refresh_version: request.expected_version } : {}),
-        },
-        status: "pending",
-        received_at: receivedAt,
-      };
-      transaction.save(proposal);
-      return "queued" as const;
-    });
-
+    // 前の版と同じ作り方の ID を返す（古い hook の控えに残る値が、版の前後で変わらない）。
     return proposeAgentSessionResponseSchema.parse({
-      proposal_id: proposalId,
-      agent_session_id: sessionId,
-      status: status === "removed" ? "duplicate" : status,
+      proposal_id: uuidFrom([request.source_app, "agent_sessions", request.idempotency_key]),
+      agent_session_id:
+        request.action === "finish"
+          ? request.agent_session_id
+          : uuidFrom([
+              request.source_app,
+              "agent_session",
+              request.source_session,
+              ...(request.action === "capture" ? [new Date(request.started_at).toISOString()] : []),
+            ]),
+      status: "duplicate",
       payload_type: "agent_sessions",
-      message:
-        status === "queued"
-          ? "Agent Session を提案として送りました。Tasken の Agent Desk で確認してください。"
-          : status === "removed"
-            ? "この Agent Session は本人が消しています。受信済みとして扱い、保存しません。"
-            : "同じ idempotency_key の Agent Session Proposal は受信済みです。",
+      message: "Agent Session の受け口は役目を終えました。受信済みとして扱い、保存しません。",
     });
   }
 }

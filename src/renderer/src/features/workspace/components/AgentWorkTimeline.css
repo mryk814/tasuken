@@ -240,7 +240,6 @@
   color: var(--color-text-tertiary);
 }
 .agent-log-panel button:focus-visible,
-.agent-log-import-dialog button:focus-visible,
 .agent-log-detail-dialog button:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
@@ -253,8 +252,7 @@
   max-height: 630px;
   overflow-y: auto;
 }
-.agent-log-detail header,
-.agent-log-import-dialog header {
+.agent-log-detail header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -282,18 +280,15 @@
   width: 100%;
   color: var(--color-text-secondary);
 }
-.agent-log-detail dl,
-.agent-log-import-preview dl {
+.agent-log-detail dl {
   margin: 20px 0;
 }
-.agent-log-detail dt,
-.agent-log-import-preview dt {
+.agent-log-detail dt {
   color: var(--color-text-secondary);
   font-size: 11px;
   margin-top: 16px;
 }
-.agent-log-detail dd,
-.agent-log-import-preview dd {
+.agent-log-detail dd {
   margin: 5px 0 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -346,8 +341,7 @@
   gap: 12px;
   color: var(--color-text-secondary);
 }
-.agent-log-detail-dialog,
-.agent-log-import-dialog {
+.agent-log-detail-dialog {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
@@ -357,41 +351,11 @@
   max-height: calc(100dvh - 32px);
   padding: 20px;
 }
-.agent-log-detail-dialog::backdrop,
-.agent-log-import-dialog::backdrop {
+.agent-log-detail-dialog::backdrop {
   background: rgba(0, 0, 0, 0.28);
 }
 .agent-log-detail-dialog {
   width: min(620px, calc(100vw - 24px));
-}
-.agent-log-file {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px;
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  flex-wrap: wrap;
-}
-.agent-log-file input {
-  width: 100%;
-}
-.agent-log-import-preview label {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 16px;
-}
-.agent-log-import-dialog > small {
-  display: block;
-  margin: 10px 0;
-  color: var(--color-text-secondary);
-}
-.agent-log-import-dialog > details {
-  margin-top: 16px;
-}
-.agent-log-error {
-  color: var(--color-danger-strong);
 }
 .debrief-tasken-activity > summary {
   padding: 12px;

@@ -938,64 +938,6 @@ test("版のずれ: 呼ぶ側は、古い Core の応答（sessions）も新し�
   assert.deepEqual(fromNew.previous_handoff.remaining, ["残り"]);
 });
 
-test("本人が消した古い会話は、ログの読み取りや hooks が送り直しても戻らず、案も作らない", async (t) => {
-  const { db, client } = await startDesktop(t);
-  const capture = (key, patch = {}) =>
-    client.proposeAgentSession({
-      action: "capture",
-      idempotency_key: key,
-      caller: "codex lifecycle hook",
-      source: "mcp",
-      source_app: "tasken-session-hook:codex",
-      source_session: "conversation-removed",
-      actor: { kind: "ai_agent" },
-      started_at: `${DAY}T01:00:00.000Z`,
-      ended_at: `${DAY}T02:00:00.000Z`,
-      status: "completed",
-      client_kind: "codex",
-      request_events: [],
-      response_checkpoints: [{ observed_at: `${DAY}T02:00:00.000Z`, text: "終わりました。" }],
-      intent: { summary: "消される会話" },
-      outcome: { summary: "消される会話の結果" },
-      ...patch,
-    });
-  const proposals = () =>
-    db.list("ai_proposal").filter((proposal) => proposal.payload_type === "agent_sessions");
-
-  // 1 回目は今までどおり案になる。その会話が保存され、本人が日誌から消した、という状態を作る。
-  const first = await capture("first");
-  assert.equal(first.status, "queued");
-  const sessionId = first.agent_session_id;
-  const pending = proposals();
-  assert.equal(pending.length, 1);
-  db.save("agent_session", pending[0].payload.agent_sessions[0].session);
-  db.save("ai_proposal", { ...pending[0], status: "accepted" });
-  db.remove("agent_session", sessionId);
-  assert.ok(db.get("agent_session", sessionId, true).deleted_at);
-  const before = proposals().length;
-
-  // 同じ会話の送り直し（中身が伸びた、鍵が違う）: 受信済みと答え、案を作らず、会話も戻さない。
-  const again = await capture("second", { ended_at: `${DAY}T03:00:00.000Z` });
-  assert.equal(again.status, "duplicate");
-  assert.equal(again.agent_session_id, sessionId);
-  assert.equal(proposals().length, before);
-  assert.equal(
-    proposals().filter((proposal) => proposal.status === "pending").length,
-    0,
-    "採用待ちの案が残らない（日誌に「未確定の受信記録」として戻らない）",
-  );
-  assert.ok(db.get("agent_session", sessionId, true).deleted_at);
-  assert.equal(db.get("agent_session", sessionId), null);
-
-  // 読む道具にも戻らない。
-  const daily = await client.getAgentSessionContext({ date: DAY, source_session: "reader" });
-  assert.deepEqual(daily.agent_work, []);
-
-  // 別の会話は、今までどおり案になる。
-  const other = await capture("other", { source_session: "conversation-kept" });
-  assert.equal(other.status, "queued");
-});
-
 test("get_activity の from・to: 時刻付きの境界は日本時間の日付で読む（UTC の日付にしない）", async (t) => {
   const desktop = await startDesktop(t);
   const { noticed } = await seedMixedDay(desktop);

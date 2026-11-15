@@ -694,7 +694,7 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
   }
 });
 
-test("Agent Session proposals queue reviewable records at Core level without MCP exposure", async () => {
+test("Agent Session: 読む道具は古い会話を読み、書く道具は MCP に出さず、Core の受け口は保存しない", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-agent-session-mcp-"));
   fs.chmodSync(root, 0o700);
   const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));
@@ -869,60 +869,34 @@ test("Agent Session proposals queue reviewable records at Core level without MCP
     ]) {
       assert.equal(names.has(name), false, `${name} must stay unexposed over MCP`);
     }
-    const startArgs = {
-      idempotency_key: "agent-session-start-1",
-      caller: "Codex",
-      source_session: "codex-thread-498",
-      source_app: "codex",
+    // 動いている古い会話（前の版が保存した物）を、そのまま置く。
+    const sessionId = "0a6f3c52-7d1e-4b8a-9c3f-2e5d4b6a7c81";
+    database.save("agent_session", {
+      id: sessionId,
       started_at: "2026-08-25T10:00:00.000Z",
+      ended_at: null,
+      status: "active",
       client_kind: "codex",
       agent_label: "Codex",
       model_label: "gpt-5",
-      intent: {
-        summary: "Implement Issue #498",
-        requested_outcome: "Reviewable Agent Session provenance",
-        boundary: "No direct MCP writes",
-      },
-      repository_context_ids: ["repo-session"],
-      working_copy_ids: ["working-copy-session"],
-    };
-    const started = await core.proposeAgentSession.execute({
-      ...startArgs,
-      action: "start",
-      actor: { kind: "ai_agent" },
-      source: "mcp",
+      source_session_id: "codex-thread-498",
+      request_events: [],
+      response_checkpoints: [],
+      intent: { summary: "Implement Issue #498" },
+      outcome: null,
+      source: "ai_proposal",
     });
-    assert.equal(started.status, "queued");
-    const sessionId = started.agent_session_id;
-    assert.equal(
-      database.get("agent_session", sessionId),
-      null,
-      "MCP must not create official session data",
-    );
-    const startProposal = database.get("ai_proposal", started.proposal_id);
-    assert.equal(startProposal.payload_type, "agent_sessions");
-    assert.equal(startProposal.request.source_session, "codex-thread-498");
-    assert.equal(
-      startProposal.payload.agent_sessions[0].session.intent.summary,
-      "Implement Issue #498",
-    );
-    assert.deepEqual(
-      startProposal.payload.agent_sessions[0].references.map((entry) => entry.relation_type).sort(),
-      ["executed_in", "worked_on"],
-    );
-
-    database.save("agent_session", startProposal.payload.agent_sessions[0].session);
-    database.save("ai_proposal", { ...startProposal, status: "accepted" });
-    for (const reference of startProposal.payload.agent_sessions[0].references) {
-      database.save("reference", reference);
-    }
-    const duplicate = await core.proposeAgentSession.execute({
-      ...startArgs,
-      action: "start",
-      actor: { kind: "ai_agent" },
-      source: "mcp",
+    database.save("reference", {
+      id: "active-agent-session-repo",
+      source_type: "agent_session",
+      source_id: sessionId,
+      target_type: "repository_context",
+      target_id: "repo-session",
+      relation_type: "worked_on",
+      layer: "provenance",
+      status: "asserted",
+      origin: "system_action",
     });
-    assert.equal(duplicate.status, "duplicate");
 
     const contextRequest = {
       remote_url: "git@github.com:mryk814/tasuken.git",
@@ -945,40 +919,8 @@ test("Agent Session proposals queue reviewable records at Core level without MCP
     assert.deepEqual(context.structuredContent.previous_handoff.remaining, ["MCP workflow"]);
     assert.equal(JSON.stringify(context.structuredContent).includes("C:\\"), false);
 
-    const finishArgs = {
-      idempotency_key: "agent-session-finish-1",
-      caller: "Codex",
-      source_session: "codex-thread-498",
-      source_app: "codex",
-      agent_session_id: sessionId,
-      expected_version: 1,
-      ended_at: "2026-08-25T11:00:00.000Z",
-      status: "completed",
-      outcome: {
-        summary: "Phase 3 proposal flow implemented",
-        changed_items: ["Agent Session MCP adapter"],
-        verification: ["integration test"],
-        remaining_work: ["rendered QA"],
-      },
-    };
-    const finished = await core.proposeAgentSession.execute({
-      ...finishArgs,
-      action: "finish",
-      actor: { kind: "ai_agent" },
-      source: "mcp",
-    });
-    assert.equal(finished.status, "queued");
-    assert.equal(
-      database.get("agent_session", sessionId).status,
-      "active",
-      "finish must also wait for human review",
-    );
-    const finishProposal = database.get("ai_proposal", finished.proposal_id);
-    const proposedSession = finishProposal.payload.agent_sessions[0].session;
-    assert.equal(proposedSession.status, "completed");
-    assert.equal(proposedSession.intent.summary, "Implement Issue #498");
-    assert.equal(proposedSession.outcome.summary, "Phase 3 proposal flow implemented");
-
+    // Core の受け口（古い hooks だけが送ってくる）は、受信済みと答えて、案も会話も保存しない（#751）。
+    const proposalsBefore = database.list("ai_proposal", true).length;
     const captured = await core.proposeAgentSession.execute({
       idempotency_key: "agent-session-capture-1",
       caller: "Codex lifecycle hook",
@@ -995,19 +937,26 @@ test("Agent Session proposals queue reviewable records at Core level without MCP
       outcome: { summary: "Queued one complete session record" },
       repository_context_ids: ["repo-session"],
     });
-    assert.equal(captured.status, "queued");
-    assert.equal(database.get("agent_session", captured.agent_session_id), null);
-    const captureProposal = database.get("ai_proposal", captured.proposal_id);
-    assert.equal(captureProposal.payload.agent_sessions[0].action, "capture");
-    assert.equal(captureProposal.payload.agent_sessions[0].session.status, "completed");
-    assert.equal(
-      captureProposal.payload.agent_sessions[0].session.intent.summary,
-      "Collect this session without a start approval dependency",
-    );
-    assert.equal(
-      captureProposal.payload.agent_sessions[0].session.outcome.summary,
-      "Queued one complete session record",
-    );
+    assert.equal(captured.status, "duplicate");
+    assert.equal(database.get("agent_session", captured.agent_session_id, true), null);
+    assert.equal(database.get("ai_proposal", captured.proposal_id, true), null);
+    const finished = await core.proposeAgentSession.execute({
+      idempotency_key: "agent-session-finish-1",
+      caller: "Codex",
+      source_session: "codex-thread-498",
+      source_app: "codex",
+      agent_session_id: sessionId,
+      expected_version: 1,
+      ended_at: "2026-08-25T11:00:00.000Z",
+      status: "completed",
+      outcome: { summary: "Phase 3 proposal flow implemented" },
+      action: "finish",
+      actor: { kind: "ai_agent" },
+      source: "mcp",
+    });
+    assert.equal(finished.status, "duplicate");
+    assert.equal(database.get("agent_session", sessionId).status, "active");
+    assert.equal(database.list("ai_proposal", true).length, proposalsBefore);
   } finally {
     try {
       await client.close();

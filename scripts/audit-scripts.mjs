@@ -10,8 +10,6 @@ const packageScripts = packageJson.scripts || {};
 const manualAllowlist = {
   "ai-item-creation-ui-smoke.mjs":
     "Manual isolated Electron AI creation/seen smoke, documented in docs/ai-item-creation.md; not a merge gate.",
-  "agent-session-hook.mjs":
-    "Packaged lifecycle hook entry point bundled by build-mcp-bridge; launched by supported AI clients.",
   "audit-rules.mjs":
     "Internal scanner module imported by audit-consistency; not a CLI entry point.",
   "core.mjs":

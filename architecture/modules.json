@@ -202,7 +202,6 @@
       "kind": "main-transport",
       "status": "enforced",
       "publicEntrypoints": [
-        "src/main/mcp/agentSessionHookCollector.mjs",
         "src/main/mcp/server.mjs",
         "src/main/mcp/taskenCoreClient.mjs"
       ],

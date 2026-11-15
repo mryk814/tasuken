@@ -188,9 +188,7 @@ export function createTaskenCore(
     proposeTaskWork: new ProposeTaskWorkService(
       new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),
     ),
-    proposeAgentSession: new ProposeAgentSessionService(
-      new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),
-    ),
+    proposeAgentSession: new ProposeAgentSessionService(),
     proposeRepositoryTask: new ProposeRepositoryTaskService(
       new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),
     ),

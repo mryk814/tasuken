@@ -14,6 +14,8 @@ import { build } from "esbuild";
 
 import { buildMcpBridge } from "../scripts/build-mcp-bridge.mjs";
 import { TaskenCoreClient } from "../src/main/mcp/taskenCoreClient.mjs";
+import { TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY } from "../src/shared/contracts/core/public.mjs";
+import { proposeAgentSessionResponseSchema } from "../src/shared/contracts/task/public.ts";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 import { SharedFolderSyncService } from "../src/main/services/sharedFolderSync.mjs";
 import { nodeExecPath } from "./helpers/childProcessNode.mjs";
@@ -94,7 +96,13 @@ async function startDesktop(t) {
     await composition.coreRuntime.stop();
     db.db.close();
   });
-  return { userData, db, workspace, client: new TaskenCoreClient({ userDataPath: userData }) };
+  return {
+    userData,
+    db,
+    workspace,
+    composition,
+    client: new TaskenCoreClient({ userDataPath: userData }),
+  };
 }
 
 const work = (patch = {}) => ({
@@ -829,4 +837,452 @@ test("Core: 自由な文に秘密の形（トークン・鍵・Bearer・認証�
     work({ summary: "token の期限切れを直した。https://example.com/docs を見た。" }),
   );
   assert.equal(plain.status, "recorded");
+});
+
+// ---- ログからの拾い上げ（#751 PR 3）。Desktop の中の入口（composition.pickUpAgentWork）----
+
+const REPOSITORY = "repo-pickup";
+const REPOSITORY_ROOT = "C:/synthetic/pickup-repo";
+function seedRepository(db) {
+  db.save("repository_context", {
+    id: REPOSITORY,
+    label: "pickup-repo",
+    local_path: REPOSITORY_ROOT,
+  });
+}
+const at = (clock) => `2026-11-14T${clock}:00.000Z`;
+const pickup = (patch = {}) => ({
+  client_kind: "claude_code",
+  source_session: "log-conversation-1",
+  started_at: at("10:00"),
+  ended_at: at("11:00"),
+  summary: "最後の回答の先頭。",
+  intent: "最初の依頼の先頭",
+  ...patch,
+});
+const live = (db) => db.list(TYPE, false);
+
+test("拾い上げ: 静かになった会話を 1 件で書く。推測の欄は空、作業場所は保存しない、読み直しで増えない", async (t) => {
+  const { db, composition } = await startDesktop(t);
+  seedRepository(db);
+  const outboxBefore = outbox(db);
+  const eventsBefore = changeEvents(db);
+  const first = composition.pickUpAgentWork(
+    pickup({
+      summary: "回".repeat(600),
+      intent: "依".repeat(300),
+      cwd: `${REPOSITORY_ROOT}/src/deep`,
+    }),
+  );
+  assert.equal(first.status, "recorded");
+  const saved = db.get(TYPE, first.id);
+  assert.equal(saved.basis, "log_pickup");
+  assert.equal(saved.written_by, "Tasken log pickup");
+  assert.equal(saved.source, "mcp");
+  assert.equal(saved.status, "partial", "ログからは、終わったのか止まったのかが分からない");
+  assert.equal(saved.source_session_id, "log-conversation-1");
+  assert.deepEqual([saved.started_at, saved.ended_at], [at("10:00"), at("11:00")]);
+  // 要約は最後の回答の先頭、依頼は最初の依頼の先頭。記録の上限に切る。
+  assert.equal(saved.summary, `${"回".repeat(399)}…`);
+  assert.equal(saved.intent, `${"依".repeat(159)}…`);
+  // ログから推測で作らない。
+  assert.deepEqual(
+    [saved.changed, saved.changed_more, saved.verified, saved.remaining, saved.notice],
+    [[], 0, [], [], null],
+  );
+  assert.deepEqual([saved.theme_ids, saved.task_ids], [[], []]);
+  // 作業場所はリポジトリに直すだけ。場所そのものはどこにも残らない。
+  assert.deepEqual(saved.repository_context_ids, [REPOSITORY]);
+  const stored = db.db
+    .prepare("SELECT data_json FROM entities WHERE entity_type = ? AND id = ?")
+    .get(TYPE, first.id).data_json;
+  assert.doesNotMatch(stored, /synthetic|cwd/);
+  assert.doesNotMatch(
+    JSON.stringify(db.db.prepare("SELECT payload_json FROM sync_outbox").all()),
+    /synthetic\/pickup-repo\/src/,
+  );
+  // 来歴を作らず、差分は 1 つだけ。
+  assert.equal(outbox(db), outboxBefore + 1);
+  assert.equal(changeEvents(db), eventsBefore);
+
+  // 読み直し（同じ範囲）は増えない。ID は「会話 ＋ 範囲の始まり」から決まる。
+  const again = composition.pickUpAgentWork(pickup({ cwd: `${REPOSITORY_ROOT}/src/deep` }));
+  assert.deepEqual(again, { status: "covered", id: first.id });
+  // 少しだけ伸びた（10 分のゆとりの内）会話も、同じ作業。
+  assert.equal(composition.pickUpAgentWork(pickup({ ended_at: at("11:10") })).status, "covered");
+  assert.equal(live(db).length, 1);
+  assert.equal(outbox(db), outboxBefore + 1);
+
+  // 再開して長く続いた会話は、続きの分だけを 1 件（始まり = 前の記録の終わり）。前の 1 件は書き換えない。
+  const more = composition.pickUpAgentWork(
+    pickup({ ended_at: at("13:00"), summary: "続きの最後の回答。" }),
+  );
+  assert.equal(more.status, "recorded");
+  assert.notEqual(more.id, first.id);
+  assert.deepEqual(
+    [db.get(TYPE, more.id).started_at, db.get(TYPE, more.id).ended_at],
+    [at("11:00"), at("13:00")],
+  );
+  assert.equal(db.get(TYPE, first.id).summary, `${"回".repeat(399)}…`);
+  assert.equal(db.get(TYPE, first.id).version, saved.version);
+  assert.equal(composition.pickUpAgentWork(pickup({ ended_at: at("13:00") })).status, "covered");
+  assert.equal(live(db).length, 2);
+
+  // 別の AI の同じ ID の会話は、別の作業。
+  assert.equal(composition.pickUpAgentWork(pickup({ client_kind: "codex" })).status, "recorded");
+});
+
+test("拾い上げ: AI が書いた記録と重ねない（同じ会話の ID）。長い続きは続きだけ", async (t) => {
+  const { db, composition, client } = await startDesktop(t);
+  const reported = await client.recordAgentWork(
+    work({ source_session: "shared-conversation", ended_at: at("10:00") }),
+  );
+  assert.equal(reported.status, "recorded");
+  // AI の記録の終わりが、ログの最後の動きの 10 分前より後なら、何も書かない。
+  const covered = composition.pickUpAgentWork(
+    pickup({
+      source_session: "shared-conversation",
+      started_at: at("09:00"),
+      ended_at: at("10:08"),
+    }),
+  );
+  assert.deepEqual(covered, { status: "covered", id: reported.id });
+  assert.equal(live(db).length, 1);
+  // それより後に長い続きがあれば、続きの分だけ。
+  const rest = composition.pickUpAgentWork(
+    pickup({
+      source_session: "shared-conversation",
+      started_at: at("09:00"),
+      ended_at: at("10:40"),
+    }),
+  );
+  assert.equal(rest.status, "recorded");
+  assert.equal(db.get(TYPE, rest.id).started_at, at("10:00"));
+  assert.equal(db.get(TYPE, rest.id).basis, "log_pickup");
+  // AI の種類の表記が違っても同じ会話として見る。
+  assert.equal(
+    composition.pickUpAgentWork(
+      pickup({
+        client_kind: "Claude-Code",
+        source_session: "shared-conversation",
+        started_at: at("09:00"),
+        ended_at: at("10:40"),
+      }),
+    ).status,
+    "covered",
+  );
+  assert.equal(live(db).length, 2);
+});
+
+test("拾い上げ: 会話の ID が合わなくても、同じ AI・同じリポジトリ・重なる時間の AI の記録があれば重ねない", async (t) => {
+  const { db, composition, client } = await startDesktop(t);
+  seedRepository(db);
+  // AI は自分の会話の ID を知らない事が多い。ここでは別の値を書いている。
+  const reported = await client.recordAgentWork(
+    work({
+      source_session: "what-the-ai-believed",
+      started_at: at("13:00"),
+      ended_at: at("14:00"),
+      cwd: `${REPOSITORY_ROOT}/src`,
+    }),
+  );
+  assert.deepEqual(reported.record.repository_context_ids, [REPOSITORY]);
+  const inRepository = (patch) =>
+    composition.pickUpAgentWork(pickup({ cwd: REPOSITORY_ROOT, ...patch }));
+
+  assert.deepEqual(
+    inRepository({ source_session: "real-log-id", started_at: at("12:50"), ended_at: at("14:05") }),
+    { status: "covered", id: reported.id },
+  );
+  assert.equal(live(db).length, 1);
+
+  // 続きが長い時は、続きの分だけ（始まり = AI の記録の終わり）。
+  const rest = inRepository({
+    source_session: "real-log-long",
+    started_at: at("13:30"),
+    ended_at: at("14:45"),
+  });
+  assert.equal(rest.status, "recorded");
+  assert.equal(db.get(TYPE, rest.id).started_at, at("14:00"));
+
+  // 重ならない物は、そのまま拾う: 別のリポジトリ（作業場所が分からない）・別の AI・重ならない時間。
+  const elsewhere = composition.pickUpAgentWork(
+    pickup({ source_session: "no-place", started_at: at("12:50"), ended_at: at("14:05") }),
+  );
+  assert.equal(elsewhere.status, "recorded");
+  assert.equal(db.get(TYPE, elsewhere.id).started_at, at("12:50"));
+  const otherClient = inRepository({
+    client_kind: "codex",
+    source_session: "codex-log",
+    started_at: at("12:50"),
+    ended_at: at("14:05"),
+  });
+  assert.equal(otherClient.status, "recorded");
+  const later = inRepository({
+    source_session: "later-log",
+    started_at: at("16:00"),
+    ended_at: at("17:00"),
+  });
+  assert.equal(later.status, "recorded");
+  assert.equal(db.get(TYPE, later.id).started_at, at("16:00"));
+  // 拾い上げどうしは、この予備の判定で消し合わない（同じリポジトリで並んで動く会話は、どちらも残る）。
+  const parallel = inRepository({
+    source_session: "parallel-log",
+    started_at: at("16:10"),
+    ended_at: at("16:50"),
+  });
+  assert.equal(parallel.status, "recorded");
+  assert.equal(db.get(TYPE, parallel.id).started_at, at("16:10"));
+});
+
+test("拾い上げ: 本人が消した記録は拾い直さない（拾った物も、AI が書いた物も）", async (t) => {
+  const { db, composition, client } = await startDesktop(t);
+  seedRepository(db);
+  const picked = composition.pickUpAgentWork(pickup());
+  assert.equal(picked.status, "recorded");
+  workspaceRemove(db, picked.id);
+  assert.deepEqual(composition.pickUpAgentWork(pickup()), { status: "covered", id: picked.id });
+  assert.equal(live(db).length, 0);
+  assert.ok(db.get(TYPE, picked.id, true).deleted_at);
+
+  // AI が書いた記録（同じ会話）を本人が消した後も、ログから戻さない。
+  const reported = await client.recordAgentWork(
+    work({ source_session: "erased-conversation", ended_at: at("15:00") }),
+  );
+  workspaceRemove(db, reported.id);
+  assert.equal(
+    composition.pickUpAgentWork(
+      pickup({
+        source_session: "erased-conversation",
+        started_at: at("14:00"),
+        ended_at: at("15:05"),
+      }),
+    ).status,
+    "covered",
+  );
+  // 会話の ID が合わない記録（同じリポジトリ・重なる時間）を本人が消した時も同じ。
+  const guessed = await client.recordAgentWork(
+    work({
+      idempotency_key: "guessed",
+      source_session: "guessed-id",
+      started_at: at("18:00"),
+      ended_at: at("19:00"),
+      cwd: REPOSITORY_ROOT,
+    }),
+  );
+  workspaceRemove(db, guessed.id);
+  assert.equal(
+    composition.pickUpAgentWork(
+      pickup({
+        source_session: "real-id",
+        started_at: at("18:00"),
+        ended_at: at("19:05"),
+        cwd: REPOSITORY_ROOT,
+      }),
+    ).status,
+    "covered",
+  );
+  assert.equal(live(db).length, 0);
+});
+
+test("拾い上げ: 古い形（会話）でもう入っている会話は拾い直さず、続きだけを書く。消した会話も戻さない", async (t) => {
+  const { db, composition } = await startDesktop(t);
+  const legacy = (patch) =>
+    db.save("agent_session", {
+      started_at: at("08:00"),
+      ended_at: at("09:00"),
+      status: "unknown",
+      client_kind: "codex",
+      request_events: [],
+      response_checkpoints: [],
+      intent: { summary: "古い依頼" },
+      outcome: { summary: "古い回答" },
+      source: "ai_proposal",
+      ...patch,
+    });
+  legacy({ id: "legacy-1", source_session_id: "legacy-conversation" });
+  const same = composition.pickUpAgentWork(
+    pickup({
+      client_kind: "codex",
+      source_session: "legacy-conversation",
+      started_at: at("08:00"),
+      ended_at: at("09:00"),
+    }),
+  );
+  assert.deepEqual(same, { status: "covered", id: "legacy-1" });
+  assert.equal(live(db).length, 0);
+  const rest = composition.pickUpAgentWork(
+    pickup({
+      client_kind: "codex",
+      source_session: "legacy-conversation",
+      started_at: at("08:00"),
+      ended_at: at("12:00"),
+    }),
+  );
+  assert.equal(rest.status, "recorded");
+  assert.equal(db.get(TYPE, rest.id).started_at, at("09:00"));
+
+  legacy({ id: "legacy-2", source_session_id: "legacy-erased" });
+  db.remove("agent_session", "legacy-2");
+  assert.equal(
+    composition.pickUpAgentWork(
+      pickup({
+        client_kind: "codex",
+        source_session: "legacy-erased",
+        started_at: at("08:00"),
+        ended_at: at("09:00"),
+      }),
+    ).status,
+    "covered",
+  );
+  assert.equal(live(db).length, 1);
+});
+
+test("拾い上げ: 保存先を登録した時だけ、Desktop がログから Core の入口へ 1 件ずつ書く", async (t) => {
+  const { db, workspace, composition, client, userData } = await startDesktop(t);
+  const logs = path.join(userData, "synthetic-codex", "sessions");
+  fs.mkdirSync(logs, { recursive: true });
+  const fixture = fs.readFileSync("fixtures/agent-work-logs/codex-rollout.jsonl", "utf8");
+  fs.writeFileSync(path.join(logs, "rollout-a.jsonl"), fixture);
+  fs.writeFileSync(
+    path.join(logs, "rollout-b.jsonl"),
+    fixture.replaceAll("synthetic-rollout", "synthetic-reported"),
+  );
+  let notified = 0;
+  let clock = Date.now();
+  workspace.initializeAgentLogSync(
+    () => notified++,
+    (request) => composition.pickUpAgentWork(request),
+    { now: () => clock },
+  );
+  defer(t, () => workspace.stopAgentLogSync());
+
+  // 登録していなければ、何も読まず、何も書かない。
+  const idle = await workspace.syncAgentLogs();
+  assert.deepEqual([idle.scanned, idle.recorded], [0, 0]);
+  const setup = await workspace.agentLogSetup();
+  assert.deepEqual(setup.sources, []);
+  await workspace.configureAgentLogSource({
+    service: "codex",
+    path: logs,
+    consent: true,
+    destination: setup.destination,
+  });
+
+  // 片方の会話は、AI が自分で書いてある。
+  const reported = await client.recordAgentWork(
+    work({
+      client_kind: "codex",
+      source_session: "synthetic-reported",
+      ended_at: "2026-10-03T00:02:00.000Z",
+    }),
+  );
+  // 書かれたばかりのログは動いている会話。読まない。
+  const active = await workspace.syncAgentLogs();
+  assert.deepEqual([active.recorded, active.active], [0, 2]);
+  assert.equal(db.list(TYPE, true).length, 1);
+
+  clock += 61 * 60_000;
+  const done = await workspace.syncAgentLogs();
+  assert.deepEqual([done.state, done.recorded, done.unchanged, done.active], ["idle", 1, 1, 0]);
+  assert.equal(notified, 1);
+  const records = db.list(TYPE, true);
+  assert.equal(records.length, 2);
+  const picked = records.find((entry) => entry.id !== reported.id);
+  assert.equal(picked.basis, "log_pickup");
+  assert.equal(picked.client_kind, "codex");
+  assert.equal(picked.source_session_id, "synthetic-rollout");
+  assert.equal(picked.intent, "合成デモ: Activityを確認する");
+  assert.equal(picked.summary, "合成デモ: 日次表示を確認した");
+  assert.deepEqual(
+    [picked.started_at, picked.ended_at],
+    ["2026-10-03T00:00:00.000Z", "2026-10-03T00:02:00.000Z"],
+  );
+  // ログの中の作業場所・指示・推論・tool の出力は、どれも残らない（合成のログに目印を入れてある）。
+  assert.doesNotMatch(JSON.stringify(records), /DO-NOT-IMPORT/);
+  assert.doesNotMatch(
+    JSON.stringify(db.db.prepare("SELECT payload_json FROM sync_outbox").all()),
+    /DO-NOT-IMPORT/,
+  );
+  // 案も古い会話も作らない。
+  assert.equal(db.list("agent_session", true).length, 0);
+  assert.equal(
+    db.list("ai_proposal", true).filter((entry) => entry.payload_type === "agent_sessions").length,
+    0,
+  );
+
+  // 読み直しても増えない。控えを無くしても（別の PC・入れ直し）、Core が 2 件にしない。
+  assert.equal((await workspace.syncAgentLogs()).recorded, 0);
+  fs.rmSync(path.join(userData, "agent-log-sources"), { recursive: true, force: true });
+  workspace.stopAgentLogSync();
+  workspace.initializeAgentLogSync(
+    () => notified++,
+    (request) => composition.pickUpAgentWork(request),
+    { now: () => clock },
+  );
+  const fresh = await workspace.agentLogSetup();
+  await workspace.configureAgentLogSource({
+    service: "codex",
+    path: logs,
+    consent: true,
+    destination: fresh.destination,
+  });
+  const reread = await workspace.syncAgentLogs();
+  assert.deepEqual([reread.scanned, reread.recorded, reread.unchanged], [2, 0, 2]);
+  assert.equal(db.list(TYPE, true).length, 2);
+  assert.equal(notified, 1);
+});
+
+test("拾い上げ: 根拠（log_pickup）と書き手は、外の client が受け口から名乗れない", async (t) => {
+  const { db, client } = await startDesktop(t);
+  await rejectsWith(client.recordAgentWork(work({ basis: "log_pickup" })), "VALIDATION_FAILED");
+  const written = await client.recordAgentWork(work());
+  assert.equal(written.record.basis, "ai_report");
+  assert.equal(db.list(TYPE, true).length, 1);
+});
+
+test("古い hooks の受け口: 形の合う会話には「受信済み」と答え、案も会話も保存しない", async (t) => {
+  const { db, client } = await startDesktop(t);
+  const proposalsBefore = db.list("ai_proposal", true).length;
+  const outboxBefore = outbox(db);
+  // 古い hook（前の版の bundle が各 PC に残っている）が、会話の終わりに送ってくる形。
+  const fromOldHook = {
+    action: "capture",
+    idempotency_key: "codex:old-hook-conversation:terminal:v2:0123456789abcdef",
+    caller: "codex lifecycle hook",
+    source: "mcp",
+    source_app: "tasken-session-hook:codex",
+    source_session: "old-hook-conversation",
+    actor: { kind: "ai_agent" },
+    started_at: at("08:00"),
+    ended_at: at("08:40"),
+    status: "completed",
+    client_kind: "codex",
+    request_events: [],
+    response_checkpoints: [],
+    intent: { summary: "古い hook が見た依頼" },
+    outcome: { summary: "古い hook が見た回答", verification: ["collector: codex"] },
+  };
+  const send = (body) =>
+    client.request(
+      "/v1/commands/propose-agent-session",
+      TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
+      body,
+      proposeAgentSessionResponseSchema,
+      "propose-agent-session",
+    );
+  // 古い hook は、誤りでない返事を受けると手元の控えを捨てる（誤りだと残して送り続ける）。
+  const first = await send(fromOldHook);
+  assert.equal(first.status, "duplicate");
+  assert.match(first.message, /受信済み/);
+  assert.deepEqual(await send(fromOldHook), first);
+  // 同じ鍵で中身が違っても、もう比べる物が無いので誤りにしない。
+  assert.equal(
+    (await send({ ...fromOldHook, outcome: { summary: "違う回答" } })).status,
+    "duplicate",
+  );
+  assert.equal(db.list("ai_proposal", true).length, proposalsBefore);
+  assert.equal(db.list("agent_session", true).length, 0);
+  assert.equal(db.list(TYPE, true).length, 0);
+  assert.equal(outbox(db), outboxBefore);
 });
