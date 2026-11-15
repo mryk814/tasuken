@@ -55,6 +55,8 @@ data class MobileTask(
     val description: String? = null,
     val aiOrigin: MobileAiOrigin? = null,
     val placeReminder: MobilePlaceReminder? = null,
+    /** 時刻の知らせ（#753）。Task の reminder_at のまま。 */
+    val reminderAt: String? = null,
 )
 
 @Serializable
@@ -258,6 +260,9 @@ data class MobileTaskConflict(
     val serverPlaceReminder: MobilePlaceReminder? = null,
     val localPlaceReminder: MobilePlaceReminder? = null,
     val localPlaceReminderChanged: Boolean = false,
+    val serverReminderAt: String? = null,
+    val localReminderAt: String? = null,
+    val localReminderAtChanged: Boolean = false,
 )
 
 sealed interface MobileTodayResult {
@@ -1521,6 +1526,8 @@ interface MobileOfflineTaskRepository {
         error("この環境ではTaskの予定を変更できません。")
     suspend fun enqueueUpdateTaskPlaceReminder(taskId: String, place: MobilePlaceReminder?): String =
         error("この環境ではTaskの場所を変更できません。")
+    suspend fun enqueueUpdateTaskReminderAt(taskId: String, reminderAt: String?): String =
+        error("この環境ではTaskの時刻を変更できません。")
     suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String?): String =
         error("この環境ではTaskのThemeを変更できません。")
     suspend fun enqueueUpdateTaskChecklist(taskId: String, items: List<MobileChecklistItem>): String =

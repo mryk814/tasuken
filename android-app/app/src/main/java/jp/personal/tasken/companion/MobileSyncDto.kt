@@ -130,6 +130,7 @@ object MobileSyncContract {
         requireContract(task.description == null || task.description.length <= 50000, "Invalid Task description.")
         validateMobileAiOrigin(task.aiOrigin)
         requireContract(runCatching { validateMobilePlaceReminder(task.placeReminder) }.isSuccess, "Invalid Task placeReminder.")
+        requireContract(isMobileReminderAt(task.reminderAt), "Invalid Task reminderAt.")
         requireContract(task.themeId == null || isEntityId(task.themeId), "Invalid Theme ID.")
         requireContract(task.state in taskStates, "Invalid Task state.")
         requireContract(task.workState == null || task.workState in workStates, "Invalid work state.")

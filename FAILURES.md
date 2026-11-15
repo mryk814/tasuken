@@ -2,6 +2,22 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-15 通知の「後で」を押すと、押していない方の通知まで消えた
+
+- しようとしたこと: #753 の時刻と期限の通知で、ロック画面に件数を出すため、通知を 1 つの束（`setGroup`）にして、まとめの通知（`setGroupSummary`）を自分で出した。通知が 1 つ以下になったらまとめを消す形にした。
+- 起きたこと: エミュレータで 2 つ出ている通知の片方の「1 時間後」を押すと、もう片方（期限の知らせ）も引き出しから消えた。単体の試験と Room の試験は通っていた（通知の数を「まとめを消した直後」に数えていなかった）。
+- 原因: Android は、束のまとめを `cancel` すると、束の中の通知も一緒に消す。
+- 直し方: まとめは、束の中の通知が 0 になった時だけ消す（`TaskNotificationScheduler.updateSummary`）。「後で」の後に残った通知とまとめが残ることを `TaskNotificationDatabaseTest` に足した。
+- 再発防止: `updateSummary` のコメントと、上の試験。通知の束は実機かエミュレータの引き出しで、押した後の残りまで目で見る。
+
+## 2026-11-15 見た目の確認で置いた Task が残り、ウィジェットの試験が落ちた
+
+- しようとしたこと: #753 の通知を目で確かめるため、`adb install` したアプリの実際の写し（`MobileLocalDatabase.open`）に `am instrument` で Task を置き、そのまま `connectedDebugAndroidTest` を流した。
+- 起きたこと: `TaskenWidgetBindingUiTest.seededDatabaseProducesSectionedScrollableRows` が、見出し「期限が近い」が増えて落ちた。
+- 原因: connected 系は APK を上書きで入れるので、前に置いた Task が写しに残る。この試験も実際の写しを読む。流し終わるとアプリごと消えるので、2 回目は通る。
+- 直し方: 流し直した（通った）。
+- 再発防止: 記録だけ。`TaskNotificationLookCaptureTest.seedRealNotifications` を使った後は、試験の前にアプリを消す（`adb -s <serial> uninstall jp.personal.tasken.companion.debug`）。
+
 ## 2026-11-14 `emulator-5554` が試験用の AVD ではなく、Compose の画面の試験が全部 espresso で落ちた
 
 - しようとしたこと: つながらない時の見せ方（割印と日付印）の画面を、`ANDROID_SERIAL=emulator-5554` で androidTest から撮る。

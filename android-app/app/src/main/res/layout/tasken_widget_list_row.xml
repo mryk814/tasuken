@@ -26,6 +26,18 @@
         android:textColor="@color/tasken_widget_on_surface"
         android:textSize="14sp" />
 
+    <TextView
+        android:id="@+id/widget_row_due"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical"
+        android:includeFontPadding="false"
+        android:maxLines="1"
+        android:paddingStart="8dp"
+        android:textColor="@color/tasken_widget_on_surface_variant"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
     <ImageView
         android:id="@+id/widget_row_button"
         android:layout_width="40dp"

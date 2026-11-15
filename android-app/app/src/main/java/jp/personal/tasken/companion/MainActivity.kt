@@ -268,6 +268,9 @@ internal fun TodayApp(
         mutableStateOf(TaskenNotifications.canPost(context))
     }
     var notificationPermissionDenied by rememberSaveable { mutableStateOf(false) }
+    // 期限の日の知らせの時刻（#753）と、正確なアラームの許可。どちらもこの端末の設定。
+    var dueTimes by remember(context) { mutableStateOf(TaskNotificationSettings.dueTimes(context)) }
+    var exactAlarmsAllowed by remember(context) { mutableStateOf(TaskNotificationScheduler.canScheduleExact(context)) }
     val captureDraftStore = remember(context) { MobileCaptureDraftStore(context.applicationContext) }
     val restoredCaptureDraft = remember(captureDraftStore) { captureDraftStore.load() }
     val restoredUndoTarget = remember(captureDraftStore) { captureDraftStore.loadUndoTarget() }
@@ -485,6 +488,9 @@ internal fun TodayApp(
             if (event == Lifecycle.Event.ON_RESUME) {
                 notificationsEnabled = TaskenNotifications.canPost(context)
                 if (notificationsEnabled) notificationPermissionDenied = false
+                // 設定の画面で許可を変えて戻った時に、表示とアラームを合わせる（権限が付いた後の知らせもここで出る）。
+                exactAlarmsAllowed = TaskNotificationScheduler.canScheduleExact(context)
+                TaskNotificationScheduler.syncAsync(context)
                 todayViewModel.load()
             }
         }
@@ -909,6 +915,20 @@ internal fun TodayApp(
             onRequestNotifications = requestNotifications,
             onRepair = { settingsOpen = false; todayViewModel.retryPairing() },
             onDismiss = { settingsOpen = false },
+            dueTimes = dueTimes,
+            onDueTimesChange = { times ->
+                TaskNotificationSettings.setDueTimes(context, times)
+                dueTimes = TaskNotificationSettings.dueTimes(context)
+                TaskNotificationScheduler.syncAsync(context)
+            },
+            exactAlarmsAllowed = exactAlarmsAllowed,
+            onRequestExactAlarms = if (android.os.Build.VERSION.SDK_INT >= 31) {
+                {
+                    context.startActivity(
+                        Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, android.net.Uri.parse("package:${context.packageName}")),
+                    )
+                }
+            } else null,
         )
     }
 
@@ -2562,6 +2582,9 @@ internal fun TodayDetailPane(
                             if (conflict.localPlaceReminderChanged) {
                                 Text("Desktop  場所 ${conflict.serverPlaceReminder?.name ?: "なし"}")
                                 Text("この端末  場所 ${conflict.localPlaceReminder?.name ?: "なし"}")
+                            } else if (conflict.localReminderAtChanged) {
+                                Text("Desktop  知らせる時刻 ${reminderAtLabel(conflict.serverReminderAt)}")
+                                Text("この端末  知らせる時刻 ${reminderAtLabel(conflict.localReminderAt)}")
                             } else if (conflict.localThemeIdChanged) {
                                 Text("Desktop  Theme ${themeTitleForDisplay(themes, conflict.serverThemeId)}")
                                 Text("この端末  Theme ${themeTitleForDisplay(themes, conflict.localThemeId)}")

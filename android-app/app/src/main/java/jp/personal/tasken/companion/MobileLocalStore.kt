@@ -67,6 +67,8 @@ data class TaskCacheEntity(
     val description: String? = null,
     val aiOriginJson: String? = null,
     val placeReminderJson: String? = null,
+    /** 時刻の知らせ（#753）。Task の reminder_at のまま（時差つきか、時差なしの現地時刻）。 */
+    val reminderAt: String? = null,
 )
 
 /** Task ごとの最終通知日（端末のローカル日付）。場所のリマインダーを 1 日 1 回に抑える。 */
@@ -364,6 +366,8 @@ data class TaskConflictEntity(
     val localPlannedScheduleChanged: Boolean = false,
     val localPlaceReminderJson: String? = null,
     val localPlaceReminderChanged: Boolean = false,
+    val localReminderAt: String? = null,
+    val localReminderAtChanged: Boolean = false,
 )
 
 data class TaskCacheWithConflict(
@@ -1001,7 +1005,7 @@ abstract class MobileLocalDao {
             val previous = parent.taskEditIntent()
             val incoming = command.taskEditIntent()
             if (previous.changes.keys == incoming.changes.keys &&
-                incoming.changes.keys.all { it in setOf("schedule", "plannedSchedule", "checklistItems", "placeReminder") }) {
+                incoming.changes.keys.all { it in setOf("schedule", "plannedSchedule", "checklistItems", "placeReminder", "reminderAt") }) {
                 val combined = MobileTaskEditIntent(incoming.changes, previous.base)
                 deleteOutbox(parent.commandId)
                 if (combined.changes == combined.base) {
@@ -1977,7 +1981,7 @@ abstract class MobileLocalDao {
         FeedPendingActionEntity::class,
         PlaceReminderNoticeEntity::class,
     ],
-    version = 30,
+    version = 31,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -2022,8 +2026,18 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                     MIGRATION_27_28,
                     MIGRATION_28_29,
                     MIGRATION_29_30,
+                    MIGRATION_30_31,
             ).build().also { instance = it }
         }
+    }
+}
+
+/** 時刻の知らせ（#753）: 写しに reminder_at の欄と、競合の時の端末側の値を足す。既存の行は変えない。 */
+internal val MIGRATION_30_31 = object : Migration(30, 31) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN reminderAt TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localReminderAt TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localReminderAtChanged INTEGER NOT NULL DEFAULT 0")
     }
 }
 
@@ -2383,6 +2397,7 @@ fun TaskCacheEntity.toMobileTask(): MobileTask = MobileTask(
     description = description,
     aiOrigin = decodeMobileAiOrigin(aiOriginJson),
     placeReminder = decodeMobilePlaceReminder(placeReminderJson),
+    reminderAt = reminderAt,
     themeId = themeId,
     state = state,
     workState = workState,
@@ -2451,6 +2466,9 @@ fun TaskCacheWithConflict.toMobileTask(activeServerId: String? = null): MobileTa
             serverPlaceReminder = decodeMobilePlaceReminder(task.placeReminderJson),
             localPlaceReminder = if (it.localPlaceReminderChanged) decodeMobilePlaceReminder(it.localPlaceReminderJson) else null,
             localPlaceReminderChanged = it.localPlaceReminderChanged,
+            serverReminderAt = task.reminderAt,
+            localReminderAt = if (it.localReminderAtChanged) it.localReminderAt else null,
+            localReminderAtChanged = it.localReminderAtChanged,
             detectedAt = it.detectedAt,
         )
     },

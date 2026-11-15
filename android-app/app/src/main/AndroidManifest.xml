@@ -8,6 +8,15 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!--
+      時刻と期限の知らせ（#753）。Android 13 以降は、時刻を知らせるアプリ向けの USE_EXACT_ALARM（入れた時から
+      許可され、本人の操作が要らない）。Android 12 は SCHEDULE_EXACT_ALARM（設定から外せる）。
+      許されていない時は、近い時刻に鳴るアラームに落とす（TaskNotificationScheduler）。
+    -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        android:maxSdkVersion="32" />
     <queries>
         <intent>
             <action android:name="android.speech.RecognitionService" />
@@ -76,6 +85,23 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".TaskNotificationAlarmReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".TaskNotificationActionReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".TaskNotificationRescheduleReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
         <provider

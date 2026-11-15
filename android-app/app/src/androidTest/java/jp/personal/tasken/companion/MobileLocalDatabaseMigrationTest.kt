@@ -15,6 +15,28 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class MobileLocalDatabaseMigrationTest {
+    @Test fun migrationThirtyToThirtyOneAddsReminderColumnsAndKeepsTasksPlacesAndPendingWrites() {
+        helper.createDatabase(DatabaseName, 30).apply {
+            execSQL("INSERT INTO task_cache (id,serverVersion,title,themeId,state,workState,todayDate,updatedAt,optimisticCommandId,checklistJson,placeReminderJson) VALUES ('task',4,'保持するTask',NULL,'todo','not_delegated',NULL,'2026-11-15T08:00:00Z','command','[]','保持する場所')")
+            execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt,taskId) VALUES ('command','key','request','device','2026-11-15T08:00:00Z','UpdateTask','保持する入力','server','pending',0,'2026-11-15T08:00:00Z','task')")
+            execSQL("INSERT INTO task_conflict (commandId,taskId,intendedAction,expectedVersion,serverVersion,serverState,serverTitle,localTodayDateChanged,localThemeIdChanged,localChecklistChanged,serverUpdatedAt,detectedAt,localScheduleChanged,localPlannedScheduleChanged,localPlaceReminderChanged) VALUES ('command','task','UpdateTask',3,4,'todo','Desktop側',0,0,0,'2026-11-15T08:00:00Z','2026-11-15T08:00:00Z',0,0,0)")
+            execSQL("INSERT INTO place_reminder_notice (taskId,notifiedDate) VALUES ('task','2026-11-15')")
+            close()
+        }
+        helper.runMigrationsAndValidate(DatabaseName, 31, true, MIGRATION_30_31).use { db ->
+            db.query("SELECT title,state,optimisticCommandId,placeReminderJson,reminderAt FROM task_cache WHERE id='task'").use {
+                assertTrue(it.moveToFirst()); assertEquals("保持するTask", it.getString(0)); assertEquals("todo", it.getString(1)); assertEquals("command", it.getString(2)); assertEquals("保持する場所", it.getString(3)); assertTrue(it.isNull(4))
+            }
+            db.query("SELECT envelopeJson,state FROM outbox_command WHERE commandId='command'").use {
+                assertTrue(it.moveToFirst()); assertEquals("保持する入力", it.getString(0)); assertEquals("pending", it.getString(1))
+            }
+            db.query("SELECT serverTitle,localReminderAt,localReminderAtChanged FROM task_conflict WHERE commandId='command'").use {
+                assertTrue(it.moveToFirst()); assertEquals("Desktop側", it.getString(0)); assertTrue(it.isNull(1)); assertEquals(0, it.getInt(2))
+            }
+            db.query("SELECT notifiedDate FROM place_reminder_notice WHERE taskId='task'").use { assertTrue(it.moveToFirst()); assertEquals("2026-11-15", it.getString(0)) }
+            db.execSQL("UPDATE task_cache SET reminderAt='2026-11-16T09:00:00+09:00' WHERE id='task'")
+        }
+    }
     @Test fun migrationTwentyNineToThirtyAddsPlaceReminderColumnsAndKeepsTasksAndPendingWrites() {
         helper.createDatabase(DatabaseName, 29).apply {
             execSQL("INSERT INTO task_cache (id,serverVersion,title,themeId,state,workState,todayDate,updatedAt,optimisticCommandId,checklistJson) VALUES ('task',4,'保持するTask',NULL,'todo','not_delegated',NULL,'2026-11-12T08:00:00Z','command','[]')")

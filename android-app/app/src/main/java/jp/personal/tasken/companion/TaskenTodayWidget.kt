@@ -30,6 +30,10 @@ data class TaskenWidgetTask(
     val hasConflict: Boolean = false,
     val requiresWorkReceipt: Boolean = false,
     val canToggleState: Boolean = !isPending && !hasConflict && !requiresWorkReceipt,
+    /** 期限のラベル（今日・明日・11/20・2日超過）。期限の無い Task は null。 */
+    val dueLabel: String? = null,
+    /** 期限が今日か、過ぎている（行のラベルを強い色にする）。 */
+    val dueNow: Boolean = false,
 )
 
 data class TaskenWidgetSnapshot(
@@ -73,7 +77,15 @@ internal fun widgetThemeColorInt(token: String?): Int = when (token?.trim()) {
     else -> 0xFF8A2F3B.toInt()
 }
 
-internal fun widgetSectionFor(todayDate: String?, today: String): String = when {
+internal const val WidgetDueSoonSection = "期限が近い"
+
+/** 期限が 3 日先までに来る（か、もう過ぎた）Task か。 */
+internal fun isWidgetDueSoon(dueDate: LocalDate?, today: String): Boolean =
+    dueDate != null && !dueDate.isAfter(LocalDate.parse(today).plusDays(TaskNotificationPlan.WidgetDueSoonDays))
+
+internal fun widgetSectionFor(todayDate: String?, today: String, dueDate: LocalDate? = null): String = when {
+    // 期限の近いものは、扱う日がいつでも先頭の見出しに集める（#753）。
+    isWidgetDueSoon(dueDate, today) -> WidgetDueSoonSection
     todayDate == null -> "日付なし"
     // today_date は「扱う日」であり締切ではない。過ぎた分は持ち越しと呼ぶ。
     todayDate < today -> "持ち越し"
@@ -85,10 +97,14 @@ internal fun orderWidgetTasks(
     tasks: List<TaskenWidgetTask>,
     today: String,
     todayDates: Map<String, String?>,
+    dueDates: Map<String, LocalDate?> = emptyMap(),
 ): List<TaskenWidgetTask> {
-    val rank = mapOf("持ち越し" to 0, "今日" to 1, "今後" to 2, "日付なし" to 3)
+    val rank = mapOf(WidgetDueSoonSection to -1, "持ち越し" to 0, "今日" to 1, "今後" to 2, "日付なし" to 3)
+    // 見出しの中は、期限の近い順（期限の無いものは後ろ）、同じなら題名の順。
     return tasks.sortedWith(
-        compareBy({ rank[widgetSectionFor(todayDates[it.id], today)] ?: 9 }, { it.title }),
+        compareBy<TaskenWidgetTask>({ rank[widgetSectionFor(todayDates[it.id], today, dueDates[it.id])] ?: 9 })
+            .thenBy(nullsLast()) { dueDates[it.id] }
+            .thenBy { it.title },
     )
 }
 
@@ -231,25 +247,31 @@ class TaskenTodayWidget : AppWidgetProvider() {
             val todayTasks = allTasks.filter { it.todayDate == today && it.state != "cancelled" }
             // ウィジェットは未完了の作業だけを出す。完了/取消はタスクリストの「完了」フィルタで確認する。
             val openTasks = allTasks.filter { it.state != "done" && it.state != "cancelled" }
+            val todayDate = LocalDate.parse(today)
+            val dueDates = openTasks.associate { it.id to TaskNotificationPlan.dueDate(it.scheduleStartDate, it.scheduleEndDate) }
             val ordered = orderWidgetTasks(
                 openTasks.map {
                     val theme = it.themeId?.let(themesById::get)
                     val requiresWorkReceipt = it.workState in widgetStateActionWorkStates
+                    val dueDate = dueDates[it.id]
                     TaskenWidgetTask(
                         id = it.id,
                         title = it.title,
                         isDone = false,
                         themeTitle = theme?.title,
                         themeColor = theme?.let { widgetThemeColorInt(it.color) },
-                        section = widgetSectionFor(it.todayDate, today),
+                        section = widgetSectionFor(it.todayDate, today, dueDate),
                         isPending = it.optimisticCommandId != null,
                         hasConflict = it.conflictCommandId != null,
                         requiresWorkReceipt = requiresWorkReceipt,
                         canToggleState = canToggleTaskState(dao, it),
+                        dueLabel = dueDate?.let { due -> TaskNotificationPlan.dueLabel(due, todayDate) },
+                        dueNow = dueDate != null && !dueDate.isAfter(todayDate),
                     )
                 },
                 today,
                 openTasks.associate { it.id to it.todayDate },
+                dueDates,
             )
             return TaskenWidgetSnapshot(
                 tasks = ordered,
@@ -444,6 +466,16 @@ class TaskenTodayWidget : AppWidgetProvider() {
                         else -> "Taskを完了: ${task.title}"
                     },
                 )
+                if (task.dueLabel != null) {
+                    setViewVisibility(R.id.widget_row_due, View.VISIBLE)
+                    setTextViewText(R.id.widget_row_due, task.dueLabel)
+                    setTextColor(
+                        R.id.widget_row_due,
+                        context.getColor(if (task.dueNow) R.color.tasken_widget_primary else R.color.tasken_widget_on_surface_variant),
+                    )
+                } else {
+                    setViewVisibility(R.id.widget_row_due, View.GONE)
+                }
                 if (task.themeColor != null) {
                     setViewVisibility(R.id.widget_row_dot, View.VISIBLE)
                     setInt(R.id.widget_row_dot, "setColorFilter", task.themeColor)

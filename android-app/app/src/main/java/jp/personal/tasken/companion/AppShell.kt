@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -30,6 +31,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationBar
@@ -46,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -57,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.time.Instant
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -464,13 +468,28 @@ internal fun AppSettingsSheet(
     onRequestNotifications: (() -> Unit)?,
     onRepair: () -> Unit,
     onDismiss: () -> Unit,
+    dueTimes: List<LocalTime> = TaskNotificationPlan.DefaultDueTimes,
+    onDueTimesChange: (List<LocalTime>) -> Unit = {},
+    exactAlarmsAllowed: Boolean = true,
+    onRequestExactAlarms: (() -> Unit)? = null,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         SheetColumn(Modifier.testTag("app-settings-sheet")) {
             Text("設定", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            // 通知は場所のリマインダーだけになった。許可が無い時だけ、許可の入口を出す。
+            SettingsGroupLabel("通知")
+            DueTimesRow(dueTimes, onDueTimesChange)
+            if (!exactAlarmsAllowed && onRequestExactAlarms != null) {
+                StatusRow(
+                    icon = R.drawable.ic_tabler_clock,
+                    tone = StatusTone.Warn,
+                    title = "数分ずれることがあります",
+                    value = "正確にする",
+                    onClick = onRequestExactAlarms,
+                    modifier = Modifier.testTag("exact-alarm-action"),
+                )
+            }
+            // 許可が無い時だけ、許可の入口を出す。
             if (onRequestNotifications != null && !notificationsAllowed) {
-                SettingsGroupLabel("通知")
                 StatusRow(
                     icon = R.drawable.ic_tabler_bell,
                     tone = StatusTone.Warn,
@@ -479,8 +498,8 @@ internal fun AppSettingsSheet(
                     onClick = onRequestNotifications,
                     modifier = Modifier.testTag("notification-permission-action"),
                 )
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             SettingsGroupLabel("接続")
             StatusRow(
                 icon = R.drawable.ic_tabler_link,
@@ -490,6 +509,60 @@ internal fun AppSettingsSheet(
                 value = "開く",
                 onClick = onRepair,
                 modifier = Modifier.testTag("settings-repair"),
+            )
+        }
+    }
+}
+
+/**
+ * 期限の日に知らせる時刻。時刻を押すと時計で選び直せる。2 回目は足す・外すができる。
+ */
+@Composable
+private fun DueTimesRow(dueTimes: List<LocalTime>, onChange: (List<LocalTime>) -> Unit) {
+    val context = LocalContext.current
+    val times = dueTimes.ifEmpty { TaskNotificationPlan.DefaultDueTimes }
+    fun pick(index: Int) {
+        val current = times.getOrNull(index) ?: LocalTime.of(if (times[0].hour < 15) 15 else 21, 0)
+        android.app.TimePickerDialog(
+            context,
+            { _, hour, minute ->
+                val picked = LocalTime.of(hour, minute)
+                onChange(if (index < times.size) times.mapIndexed { at, time -> if (at == index) picked else time } else times + picked)
+            },
+            current.hour,
+            current.minute,
+            true,
+        ).show()
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("due-times-row"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        StatusIcon(R.drawable.ic_tabler_bell, StatusTone.Info)
+        Text("期限の日", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        times.forEachIndexed { index, time ->
+            InputChip(
+                selected = false,
+                onClick = { pick(index) },
+                label = { Text(time.format(DateTimeFormatter.ofPattern("HH:mm")), fontWeight = FontWeight.Medium) },
+                trailingIcon = if (index > 0) {
+                    {
+                        Icon(
+                            painterResource(R.drawable.ic_tabler_x),
+                            contentDescription = "2 回目を外す",
+                            modifier = Modifier.size(18.dp).clickable { onChange(times.take(1)) },
+                        )
+                    }
+                } else null,
+                modifier = Modifier.heightIn(min = 44.dp).testTag("due-time-$index"),
+            )
+        }
+        if (times.size < TaskNotificationPlan.MaxDueTimes) {
+            AssistChip(
+                onClick = { pick(times.size) },
+                label = { Text("＋ 2 回目") },
+                modifier = Modifier.heightIn(min = 44.dp).testTag("due-time-add"),
             )
         }
     }

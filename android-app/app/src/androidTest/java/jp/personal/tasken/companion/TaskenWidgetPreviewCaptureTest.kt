@@ -77,6 +77,41 @@ class TaskenWidgetPreviewCaptureTest {
         )
     }
 
+    /** 期限の近いものが先頭の見出しに集まり、行に期限のラベルが付く（#753）。並びは実際の並べ替えを通す。 */
+    @Test
+    fun captureDueSoonOrder() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val today = "2026-11-16"
+        val day = java.time.LocalDate.parse(today)
+        val rows = listOf(
+            Triple("今日の買い出し", today, null),
+            Triple("学会要旨の下書き", today, day.plusDays(12)),
+            Triple("図書館の本を返す", null, day.plusDays(1)),
+            Triple("確定申告の書類を出す", "2026-11-20", day),
+            Triple("実験室安全点検チェックシートを提出", "2026-11-14", day.minusDays(2)),
+            Triple("装置メンテナンスの予約", null, day.plusDays(3)),
+            Triple("読みかけの論文", null, null),
+        )
+        val todayDates = rows.associate { it.first to it.second }
+        val dueDates = rows.associate { it.first to it.third }
+        val ordered = orderWidgetTasks(
+            rows.map { (title, todayDate, due) ->
+                TaskenWidgetTask(
+                    id = title, title = title, isDone = false, themeColor = widgetThemeColorInt("chart-2"),
+                    section = widgetSectionFor(todayDate, today, due),
+                    dueLabel = due?.let { TaskNotificationPlan.dueLabel(it, day) },
+                    dueNow = due != null && !due.isAfter(day),
+                )
+            },
+            today, todayDates, dueDates,
+        )
+        capture(
+            context, "08-tall-due-soon", TaskenWidgetMode.Tall,
+            TaskenWidgetSnapshot(ordered, 0, 0, "2026-11-16T00:00:00Z", todayDoneCount = 0, todayTotalCount = 2),
+            300 to 420,
+        )
+    }
+
     private fun capture(
         context: Context,
         name: String,

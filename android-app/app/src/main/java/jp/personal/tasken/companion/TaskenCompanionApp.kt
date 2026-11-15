@@ -40,6 +40,21 @@ class TaskenCompanionApp : Application() {
                 Log.w("TaskenCompanionApp", "Widget refresh observer stopped", error)
             }
         }
+        // 時刻と期限の知らせ（#753）。起動時・同期の後・Task の変更後に、知らせに関わる欄（時刻・期限・状態・題名）が
+        // 変わった時だけ、出すべき知らせを出して次のアラームを掛け直す。再起動の後は受け手（Reschedule）が掛け直す。
+        scope.launch {
+            try {
+                val dao = MobileLocalDatabase.open(applicationContext).mobileDao()
+                dao.observeAllTasks()
+                    .map { rows -> rows.map { it.task.toNotifiableTask() } }
+                    .distinctUntilChanged()
+                    .collect { TaskNotificationScheduler.syncOrLog(applicationContext) }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.w("TaskenCompanionApp", "Task notification observer stopped", error)
+            }
+        }
         // 場所のリマインダー（#727）。起動時・同期の後・Task の変更後・再起動後（Boot の受け手がプロセスを起こす）に、
         // 場所つきの未完了 Task が変わったときだけジオフェンスを登録し直し、不要になった通知を消す。
         scope.launch {

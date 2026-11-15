@@ -453,6 +453,9 @@ class AndroidMobileTaskRepository(
     override suspend fun enqueueUpdateTaskPlaceReminder(taskId: String, place: MobilePlaceReminder?): String =
         outbox.enqueueUpdatePlaceReminder(taskId, place)
 
+    override suspend fun enqueueUpdateTaskReminderAt(taskId: String, reminderAt: String?): String =
+        outbox.enqueueUpdateReminderAt(taskId, reminderAt)
+
     override suspend fun enqueueUpdateTaskTheme(taskId: String, themeId: String?): String =
         outbox.enqueueUpdateTheme(taskId, themeId)
 
@@ -1393,8 +1396,14 @@ class AndroidMobileTaskRepository(
     /** 欄を知らない古い Desktop の応答（キーが無い）は「分からない」。キャッシュの場所を null で上書きしない。 */
     private suspend fun MobileTaskSummaryDto.toCacheKeepingUnknownPlace(body: String): TaskCacheEntity {
         val cache = toCache()
-        return if (serverReportsPlaceReminder(body)) cache
-        else cache.copy(placeReminderJson = dao.task(id)?.placeReminderJson)
+        val knowsPlace = serverReportsPlaceReminder(body)
+        val knowsReminderAt = serverReportsReminderAt(body)
+        if (knowsPlace && knowsReminderAt) return cache
+        val previous = dao.task(id)
+        return cache.copy(
+            placeReminderJson = if (knowsPlace) cache.placeReminderJson else previous?.placeReminderJson,
+            reminderAt = if (knowsReminderAt) cache.reminderAt else previous?.reminderAt,
+        )
     }
 
     private fun MobileTaskSummaryDto.toCache(): TaskCacheEntity = TaskCacheEntity(
@@ -1404,6 +1413,7 @@ class AndroidMobileTaskRepository(
         description = description,
         aiOriginJson = encodeMobileAiOrigin(aiOrigin),
         placeReminderJson = encodeMobilePlaceReminder(placeReminder),
+        reminderAt = reminderAt,
         themeId = themeId,
         state = state,
         workState = workState,
@@ -1466,6 +1476,9 @@ class AndroidMobileTaskRepository(
             }
             if (isUnsupportedPlaceReminder(envelopeJson, response, expectedServerId)) {
                 return MobileCommandSendResult.Rejected("capability_unavailable", PLACE_REMINDER_UPDATE_REQUIRED)
+            }
+            if (isUnsupportedReminderAt(envelopeJson, response, expectedServerId)) {
+                return MobileCommandSendResult.Rejected("capability_unavailable", REMINDER_AT_UPDATE_REQUIRED)
             }
             when {
                 response.status == 200 -> {
@@ -1576,6 +1589,8 @@ class AndroidMobileTaskRepository(
             connection.setRequestProperty("X-Tasken-Ai-Origin", "1")
             // これが無いと Gateway は placeReminder を返さない（古い APK を守る取り決め）。
             connection.setRequestProperty("X-Tasken-Place-Reminder", "1")
+            // これが無いと Gateway は reminderAt を返さない（同じ取り決め。#753）。
+            connection.setRequestProperty("X-Tasken-Reminder-At", "1")
             if (accessToken != null) connection.setRequestProperty("Authorization", "Bearer $accessToken")
             if (body != null) {
                 connection.doOutput = true
