@@ -1132,11 +1132,7 @@ export class ApplicationCommandService {
         "Task委任はcontext fingerprintを検証する専用経路から実行してください。",
       );
     }
-    if (
-      command.name === "CommitAudioCapture" ||
-      command.name === "CommitVideoArtifact" ||
-      command.name === "CommitTrimmedVideoArtifact"
-    ) {
+    if (command.name === "CommitAudioCapture" || command.name === "CommitVideoArtifact") {
       throw new ApplicationCommandError(
         "INVALID_ENVELOPE",
         "Mediaの保存はMainのmedia session経由で確定してください。",
@@ -1339,9 +1335,7 @@ export class ApplicationCommandService {
   executeMediaCapture(input: unknown): CommandReceipt {
     const command = parseCommandEnvelope(input);
     if (
-      (command.name !== "CommitAudioCapture" &&
-        command.name !== "CommitVideoArtifact" &&
-        command.name !== "CommitTrimmedVideoArtifact") ||
+      (command.name !== "CommitAudioCapture" && command.name !== "CommitVideoArtifact") ||
       command.actor.kind !== "user" ||
       !["inbox", "main_ui"].includes(command.source)
     ) {
@@ -1361,8 +1355,7 @@ export class ApplicationCommandService {
       if (
         command.name === "DelegateTaskToAgent" ||
         command.name === "CommitAudioCapture" ||
-        command.name === "CommitVideoArtifact" ||
-        command.name === "CommitTrimmedVideoArtifact"
+        command.name === "CommitVideoArtifact"
       ) {
         throw new ApplicationCommandError(
           "INVALID_ENVELOPE",
@@ -1599,8 +1592,6 @@ export class ApplicationCommandService {
     }
     if (command.name === "CommitAudioCapture") return this.commitAudioCapture(command);
     if (command.name === "CommitVideoArtifact") return this.commitVideoArtifact(command);
-    if (command.name === "CommitTrimmedVideoArtifact")
-      return this.commitTrimmedVideoArtifact(command);
     if (command.name === "CompleteTaskWithLearning") {
       return this.completeTaskWithLearning(command);
     }
@@ -2002,61 +1993,6 @@ export class ApplicationCommandService {
       ],
       [event.id],
       capture ? ["capture_entry", "artifact"] : ["artifact"],
-    );
-  }
-
-  private commitTrimmedVideoArtifact(command: CommandEnvelope): CommandReceipt {
-    const { artifact, reference } = command.payload as { artifact: Entity; reference: Entity };
-    if (
-      this.repository.get("artifact", artifact.id, true) ||
-      this.repository.get("reference", reference.id, true)
-    ) {
-      throw new ApplicationCommandError("CONFLICT", "trim書き出しのIDを再利用できません。");
-    }
-    artifactDefinition.parseCreate(artifact);
-    referenceDefinition.parseCreate(reference);
-    const source =
-      typeof reference.target_id === "string"
-        ? this.repository.get("artifact", reference.target_id)
-        : null;
-    if (
-      artifact.media_kind !== "video" ||
-      artifact.storage_mode !== "managed" ||
-      artifact.source_type !== source?.source_type ||
-      artifact.source_id !== source?.source_id ||
-      reference.source_type !== "artifact" ||
-      reference.source_id !== artifact.id ||
-      reference.target_type !== "artifact" ||
-      reference.relation_type !== "derived_from" ||
-      !source ||
-      source.media_kind !== "video"
-    ) {
-      throw new ApplicationCommandError(
-        "INVALID_PAYLOAD",
-        "trim Artifactの原本またはderived_from contractが不正です。",
-      );
-    }
-    const event = annotateEvent(
-      command,
-      commandEvent(command, "artifact", artifact.id, "created", null, artifact),
-    );
-    event.metadata = {
-      ...((event.metadata as Record<string, unknown>) || {}),
-      include_in_activity: true,
-      media_kind: "video",
-      derived_from_artifact_id: source.id,
-      content_hash: artifact.content_hash,
-    };
-    return persistReceipt(
-      this.repository,
-      command,
-      [
-        { action: "save", type: "artifact", entity: artifact },
-        { action: "save", type: "reference", entity: reference },
-        { action: "save", type: "change_event", entity: event },
-      ],
-      [event.id],
-      ["artifact", "reference"],
     );
   }
 

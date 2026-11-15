@@ -304,11 +304,11 @@ test("production audit is deterministic and keeps temporary composition growth v
     assert.equal(first.stdout, second.stdout);
     const report = JSON.parse(first.stdout);
     assert.equal(report.mode, "report-only");
-    assert.equal(report.summary.newFindings, 22, unexplainedFindings(report));
-    assert.equal(report.summary.suppressedFindings, 22);
+    assert.equal(report.summary.newFindings, 21, unexplainedFindings(report));
+    assert.equal(report.summary.suppressedFindings, 21);
     assert.equal(report.summary.blockingFindings, 0, unexplainedFindings(report));
     const newFindings = report.findings.filter((entry) => !entry.baseline);
-    assert.equal(newFindings.length, 22);
+    assert.equal(newFindings.length, 21);
     assert.equal(
       newFindings.every((entry) => entry.suppressed && entry.suppression?.issue),
       true,
@@ -318,7 +318,7 @@ test("production audit is deterministic and keeps temporary composition growth v
         .filter((entry) => entry.ruleId === "composition.baseline_increase")
         .map((entry) => [entry.source, entry.suppressed, entry.suppression?.issue]),
       [
-        ["src/main/index.ts", true, 482],
+        // src/main/index.ts は、録る側を外して（#755 束4）基準の行数を下回ったので出なくなった。
         ["src/main/ipc/registerIpc.ts", true, 405],
         ["src/preload/index.ts", true, 405],
         ["src/renderer/src/features/workspace/WorkspaceApp.tsx", true, 481],

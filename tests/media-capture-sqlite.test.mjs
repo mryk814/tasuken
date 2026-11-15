@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { build } from "esbuild";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
@@ -55,8 +55,45 @@ function tinyWebm(label = "tasken-video") {
   return Buffer.concat([Buffer.from([0x1a, 0x45, 0xdf, 0xa3]), Buffer.from(label)]);
 }
 
-function asArrayBuffer(buffer) {
-  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+function sha256Hex(bytes) {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+/**
+ * 録る側は外した（#755 束4）ので、前の版が残した録画の session を manifest で置く。
+ * 形は、前の版の startRecording → appendRecordingChunk → stopRecording が書いたものと同じ。
+ */
+function writeScreenRecordingSession(userDataPath, bytes, state = "prepared") {
+  const sessionId = randomUUID();
+  const directory = path.join(userDataPath, "media-recovery", "sessions", sessionId);
+  fs.mkdirSync(directory, { recursive: true });
+  const recording = state === "recording";
+  if (recording) fs.writeFileSync(path.join(directory, "chunk-00000000.part"), bytes);
+  else fs.writeFileSync(path.join(directory, "original.webm"), bytes);
+  const manifest = {
+    schema: "tasken-media-session/v1",
+    sessionId,
+    state,
+    mediaKind: "video",
+    filename: "screen-recording-20260809000000.webm",
+    mimeType: "video/webm",
+    fileSize: bytes.length,
+    contentHash: `sha256:${recording ? sha256Hex(Buffer.alloc(0)) : sha256Hex(bytes)}`,
+    themeId: null,
+    storageMode: "managed",
+    stagedFileName: "original.webm",
+    createdAt: "2026-08-09T00:00:00.000Z",
+    updatedAt: "2026-08-09T00:00:01.000Z",
+    ...(recording ? {} : { durationMs: 1000 }),
+    captureMethod: "screen_recording",
+    recordingNextSequence: 1,
+    recordingChunkHashes: sha256Hex(bytes),
+    recordingStartedAt: "2026-08-09T00:00:00.000Z",
+    recordingElapsedMs: recording ? 0 : 1000,
+    ...(recording ? { recordingStateStartedAt: "2026-08-09T00:00:00.000Z" } : {}),
+  };
+  fs.writeFileSync(path.join(directory, "session.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  return { sessionId, directory };
 }
 
 test("real SQLite recovery is idempotent and projects one owner edge/backlink after reopen", (t) => {
@@ -297,7 +334,7 @@ test("screen recording provenance persists on only its Video Artifact after SQLi
   const managedDirectory = path.join(root, "managed");
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
-  let currentNow = "2026-08-09T00:00:00.000Z";
+  const currentNow = "2026-08-09T00:00:01.000Z";
   const db = new WorkspaceDatabase(dbPath);
   db.save("task", { id: "task-1", title: "Screen owner", state: "todo", project_id: null });
   const commands = new ApplicationCommandService(db);
@@ -308,17 +345,10 @@ test("screen recording provenance persists on only its Video Artifact after SQLi
     resolveManagedDirectory: () => ({ kind: "ok", directory: managedDirectory }),
     now: () => currentNow,
   });
-  const started = media.startRecording({ mediaKind: "video", mimeType: "video/webm" });
-  currentNow = "2026-08-09T00:00:01.000Z";
-  media.appendRecordingChunk({
-    sessionId: started.sessionId,
-    sequence: 0,
-    chunk: asArrayBuffer(tinyWebm("screen-provenance")),
-  });
-  const prepared = media.stopRecording(started.sessionId);
+  const prepared = writeScreenRecordingSession(userDataPath, tinyWebm("screen-provenance"));
   const committed = media.commitVideo({
     sessionId: prepared.sessionId,
-    durationMs: prepared.durationMs,
+    durationMs: 1000,
     widthPx: 1280,
     heightPx: 720,
     sourceType: "task",
@@ -507,7 +537,7 @@ test("紐づけ先未選択の画面録画は実DBでCaptureEntryごと確定し
   const managedDirectory = path.join(root, "managed");
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
 
-  let currentNow = "2026-08-09T00:00:00.000Z";
+  const currentNow = "2026-08-09T00:00:01.000Z";
   const db = new WorkspaceDatabase(dbPath);
   const commands = new ApplicationCommandService(db);
   const media = new MediaCaptureService({
@@ -517,18 +547,11 @@ test("紐づけ先未選択の画面録画は実DBでCaptureEntryごと確定し
     resolveManagedDirectory: () => ({ kind: "ok", directory: managedDirectory }),
     now: () => currentNow,
   });
-  const started = media.startRecording({ mediaKind: "video", mimeType: "video/webm" });
-  currentNow = "2026-08-09T00:00:01.000Z";
-  media.appendRecordingChunk({
-    sessionId: started.sessionId,
-    sequence: 0,
-    chunk: asArrayBuffer(tinyWebm("screen-inbox")),
-  });
-  const prepared = media.stopRecording(started.sessionId);
+  const prepared = writeScreenRecordingSession(userDataPath, tinyWebm("screen-inbox"));
   // ownerを渡さない。既定のInbox行きが実Command経由で通ることを確かめる。
   const committed = media.commitVideo({
     sessionId: prepared.sessionId,
-    durationMs: prepared.durationMs,
+    durationMs: 1000,
     widthPx: 1280,
     heightPx: 720,
   });
@@ -543,4 +566,191 @@ test("紐づけ先未選択の画面録画は実DBでCaptureEntryごと確定し
   assert.equal(capture?.content_type, "video");
   assert.equal(capture?.state, "untriaged");
   reopened.db.close();
+});
+
+test("前の版で録った音声と動画は、録る側を外した後も添付の Artifact ID から開ける（#755 束4）", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-recorded-playback-"));
+  const dbPath = path.join(root, "workspace.sqlite");
+  const userDataPath = path.join(root, "user-data");
+  const managedDirectory = path.join(root, "managed");
+  fs.mkdirSync(managedDirectory, { recursive: true });
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  // 前の版が保存した形（マイク録音の Voice Capture と、紐づけ先なしの画面録画）をそのまま置く。
+  const audioBytes = tinyWebm("recorded-voice");
+  const videoBytes = tinyWebm("recorded-screen");
+  const audioPath = path.join(managedDirectory, "voice-memo-20260809000000.webm");
+  const videoPath = path.join(managedDirectory, "screen-recording-20260809000000.webm");
+  fs.writeFileSync(audioPath, audioBytes);
+  fs.writeFileSync(videoPath, videoBytes);
+  const audioCaptureId = randomUUID();
+  const videoCaptureId = randomUUID();
+  const audioArtifactId = randomUUID();
+  const videoArtifactId = randomUUID();
+  const seeded = new WorkspaceDatabase(dbPath);
+  seeded.save("capture_entry", {
+    id: audioCaptureId,
+    title: "voice-memo-20260809000000",
+    text: "voice-memo-20260809000000.webm",
+    kind: "voice_memo",
+    content_type: "audio",
+    capture_method: "microphone",
+    media_status: "ready",
+    transcription_status: "not_requested",
+    captured_at: "2026-08-09T00:00:00.000Z",
+    state: "untriaged",
+    project_id: null,
+  });
+  seeded.save("artifact", {
+    id: audioArtifactId,
+    title: "voice-memo-20260809000000",
+    filename: "voice-memo-20260809000000.webm",
+    file_type: "webm",
+    mime_type: "audio/webm",
+    file_size: audioBytes.length,
+    stored_path: audioPath,
+    original_path: null,
+    storage_mode: "managed",
+    copied_at: "2026-08-09T00:00:00.000Z",
+    source_type: "capture_entry",
+    source_id: audioCaptureId,
+    theme_id: null,
+    media_kind: "audio",
+    duration_ms: 2525,
+    container: "webm",
+    content_hash: `sha256:${sha256Hex(audioBytes)}`,
+    media_availability: "available",
+  });
+  seeded.save("capture_entry", {
+    id: videoCaptureId,
+    title: "screen-recording-20260809000000",
+    text: "screen-recording-20260809000000.webm",
+    kind: "screen_capture",
+    content_type: "video",
+    capture_method: "screen_recording",
+    media_status: "ready",
+    transcription_status: "not_requested",
+    captured_at: "2026-08-09T00:00:00.000Z",
+    state: "untriaged",
+    project_id: null,
+  });
+  seeded.save("artifact", {
+    id: videoArtifactId,
+    title: "screen-recording-20260809000000",
+    filename: "screen-recording-20260809000000.webm",
+    file_type: "webm",
+    mime_type: "video/webm",
+    file_size: videoBytes.length,
+    stored_path: videoPath,
+    original_path: null,
+    target: null,
+    storage_mode: "managed",
+    copied_at: "2026-08-09T00:00:00.000Z",
+    link_type: null,
+    link_status: null,
+    last_checked_at: null,
+    source_type: "capture_entry",
+    source_id: videoCaptureId,
+    theme_id: null,
+    media_kind: "video",
+    capture_method: "screen_recording",
+    duration_ms: 2459,
+    width_px: 640,
+    height_px: 360,
+    container: "webm",
+    content_hash: `sha256:${sha256Hex(videoBytes)}`,
+    media_availability: "available",
+  });
+  seeded.db.close();
+
+  const db = new WorkspaceDatabase(dbPath);
+  const commands = new ApplicationCommandService(db);
+  const media = new MediaCaptureService({
+    userDataPath,
+    repository: db,
+    commands: { executeMediaCapture: (command) => commands.executeMediaCapture(command) },
+    resolveManagedDirectory: () => ({ kind: "ok", directory: managedDirectory }),
+  });
+  assert.deepEqual(media.recoverPending(), { recovered: 0, pending: 0 });
+
+  // 録る側の口は残っていない。
+  for (const name of [
+    "startRecording",
+    "appendRecordingChunk",
+    "pauseRecording",
+    "resumeRecording",
+    "stopRecording",
+    "getVideoTrimSource",
+    "exportTrimmedVideo",
+  ]) {
+    assert.equal(typeof media[name], "undefined", name);
+  }
+
+  // 添付の一覧に出て、種類の印（録った方法）もそのまま読める。path は画面へ渡さない。
+  const projected = projectWorkspaceForRenderer(db.loadWorkspace());
+  const listed = new Map(projected.artifacts.map((artifact) => [artifact.id, artifact]));
+  assert.equal(listed.get(audioArtifactId)?.media_kind, "audio");
+  assert.equal(listed.get(videoArtifactId)?.media_kind, "video");
+  assert.equal(listed.get(videoArtifactId)?.capture_method, "screen_recording");
+  assert.equal(
+    projected.capture_entrys.find((entry) => entry.id === audioCaptureId)?.capture_method,
+    "microphone",
+  );
+  assert.doesNotMatch(JSON.stringify(projected.artifacts), /stored_path/);
+
+  // 再生は tasken-media://artifact/{id} と同じ解決を通る。bytes が録った時のままであること。
+  for (const [artifactId, mimeType, bytes] of [
+    [audioArtifactId, "audio/webm", audioBytes],
+    [videoArtifactId, "video/webm", videoBytes],
+  ]) {
+    assert.deepEqual(media.inspectArtifactMedia(artifactId), {
+      availability: "available",
+      mimeType,
+      fileSize: bytes.length,
+    });
+    const resolution = media.resolveArtifactMedia(artifactId);
+    assert.equal(resolution.availability, "available");
+    try {
+      const read = Buffer.alloc(bytes.length);
+      fs.readSync(resolution.fileDescriptor, read, 0, read.length, 0);
+      assert.deepEqual(read, bytes);
+    } finally {
+      fs.closeSync(resolution.fileDescriptor);
+    }
+  }
+  db.db.close();
+});
+
+test("前の版が録りかけで残した session は、起動の復旧で消さず、起動も止めない（#755 束4）", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-recording-leftover-"));
+  const dbPath = path.join(root, "workspace.sqlite");
+  const userDataPath = path.join(root, "user-data");
+  const managedDirectory = path.join(root, "managed");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const interrupted = writeScreenRecordingSession(
+    userDataPath,
+    tinyWebm("interrupted"),
+    "recording",
+  );
+  const stopped = writeScreenRecordingSession(userDataPath, tinyWebm("stopped"));
+  const db = new WorkspaceDatabase(dbPath);
+  const commands = new ApplicationCommandService(db);
+  const media = new MediaCaptureService({
+    userDataPath,
+    repository: db,
+    commands: { executeMediaCapture: (command) => commands.executeMediaCapture(command) },
+    resolveManagedDirectory: () => ({ kind: "ok", directory: managedDirectory }),
+  });
+  // 録りかけも、止めたが保存していない分も、勝手に確定しない・消さない。
+  assert.deepEqual(media.recoverPending(), { recovered: 0, pending: 0 });
+  assert.equal(db.list("artifact").length, 0);
+  assert.equal(fs.existsSync(path.join(interrupted.directory, "chunk-00000000.part")), true);
+  assert.equal(fs.existsSync(path.join(stopped.directory, "original.webm")), true);
+  const pending = new Map(media.listPreparedVideo().map((entry) => [entry.sessionId, entry]));
+  assert.equal(pending.get(interrupted.sessionId)?.recoveryReason, "recording_interrupted");
+  assert.equal(pending.get(interrupted.sessionId)?.canCommit, false);
+  assert.equal(pending.get(stopped.sessionId)?.status, "ready");
+  assert.doesNotMatch(JSON.stringify([...pending.values()]), /media-recovery|original\.webm/);
+  db.db.close();
 });

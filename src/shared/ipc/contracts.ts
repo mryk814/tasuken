@@ -65,31 +65,12 @@ import type {
   AudioCapturePrepared,
   MediaArtifactInspection,
   MediaArtifactOpenRequest,
-  MediaRecordingAppendRequest,
-  MediaRecordingControlRequest,
-  MediaRecordingProgress,
-  MediaRecordingStarted,
-  MediaRecordingStartRequest,
   VideoImportCommitRequest,
   VideoImportCommitResult,
   VideoImportPrepareRequest,
   VideoImportPrepareResult,
   VideoImportPrepared,
-  VideoTrimExportRequest,
-  VideoTrimExportResult,
-  VideoTrimSourceRevision,
 } from "../mediaCapture";
-import type {
-  BatchTranscriptionArtifactRequest,
-  BatchTranscriptionHistoryResult,
-} from "../batchTranscriptionIpc";
-import type {
-  ArmedScreenRecordingProjection,
-  ScreenRecordingArmRequest,
-  ScreenRecordingEnvironment,
-  ScreenRecordingRegionSelection,
-  ScreenRecordingSourceProjection,
-} from "../screenRecording.mjs";
 import { LEGACY_TASK_IPC_CHANNELS } from "../compatibility/taskIpc.ts";
 import type { TaskCapability } from "../contracts/task/public.ts";
 import type {
@@ -97,17 +78,6 @@ import type {
   MobileGatewayDevice,
   MobileGatewayPairingTicket,
 } from "../mobileGatewayIpc.ts";
-
-/** 録画中インジケータが表示する状態（#383）。pathやsource IDは載せない。 */
-export interface RecordingIndicatorState {
-  state: "recording" | "paused" | "stopping";
-  targetLabel: string;
-  elapsedMs: number;
-  /** Tasken自身をwindow録画するときだけ、本体を最小化しない。 */
-  keepMainWindowVisible?: boolean;
-}
-
-export type RecordingIndicatorCommand = "pause" | "resume" | "stop" | "discard";
 
 export const IPC = {
   workspaceLoad: "workspace:load",
@@ -155,31 +125,12 @@ export const IPC = {
   audioCaptureListPrepared: "audio-capture:list-prepared",
   audioCaptureCommit: "audio-capture:commit",
   audioCaptureCancel: "audio-capture:cancel",
-  mediaRecordingStart: "media-recording:start",
-  mediaRecordingAppend: "media-recording:append",
-  mediaRecordingPause: "media-recording:pause",
-  mediaRecordingResume: "media-recording:resume",
-  mediaRecordingStop: "media-recording:stop",
-  screenRecordingCapabilities: "screen-recording:capabilities",
-  screenRecordingListSources: "screen-recording:list-sources",
-  screenRecordingArm: "screen-recording:arm",
-  screenRecordingSelectRegion: "screen-recording:select-region",
-  screenRecordingRegionResult: "screen-recording:region-result",
-  screenRecordingRegionIndicatorApply: "screen-recording:region-indicator-apply",
-  recordingIndicatorState: "recording-indicator:state",
-  recordingIndicatorRequestState: "recording-indicator:request-state",
-  recordingIndicatorCommand: "recording-indicator:command",
-  recordingIndicatorSetRetracted: "recording-indicator:set-retracted",
-  recordingIndicatorApply: "recording-indicator:apply",
   videoImportPrepare: "video-import:prepare",
   videoImportListPrepared: "video-import:list-prepared",
   videoImportCommit: "video-import:commit",
   videoImportCancel: "video-import:cancel",
   mediaArtifactOpenExternal: "media-artifact:open-external",
   mediaArtifactInspect: "media-artifact:inspect",
-  videoTrimSource: "video-trim:source",
-  videoTrimExport: "video-trim:export",
-  batchTranscriptionHistory: "batch-transcription:history",
   appReload: "app:reload",
   appUpdateCheck: "app:update-check",
   appReleasePageOpen: "app:release-page-open",
@@ -731,13 +682,6 @@ export interface ResearchDeskApi {
     listPreparedAudio(): Promise<AudioCapturePrepared[]>;
     commitAudio(request: AudioCaptureCommitRequest): Promise<AudioCaptureCommitResult>;
     cancelAudio(request: AudioCaptureCancelRequest): Promise<boolean>;
-    startRecording(request: MediaRecordingStartRequest): Promise<MediaRecordingStarted>;
-    appendRecording(request: MediaRecordingAppendRequest): Promise<MediaRecordingProgress>;
-    pauseRecording(request: MediaRecordingControlRequest): Promise<MediaRecordingProgress>;
-    resumeRecording(request: MediaRecordingControlRequest): Promise<MediaRecordingProgress>;
-    stopRecording(
-      request: MediaRecordingControlRequest,
-    ): Promise<AudioCapturePrepared | VideoImportPrepared>;
     prepareVideo(request: VideoImportPrepareRequest): Promise<VideoImportPrepareResult>;
     listPreparedVideo(): Promise<VideoImportPrepared[]>;
     commitVideo(request: VideoImportCommitRequest): Promise<VideoImportCommitResult>;
@@ -746,22 +690,6 @@ export interface ResearchDeskApi {
       request: MediaArtifactOpenRequest,
     ): Promise<{ ok: boolean; error?: string }>;
     inspectArtifact(request: MediaArtifactOpenRequest): Promise<MediaArtifactInspection>;
-    getVideoTrimSource(request: MediaArtifactOpenRequest): Promise<VideoTrimSourceRevision>;
-    exportVideoTrim(request: VideoTrimExportRequest): Promise<VideoTrimExportResult>;
-  };
-  batchTranscription: {
-    history(request: BatchTranscriptionArtifactRequest): Promise<BatchTranscriptionHistoryResult>;
-  };
-  screenRecording: {
-    capabilities(): Promise<ScreenRecordingEnvironment>;
-    listSources(): Promise<readonly Readonly<ScreenRecordingSourceProjection>[]>;
-    arm(request: ScreenRecordingArmRequest): Promise<ArmedScreenRecordingProjection>;
-    selectRegion(request: {
-      sourceToken: string;
-    }): Promise<import("../screenRecording.mjs").ScreenRecordingRegionSelection | null>;
-    applyRegionIndicator(region: ScreenRecordingRegionSelection | null): Promise<boolean>;
-    applyIndicator(state: RecordingIndicatorState | null): Promise<boolean>;
-    onIndicatorCommand(callback: (command: RecordingIndicatorCommand) => void): () => void;
   };
   app: {
     reload(): Promise<boolean>;

@@ -90,41 +90,12 @@ const api: ResearchDeskApi = {
     listPreparedAudio: () => ipcRenderer.invoke(IPC.audioCaptureListPrepared),
     commitAudio: (request) => ipcRenderer.invoke(IPC.audioCaptureCommit, request),
     cancelAudio: (request) => ipcRenderer.invoke(IPC.audioCaptureCancel, request),
-    startRecording: (request) => ipcRenderer.invoke(IPC.mediaRecordingStart, request),
-    appendRecording: (request) => ipcRenderer.invoke(IPC.mediaRecordingAppend, request),
-    pauseRecording: (request) => ipcRenderer.invoke(IPC.mediaRecordingPause, request),
-    resumeRecording: (request) => ipcRenderer.invoke(IPC.mediaRecordingResume, request),
-    stopRecording: (request) => ipcRenderer.invoke(IPC.mediaRecordingStop, request),
     prepareVideo: (request) => ipcRenderer.invoke(IPC.videoImportPrepare, request),
     listPreparedVideo: () => ipcRenderer.invoke(IPC.videoImportListPrepared),
     commitVideo: (request) => ipcRenderer.invoke(IPC.videoImportCommit, request),
     cancelVideo: (request) => ipcRenderer.invoke(IPC.videoImportCancel, request),
     openArtifactExternal: (request) => ipcRenderer.invoke(IPC.mediaArtifactOpenExternal, request),
     inspectArtifact: (request) => ipcRenderer.invoke(IPC.mediaArtifactInspect, request),
-    getVideoTrimSource: (request) => ipcRenderer.invoke(IPC.videoTrimSource, request),
-    exportVideoTrim: (request) => ipcRenderer.invoke(IPC.videoTrimExport, request),
-  },
-  batchTranscription: {
-    history: (request) => ipcRenderer.invoke(IPC.batchTranscriptionHistory, request),
-  },
-  screenRecording: {
-    capabilities: () => ipcRenderer.invoke(IPC.screenRecordingCapabilities),
-    listSources: () => ipcRenderer.invoke(IPC.screenRecordingListSources),
-    arm: (request) => ipcRenderer.invoke(IPC.screenRecordingArm, request),
-    selectRegion: (request) => ipcRenderer.invoke(IPC.screenRecordingSelectRegion, request),
-    applyRegionIndicator: (region) =>
-      ipcRenderer.invoke(IPC.screenRecordingRegionIndicatorApply, region),
-    applyIndicator: (state) => ipcRenderer.invoke(IPC.recordingIndicatorApply, state),
-    onIndicatorCommand: (callback) => {
-      const handler = (
-        _event: Electron.IpcRendererEvent,
-        command: Parameters<typeof callback>[0],
-      ): void => callback(command);
-      ipcRenderer.on(IPC.recordingIndicatorCommand, handler);
-      return () => {
-        ipcRenderer.removeListener(IPC.recordingIndicatorCommand, handler);
-      };
-    },
   },
   app: {
     reload: () => ipcRenderer.invoke(IPC.appReload),

@@ -36,8 +36,6 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, "src/preload/index.ts"),
           capture: resolve(__dirname, "src/preload/capture.ts"),
-          recordingIndicator: resolve(__dirname, "src/preload/recordingIndicator.ts"),
-          regionSelector: resolve(__dirname, "src/preload/regionSelector.ts"),
           memoSticky: resolve(__dirname, "src/preload/memoSticky.ts"),
         },
       },
@@ -51,8 +49,6 @@ export default defineConfig({
         input: {
           index: resolve(__dirname, "src/renderer/index.html"),
           capture: resolve(__dirname, "src/renderer/capture.html"),
-          recordingIndicator: resolve(__dirname, "src/renderer/recording-indicator.html"),
-          regionSelector: resolve(__dirname, "src/renderer/region-selector.html"),
           memoSticky: resolve(__dirname, "src/renderer/memo-sticky.html"),
         },
       },

@@ -11,20 +11,13 @@ import type { ApplicationCommandService } from "../services/applicationCommandSe
 import { AiProposalAcceptanceService } from "../services/aiProposalAcceptanceService";
 import type { MediaCaptureService } from "../services/mediaCaptureService";
 import type { FeedLinkPreviewService } from "../services/feedLinkPreviewService";
-import { parseBatchTranscriptionArtifactRequest } from "../../shared/batchTranscriptionIpc";
-import type { ScreenRecordingService } from "../services/screenRecordingService";
 import {
   parseAudioCaptureCancelRequest,
   parseAudioCaptureCommitRequest,
   parseAudioCapturePrepareRequest,
   parseMediaArtifactOpenRequest,
-  parseMediaRecordingAppendRequest,
-  parseMediaRecordingControlRequest,
-  parseMediaRecordingStartRequest,
   parseVideoImportCommitRequest,
   parseVideoImportPrepareRequest,
-  parseVideoTrimExportRequest,
-  parseVideoTrimSourceRequest,
 } from "../../shared/mediaCapture";
 import {
   projectCommandReceiptForRenderer,
@@ -34,8 +27,6 @@ import {
 } from "../rendererMediaProjection";
 import type { CommandReceipt } from "../../shared/applicationCommand";
 import { projectMediaCaptureIpcError } from "../mediaCaptureIpcError";
-import { projectScreenRecordingIpcError } from "../screenRecordingIpcError";
-import { logMain } from "../log";
 import { normalizeMediaCapturePersistence } from "../mediaCapturePersistence";
 import { registerTaskIpc, type TaskCapabilityService } from "../modules/task/public.ts";
 import {
@@ -70,13 +61,6 @@ interface WorkspaceRepository {
   saveMany(operations: unknown): Entity[];
   remove(type: EntityType, id: string): Entity | null;
   restore(type: EntityType, id: string): Entity | null;
-}
-
-interface TranscriptionHistoryReader {
-  getHistory(artifactId: string): {
-    capture: { id?: string } | null;
-    revisions: unknown[];
-  };
 }
 
 function requireEntityType(value: unknown): EntityType {
@@ -189,24 +173,6 @@ function requireVideoImportRequest(repository: WorkspaceRepository, request: unk
   return parsed;
 }
 
-function screenRecordingRequestContext(event: Electron.IpcMainInvokeEvent) {
-  const frame = event.senderFrame;
-  if (!frame || frame.detached) throw new Error("画面録画は現在のMain frameから操作してください。");
-  let parsed: URL;
-  try {
-    parsed = new URL(frame.url);
-  } catch {
-    throw new Error("画面録画のoriginを確認できません。画面を再読み込みしてください。");
-  }
-  return {
-    senderWebContentsId: event.sender.id,
-    frameTreeNodeId: frame.frameTreeNodeId,
-    securityOrigin: parsed.protocol === "file:" ? "file://" : parsed.origin,
-    isMainFrame: event.sender.mainFrame === frame,
-    detached: frame.detached,
-  };
-}
-
 /** Rendererへ渡していないActivity Eventの項目を、保存の前に既存の値から戻す。 */
 function preserveMainOnlyEventFields(
   repository: WorkspaceRepository,
@@ -234,8 +200,6 @@ export function registerIpc(
   applicationCommands: ApplicationCommandService,
   taskCapability: TaskCapabilityService,
   mediaCapture: MediaCaptureService,
-  batchTranscription: TranscriptionHistoryReader,
-  screenRecording: ScreenRecordingService,
   feedLinkPreview: FeedLinkPreviewService,
   notifyEntitiesChanged: (types: EntityType[], change?: WorkspaceChangePayload) => void = () => {},
   notifyCommandApplied: (
@@ -246,7 +210,6 @@ export function registerIpc(
   /** AIの直接変更を本人が取り消す口（#703）。Desktopのcompositionが渡す。 */
   aiTaskChanges?: { undoByUser(changeId: string): unknown },
 ): void {
-  const screenRecordingSenderIds = new Set<number>();
   const aiProposalAcceptance = new AiProposalAcceptanceService(
     applicationCommands,
     service,
@@ -431,87 +394,6 @@ export function registerIpc(
       throw projectMediaCaptureIpcError("cancel", error);
     }
   });
-  ipcMain.handle(IPC.screenRecordingCapabilities, (_event, ...args) => {
-    try {
-      if (args.length) throw new Error("画面録画capability requestに引数は指定できません。");
-      return { ...screenRecording.capabilities(), ...mediaCapture.recordingCapacity() };
-    } catch (error) {
-      logMain("error", "screen-recording:capabilities", "capabilityを取得できません", error);
-      throw projectScreenRecordingIpcError(error);
-    }
-  });
-  ipcMain.handle(IPC.screenRecordingListSources, async (event, ...args) => {
-    try {
-      if (args.length) throw new Error("画面録画source一覧requestに引数は指定できません。");
-      if (!screenRecordingSenderIds.has(event.sender.id)) {
-        const senderId = event.sender.id;
-        screenRecordingSenderIds.add(senderId);
-        event.sender.on(
-          "did-start-navigation",
-          (_navigationEvent, _url, _isInPlace, isMainFrame) => {
-            if (isMainFrame) screenRecording.clearSender(senderId);
-          },
-        );
-        event.sender.once("destroyed", () => {
-          screenRecordingSenderIds.delete(senderId);
-          screenRecording.clearSender(senderId);
-        });
-      }
-      return await screenRecording.listSources(screenRecordingRequestContext(event));
-    } catch (error) {
-      logMain("error", "screen-recording:list-sources", "録画対象を列挙できません", error);
-      throw projectScreenRecordingIpcError(error);
-    }
-  });
-  ipcMain.handle(IPC.screenRecordingArm, (event, request) => {
-    try {
-      return screenRecording.arm(request, screenRecordingRequestContext(event));
-    } catch (error) {
-      logMain("error", "screen-recording:arm", "録画対象を確定できません", error);
-      throw projectScreenRecordingIpcError(error);
-    }
-  });
-  ipcMain.handle(IPC.mediaRecordingStart, (_event, request) => {
-    try {
-      const parsed = parseMediaRecordingStartRequest(request);
-      if (parsed.mediaKind === "audio") {
-        const themeId = requireAudioCaptureThemeId(repository, { themeId: parsed.themeId });
-        return mediaCapture.startRecording({ ...parsed, themeId });
-      }
-      // 録画開始時にownerを検証しない。紐づけ先は保存時に決める（#383）。
-      return mediaCapture.startRecording(parsed);
-    } catch (error) {
-      throw projectMediaCaptureIpcError("record", error);
-    }
-  });
-  ipcMain.handle(IPC.mediaRecordingAppend, (_event, request) => {
-    try {
-      return mediaCapture.appendRecordingChunk(parseMediaRecordingAppendRequest(request));
-    } catch (error) {
-      throw projectMediaCaptureIpcError("record", error);
-    }
-  });
-  ipcMain.handle(IPC.mediaRecordingPause, (_event, request) => {
-    try {
-      return mediaCapture.pauseRecording(parseMediaRecordingControlRequest(request).sessionId);
-    } catch (error) {
-      throw projectMediaCaptureIpcError("record", error);
-    }
-  });
-  ipcMain.handle(IPC.mediaRecordingResume, (_event, request) => {
-    try {
-      return mediaCapture.resumeRecording(parseMediaRecordingControlRequest(request).sessionId);
-    } catch (error) {
-      throw projectMediaCaptureIpcError("record", error);
-    }
-  });
-  ipcMain.handle(IPC.mediaRecordingStop, (_event, request) => {
-    try {
-      return mediaCapture.stopRecording(parseMediaRecordingControlRequest(request).sessionId);
-    } catch (error) {
-      throw projectMediaCaptureIpcError("record", error);
-    }
-  });
   ipcMain.handle(IPC.videoImportPrepare, async (event, request) => {
     try {
       const parsed = requireVideoImportRequest(repository, request);
@@ -566,49 +448,6 @@ export function registerIpc(
   ipcMain.handle(IPC.mediaArtifactInspect, (_event, request) => {
     const { artifactId } = parseMediaArtifactOpenRequest(request);
     return mediaCapture.inspectArtifactMedia(artifactId);
-  });
-  ipcMain.handle(IPC.screenRecordingSelectRegion, async (event, request) => {
-    try {
-      return await screenRecording.selectRegion(request, screenRecordingRequestContext(event));
-    } catch (error) {
-      logMain("error", "screen-recording:select-region", "録画範囲を選択できません", error);
-      throw projectScreenRecordingIpcError(error);
-    }
-  });
-  ipcMain.handle(IPC.screenRecordingRegionIndicatorApply, async (event, request) => {
-    try {
-      screenRecordingRequestContext(event);
-      return await screenRecording.applyRegionIndicator(request);
-    } catch (error) {
-      logMain(
-        "error",
-        "screen-recording:region-indicator",
-        "録画範囲の表示を更新できません",
-        error,
-      );
-      throw projectScreenRecordingIpcError(error);
-    }
-  });
-  ipcMain.handle(IPC.videoTrimSource, (_event, request) => {
-    try {
-      return mediaCapture.getVideoTrimSource(parseVideoTrimSourceRequest(request).artifactId);
-    } catch (error) {
-      throw projectMediaCaptureIpcError("prepare", error);
-    }
-  });
-  ipcMain.handle(IPC.videoTrimExport, async (event, request) => {
-    try {
-      const result = await mediaCapture.exportTrimmedVideo(parseVideoTrimExportRequest(request));
-      notifyCommandApplied(result.receipt, event.sender.id, { senderReceivesAll: true });
-      return result.publicResult;
-    } catch (error) {
-      throw projectMediaCaptureIpcError("commit", error);
-    }
-  });
-  ipcMain.handle(IPC.batchTranscriptionHistory, (_event, request) => {
-    const { artifactId } = parseBatchTranscriptionArtifactRequest(request);
-    const { capture, revisions } = batchTranscription.getHistory(artifactId);
-    return { artifactId, captureId: capture?.id || null, revisions };
   });
   ipcMain.handle(IPC.appReload, (event) => service.reload(event.sender));
   ipcMain.handle(IPC.appUpdateCheck, () => service.checkForUpdates());

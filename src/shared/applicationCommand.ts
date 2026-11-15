@@ -29,7 +29,6 @@ export const applicationCommandNames = [
   "ReplyToAgentRequest",
   "CommitAudioCapture",
   "CommitVideoArtifact",
-  "CommitTrimmedVideoArtifact",
 ] as const;
 export type ApplicationCommandName = (typeof applicationCommandNames)[number];
 
@@ -241,11 +240,6 @@ export interface CommitVideoArtifactCommandPayload {
   artifact: Entity;
 }
 
-export interface CommitTrimmedVideoArtifactCommandPayload {
-  artifact: Entity;
-  reference: Entity;
-}
-
 export type ApplicationCommandPayload =
   | CreateTaskCommandPayload
   | CreateCaptureCommandPayload
@@ -263,8 +257,7 @@ export type ApplicationCommandPayload =
   | TaskWorkReviewCommandPayload
   | ReplyToAgentRequestCommandPayload
   | CommitAudioCaptureCommandPayload
-  | CommitVideoArtifactCommandPayload
-  | CommitTrimmedVideoArtifactCommandPayload;
+  | CommitVideoArtifactCommandPayload;
 
 export interface CommandEnvelope<
   TPayload extends ApplicationCommandPayload = ApplicationCommandPayload,
@@ -791,17 +784,6 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
         "INVALID_PAYLOAD",
         "CommitVideoArtifactのartifact payloadが不正です。",
       );
-    }
-  }
-  if (name === "CommitTrimmedVideoArtifact") {
-    for (const field of ["artifact", "reference"] as const) {
-      const entity = value.payload[field];
-      if (!isRecord(entity) || typeof entity.id !== "string" || !entity.id.trim()) {
-        throw new ApplicationCommandError(
-          "INVALID_PAYLOAD",
-          `CommitTrimmedVideoArtifactの${field} payloadが不正です。`,
-        );
-      }
     }
   }
   if (

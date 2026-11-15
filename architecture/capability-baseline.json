@@ -33,7 +33,6 @@
         "app",
         "artifacts",
         "attachments",
-        "batchTranscription",
         "calendar",
         "clipboard",
         "commands",
@@ -48,7 +47,6 @@
         "mobileGateway",
         "openTaskCapture",
         "preferences",
-        "screenRecording",
         "sharedSync",
         "snapshots",
         "task",
@@ -66,7 +64,6 @@
         "app",
         "artifacts",
         "attachments",
-        "batchTranscription",
         "calendar",
         "clipboard",
         "commands",
@@ -79,7 +76,6 @@
         "files",
         "mediaCapture",
         "preferences",
-        "screenRecording",
         "sharedSync",
         "snapshots",
         "task",
@@ -108,16 +104,6 @@
         "setColor",
         "setTarget"
       ]
-    },
-    {
-      "file": "src/preload/recordingIndicator.ts",
-      "global": "recordingIndicatorApi",
-      "properties": ["command", "onState", "requestState", "setRetracted"]
-    },
-    {
-      "file": "src/preload/regionSelector.ts",
-      "global": "regionSelectorApi",
-      "properties": ["complete"]
     }
   ]
 }

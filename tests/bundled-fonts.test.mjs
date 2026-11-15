@@ -4,13 +4,7 @@ import path from "node:path";
 import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "..");
-const rendererEntries = [
-  "index.html",
-  "capture.html",
-  "recording-indicator.html",
-  "region-selector.html",
-  "memo-sticky.html",
-];
+const rendererEntries = ["index.html", "capture.html", "memo-sticky.html"];
 
 function read(relativePath) {
   return readFileSync(path.join(root, relativePath), "utf8");

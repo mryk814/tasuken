@@ -89,83 +89,6 @@ test("audio cancel IPC accepts only an exact session envelope", () => {
   );
 });
 
-test("media recording IPC is mediaKind-discriminated and accepts only ArrayBuffer chunks", () => {
-  assert.deepEqual(
-    parsers.parseMediaRecordingStartRequest({
-      mediaKind: "audio",
-      themeId: THEME_ID,
-      mimeType: "audio/webm",
-    }),
-    {
-      mediaKind: "audio",
-      themeId: THEME_ID,
-      mimeType: "audio/webm",
-    },
-  );
-  // 録画開始はownerを取らない。紐づけ先は保存時に決める（#383）。
-  assert.deepEqual(
-    parsers.parseMediaRecordingStartRequest({
-      mediaKind: "video",
-      mimeType: "video/mp4",
-      themeId: null,
-    }),
-    {
-      mediaKind: "video",
-      mimeType: "video/mp4",
-    },
-  );
-  assert.throws(
-    () =>
-      parsers.parseMediaRecordingStartRequest({
-        mediaKind: "video",
-        mimeType: "video/webm",
-        sourceType: "task",
-        sourceId: OWNER_ID,
-        themeId: null,
-      }),
-    /未定義field/,
-  );
-  assert.throws(
-    () =>
-      parsers.parseMediaRecordingStartRequest({
-        mediaKind: "video",
-        mimeType: "video/webm",
-        themeId: null,
-        desktopSourceId: "screen:0:0",
-      }),
-    /未定義field/,
-  );
-  assert.throws(
-    () => parsers.parseMediaRecordingStartRequest({ mediaKind: "audio", mimeType: "audio/wav" }),
-    /対応していない録音形式/,
-  );
-  const chunk = new ArrayBuffer(16);
-  assert.deepEqual(
-    parsers.parseMediaRecordingAppendRequest({ sessionId: SESSION_ID, sequence: 0, chunk }),
-    { sessionId: SESSION_ID, sequence: 0, chunk },
-  );
-  assert.throws(
-    () =>
-      parsers.parseMediaRecordingAppendRequest({
-        sessionId: SESSION_ID,
-        sequence: 1,
-        chunk: new Uint8Array(16),
-      }),
-    /録音chunkが不正/,
-  );
-  assert.throws(
-    () => parsers.parseMediaRecordingAppendRequest({ sessionId: SESSION_ID, sequence: -1, chunk }),
-    /順序/,
-  );
-  assert.deepEqual(parsers.parseMediaRecordingControlRequest({ sessionId: SESSION_ID }), {
-    sessionId: SESSION_ID,
-  });
-  assert.throws(
-    () => parsers.parseMediaRecordingControlRequest({ sessionId: SESSION_ID, force: true }),
-    /未定義field/,
-  );
-});
-
 test("preload and Main keep prepared list/cancel behind typed narrow IPC", () => {
   const preload = readFileSync("src/preload/index.ts", "utf8");
   const register = readFileSync("src/main/ipc/registerIpc.ts", "utf8");
@@ -179,13 +102,10 @@ test("preload and Main keep prepared list/cancel behind typed narrow IPC", () =>
   );
   assert.match(register, /parseAudioCaptureCancelRequest\(request\)/);
   assert.match(register, /parseAudioCaptureCommitRequest\(request\)/);
-  assert.match(
+  // 録る側の IPC は外した（#755 束4）。
+  assert.doesNotMatch(
     preload,
-    /startRecording: \(request\) => ipcRenderer\.invoke\(IPC\.mediaRecordingStart, request\)/,
+    /startRecording|appendRecording|stopRecording|screenRecording|exportVideoTrim/,
   );
-  assert.match(
-    register,
-    /requireAudioCaptureThemeId\(repository, \{ themeId: parsed\.themeId \}\)/,
-  );
-  assert.match(register, /parseMediaRecordingAppendRequest\(request\)/);
+  assert.doesNotMatch(register, /mediaRecording|screenRecording|videoTrim|batchTranscription/);
 });

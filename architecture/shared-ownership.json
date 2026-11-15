@@ -44,7 +44,6 @@
       "files": [
         "src/shared/ai.ts",
         "src/shared/attachments.ts",
-        "src/shared/batchTranscriptionIpc.ts",
         "src/shared/calendar.ts",
         "src/shared/fileExport.ts",
         "src/shared/globalShortcuts.ts",

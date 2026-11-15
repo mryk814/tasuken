@@ -6,69 +6,6 @@ export interface AudioCapturePrepareRequest {
   themeId?: string | null;
 }
 
-export const MICROPHONE_RECORDING_MIME_TYPES = ["audio/webm"] as const;
-export type MicrophoneRecordingMimeType = (typeof MICROPHONE_RECORDING_MIME_TYPES)[number];
-/**
- * 画面録画はMP4(H.264/AAC)を既定にする。WebMは保存効率が良い一方で
- * PowerPoint等での扱いが悪く、「録ったものを他所で使う」導線が切れるため。
- * 変換は挟まず、録画時点でMP4を選ぶ（#388）。
- */
-export const SCREEN_RECORDING_MIME_TYPES = ["video/mp4", "video/webm"] as const;
-export type ScreenRecordingMimeType = (typeof SCREEN_RECORDING_MIME_TYPES)[number];
-
-/** 保存ファイルの拡張子は録画形式から決める。webm固定にしない。 */
-export const MEDIA_RECORDING_EXTENSIONS: Record<string, string> = {
-  "audio/webm": "webm",
-  "audio/mp4": "m4a",
-  "video/webm": "webm",
-  "video/mp4": "mp4",
-};
-
-export interface MicrophoneRecordingStartRequest {
-  mediaKind: "audio";
-  themeId?: string | null;
-  mimeType: MicrophoneRecordingMimeType;
-}
-
-/**
- * 録画開始時にownerを決めない（#383）。
- * 「録るために先に何かを作る」順序を避け、紐づけ先は保存時に選ぶ。
- */
-export interface ScreenRecordingStartRequest {
-  mediaKind: "video";
-  mimeType: ScreenRecordingMimeType;
-  themeId?: string | null;
-}
-
-export type MediaRecordingStartRequest =
-  MicrophoneRecordingStartRequest | ScreenRecordingStartRequest;
-
-export interface MediaRecordingStarted {
-  sessionId: string;
-  mediaKind: "audio" | "video";
-  mimeType: MicrophoneRecordingMimeType | ScreenRecordingMimeType;
-  maxChunkBytes: number;
-  maxRecordingBytes: number;
-  maxDurationMs: number;
-}
-
-export interface MediaRecordingAppendRequest {
-  sessionId: string;
-  sequence: number;
-  chunk: ArrayBuffer;
-}
-
-export interface MediaRecordingControlRequest {
-  sessionId: string;
-}
-
-export interface MediaRecordingProgress {
-  sessionId: string;
-  nextSequence: number;
-  fileSize: number;
-  state: "recording" | "paused";
-}
-
 export interface AudioCapturePrepared {
   sessionId: string;
   filename: string;
@@ -90,7 +27,6 @@ export interface AudioCapturePrepared {
   canCommit: boolean;
   canRetry: boolean;
   canDiscard: boolean;
-  canRecoverRecording?: boolean;
 }
 
 export const VIDEO_ARTIFACT_SOURCE_TYPES = ["task", "note", "report", "capture_entry"] as const;
@@ -132,34 +68,6 @@ export interface VideoImportCommitResult {
   artifactId: string;
   sourceType: VideoArtifactSourceType;
   sourceId: string;
-}
-
-export interface VideoTrimSourceRevision {
-  artifactId: string;
-  artifactVersion: number;
-  contentHash: string;
-  durationMs: number;
-  widthPx: number;
-  heightPx: number;
-}
-
-export interface VideoTrimExportRequest {
-  operationId: string;
-  destinationArtifactId: string;
-  trimPlan: {
-    schemaVersion: 1;
-    kind: "non_destructive_trim";
-    source: VideoTrimSourceRevision;
-    startMs: number;
-    endMs: number;
-  };
-}
-
-export interface VideoTrimExportResult {
-  status: "applied" | "no_change";
-  commandId: string;
-  artifactId: string;
-  sourceArtifactId: string;
 }
 
 export interface MediaArtifactOpenRequest {
@@ -240,74 +148,6 @@ export function parseAudioCapturePrepareRequest(value: unknown): AudioCapturePre
     throw new Error("音声CaptureのTheme IDが不正です。");
   }
   return { themeId: input.themeId };
-}
-
-export function parseMediaRecordingStartRequest(value: unknown): MediaRecordingStartRequest {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error(
-      "media recording start requestが不正です。画面を再読み込みして、もう一度試してください。",
-    );
-  }
-  const mediaKind = (value as Record<string, unknown>).mediaKind;
-  if (mediaKind === "audio") {
-    const input = requireExactObject(
-      value,
-      ["mediaKind", "themeId", "mimeType"],
-      "media recording start",
-    );
-    const theme = parseAudioCapturePrepareRequest({ themeId: input.themeId });
-    if (
-      typeof input.mimeType !== "string" ||
-      !MICROPHONE_RECORDING_MIME_TYPES.includes(input.mimeType as MicrophoneRecordingMimeType)
-    ) {
-      throw new Error("対応していない録音形式です。アプリを再起動して、もう一度試してください。");
-    }
-    return {
-      ...theme,
-      mediaKind: "audio",
-      mimeType: input.mimeType as MicrophoneRecordingMimeType,
-    };
-  }
-  if (mediaKind === "video") {
-    const input = requireExactObject(
-      value,
-      ["mediaKind", "mimeType", "themeId"],
-      "screen recording start",
-    );
-    if (
-      typeof input.mimeType !== "string" ||
-      !SCREEN_RECORDING_MIME_TYPES.includes(input.mimeType as ScreenRecordingMimeType)
-    ) {
-      throw new Error("対応していない画面録画形式です。Windows版Taskenを再起動してください。");
-    }
-    const theme = parseAudioCapturePrepareRequest({ themeId: input.themeId });
-    return { ...theme, mediaKind: "video", mimeType: input.mimeType as ScreenRecordingMimeType };
-  }
-  throw new Error("この録音種別には対応していません。");
-}
-
-export function parseMediaRecordingAppendRequest(value: unknown): MediaRecordingAppendRequest {
-  const input = requireExactObject(
-    value,
-    ["sessionId", "sequence", "chunk"],
-    "microphone recording append",
-  );
-  if (!Number.isSafeInteger(input.sequence) || Number(input.sequence) < 0) {
-    throw new Error("録音chunkの順序が不正です。録音を停止し、保存待ち音声を確認してください。");
-  }
-  if (!(input.chunk instanceof ArrayBuffer)) {
-    throw new Error("録音chunkが不正です。録音を停止し、もう一度試してください。");
-  }
-  return {
-    sessionId: requireSessionId(input.sessionId),
-    sequence: Number(input.sequence),
-    chunk: input.chunk,
-  };
-}
-
-export function parseMediaRecordingControlRequest(value: unknown): MediaRecordingControlRequest {
-  const input = requireExactObject(value, ["sessionId"], "microphone recording control");
-  return { sessionId: requireSessionId(input.sessionId) };
 }
 
 export function parseAudioCaptureCommitRequest(value: unknown): AudioCaptureCommitRequest {
@@ -393,20 +233,6 @@ export function parseVideoImportCommitRequest(value: unknown): VideoImportCommit
 export function parseMediaArtifactOpenRequest(value: unknown): MediaArtifactOpenRequest {
   const input = requireExactObject(value, ["artifactId"], "Media外部open");
   return { artifactId: requireUuid(input.artifactId, "Media Artifact ID") };
-}
-
-export function parseVideoTrimSourceRequest(value: unknown): MediaArtifactOpenRequest {
-  return parseMediaArtifactOpenRequest(value);
-}
-
-export function parseVideoTrimExportRequest(value: unknown): VideoTrimExportRequest {
-  const input = requireExactObject(
-    value,
-    ["operationId", "destinationArtifactId", "trimPlan"],
-    "動画trim export",
-  );
-  // 詳細なrevision・範囲検証はscreenRecordingEditの共有契約をMainでも再実行する。
-  return input as unknown as VideoTrimExportRequest;
 }
 
 /** Main内部だけで扱う。Rendererへは返さない。 */
