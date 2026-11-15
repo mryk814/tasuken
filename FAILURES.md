@@ -25,6 +25,7 @@
 - 原因: connected 系は APK を上書きで入れるので、前に置いた Task が写しに残る。この試験も実際の写しを読む。流し終わるとアプリごと消えるので、2 回目は通る。
 - 直し方: 流し直した（通った）。
 - 再発防止: 記録だけ。`TaskNotificationLookCaptureTest.seedRealNotifications` を使った後は、試験の前にアプリを消す（`adb -s <serial> uninstall jp.personal.tasken.companion.debug`）。
+
 ## 2026-11-15 `smoke:agent-log-sync` が「同期を停止」の所の競争で落ちる（main でも同じ）
 
 - しようとしたこと: #751 の読む側（PR 2）で日誌の画面を変えた後、AI の作業ログの smoke を 2 本流す。
