@@ -28,6 +28,7 @@ export {
   taskReadModelSchema,
   parseStoredTaskSnapshot,
   readStoredPlaceReminder,
+  taskReminderAtSchema,
   taskRepeatRuleSchema,
   taskRequesterSchema,
   taskScheduleConfidenceSchema,

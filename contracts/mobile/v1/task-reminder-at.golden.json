@@ -1,0 +1,74 @@
+{
+  "description": "Task の時刻の知らせ（#753）の Mobile 契約。要求に X-Tasken-Reminder-At: 1 があるときだけ Task の要約（today・bootstrap・sync・コマンドの結果）に reminderAt を載せる（時刻の無い Task は null）。ヘッダが無い要求には欄ごと出さない（古い APK は未知の欄で落ちる）。値は task.reminder_at のままで、時差つき（その瞬間）か、Desktop の画面が書く時差なしの現地時刻（YYYY-MM-DDTHH:mm）。更新（通知の「後で」）は UpdateTask の changes と base に { reminderAt: \"...\" | null } を単独で送る。tests/task-notifications.test.mjs が schema と Gateway の実際の応答と比べる。",
+  "requestHeader": { "X-Tasken-Reminder-At": "1" },
+  "taskSummaryWithReminder": {
+    "id": "10000000-0000-4000-8000-000000000012",
+    "version": 4,
+    "title": "電話する",
+    "themeId": "20000000-0000-4000-8000-000000000001",
+    "state": "todo",
+    "workState": "not_delegated",
+    "reminderAt": "2026-11-16T09:00:00+09:00",
+    "checklistItems": [],
+    "schedule": null,
+    "updatedAt": "2026-11-15T09:00:00.000Z"
+  },
+  "taskSummaryFloating": {
+    "id": "10000000-0000-4000-8000-000000000013",
+    "version": 2,
+    "title": "薬を飲む",
+    "themeId": null,
+    "state": "todo",
+    "workState": "not_delegated",
+    "reminderAt": "2026-11-15T21:00",
+    "checklistItems": [],
+    "schedule": null,
+    "updatedAt": "2026-11-15T09:00:00.000Z"
+  },
+  "taskSummaryWithout": {
+    "id": "10000000-0000-4000-8000-000000000014",
+    "version": 1,
+    "title": "時刻のないタスク",
+    "themeId": null,
+    "state": "todo",
+    "workState": "not_delegated",
+    "reminderAt": null,
+    "checklistItems": [],
+    "schedule": null,
+    "updatedAt": "2026-11-15T09:00:00.000Z"
+  },
+  "updateTaskSnooze": {
+    "apiVersion": 1,
+    "schemaVersion": 7,
+    "requestId": "reminder-snooze",
+    "commandId": "reminder-snooze",
+    "idempotencyKey": "reminder-snooze",
+    "clientDeviceId": "android-device",
+    "issuedAt": "2026-11-16T00:00:30Z",
+    "command": {
+      "name": "UpdateTask",
+      "taskId": "10000000-0000-4000-8000-000000000012",
+      "expectedVersion": 4,
+      "expectedScheduleVersion": null,
+      "changes": { "reminderAt": "2026-11-16T10:00:00+09:00" },
+      "base": { "reminderAt": "2026-11-16T09:00:00+09:00" }
+    }
+  },
+  "updateTaskClear": {
+    "apiVersion": 1,
+    "schemaVersion": 7,
+    "requestId": "reminder-clear",
+    "commandId": "reminder-clear",
+    "idempotencyKey": "reminder-clear",
+    "clientDeviceId": "android-device",
+    "issuedAt": "2026-11-16T00:05:00Z",
+    "command": {
+      "name": "UpdateTask",
+      "taskId": "10000000-0000-4000-8000-000000000012",
+      "expectedVersion": 5,
+      "expectedScheduleVersion": null,
+      "changes": { "reminderAt": null },
+      "base": { "reminderAt": "2026-11-16T10:00:00+09:00" }
+    }
+  }
+}

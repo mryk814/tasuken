@@ -16,6 +16,7 @@ import {
   taskCreationReportedViaSchema,
   taskIntendedExecutorSchema,
   taskPrioritySchema,
+  taskReminderAtSchema,
   taskRequesterSchema,
   taskScheduleConfidenceSchema,
   taskScheduleDateKindSchema,
@@ -304,6 +305,10 @@ export const mobilePlannedStartTimeSchema = z
 export const mobilePlannedDurationMinutesSchema = z.number().int().positive().max(10080).nullable();
 
 /**
+ * Task の時刻の知らせ（#753）は reminderAt。X-Tasken-Reminder-At: 1 の要求にだけ要約へ載せる
+ * （古い APK は未知の欄で落ちるため）。値は task.reminder_at のまま（時差つきか、時差なしの現地時刻）。
+ * 更新は UpdateTask の changes と base に { reminderAt: "..." | null } を単独で送る。
+ *
  * Task の場所のリマインダー（#727）。X-Tasken-Place-Reminder: 1 の要求にだけ要約へ載せる
  * （古い APK は未知の欄で落ちるため。aiOrigin と同じやり方）。意味は task.place_reminder と同じ。
  */
@@ -585,6 +590,7 @@ export const mobileTaskSummarySchema = z
     description: z.string().max(50000).optional(),
     aiOrigin: mobileAiOriginSchema.optional(),
     placeReminder: mobilePlaceReminderSchema.nullable().optional(),
+    reminderAt: taskReminderAtSchema.nullable().optional(),
     themeId: entityIdSchema.nullable(),
     state: taskStateSchema,
     workState: taskWorkStateSchema.nullable(),
@@ -978,6 +984,7 @@ const mobileTaskUpdatePatchSchema = z.union([
   z.object({ schedule: mobileScheduleEditSchema }).strict(),
   z.object({ plannedSchedule: mobilePlannedScheduleSchema }).strict(),
   z.object({ placeReminder: mobilePlaceReminderSchema.nullable() }).strict(),
+  z.object({ reminderAt: taskReminderAtSchema.nullable() }).strict(),
   z
     .object({ schedule: mobileScheduleEditSchema, plannedSchedule: mobilePlannedScheduleSchema })
     .strict(),
@@ -992,6 +999,7 @@ const mobileTaskUpdateBaseSchema = z.union([
   z.object({ schedule: mobileScheduleBaseSchema.nullable() }).strict(),
   z.object({ plannedSchedule: mobilePlannedScheduleSchema }).strict(),
   z.object({ placeReminder: mobilePlaceReminderSchema.nullable() }).strict(),
+  z.object({ reminderAt: taskReminderAtSchema.nullable() }).strict(),
   z
     .object({
       schedule: mobileScheduleBaseSchema.nullable(),

@@ -1242,6 +1242,7 @@ export class ApplicationCommandService {
             "intended_executor",
             "work_state",
             "today_date",
+            "reminder_at",
             "place_reminder",
             "checklist_items",
           ].includes(key),

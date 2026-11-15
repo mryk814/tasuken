@@ -40,6 +40,15 @@ const optionalEntityId = entityIdSchema.nullable().optional();
 const optionalTaskId = taskIdSchema.nullable().optional();
 const optionalTimestamp = isoTimestampSchema.nullable().optional();
 
+/**
+ * リマインダーの時刻（#753）。時差つき（Z・+09:00。その瞬間）か、画面が書く時差なしの
+ * 現地時刻（YYYY-MM-DDTHH:mm。開いた端末の現地の時刻として読む）。読む決まりは shared/taskNotifications.ts。
+ */
+export const taskReminderAtSchema = z.union([
+  isoTimestampSchema,
+  z.string().regex(/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d$/),
+]);
+
 function expectedScheduleDateKind(startDate: string | null, endDate: string | null) {
   if (!startDate && !endDate) return "unknown" as const;
   if (!startDate && endDate) return "deadline" as const;
@@ -274,7 +283,7 @@ const taskFields = {
     .nullable()
     .optional(),
   planned_duration_minutes: z.number().int().positive().max(10080).nullable().optional(),
-  reminder_at: optionalTimestamp,
+  reminder_at: taskReminderAtSchema.nullable().optional(),
   place_reminder: taskPlaceReminderSchema.nullable().optional(),
   completed_at: optionalTimestamp,
   completion_note: optionalText(10000),

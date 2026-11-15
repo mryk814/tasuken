@@ -119,6 +119,7 @@ export class AiItemCreationService {
             intended_executor: "self",
             work_state: "not_delegated",
             ...(request.today_date ? { today_date: request.today_date } : {}),
+            ...(request.reminder_at ? { reminder_at: request.reminder_at } : {}),
             ...(request.place_reminder ? { place_reminder: request.place_reminder } : {}),
             ...(request.checklist?.length
               ? {

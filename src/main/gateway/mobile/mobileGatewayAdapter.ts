@@ -80,6 +80,7 @@ import {
   selectLatestWorkReceipt,
   readStoredPlaceReminder,
   taskReadModelSchema,
+  taskReminderAtSchema,
   type TaskCommandResponse,
   type TaskError,
   type TaskQueryResponse,
@@ -107,6 +108,8 @@ export interface MobileGatewayRequest {
   includeAiOrigin?: boolean;
   /** X-Tasken-Place-Reminder: 1。Task の要約に placeReminder を含める（#727）。 */
   includePlaceReminder?: boolean;
+  /** X-Tasken-Reminder-At: 1。Task の要約に reminderAt を含める（#753）。 */
+  includeReminderAt?: boolean;
 }
 
 export interface MobileGatewayResponse {
@@ -621,10 +624,15 @@ function canonicalTaskWorkState(task: TaskReadModel): string {
 interface TaskProjectionOptions {
   aiOrigin?: boolean;
   placeReminder?: boolean;
+  reminderAt?: boolean;
 }
 
 function taskProjection(request: MobileGatewayRequest): TaskProjectionOptions {
-  return { aiOrigin: request.includeAiOrigin, placeReminder: request.includePlaceReminder };
+  return {
+    aiOrigin: request.includeAiOrigin,
+    placeReminder: request.includePlaceReminder,
+    reminderAt: request.includeReminderAt,
+  };
 }
 
 function projectPlaceReminder(task: TaskReadModel) {
@@ -641,6 +649,12 @@ function projectPlaceReminder(task: TaskReadModel) {
   };
 }
 
+/** 保存された値のまま返す（Core が base と比べるため）。読めない値は無い（null）として返す。 */
+function projectReminderAt(task: TaskReadModel): string | null {
+  const parsed = taskReminderAtSchema.safeParse(task.reminder_at);
+  return parsed.success ? parsed.data : null;
+}
+
 function projectTask(
   task: TaskReadModel,
   includeTodayDate = false,
@@ -653,6 +667,7 @@ function projectTask(
     title: task.title,
     ...(include.aiOrigin ? { aiOrigin: projectMobileAiOrigin(task) } : {}),
     ...(include.placeReminder ? { placeReminder: projectPlaceReminder(task) } : {}),
+    ...(include.reminderAt ? { reminderAt: projectReminderAt(task) } : {}),
     ...(typeof task.description === "string" ? { description: task.description } : {}),
     themeId: task.project_id || null,
     state: task.state,
@@ -751,6 +766,7 @@ type MobileTaskFieldPatch =
   | { aiReady: boolean }
   | { plannedSchedule: { startTime: string | null; durationMinutes: number | null } }
   | { placeReminder: MobilePlaceReminder | null }
+  | { reminderAt: string | null }
   | {
       checklistItems: Array<{
         id: string;
@@ -784,6 +800,7 @@ function taskUpdatePatch(patch: MobileTaskFieldPatch) {
       planned_duration_minutes: patch.plannedSchedule.durationMinutes,
     };
   }
+  if ("reminderAt" in patch) return { reminder_at: patch.reminderAt };
   if ("todayDate" in patch) return { today_date: patch.todayDate };
   if ("themeId" in patch) return { project_id: patch.themeId };
   if ("aiReady" in patch) {

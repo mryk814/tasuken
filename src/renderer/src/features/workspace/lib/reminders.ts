@@ -1,3 +1,4 @@
+import { normalizeReminderDateTime as normalizeSharedReminderDateTime } from "../../../../../shared/taskNotifications";
 import { normalizeStartTime } from "./timeboxing";
 import type { BaseRecord } from "../types";
 import type { Task, Waiting } from "../domain-model/types";
@@ -27,16 +28,9 @@ export function localDateTimeMinute(date = new Date()): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+/** リマインダーの時刻を現地時刻の分にそろえる（時差つきの値は瞬間として読む。決まりは shared 側）。 */
 export function normalizeReminderDateTime(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const match = trimmed.match(
-    /^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}:\d{2})(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?$/,
-  );
-  if (!match) return null;
-  const time = normalizeStartTime(match[2]);
-  return time ? `${match[1]}T${time}` : null;
+  return normalizeSharedReminderDateTime(value) || null;
 }
 
 export function normalizeReminderSettings(record: unknown): ReminderSettings {

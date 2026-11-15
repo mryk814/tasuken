@@ -16,6 +16,7 @@ import {
   workspaceEntityTypes,
 } from "./domain.mjs";
 import { DATA_HEALTH_STATE_SCHEMA, normalizeDataHealthState } from "../../shared/dataHealth.mjs";
+import { normalizeDueNotificationTimes } from "../../shared/taskNotifications.ts";
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { migratePublishedFeedNotes } from "./feedPostMigration.mjs";
 import { assertSyncPacket, isRetiredSyncPacket } from "./syncPacketContract.mjs";
@@ -899,6 +900,22 @@ export class WorkspaceDatabase {
         this.ensureMeta("automatic_snapshot_backup_generations", "5"),
       );
     }
+    // 期限の日の知らせの時刻と、もう出した知らせの控え（#753）。端末ごとの設定で、同期しない。
+    if (key === "dueNotificationTimes" || key === "taskNotificationsFired") {
+      let stored = null;
+      try {
+        stored = JSON.parse(
+          this.ensureMeta(
+            key === "dueNotificationTimes" ? "due_notification_times" : "task_notifications_fired",
+            "null",
+          ),
+        );
+      } catch {
+        // 読めない値は、無いものとして既定に戻す。
+      }
+      if (key === "dueNotificationTimes") return normalizeDueNotificationTimes(stored);
+      return stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+    }
     throw new Error(`未対応の設定です: ${key}`);
   }
 
@@ -1149,6 +1166,26 @@ export class WorkspaceDatabase {
         )
         .run(String(generations));
       return generations;
+    }
+    if (key === "dueNotificationTimes" || key === "taskNotificationsFired") {
+      const saved =
+        key === "dueNotificationTimes"
+          ? normalizeDueNotificationTimes(value)
+          : value && typeof value === "object" && !Array.isArray(value)
+            ? value
+            : {};
+      this.db
+        .prepare(
+          `
+        INSERT INTO workspace_meta(key, value) VALUES(?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `,
+        )
+        .run(
+          key === "dueNotificationTimes" ? "due_notification_times" : "task_notifications_fired",
+          JSON.stringify(saved),
+        );
+      return saved;
     }
     throw new Error(`未対応の設定です: ${key}`);
   }

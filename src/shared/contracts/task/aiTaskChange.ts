@@ -78,7 +78,12 @@ export const aiTaskEditSchema = z
       .nullable()
       .optional(),
     planned_duration_minutes: z.number().int().positive().max(10_080).nullable().optional(),
-    reminder_at: isoTimestampSchema.nullable().optional(),
+    reminder_at: isoTimestampSchema
+      .nullable()
+      .optional()
+      .describe(
+        "Notify at this moment (phone and desktop); offset required, e.g. 2026-11-16T09:00:00+09:00. null removes it.",
+      ),
     place_reminder: taskPlaceReminderSchema
       .nullable()
       .optional()

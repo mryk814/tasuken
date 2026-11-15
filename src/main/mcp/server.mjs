@@ -1116,7 +1116,7 @@ export function createTaskenMcpServer(options = {}) {
     task: {
       fields: aiTaskCreationFields,
       description:
-        "Save a new Task directly (AI-created, unseen); returns the official ID. Theme defaults to 個人業務; schedule, priority, today_date, checklist, place_reminder optional. Reuse idempotency_key on retries.",
+        "Save a new Task directly (AI-created, unseen); returns its ID. Theme defaults to 個人業務; optional schedule, reminder_at, priority, today_date, checklist, place_reminder. Reuse idempotency_key to retry.",
     },
     note: {
       fields: aiNoteCreationFields,

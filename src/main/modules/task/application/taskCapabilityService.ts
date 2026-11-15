@@ -426,7 +426,10 @@ function mergeNonOverlappingUpdate(command: TaskCommand, current: Entity | null)
   let mergedChanges = changes;
   const canMerge = Object.keys(changes).every((key) => {
     const currentValue =
-      key === "planned_start_time" || key === "planned_duration_minutes" || key === "place_reminder"
+      key === "planned_start_time" ||
+      key === "planned_duration_minutes" ||
+      key === "place_reminder" ||
+      key === "reminder_at"
         ? (current[key] ?? null)
         : current[key];
     const baseValue = command.payload.base?.[key as keyof typeof command.payload.base];

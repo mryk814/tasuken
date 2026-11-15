@@ -329,6 +329,7 @@ test("Desktop: 直接の書き込みは設定をその場で読み、Theme・期
       priority: "high",
       schedule: { end_date: "2026-11-20" },
       today_date: "2026-11-11",
+      reminder_at: "2026-11-16T09:00:00+09:00",
       checklist: ["下書き", "見直し"],
       place_reminder: { name: "三ノ宮", latitude: 34.6937, longitude: 135.1956, days: [1] },
     };
@@ -339,6 +340,8 @@ test("Desktop: 直接の書き込みは設定をその場で読み、Theme・期
     assert.equal(task.project_id, "theme-work");
     assert.equal(task.priority, "high");
     assert.equal(task.today_date, "2026-11-11");
+    // 時刻の知らせ（#753）: 作る時に付けた時刻が、Task に載る。
+    assert.equal(task.reminder_at, "2026-11-16T09:00:00+09:00");
     // 場所のリマインダー（#727）: 省いた半径は300m・時間帯は無しで、Taskに載る。
     assert.deepEqual(task.place_reminder, {
       name: "三ノ宮",

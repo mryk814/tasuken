@@ -1,6 +1,6 @@
 import * as z from "zod/v4";
 
-import { entityIdSchema, localDateSchema } from "../../kernel/public.ts";
+import { entityIdSchema, isoTimestampSchema, localDateSchema } from "../../kernel/public.ts";
 import { aiCreationOriginSchema } from "./aiCreationOrigin.ts";
 import { aiTaskScheduleInputSchema } from "./aiSchedule.ts";
 import { taskPlaceReminderSchema, taskPrioritySchema } from "./model.ts";
@@ -29,6 +29,11 @@ export const aiTaskCreationFields = {
     .optional()
     .describe("Due date = end_date only; one day = start_date; a period = both."),
   today_date: localDateSchema.optional().describe("Put on Today for this local date."),
+  reminder_at: isoTimestampSchema
+    .optional()
+    .describe(
+      "Notify at this moment (phone and desktop); offset required, e.g. 2026-11-16T09:00:00+09:00. A due date already notifies on its day.",
+    ),
   checklist: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
   place_reminder: taskPlaceReminderSchema
     .optional()
@@ -48,6 +53,7 @@ const TASK_ONLY_FIELDS = [
   "priority",
   "schedule",
   "today_date",
+  "reminder_at",
   "checklist",
   "place_reminder",
 ] as const;
