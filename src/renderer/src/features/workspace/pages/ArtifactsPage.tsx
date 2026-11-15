@@ -154,7 +154,9 @@ export function ArtifactsPage({
   /**
    * 音声ファイルは普通の添付の追加では受けない（長さ・形式を確かめる専用の保存の道を通す）。
    * 入口だった収録の画面を外した（#755 束4）ので、添付の一覧の見出しに置く。
-   * 保存に失敗したら保存待ちを残さず破棄する。元のファイルは選んだ場所に残っている。
+   * 保存に失敗したら保存待ちを破棄する。元のファイルは選んだ場所に残っている。
+   * 保存の途中（finalize の後）で落ちた物は破棄できない。その時は次の起動の復旧が
+   * 保存し直す（recoverPending）ので、そう伝える。
    */
   async function importAudio() {
     setAudioImporting(true);
@@ -170,10 +172,21 @@ export function ArtifactsPage({
       sessionId = null;
       setToast(`音声「${prepared.filename}」を添付に保存しました。`, "success");
     } catch (error) {
-      if (sessionId) await workspaceApi.cancelAudioCapture(sessionId).catch(() => false);
+      const reason = error instanceof Error ? error.message : String(error);
+      let resumesOnNextStart = false;
+      if (sessionId) {
+        try {
+          await workspaceApi.cancelAudioCapture(sessionId);
+        } catch (cancelError) {
+          resumesOnNextStart =
+            cancelError instanceof Error && /保存処理を開始した/.test(cancelError.message);
+        }
+      }
       setToast(
-        `音声を取り込めませんでした。${error instanceof Error ? error.message : String(error)}`,
-        "danger",
+        resumesOnNextStart
+          ? `音声の保存が途中で止まりました。${reason} 次の起動で保存し直します。`
+          : `音声を取り込めませんでした。${reason} もう一度取り込んでください。`,
+        resumesOnNextStart ? "warning" : "danger",
       );
     } finally {
       setAudioImporting(false);

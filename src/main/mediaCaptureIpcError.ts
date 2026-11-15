@@ -5,7 +5,7 @@ export type MediaCaptureIpcAction = "prepare" | "list" | "commit" | "cancel";
 const ACTION_FALLBACK: Record<MediaCaptureIpcAction, string> = {
   prepare: "音声を取り込めませんでした。ファイルを確認して、もう一度選択してください。",
   list: "保存待ち音声を確認できませんでした。画面を再読み込みしてください。",
-  commit: "音声を保存できませんでした。保存先を確認して、保存待ち音声から再試行してください。",
+  commit: "音声を保存できませんでした。保存先を確認してください。",
   cancel: "保存待ち音声を破棄できませんでした。画面を再読み込みして、もう一度試してください。",
 };
 
@@ -24,10 +24,7 @@ const SAFE_MESSAGES: Array<[RegExp, string]> = [
     /duration|音声の長さ/,
     "音声の長さを取得できませんでした。対応形式を確認して、もう一度選択してください。",
   ],
-  [
-    /session.*不正|session IDが不正/,
-    "音声Capture sessionが不正です。保存待ち音声を読み直してください。",
-  ],
+  [/session.*不正|session IDが不正/, "音声Capture sessionが不正です。もう一度取り込んでください。"],
   [
     /差し替え|symlink|junction|安全でない/,
     "音声ファイルを安全に確認できませんでした。元ファイルを確認して、もう一度選択してください。",
@@ -38,7 +35,7 @@ const SAFE_MESSAGES: Array<[RegExp, string]> = [
   ],
   [
     /finalize|復旧待ち|identity|hash|競合file|managed保存先/,
-    "音声の保存を安全に完了できませんでした。原音は保持されています。保存待ち音声から再試行してください。",
+    "音声の保存を安全に完了できませんでした。原音は保持されています。",
   ],
 ];
 

@@ -103,9 +103,9 @@ test("音声の取り込みは添付の画面の見出しから、専用の保�
     artifactsPage,
     /prepareAudioCapture\(activeThemeId \|\| null\)[\s\S]*?readAudioDurationMs\(prepared\.mediaUrl\)[\s\S]*?commitAudioCapture\(\{ sessionId: prepared\.sessionId, durationMs \}\)/,
   );
-  // 失敗したら保存待ちを残さない（それを開く画面は無い）。
-  assert.match(
-    artifactsPage,
-    /if \(sessionId\) await workspaceApi\.cancelAudioCapture\(sessionId\)/,
-  );
+  // 失敗したら保存待ちを残さない（それを開く画面は無い）。保存の途中で断られた時は、
+  // 次の起動の復旧が保存し直すことを伝える。
+  assert.match(artifactsPage, /await workspaceApi\.cancelAudioCapture\(sessionId\)/);
+  assert.match(artifactsPage, /\/保存処理を開始した\/\.test\(cancelError\.message\)/);
+  assert.match(artifactsPage, /次の起動で保存し直します。/);
 });
