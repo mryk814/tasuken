@@ -56,6 +56,7 @@ import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import { runKnowledgeRetirementExportOnce } from "./services/knowledgeRetirementExport";
 import { runTranscriptionRetirementExportOnce } from "./services/transcriptionRetirementExport";
+import { runSavedViewRetirementExportOnce } from "./services/savedViewRetirementExport";
 import { runRetiredOutputCleanupOnce } from "./services/retiredOutputCleanup.mjs";
 import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBackup";
 import { applyPendingRestore, cancelStagedRestore } from "./services/workspaceRestore";
@@ -2195,6 +2196,20 @@ async function startDesktopApp(): Promise<void> {
       setTimeout(
         () =>
           void runTranscriptionRetirementExportOnce({
+            repository: exportRepository,
+            userDataDirectory: app.getPath("userData"),
+            syncRoot: app.isPackaged
+              ? String(exportRepository.readPreference("artifactDirectory") || "")
+              : null,
+            log: (level, message) => logMain(level, "retired-export", message),
+          }),
+        RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS,
+      ).unref?.();
+      // やることの画面の保存した絞り込みを外した後の控え（#755 束6）。名前と条件を 1 つの Markdown に
+      // 書き出す。置き場と印の扱いは上の Knowledge と同じ。
+      setTimeout(
+        () =>
+          void runSavedViewRetirementExportOnce({
             repository: exportRepository,
             userDataDirectory: app.getPath("userData"),
             syncRoot: app.isPackaged
