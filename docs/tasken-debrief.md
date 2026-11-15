@@ -39,7 +39,7 @@ Taskenが日報本文を自動保存したり、人の回答を補ったりは�
 2. その下にAI作業カードを並べ、blockedまたは残作業があるカードを先に置く。
 3. カードはhoverまたはkeyboard focusで、Intent、Outcome、残り、記録された確認をpreviewする。
 4. 利用者は「Tasken日報」をAI clientで実行するか、補助のコピー操作で同じ依頼文を渡す。
-5. AIは`tasken.get_activity`へ対象日を渡し、boundedな当日Activityを読む。Sessionの作業が含まれる場合は`tasken.get_agent_session_context`で関連Sessionを読む。日報ではRepositoryで絞らない。
+5. AIは`tasken.get_activity`へ対象日を渡し、boundedな当日Activityを読む。その日のAIの作業は、同じ応答の`agent_work`（要約・変えた物・確かめたこと・残り）にある。日報ではRepositoryで絞らない。
 6. AIは事実に基づく草稿と、その日の内容に応じた問いを作り、`tasken.propose_note`でReportをpending Proposalとして送る。
 7. 利用者はAgent Deskで本文を確認して採用する。
 8. 採用後のReport NoteをDebriefまたはNotesから開き、Markdownの回答欄を人が編集して保存する。
