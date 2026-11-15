@@ -118,6 +118,7 @@ export {
   planAgentWorkRange,
   type AgentWorkPickupRequest,
   type AgentWorkPickupResult,
+  type AgentWorkSessionFoldRequest,
   type AgentWorkRangePlan,
   type AgentWorkWriteBasis,
 } from "./services/agentWorkRecordService.ts";

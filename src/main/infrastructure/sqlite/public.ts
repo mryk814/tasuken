@@ -140,6 +140,12 @@ export function createTaskenCore(
   const proposalStatus = new ProposalStatusQueryService(
     new WorkspaceProposalStatusReadAdapter(persistence),
   );
+  const recordAgentWork = new AgentWorkRecordService(
+    new WorkspaceAgentWorkRecordAdapter(persistence, (cwd) => {
+      const match = agentWorkspace.resolveRepositoryContext({ cwd });
+      return match.status === "matched" && match.selected ? match.selected.id : null;
+    }),
+  );
   return {
     listAgentReadyTasks: new ListAgentReadyTasksService(
       new WorkspaceAgentReadyTaskReadAdapter(persistence),
@@ -179,16 +185,14 @@ export function createTaskenCore(
     getProposalStatus: proposalStatus,
     listProposals: { execute: proposalStatus.list.bind(proposalStatus) },
     exportAiContext,
-    recordAgentWork: new AgentWorkRecordService(
-      new WorkspaceAgentWorkRecordAdapter(persistence, (cwd) => {
-        const match = agentWorkspace.resolveRepositoryContext({ cwd });
-        return match.status === "matched" && match.selected ? match.selected.id : null;
-      }),
-    ),
+    recordAgentWork,
     proposeTaskWork: new ProposeTaskWorkService(
       new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),
     ),
-    proposeAgentSession: new ProposeAgentSessionService(),
+    // 古い hooks が送ってくる終わった会話は、AI の作業 1 件に畳んで書く（#751）。
+    proposeAgentSession: new ProposeAgentSessionService((session) =>
+      recordAgentWork.foldSession(session),
+    ),
     proposeRepositoryTask: new ProposeRepositoryTaskService(
       new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),
     ),

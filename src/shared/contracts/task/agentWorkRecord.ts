@@ -36,14 +36,34 @@ export const AGENT_WORK_BASES = ["ai_report", "log_pickup", "folded"] as const;
  * 判定の鍵に使うので、AI が書く入口とログからの拾い上げ（PR 3）が同じ値で見られるようにする。
  */
 export function normalizeAgentClientKind(value: string): string {
-  return value
+  const kind = value
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, "_");
+  return CLIENT_KIND_ALIASES[kind] || kind;
 }
 
+/**
+ * 同じ AI の別の呼び方。`report_work` の client_kind は自由な文なので、AI が「claude」と書いても、
+ * ログからの拾い上げ（claude_code）と同じ AI として見られるようにする。右側は、ログの読み取りと
+ * 古い会話が使ってきた値。
+ */
+const CLIENT_KIND_ALIASES: Record<string, string> = {
+  claude: "claude_code",
+  claudecode: "claude_code",
+  claude_cli: "claude_code",
+  claude_code_cli: "claude_code",
+  codex_cli: "codex",
+  openai_codex: "codex",
+  copilot: "github_copilot",
+  copilot_cli: "github_copilot",
+  github_copilot_cli: "github_copilot",
+  open_code: "opencode",
+  deepseek: "deepseek_harness",
+};
+
 /** 端末の場所を記録に入れない。絶対パス・file URL・ホームからの名前を断る。 */
-function isTerminalLocation(value: string): boolean {
+export function isTerminalLocation(value: string): boolean {
   return /^(?:[A-Za-z]:[\\/]|[\\/]|~[\\/]|file:)/i.test(value);
 }
 

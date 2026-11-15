@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 
+import { agentWorkCardFromSession } from "../../../shared/agentWorkCard.ts";
 import {
   AGENT_WORK_RECORD_LIMITS,
   agentWorkRecordFieldsSchema,
   agentWorkRecordPublicSchema,
+  isTerminalLocation,
   normalizeAgentClientKind,
   recordAgentWorkRequestSchema,
   recordAgentWorkResponseSchema,
@@ -11,7 +13,7 @@ import {
   type RecordAgentWorkRequest,
   type RecordAgentWorkResponse,
 } from "../../../shared/contracts/task/public.ts";
-import { containsSecretLike } from "../../../shared/taskContext.mjs";
+import { containsSecretLike, safeReceiptText } from "../../../shared/taskContext.mjs";
 import type { AgentWorkRecordPort, AgentWorkRecordRow } from "../ports/agentWorkRecordPort.ts";
 import { CorePublicError } from "./corePublicError.ts";
 
@@ -105,6 +107,67 @@ export interface AgentWorkPickupResult {
   id: string | null;
 }
 
+/**
+ * 古い hooks が会話の受け口へ送ってくる、終わった会話 1 つ（#751）。受け口（propose-agent-session）の
+ * capture の形のうち、畳むのに要る欄。
+ */
+export interface AgentWorkSessionFoldRequest {
+  /** 前の版が会話に付けていた ID。畳んだ記録の ID にする（移行の畳み方と同じ）。 */
+  session_id: string;
+  caller: string;
+  source_session: string;
+  client_kind: string;
+  client_label?: string;
+  model_label?: string;
+  started_at: string;
+  ended_at: string;
+  status: string;
+  observation?: { observed_until?: string };
+  response_checkpoints?: Array<{ observed_at: string; text: string }>;
+  intent: { summary: string };
+  outcome: {
+    summary: string;
+    changed_items?: string[];
+    verification?: string[];
+    remaining_work?: string[];
+  };
+  theme_ids?: string[];
+  task_ids?: string[];
+  repository_context_ids?: string[];
+}
+
+/** 拾い上げと、畳んだ会話が通る、1 つの書き方に渡す物。 */
+interface ObservedAgentWork {
+  clientKind: string;
+  sourceSession: string;
+  startedAt: string;
+  endedAt: string;
+  basis: "log_pickup" | "folded";
+  writtenBy: string;
+  /** 範囲が丸ごと新しい時に使う ID。無ければ「会話 ＋ 範囲の始まり」から作る。 */
+  wholeId?: string;
+  fields: {
+    theme_ids: string[];
+    task_ids: string[];
+    repository_context_ids: string[];
+  } & Pick<
+    AgentWorkRecordFields,
+    | "client_label"
+    | "model_label"
+    | "intent"
+    | "summary"
+    | "changed"
+    | "changed_more"
+    | "verified"
+    | "remaining"
+    | "status"
+  >;
+}
+
+function isPickupWriter(caller: string): boolean {
+  return caller.trim().toLowerCase() === AGENT_WORK_PICKUP_WRITER.toLowerCase();
+}
+
 /** 上限を超えた字を切る（最後の 1 字を「…」にする）。読み替え（agentWorkCard）と同じ切り方。 */
 function clip(value: string, max: number): string {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
@@ -136,6 +199,10 @@ export class AgentWorkRecordService {
 
   record(input: RecordAgentWorkRequest): RecordAgentWorkResponse {
     const parsed = recordAgentWorkRequestSchema.parse(input);
+    // 拾い上げの書き手の名前は、Desktop の中の入口だけが使う。stdio の caller は自己申告なので、
+    // ここで断らないと、外の client が拾った記録の書き手を名乗れる（取り消しも同じ）。
+    if (isPickupWriter(parsed.caller))
+      throw invalid("caller", "このcallerの名前は使えません（Taskenのログの拾い上げの名前です）。");
     const request = { ...parsed, client_kind: normalizeAgentClientKind(parsed.client_kind) };
     const receivedAt = this.now();
     // 先の時刻を受けると、同じ会話の後の報告がその時刻まで duplicate で捨てられる
@@ -261,15 +328,8 @@ export class AgentWorkRecordService {
 
   /**
    * ログからの拾い上げ（#751 PR 3）。Desktop の中からだけ呼ぶ（HTTP の受け口には出さない）。
-   * 同じ作業を 2 回数えない判定は、AI が書く時と同じ `planAgentWorkRange` に通す。数える前の記録は:
-   * - 同じ AI の同じ会話の記録（消した物も含む。本人が消した作業を拾い直さない）。
-   * - 同じ AI の同じ会話の、古い会話（agent_session。移行までの間。消した物も含む）。
-   * - 会話の ID が違っても、同じ AI が同じリポジトリについて書いた記録のうち、時間の範囲が
-   *   重なる物。AI は自分の会話の ID を知らない事が多く、ID だけで見ると 2 件になるため。
-   * 続きが長い時は、続きの分だけを書く（始まり = 前の記録の終わり）。
-   * 記録の ID は「会話 ＋ 範囲の始まり」から作るので、読み直しても 2 件にならない。
-   * 1 日の件数の上限は掛けない（上限は外の client の書き過ぎを止める物。拾い上げは、本人が
-   * 登録した保存先の会話の数だけしか書かない）。
+   * 変えた物・確かめたこと・残りは空（ログから推測で作らない）。同じ作業を 2 回数えない判定と
+   * 書き方は `writeObserved`。
    */
   pickUp(input: AgentWorkPickupRequest): AgentWorkPickupResult {
     const clientKind = normalizeAgentClientKind(input.client_kind);
@@ -288,65 +348,20 @@ export class AgentWorkRecordService {
         ? { intent: clip(input.intent.trim(), AGENT_WORK_RECORD_LIMITS.intent) }
         : {}),
     });
-    const sourceSession = request.source_session!;
-    const logStart = time(request.started_at);
-    const logEnd = time(request.ended_at);
-    if (!(logStart <= logEnd)) throw invalid("started_at", "started_atがended_atより後です。");
     const resolved = input.cwd ? this.port.resolveRepositoryContextId(input.cwd) : null;
-    const repositoryIds = resolved ? [resolved] : [];
-
-    return this.port.runTransaction((transaction): AgentWorkPickupResult => {
-      const prior: AgentWorkRecordRow[] = [
-        ...transaction.listForSession(clientKind, sourceSession),
-        ...transaction.listLegacySessions(clientKind, sourceSession).flatMap((session) => {
-          const end = legacySessionEnd(session);
-          return end ? [{ id: session.id, ended_at: end }] : [];
-        }),
-      ];
-      if (repositoryIds.length) {
-        const known = new Set(prior.map((record) => record.id));
-        // 記録は終わってから書かれる（先の時刻は 5 分までしか受けない）ので、会話の始まりより
-        // 前に書かれた記録は重ならない。ゆとりを足して、読む数を絞る。
-        const since = new Date(logStart - PICKUP_SLACK_MS - FUTURE_TOLERANCE_MS).toISOString();
-        for (const record of transaction.listReportsForRepositories(
-          clientKind,
-          repositoryIds,
-          since,
-        )) {
-          if (known.has(record.id) || record.basis !== "ai_report") continue;
-          const end = time(record.ended_at);
-          const start = Number.isFinite(time(record.started_at)) ? time(record.started_at) : end;
-          if (end >= logStart && start <= logEnd) prior.push(record);
-        }
-      }
-      const plan = planAgentWorkRange(
-        prior,
-        { startedAt: request.started_at!, endedAt: request.ended_at! },
-        "log_pickup",
-      );
-      if (plan.kind === "covered") return { status: "covered", id: plan.record.id };
-      const startedAt = plan.startedAt!;
-      const id = stableId(
-        JSON.stringify([
-          this.port.workspaceId,
-          "agent_work_record",
-          "log_pickup",
-          clientKind,
-          sourceSession,
-          new Date(time(startedAt)).toISOString(),
-        ]),
-      );
-      if (transaction.get(id)) return { status: "covered", id };
-      const fields: AgentWorkRecordFields = agentWorkRecordFieldsSchema.parse({
-        started_at: startedAt,
-        ended_at: request.ended_at,
-        client_kind: clientKind,
+    return this.writeObserved({
+      clientKind,
+      sourceSession: request.source_session!,
+      startedAt: request.started_at!,
+      endedAt: request.ended_at!,
+      basis: "log_pickup",
+      writtenBy: AGENT_WORK_PICKUP_WRITER,
+      fields: {
         client_label: null,
         model_label: null,
-        source_session_id: sourceSession,
         theme_ids: [],
         task_ids: [],
-        repository_context_ids: repositoryIds,
+        repository_context_ids: resolved ? [resolved] : [],
         intent: request.intent || null,
         summary: request.summary,
         changed: [],
@@ -354,9 +369,165 @@ export class AgentWorkRecordService {
         verified: [],
         remaining: [],
         status: request.status,
+      },
+    });
+  }
+
+  /**
+   * 古い hooks が会話の受け口へ送ってきた、終わった会話 1 つを、新しい記録 1 件に畳んで書く（#751）。
+   *
+   * 受け口が捨てると、hook は「受信済み」の返事で手元の控えを消す。控えは、その会話の最後の
+   * 写しになりうる（Copilot はログの拾い上げの対象でなく、送れずに溜まっていた会話もある）。
+   * 畳み方は、古い会話の読み替え（agentWorkCardFromSession）と同じで、字数と件数は記録の上限に切る。
+   * 根拠は folded（古い会話を畳んだ物）。同じ作業を 2 回数えない判定は、拾い上げと同じ所を通す。
+   * 端末の場所の形の「変えた物」は捨て、秘密の形の文は伏せる（hook は断られると送り続けるので、
+   * 断らずに落とす）。無い ID の結び付けも捨てる。
+   */
+  foldSession(input: AgentWorkSessionFoldRequest): AgentWorkPickupResult {
+    const clientKind = normalizeAgentClientKind(input.client_kind);
+    const existing = this.port.runTransaction((transaction) => {
+      const kept = (type: "theme" | "task" | "repository_context", ids: string[] = []) =>
+        [...new Set(ids)]
+          .filter((id) => transaction.exists(type, id))
+          .slice(0, AGENT_WORK_RECORD_LIMITS.ids);
+      return {
+        theme_ids: kept("theme", input.theme_ids),
+        task_ids: kept("task", input.task_ids),
+        repository_context_ids: kept("repository_context", input.repository_context_ids),
+        work_receipt_ids: [],
+      };
+    });
+    const safe = (value: unknown) => safeReceiptText(typeof value === "string" ? value : "");
+    const card = agentWorkCardFromSession(
+      {
+        id: input.session_id,
+        started_at: input.started_at,
+        ended_at: input.ended_at,
+        status: input.status,
+        client_kind: clientKind,
+        client_label: input.client_label,
+        model_label: input.model_label,
+        source_session_id: input.source_session,
+        observation: input.observation,
+        response_checkpoints: (input.response_checkpoints || []).map((entry) => ({
+          ...entry,
+          text: safe(entry.text),
+        })),
+        intent: { summary: safe(input.intent.summary) },
+        outcome: {
+          summary: safe(input.outcome.summary),
+          changed_items: (input.outcome.changed_items || [])
+            .filter((item) => !isTerminalLocation(item.trim()))
+            .map(safe),
+          verification: (input.outcome.verification || []).map(safe),
+          remaining_work: (input.outcome.remaining_work || []).map(safe),
+        },
+      },
+      existing,
+    );
+    if (!card?.started_at || !card.summary)
+      throw invalid("started_at", "畳める形の会話ではありません（始まりと結果が要ります）。");
+    return this.writeObserved({
+      clientKind,
+      sourceSession: input.source_session,
+      startedAt: new Date(time(card.started_at)).toISOString(),
+      endedAt: new Date(time(card.ended_at)).toISOString(),
+      basis: "folded",
+      writtenBy: clip(input.caller.trim(), AGENT_WORK_RECORD_LIMITS.label),
+      wholeId: input.session_id,
+      fields: {
+        client_label: card.client_label,
+        model_label: card.model_label,
+        theme_ids: card.theme_ids,
+        task_ids: card.task_ids,
+        repository_context_ids: card.repository_context_ids,
+        intent: card.intent,
+        summary: card.summary,
+        changed: card.changed,
+        changed_more: card.changed_more,
+        verified: card.verified,
+        remaining: card.remaining,
+        status: card.status,
+      },
+    });
+  }
+
+  /**
+   * 機械が見た作業（ログから拾った会話・畳んだ会話）を 1 件で書く。同じ作業を 2 回数えない判定は、
+   * AI が書く時と同じ `planAgentWorkRange` に通す。数える前の記録は:
+   * - 同じ AI の同じ会話の記録（消した物も含む。本人が消した作業を拾い直さない）。
+   * - 同じ AI の同じ会話の、古い会話（agent_session。移行までの間。消した物も含む）。
+   * 続きが長い時は、続きの分だけを書く（始まり = 前の記録の終わり）。
+   *
+   * 予備の判定: AI は自分の会話の ID を知らない事が多い。会話の ID を書かなかった AI の記録
+   * （ai_report）が、同じ AI・同じリポジトリにあり、終わりどうしが 10 分以内なら、同じ作業と
+   * 見て書かない。これは「書かない」を決めるだけで、始まりは削らない（別の会話かも知れない
+   * 記録で、範囲を切らない）。会話の ID を持つ記録は、その会話の物なので予備の判定に入れない
+   * （同じリポジトリで並んで動く別の会話を落とさない）。
+   *
+   * 記録の ID は「会話 ＋ 範囲の始まり」から作るので、読み直しても 2 件にならない。
+   * 1 日の件数の上限は掛けない（上限は外の client の書き過ぎを止める物）。
+   */
+  private writeObserved(observed: ObservedAgentWork): AgentWorkPickupResult {
+    const { clientKind, sourceSession } = observed;
+    const start = time(observed.startedAt);
+    const end = time(observed.endedAt);
+    if (!(start <= end)) throw invalid("started_at", "started_atがended_atより後です。");
+    const repositoryIds = observed.fields.repository_context_ids;
+
+    return this.port.runTransaction((transaction): AgentWorkPickupResult => {
+      const prior: AgentWorkRecordRow[] = [
+        ...transaction.listForSession(clientKind, sourceSession),
+        ...transaction.listLegacySessions(clientKind, sourceSession).flatMap((session) => {
+          const sessionEnd = legacySessionEnd(session);
+          return sessionEnd ? [{ id: session.id, ended_at: sessionEnd }] : [];
+        }),
+      ];
+      const plan = planAgentWorkRange(
+        prior,
+        { startedAt: observed.startedAt, endedAt: observed.endedAt },
+        "log_pickup",
+      );
+      if (plan.kind === "covered") return { status: "covered", id: plan.record.id };
+      if (repositoryIds.length) {
+        // 記録は終わってから書かれる（先の時刻は 5 分までしか受けない）ので、終わりが 10 分以内の
+        // 記録は、これより前には書かれていない。読む数を絞る。
+        const since = new Date(end - PICKUP_SLACK_MS - FUTURE_TOLERANCE_MS).toISOString();
+        const same = transaction
+          .listReportsForRepositories(clientKind, repositoryIds, since)
+          .find(
+            (record) =>
+              record.basis === "ai_report" &&
+              !record.source_session_id &&
+              Math.abs(time(record.ended_at) - end) <= PICKUP_SLACK_MS,
+          );
+        if (same) return { status: "covered", id: same.id };
+      }
+      const startedAt = plan.startedAt!;
+      const whole = time(startedAt) === start;
+      const id =
+        whole && observed.wholeId
+          ? observed.wholeId
+          : stableId(
+              JSON.stringify([
+                this.port.workspaceId,
+                "agent_work_record",
+                observed.basis,
+                clientKind,
+                sourceSession,
+                new Date(time(startedAt)).toISOString(),
+              ]),
+            );
+      if (transaction.get(id)) return { status: "covered", id };
+      const fields: AgentWorkRecordFields = agentWorkRecordFieldsSchema.parse({
+        ...observed.fields,
+        started_at: startedAt,
+        ended_at: observed.endedAt,
+        client_kind: clientKind,
+        source_session_id: sourceSession,
         notice: null,
-        basis: "log_pickup",
-        written_by: AGENT_WORK_PICKUP_WRITER,
+        basis: observed.basis,
+        written_by: observed.writtenBy,
         request_fingerprint: null,
       });
       return { status: "recorded", id: transaction.insert({ ...fields, id }).id };
@@ -377,7 +548,7 @@ export class AgentWorkRecordService {
     return this.port.runTransaction((transaction) => {
       const record = transaction.get(id);
       if (!record) return null;
-      if (record.written_by !== request.caller)
+      if (record.written_by !== request.caller || isPickupWriter(request.caller))
         throw new CorePublicError(
           "NOT_RECORD_WRITER",
           "自分が書いたAIの作業の記録だけを取り消せます。",

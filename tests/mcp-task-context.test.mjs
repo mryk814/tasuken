@@ -694,7 +694,7 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
   }
 });
 
-test("Agent Session: 読む道具は古い会話を読み、書く道具は MCP に出さず、Core の受け口は保存しない", async () => {
+test("Agent Session: 読む道具は古い会話を読み、書く道具は MCP に出さず、Core の受け口は会話も案も作らない", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-agent-session-mcp-"));
   fs.chmodSync(root, 0o700);
   const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));
@@ -919,7 +919,8 @@ test("Agent Session: 読む道具は古い会話を読み、書く道具は MCP 
     assert.deepEqual(context.structuredContent.previous_handoff.remaining, ["MCP workflow"]);
     assert.equal(JSON.stringify(context.structuredContent).includes("C:\\"), false);
 
-    // Core の受け口（古い hooks だけが送ってくる）は、受信済みと答えて、案も会話も保存しない（#751）。
+    // Core の受け口（古い hooks だけが送ってくる）は、終わった会話を AI の作業 1 件に畳んで書き、
+    // 受信済みと答える。案も古い形の会話も作らない（#751）。
     const proposalsBefore = database.list("ai_proposal", true).length;
     const captured = await core.proposeAgentSession.execute({
       idempotency_key: "agent-session-capture-1",
@@ -940,6 +941,10 @@ test("Agent Session: 読む道具は古い会話を読み、書く道具は MCP 
     assert.equal(captured.status, "duplicate");
     assert.equal(database.get("agent_session", captured.agent_session_id, true), null);
     assert.equal(database.get("ai_proposal", captured.proposal_id, true), null);
+    const folded = database.get("agent_work_record", captured.agent_session_id);
+    assert.equal(folded.basis, "folded");
+    assert.equal(folded.summary, "Queued one complete session record");
+    assert.deepEqual(folded.repository_context_ids, ["repo-session"]);
     const finished = await core.proposeAgentSession.execute({
       idempotency_key: "agent-session-finish-1",
       caller: "Codex",

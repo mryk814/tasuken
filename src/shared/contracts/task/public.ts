@@ -421,6 +421,7 @@ export {
   AGENT_WORK_STATUSES,
   agentWorkRecordFieldsSchema,
   agentWorkRecordPublicSchema,
+  isTerminalLocation,
   normalizeAgentClientKind,
   normalizeAgentWorkRecord,
   recordAgentWorkRequestSchema,
