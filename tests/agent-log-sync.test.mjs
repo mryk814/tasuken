@@ -4,6 +4,7 @@ import nativeFs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import zlib from "node:zlib";
 import { AgentLogSync, agentLogCandidates } from "../src/main/services/agentLogSync.ts";
 
 // 拾うのは静かになった会話だけ（最後の動きから 60 分）。試験のログは今作るので、時計を 2 時間先に置く。
@@ -513,4 +514,82 @@ test("拾い上げ: ファイルの更新時刻が古くても、ログの中の
   // Core が「もう数えてある」と答えた会話は、拾った数に入れない。
   assert.deepEqual([done.recorded, done.unchanged, done.active], [0, 1, 0]);
   assert.equal(submitted.length, 1);
+});
+
+test("拾い上げ: 圧縮されたログ（.jsonl.zst）も読み、上限は展開後の大きさで数える。知らせは 1 回の読み取りに 1 回", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "tasken-log-zstd-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const source = path.join(root, "sessions");
+  await fs.mkdir(source);
+  const raw = await fs.readFile(
+    new URL("../fixtures/agent-work-logs/codex-rollout.jsonl", import.meta.url),
+    "utf8",
+  );
+  const old = (minutes) => new Date(Date.parse("2026-10-07T00:00:00Z") - minutes * 60_000);
+  const put = async (name, body, minutes) => {
+    const target = path.join(source, name);
+    await fs.writeFile(target, body);
+    await fs.utimes(target, old(minutes), old(minutes));
+    return target;
+  };
+  await put(
+    "rollout-a.jsonl.zst",
+    zlib.zstdCompressSync(raw.replaceAll("synthetic-rollout", "compressed-a")),
+    1,
+  );
+  await put("rollout-b.jsonl", raw.replaceAll("synthetic-rollout", "plain-b"), 2);
+  await put("rollout-c.jsonl.zst", Buffer.from("this is not a zstd frame"), 3);
+  // ほかの拡張子は見ない。
+  await put("notes.zst", zlib.zstdCompressSync("{}"), 4);
+  const submitted = [];
+  const finished = [];
+  const make = () =>
+    new AgentLogSync(
+      path.join(root, "state"),
+      async (pickup) => {
+        submitted.push(pickup);
+        return "recorded";
+      },
+      { ...quiet, onFinished: (status) => finished.push(status.recorded) },
+    );
+  let sync = make();
+  assert.equal((await sync.probe("codex", source)).count, 3);
+  await sync.configure(
+    { service: "codex", path: source, consent: true, destination: "local" },
+    "local",
+  );
+  const first = await sync.run();
+  assert.deepEqual([first.scanned, first.recorded], [3, 2]);
+  assert.deepEqual(
+    submitted.map((entry) => [entry.source_session, entry.summary]),
+    [
+      ["compressed-a", "合成デモ: 日次表示を確認した"],
+      ["plain-b", "合成デモ: 日次表示を確認した"],
+    ],
+  );
+  // 壊れた圧縮は、原文を出さずに誤りとして残し、中身が変わるまで読み直さない。
+  assert.equal(first.errors.length, 1);
+  assert.match(first.errors[0], /rollout-c\.jsonl\.zst: 圧縮されたログを展開できません/);
+  // 2 件書いても、知らせは読み取りの終わりに 1 回だけ。
+  assert.deepEqual(finished, [2]);
+  const again = await sync.run();
+  assert.deepEqual([again.recorded, again.unchanged], [0, 3]);
+  assert.equal(submitted.length, 2);
+  assert.deepEqual(finished, [2, 0]);
+
+  // 小さく圧縮されていても、展開すると 128MB を超えるログは読まない（展開後の大きさで止める）。
+  const line = JSON.stringify({
+    timestamp: "2026-10-03T00:03:00Z",
+    type: "ignored",
+    pad: "x".repeat(1024 * 1024 - 80),
+  });
+  const huge = zlib.zstdCompressSync(
+    raw.replaceAll("synthetic-rollout", "compressed-huge") + (line + "\n").repeat(135),
+  );
+  assert.ok(huge.length < 1024 * 1024, "合成のログは、圧縮された形では小さい");
+  await put("rollout-huge.jsonl.zst", huge, 0);
+  sync = make();
+  const limited = await sync.run();
+  assert.equal(submitted.length, 2);
+  assert.ok(limited.errors.some((entry) => /rollout-huge\.jsonl\.zst: 128MB の上限/.test(entry)));
 });

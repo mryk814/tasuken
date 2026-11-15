@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 import { createHash, randomUUID } from "node:crypto";
 import {
   createNativeAgentLogAccumulator,
@@ -43,6 +44,14 @@ const serviceValid = (value: unknown): value is AgentLogService =>
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 /** 内容が変わるまで同じ結果になる解析失敗。IO・保存の失敗は含めない。 */
 class AgentLogFormatError extends Error {}
+/** 1 回の読み取りの上限に達した。そのファイルの誤りではなく、残りを次回へ回す合図。 */
+class AgentLogRunBudgetError extends Error {}
+const FILE_LIMIT = 128 * 1024 * 1024;
+const RUN_LIMIT = 512 * 1024 * 1024;
+const RUN_LIMIT_MESSAGE = "1回512MBの上限です。次回に残りを読みます。";
+/** Codex は古い会話のログを zstd で圧縮する（`rollout-*.jsonl.zst`）。 */
+const isCompressedLog = (file: string) => file.endsWith(".jsonl.zst");
+const isLogFile = (name: string) => name.endsWith(".jsonl") || isCompressedLog(name);
 const errorPrefix = (source: Pick<AgentLogSourceConfig, "service" | "path">) =>
   `${digest(source.service + "\0" + source.path)}:error:`;
 const locationMessage = (error: unknown) => {
@@ -92,14 +101,20 @@ export class AgentLogSync {
     destination: string,
   ) => Promise<AgentLogPickupOutcome>;
   private readonly now: () => number;
+  private readonly onFinished?: (status: AgentLogSyncStatus) => void;
   constructor(
     directory: string,
     submit: (pickup: AgentLogPickup, destination: string) => Promise<AgentLogPickupOutcome>,
-    options: { now?: () => number } = {},
+    options: {
+      now?: () => number;
+      /** 1 回の読み取りが終わるたびに 1 回だけ呼ぶ（止めた時・誤りで終わった時も）。 */
+      onFinished?: (status: AgentLogSyncStatus) => void;
+    } = {},
   ) {
     this.directory = directory;
     this.submit = submit;
     this.now = options.now || (() => Date.now());
+    this.onFinished = options.onFinished;
   }
   async load() {
     if (this.loaded) return;
@@ -249,7 +264,7 @@ export class AgentLogSync {
         if (entry.isSymbolicLink() || entry.name === "subagents") continue;
         const file = path.join(directory, entry.name);
         if (entry.isDirectory()) await walk(file, depth + 1);
-        else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+        else if (entry.isFile() && isLogFile(entry.name)) {
           const resolved = await fs.promises.realpath(file);
           const relative = path.relative(actual, resolved);
           if (relative.startsWith("..") || path.isAbsolute(relative))
@@ -301,8 +316,12 @@ export class AgentLogSync {
       };
     }
   }
-  /** 静かになったログ 1 つを読む。拾わない物（subagent などの委任 thread）は pickup が null。 */
-  private async read(file: string, service: AgentLogService, signal: AbortSignal) {
+  /**
+   * 静かになったログ 1 つを読む。拾わない物（subagent などの委任 thread）は pickup が null。
+   * 圧縮されたログ（.jsonl.zst）は展開しながら読み、大きさの上限は展開後の大きさで数える
+   * （`budget` は、この回の読み取りに残っている大きさ）。返す bytes は読んだ（展開後の）大きさ。
+   */
+  private async read(file: string, service: AgentLogService, signal: AbortSignal, budget: number) {
     const accumulator = createNativeAgentLogAccumulator(service);
     const add = (line: string) => {
       let decoded;
@@ -317,18 +336,30 @@ export class AgentLogSync {
         throw new AgentLogFormatError(message(error));
       }
     };
-    const stream = fs.createReadStream(file, {
-      encoding: "utf8",
+    const compressed = isCompressedLog(file);
+    const source = fs.createReadStream(file, {
+      ...(compressed ? {} : { encoding: "utf8" as const }),
       highWaterMark: 64 * 1024,
       signal,
     });
+    // 展開の誤り（壊れた圧縮）は、中身が変わるまで同じ結果になる。
+    const inflate = compressed ? zlib.createZstdDecompress() : null;
+    if (inflate) {
+      source.on("error", (error) => inflate.destroy(error));
+      source.pipe(inflate);
+      inflate.setEncoding("utf8");
+    }
+    const stream: AsyncIterable<string> = inflate ?? source;
     let buffer = "";
     let bytes = 0;
     try {
       for await (const chunk of stream) {
         signal.throwIfAborted();
         bytes += Buffer.byteLength(chunk as string);
-        if (bytes > 128 * 1024 * 1024) throw new Error("128MB の上限です。ログを絞ってください。");
+        // 圧縮されたログは、開くまで大きさが分からない。展開後の大きさで止める。
+        if (bytes > FILE_LIMIT)
+          throw new AgentLogFormatError("128MB の上限です（展開後の大きさ）。");
+        if (bytes > budget) throw new AgentLogRunBudgetError(RUN_LIMIT_MESSAGE);
         buffer += chunk;
         let newline: number;
         while ((newline = buffer.indexOf("\n")) >= 0) {
@@ -351,14 +382,20 @@ export class AgentLogSync {
         }
         if (whole) add(buffer);
       }
-      if (accumulator.skipReason()) return { pickup: null };
+      if (accumulator.skipReason()) return { pickup: null, bytes };
       try {
-        return { pickup: accumulator.finish() };
+        return { pickup: accumulator.finish(), bytes };
       } catch (error) {
         throw new AgentLogFormatError(message(error));
       }
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (compressed && typeof code === "string" && /^(ZSTD_|ERR_ZSTD|Z_)/.test(code))
+        throw new AgentLogFormatError("圧縮されたログを展開できません。", { cause: error });
+      throw error;
     } finally {
-      stream.destroy();
+      inflate?.destroy();
+      source.destroy();
     }
   }
   async run(): Promise<AgentLogSyncStatus> {
@@ -367,6 +404,11 @@ export class AgentLogSync {
     this.running = this.scan().finally(() => {
       this.running = null;
       this.abort = null;
+      try {
+        this.onFinished?.(this.status());
+      } catch {
+        // 画面への知らせの失敗で、読み取りの結果を変えない。
+      }
     });
     return this.running;
   }
@@ -413,7 +455,8 @@ export class AgentLogSync {
               }
               continue;
             }
-            if (file.size > 128 * 1024 * 1024) {
+            const compressed = isCompressedLog(file.file);
+            if (file.size > FILE_LIMIT) {
               issues++;
               source.message = "128MB の上限を超えるログがあります。";
               if (this.value.errors.length < 20)
@@ -422,11 +465,20 @@ export class AgentLogSync {
                 );
               continue;
             }
-            if (bytes + file.size > 512 * 1024 * 1024)
-              throw new Error("1回512MBの上限です。次回に残りを読みます。");
-            bytes += file.size;
+            // 圧縮されていないログは、開く前に大きさで数える。圧縮されたログは、読みながら
+            // 展開後の大きさで数える（read が上限で止める）。
+            if (!compressed) {
+              if (bytes + file.size > RUN_LIMIT) throw new Error(RUN_LIMIT_MESSAGE);
+              bytes += file.size;
+            } else if (bytes >= RUN_LIMIT) throw new Error(RUN_LIMIT_MESSAGE);
             try {
-              const { pickup } = await this.read(file.file, source.service, signal);
+              const { pickup, bytes: read } = await this.read(
+                file.file,
+                source.service,
+                signal,
+                compressed ? RUN_LIMIT - bytes : Number.POSITIVE_INFINITY,
+              );
+              if (compressed) bytes += read;
               delete this.picked[errorKey];
               if (!pickup) {
                 // subagent・レビュー用threadは親の会話の一部。単独では拾わない。
@@ -450,6 +502,8 @@ export class AgentLogSync {
               if (this.value.scanned % 100 === 0) await this.persist();
             } catch (error) {
               signal.throwIfAborted();
+              if (error instanceof AgentLogRunBudgetError)
+                throw new Error(error.message, { cause: error });
               if (error instanceof AgentLogFormatError) {
                 this.picked[key] = statKey;
                 this.picked[errorKey] = message(error);

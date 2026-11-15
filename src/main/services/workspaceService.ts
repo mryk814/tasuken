@@ -3099,10 +3099,15 @@ export class WorkspaceService {
           // 回答が 1 つも読めない会話（依頼だけで止めた物）も、あった事は残す。中身は作らない。
           summary: pickup.summary || "回答の記録がありません。",
         });
-        if (result.status === "recorded") notify();
         return result.status;
       },
-      options,
+      {
+        ...options,
+        // 1 件ごとに知らせると、初めての読み取り（数百件）で画面が全量を読み直し続ける。
+        onFinished: (status) => {
+          if (status.recorded > 0) notify();
+        },
+      },
     );
     void this.localAgentLogs.load();
   }
