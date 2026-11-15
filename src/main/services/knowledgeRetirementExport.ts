@@ -1,16 +1,19 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs";
+
 /**
  * Knowledge の節と線（knowledge_node・knowledge_edge）を、テーマごとの Markdown に書き出す（#755 束8）。
  *
- * 棚卸しの画面と節・線の入力を外す版の、最初の起動で一度だけ走る。記録そのものは消さず、
- * 種類の登録に読むだけで残るが、画面が無くなると本人は読めなくなるので、読める形の控えを
- * 本人の操作なしで残す（開発に使っていない端末の記録は、こちらから見えないため）。
+ * 棚卸しの画面と節・線の入力を外す版の起動で走る。記録そのものは消さず、種類の登録に読むだけで
+ * 残るが、画面が無くなると本人は読めなくなるので、読める形の控えを本人の操作なしで残す
+ * （開発に使っていない端末の記録は、こちらから見えないため）。
  *
  * - 置き場は userData と、同期ルート（設定してある時だけ）の Exports/retired/knowledge/。
- * - テーマ 1 つにつき 1 ファイル。0 件なら何も書かず、済んだ印も付けない
- *   （後から同期で節が届いた端末でも、その時に一度書き出せるようにするため）。
+ * - テーマ 1 つにつき 1 ファイル。0 件なら何も書かず、済んだ印も付けない。
+ * - 済んだ印には、書き出した時の節と線の件数と、いちばん新しい更新の時刻を持たせる。次の起動で
+ *   どちらかが変わっていれば（印の後に同期で届いた節や、別の端末での編集）、もう一度書き出す。
  * - 既にあるファイルは上書きしない。中身が同じなら書かずに済ませ、違えば番号を付ける
  *   （失敗した次の起動のやり直しや、同じ同期ルートを使う別の端末の書き出しで増えないようにする）。
  * - 中身には書き出した時刻を入れない（同じ記録からは同じファイルになる）。
@@ -20,10 +23,8 @@ import path from "node:path";
 type RecordLike = Record<string, unknown>;
 
 export interface KnowledgeExportSource {
-  list(
-    type: "knowledge_node" | "knowledge_edge" | "theme" | "project" | "note",
-    includeDeleted?: boolean,
-  ): RecordLike[];
+  /** WorkspaceDatabase.list と同じ形。includeDeleted を省くと、削除した記録を除く。 */
+  list(type: string, includeDeleted?: boolean): RecordLike[];
 }
 
 export interface KnowledgeExportDocument {
@@ -47,9 +48,53 @@ const NODE_TYPE_LABELS: Record<string, string> = {
   source: "Source",
   insight: "Insight",
 };
+// 画面の語（renderer の domain-model/labels.ts）の写し。Main から renderer は読めないので、
+// 一度きりの書き出しに要る分だけを持つ。
+const RECORD_TYPE_LABELS: Record<string, string> = {
+  project: "テーマ",
+  theme: "テーマ",
+  capture_entry: "付箋",
+  task: "Task",
+  waiting: "待ち",
+  plan_node: "計画",
+  note: "ノート",
+  feed_post: "近況の投稿",
+  resource: "資料",
+  knowledge_node: "節",
+  sketch: "手書き",
+  artifact: "添付",
+  repository_context: "Repository",
+  agent_session: "Agent Session",
+};
+const AI_FRESHNESS_LABELS: Record<string, string> = {
+  current: "現在有効",
+  stale: "要再確認",
+  superseded: "置き換え済み",
+  unknown: "未判定",
+};
+const AI_AUTHORITY_LABELS: Record<string, string> = {
+  user_confirmed: "ユーザー確認済み",
+  imported: "取り込み原文",
+  ai_generated: "AI生成",
+  inferred: "推定",
+  external_source: "外部資料の要約",
+};
+const AI_SOURCE_REF_KIND_LABELS: Record<string, string> = {
+  url: "URL",
+  file: "ファイル",
+  canonical_document: "正本文書",
+  conversation: "会話",
+  meeting: "会議",
+  repository: "リポジトリ",
+  external_system: "外部システム",
+};
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function record(value: unknown): RecordLike | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as RecordLike) : null;
 }
 
 function dateText(value: unknown): string {
@@ -57,8 +102,8 @@ function dateText(value: unknown): string {
   return /^\d{4}-\d{2}-\d{2}/u.test(raw) ? raw.slice(0, 10) : "";
 }
 
-function isLive(record: RecordLike): boolean {
-  return !record.deleted_at;
+function isLive(entry: RecordLike): boolean {
+  return !entry.deleted_at;
 }
 
 function oneLine(value: string): string {
@@ -72,6 +117,13 @@ function nodeTitle(node: RecordLike | undefined, fallbackId = ""): string {
 function nodeTypeLabel(node: RecordLike | undefined): string {
   const type = text(node?.node_type);
   return NODE_TYPE_LABELS[type] || type || "Knowledge";
+}
+
+function byCreated(left: RecordLike, right: RecordLike): number {
+  return (
+    text(left.created_at).localeCompare(text(right.created_at)) ||
+    text(left.id).localeCompare(text(right.id))
+  );
 }
 
 /** Windows のファイル名に使えない文字を除き、長さを抑える。 */
@@ -88,19 +140,103 @@ function fileBaseName(label: string): string {
   return cleaned || "Knowledge";
 }
 
-/** 節の出どころ。元の Note が分かる時は題名を添える。 */
-function nodeOrigin(node: RecordLike, noteTitles: ReadonlyMap<string, string>): string {
+/**
+ * 節の相手（ノート・Task など）を「種類「題名」（ID）」で書くための索引。種類ごとに一度だけ読む。
+ * 削除した記録の題名は出さない（本人が消した物の中身を、控えに新しく書き写さないため）。
+ */
+class RecordIndex {
+  private readonly byType = new Map<string, Map<string, RecordLike>>();
+
+  constructor(private readonly source: KnowledgeExportSource) {}
+
+  private records(type: string): Map<string, RecordLike> {
+    let index = this.byType.get(type);
+    if (!index) {
+      index = new Map();
+      let entries: RecordLike[] = [];
+      try {
+        entries = this.source.list(type, true);
+      } catch {
+        // 登録の無い種類（古い差分の関係が指す物など）は、題名なしで書く。
+      }
+      for (const entry of entries) {
+        const id = text(entry.id);
+        if (id) index.set(id, entry);
+      }
+      this.byType.set(type, index);
+    }
+    return index;
+  }
+
+  label(type: string, id: string): string {
+    const kind = RECORD_TYPE_LABELS[type] || type || "記録";
+    const entry = this.records(type).get(id);
+    if (!entry) return `${kind}（${id}）`;
+    if (!isLive(entry)) return `削除した${kind}（${id}）`;
+    const title = oneLine(
+      text(entry.title) || text(entry.name) || text(entry.summary) || text(entry.text),
+    ).slice(0, 120);
+    return title ? `${kind}「${title}」（${id}）` : `${kind}（${id}）`;
+  }
+}
+
+/** 節の出どころ。元のノートなどが分かる時は、相手の種類と題名で書く。 */
+function nodeOrigin(node: RecordLike, index: RecordIndex): string {
   const noteId =
     text(node.source_note_id) || (text(node.source_type) === "note" ? text(node.source_id) : "");
-  if (noteId) {
-    const title = noteTitles.get(noteId);
-    return title ? `Note「${title}」（${noteId}）` : `Note（${noteId}）`;
-  }
+  if (noteId) return index.label("note", noteId);
   if (text(node.source_type) && text(node.source_id))
-    return `${text(node.source_type)}（${text(node.source_id)}）`;
+    return index.label(text(node.source_type), text(node.source_id));
   if (text(node.source_link_id)) return `link（${text(node.source_link_id)}）`;
   if (text(node.source_item_id)) return `item（${text(node.source_item_id)}）`;
   return "";
+}
+
+/** 節を端に持つ記録どうしの関係（reference）。節⇄Task・ノートなど。 */
+interface NodeReference {
+  outgoing: boolean;
+  predicate: string;
+  peer: { type: string; id: string };
+}
+
+function referencesByNode(source: KnowledgeExportSource): Map<string, NodeReference[]> {
+  const result = new Map<string, NodeReference[]>();
+  const push = (nodeId: string, entry: NodeReference) => {
+    const list = result.get(nodeId) || [];
+    list.push(entry);
+    result.set(nodeId, list);
+  };
+  let references: RecordLike[] = [];
+  try {
+    references = source.list("reference").filter(isLive).sort(byCreated);
+  } catch {
+    return result;
+  }
+  for (const reference of references) {
+    // 読み取りの形（RelationAssertionReadView）は Omit で index signature に寄るので、使う欄だけを型にする。
+    let assertion: {
+      subject: { type: string; id: string };
+      object: { type: string; id: string };
+      predicate: string;
+      status: string;
+    };
+    try {
+      assertion = normalizeReferenceAssertion(reference, {
+        legacyRead: true,
+      }) as unknown as typeof assertion;
+    } catch {
+      continue; // 形の崩れた古い関係は、図と同じく読まない。
+    }
+    if (assertion.status === "rejected") continue;
+    const subject = { type: String(assertion.subject.type), id: String(assertion.subject.id) };
+    const object = { type: String(assertion.object.type), id: String(assertion.object.id) };
+    const predicate = String(assertion.predicate || "related");
+    if (subject.type === "knowledge_node")
+      push(subject.id, { outgoing: true, predicate, peer: object });
+    if (object.type === "knowledge_node")
+      push(object.id, { outgoing: false, predicate, peer: subject });
+  }
+  return result;
 }
 
 function knowledgeThemeMarkdown(input: {
@@ -111,9 +247,11 @@ function knowledgeThemeMarkdown(input: {
   allEdges: readonly RecordLike[];
   nodesById: ReadonlyMap<string, RecordLike>;
   themeLabelOfNode: (node: RecordLike | undefined) => string;
-  noteTitles: ReadonlyMap<string, string>;
+  index: RecordIndex;
+  references: ReadonlyMap<string, NodeReference[]>;
 }): string {
-  const { themeLabel, nodes, edges, allEdges, nodesById, themeLabelOfNode, noteTitles } = input;
+  const { themeLabel, nodes, edges, allEdges, nodesById, themeLabelOfNode, index, references } =
+    input;
   const lines = [
     `# Knowledge - ${themeLabel}`,
     "",
@@ -130,6 +268,9 @@ function knowledgeThemeMarkdown(input: {
     const otherTheme = themeLabelOfNode(node);
     return `${nodeTitle(node)}（${nodeTypeLabel(node)}${otherTheme === themeLabel ? "" : ` / ${otherTheme}`}）`;
   };
+  /** 節なら節の書き方、それ以外は種類と題名。 */
+  const anyPeer = (type: string, id: string) =>
+    type === "knowledge_node" && nodesById.has(id) ? peer(id) : index.label(type, id);
   const types = [
     ...NODE_TYPE_ORDER,
     ...[...new Set(nodes.map((node) => text(node.node_type)))]
@@ -142,10 +283,21 @@ function knowledgeThemeMarkdown(input: {
     lines.push("", `## ${NODE_TYPE_LABELS[type] || type || "Knowledge"}`);
     for (const node of group) {
       const id = text(node.id);
+      const supersededBy = record(node.ai_superseded_by);
       const facts: [string, string][] = [
         ["状態", text(node.status)],
         ["確からしさ", text(node.confidence)],
-        ["出どころ", nodeOrigin(node, noteTitles)],
+        ["出どころ", nodeOrigin(node, index)],
+        ["AI 向け概要", oneLine(text(node.ai_summary))],
+        ["鮮度", AI_FRESHNESS_LABELS[text(node.ai_freshness)] || text(node.ai_freshness)],
+        ["根拠", AI_AUTHORITY_LABELS[text(node.ai_authority)] || text(node.ai_authority)],
+        ["最後に確かめた日", dateText(node.ai_last_verified_at)],
+        [
+          "置き換え先",
+          supersededBy && text(supersededBy.type) && text(supersededBy.id)
+            ? anyPeer(text(supersededBy.type), text(supersededBy.id))
+            : "",
+        ],
         ["作った日", dateText(node.created_at)],
         ["更新した日", dateText(node.updated_at)],
         ["Tasken の ID", id],
@@ -158,6 +310,15 @@ function knowledgeThemeMarkdown(input: {
       );
       const body = typeof node.body === "string" ? node.body.trim() : "";
       if (body) lines.push("", body);
+      const sources = (Array.isArray(node.ai_source_refs) ? node.ai_source_refs : [])
+        .map(record)
+        .filter((entry): entry is RecordLike => Boolean(entry && text(entry.locator)))
+        .map((entry) => {
+          const kind = AI_SOURCE_REF_KIND_LABELS[text(entry.kind)] || text(entry.kind) || "出典";
+          const title = oneLine(text(entry.title));
+          return `- ${kind}: ${title ? `${title} — ` : ""}${oneLine(text(entry.locator))}`;
+        });
+      if (sources.length > 0) lines.push("", "出典:", "", ...sources);
       const relations = allEdges
         .filter((edge) => text(edge.source_node_id) === id || text(edge.target_node_id) === id)
         .map((edge) => {
@@ -167,6 +328,11 @@ function knowledgeThemeMarkdown(input: {
           return `- ${outgoing ? "→" : "←"} ${text(edge.relation_type) || "related"}: ${peer(other)}${note ? ` — ${note}` : ""}`;
         });
       if (relations.length > 0) lines.push("", "関係:", "", ...relations);
+      const linked = (references.get(id) || []).map(
+        (entry) =>
+          `- ${entry.outgoing ? "→" : "←"} ${entry.predicate}: ${anyPeer(entry.peer.type, entry.peer.id)}`,
+      );
+      if (linked.length > 0) lines.push("", "ほかの記録との関係:", "", ...linked);
     }
   }
   if (edges.length > 0) {
@@ -195,22 +361,8 @@ function knowledgeThemeMarkdown(input: {
  * それも無ければ「テーマなし」）。
  */
 export function buildKnowledgeExport(source: KnowledgeExportSource): KnowledgeExportDocument[] {
-  const nodes = source
-    .list("knowledge_node")
-    .filter(isLive)
-    .sort(
-      (left, right) =>
-        text(left.created_at).localeCompare(text(right.created_at)) ||
-        text(left.id).localeCompare(text(right.id)),
-    );
-  const edges = source
-    .list("knowledge_edge")
-    .filter(isLive)
-    .sort(
-      (left, right) =>
-        text(left.created_at).localeCompare(text(right.created_at)) ||
-        text(left.id).localeCompare(text(right.id)),
-    );
+  const nodes = source.list("knowledge_node").filter(isLive).sort(byCreated);
+  const edges = source.list("knowledge_edge").filter(isLive).sort(byCreated);
   if (nodes.length === 0 && edges.length === 0) return [];
 
   // 削除したテーマの名前も引けるようにする（節は残っていることがある）。
@@ -220,12 +372,8 @@ export function buildKnowledgeExport(source: KnowledgeExportSource): KnowledgeEx
     const name = oneLine(text(theme.name) || text(theme.title));
     if (id && name && !themeNames.has(id)) themeNames.set(id, name);
   }
-  const noteTitles = new Map<string, string>();
-  for (const note of source.list("note", true)) {
-    const id = text(note.id);
-    const title = oneLine(text(note.title));
-    if (id && title) noteTitles.set(id, title);
-  }
+  const index = new RecordIndex(source);
+  const references = referencesByNode(source);
   const nodesById = new Map(nodes.map((node) => [text(node.id), node]));
   const themeIdOfNode = (node: RecordLike | undefined) =>
     text(node?.theme_id) || text(node?.project_id) || null;
@@ -256,7 +404,8 @@ export function buildKnowledgeExport(source: KnowledgeExportSource): KnowledgeEx
         allEdges: edges,
         nodesById,
         themeLabelOfNode,
-        noteTitles,
+        index,
+        references,
       }),
     };
   });
@@ -273,6 +422,38 @@ export function buildKnowledgeExport(source: KnowledgeExportSource): KnowledgeEx
     used.set(key, count);
     return count === 1 ? document : { ...document, baseName: `${document.baseName} [${count}]` };
   });
+}
+
+/**
+ * 書き出しの元の状態。削除していない節と線の件数と、削除した物も含めたいちばん新しい
+ * 更新・作成・削除の時刻。どちらかが変われば、中身が変わったとみなして書き出し直す。
+ */
+export function knowledgeExportSignature(source: KnowledgeExportSource): {
+  count: number;
+  latest: string;
+} {
+  let count = 0;
+  let latest = "";
+  for (const type of ["knowledge_node", "knowledge_edge"]) {
+    for (const entry of source.list(type, true)) {
+      if (isLive(entry)) count += 1;
+      for (const field of ["updated_at", "created_at", "deleted_at"]) {
+        const value = text(entry[field]);
+        if (value > latest) latest = value;
+      }
+    }
+  }
+  return { count, latest };
+}
+
+function markMatches(raw: string | null, signature: { count: number; latest: string }): boolean {
+  if (!raw) return false;
+  try {
+    const mark = JSON.parse(raw) as { count?: unknown; latest?: unknown };
+    return mark.count === signature.count && mark.latest === signature.latest;
+  } catch {
+    return false; // 形の分からない印は、書き出し直す（中身が同じファイルは増えない）。
+  }
 }
 
 type ExportFiles = Pick<typeof fs, "mkdirSync" | "readFileSync" | "writeFileSync">;
@@ -311,9 +492,9 @@ export function writeKnowledgeExportFiles(
 }
 
 export interface KnowledgeRetirementExportRepository extends KnowledgeExportSource {
-  /** 済んだ時刻。まだなら null。 */
+  /** 済んだ印（JSON の文字列）。まだなら null。 */
   readRetiredExportMark(name: "knowledge"): string | null;
-  markRetiredExportDone(name: "knowledge", at: string): void;
+  markRetiredExportDone(name: "knowledge", value: string): void;
 }
 
 export type KnowledgeRetirementExportResult =
@@ -330,8 +511,9 @@ export function knowledgeRetirementExportDirectories(
 }
 
 /**
- * 起動時に一度だけ書き出す。すべての置き場に書けた時だけ済んだ印を付け、二度目は何もしない。
- * どこかで失敗した時は印を付けず、次の起動でやり直す（書けた置き場は、中身が同じなので増えない）。
+ * 起動時に書き出す。すべての置き場に書けた時だけ済んだ印を付ける。印の時から節と線が
+ * 変わっていなければ何もしない。どこかで失敗した時は印を付けず、次の起動でやり直す
+ * （書けた置き場は、中身が同じなので増えない）。
  * 失敗は起動を止めない。ログには数と code だけを出し、題名や本文は出さない。
  */
 export function runKnowledgeRetirementExportOnce(input: {
@@ -344,7 +526,9 @@ export function runKnowledgeRetirementExportOnce(input: {
 }): KnowledgeRetirementExportResult {
   const { repository, log = () => {}, now = () => new Date().toISOString(), files = fs } = input;
   try {
-    if (repository.readRetiredExportMark("knowledge")) return { state: "already_done" };
+    const signature = knowledgeExportSignature(repository);
+    if (markMatches(repository.readRetiredExportMark("knowledge"), signature))
+      return { state: "already_done" };
     const documents = buildKnowledgeExport(repository);
     if (documents.length === 0) return { state: "nothing" };
     const directories = knowledgeRetirementExportDirectories(
@@ -374,7 +558,7 @@ export function runKnowledgeRetirementExportOnce(input: {
       log("warn", "Knowledge の節と線の書き出しを次の起動でやり直す");
       return { state: "retry", documents: documents.length, directories: done };
     }
-    repository.markRetiredExportDone("knowledge", now());
+    repository.markRetiredExportDone("knowledge", JSON.stringify({ at: now(), ...signature }));
     return { state: "done", documents: documents.length, directories: done };
   } catch (error) {
     const code = (error as { code?: unknown } | null)?.code;

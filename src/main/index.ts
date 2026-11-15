@@ -2540,10 +2540,12 @@ async function startDesktopApp(): Promise<void> {
         RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS,
       ).unref?.();
     }
-    // 棚卸し（Knowledge）の画面を外す前の控え（#755 束8）。節と線をテーマごとの Markdown に一度だけ書き出す。
+    // 棚卸し（Knowledge）の画面を外す前の控え（#755 束8）。節と線をテーマごとの Markdown に書き出す
+    // （印の時から節と線が変わった時だけ、もう一度）。
     // 配布した版と、検証用の場所を指定した開発中の起動（TASKEN_DEV_USER_DATA_DIR）だけで走らせる。
     // 場所を指定しない開発中の起動や bench は本物の DB やその写しを開くことがあり、同期ルートは
     // 本物を指したままなので、そこへは書かず、済んだ印も付けない（配布した版が最初の起動で書き出す）。
+    // 検証用の起動でも、DB の同期ルートの設定は本物の写しでありうるので、userData だけに書く。
     if (app.isPackaged || process.env.TASKEN_DEV_USER_DATA_DIR) {
       const exportRepository = workspaceRepository;
       setTimeout(
@@ -2551,7 +2553,9 @@ async function startDesktopApp(): Promise<void> {
           void runKnowledgeRetirementExportOnce({
             repository: exportRepository,
             userDataDirectory: app.getPath("userData"),
-            syncRoot: String(exportRepository.readPreference("artifactDirectory") || ""),
+            syncRoot: app.isPackaged
+              ? String(exportRepository.readPreference("artifactDirectory") || "")
+              : null,
             log: (level, message) => logMain(level, "retired-export", message),
           }),
         RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS,

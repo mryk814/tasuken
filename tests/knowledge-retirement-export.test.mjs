@@ -144,7 +144,7 @@ test("最初の起動で、節と線をテーマごとの Markdown にして、u
   assert.match(coating, /- 節: 2 件\n- 線: 1 件\n/u);
   assert.match(coating, /## Claim\n\n### 粗さで剥離が半減する\n/u);
   assert.match(coating, /3 回の試験で同じ傾向。/u);
-  assert.match(coating, /- 出どころ: Note「密着試験の所見」（note-1）/u);
+  assert.match(coating, /- 出どころ: ノート「密着試験の所見」（note-1）/u);
   assert.match(coating, /- Tasken の ID: kn-claim/u);
   // 節ごとの関係。向きと、別のテーマの相手にはテーマの名前が付く。
   assert.match(coating, /- → supports: 粗さで剥離が半減する（Claim） — 同じ板で \| 3 回/u);
@@ -166,7 +166,10 @@ test("最初の起動で、節と線をテーマごとの Markdown にして、u
   assert.match(sensor, /- 節: 1 件\n- 線: 1 件\n/u);
   assert.match(sensor, /ke-cross/u);
 
-  assert.equal(context.database.readRetiredExportMark("knowledge"), "2026-11-15T00:00:00.000Z");
+  assert.equal(
+    JSON.parse(context.database.readRetiredExportMark("knowledge")).at,
+    "2026-11-15T00:00:00.000Z",
+  );
   // ログには数だけを出す。題名・本文・場所は出さない。
   for (const { message } of logs) {
     assert.doesNotMatch(message, /粗さ|塗膜|技術資料/u);
@@ -239,7 +242,10 @@ test("書き出しに失敗しても例外にせず、次の起動でやり直�
   assert.equal(names(context.syncExports).length, 3);
   // userData の側は中身が同じなので、番号付きのファイルは増えない。
   assert.equal(names(context.userDataExports).length, 3);
-  assert.equal(context.database.readRetiredExportMark("knowledge"), "2026-11-15T00:00:00.000Z");
+  assert.equal(
+    JSON.parse(context.database.readRetiredExportMark("knowledge")).at,
+    "2026-11-15T00:00:00.000Z",
+  );
 });
 
 test("同期ルートが無ければ userData だけに書く", async (t) => {
@@ -292,4 +298,173 @@ test("同じ名前のテーマが 2 つあっても、テーマごとに別の�
       ["theme-b", "Knowledge - 同じ名前 [2]"],
     ],
   );
+});
+
+// レビューの指摘（#755 束8）: 節の AI・情報状態の欄と、節⇄Task・ノートの関係も控えに残す。
+test("節の AI 向けの欄・出典・置き換え先と、節を端に持つ記録どうしの関係も書き出す", async (t) => {
+  const context = await setup(t);
+  const { database } = context;
+  database.save("theme", { id: "theme-coating", name: "塗膜の密着" });
+  database.save("task", { id: "task-1", title: "下地を 3 水準で比べる" });
+  database.save("note", { id: "note-live", title: "生きているノート" });
+  database.save("note", { id: "note-gone", title: "消したノートの題名" });
+  database.remove("note", "note-gone");
+  database.save("knowledge_node", {
+    id: "kn-new",
+    node_type: "claim",
+    title: "新しい主張",
+    theme_id: "theme-coating",
+  });
+  database.save("knowledge_node", {
+    id: "kn-old",
+    node_type: "claim",
+    title: "古い主張",
+    theme_id: "theme-coating",
+    source_note_id: "note-gone",
+    ai_summary: "粗さで\n剥離が減る",
+    ai_freshness: "superseded",
+    ai_authority: "user_confirmed",
+    ai_last_verified_at: "2026-10-01T09:00:00.000Z",
+    ai_superseded_by: { type: "knowledge_node", id: "kn-new" },
+    ai_source_refs: [
+      { kind: "url", locator: "https://example.com/paper", title: "論文" },
+      { kind: "file", locator: "Data/run-1.csv" },
+    ],
+  });
+  database.save("knowledge_node", {
+    id: "kn-task",
+    node_type: "question",
+    title: "Task に置き換わった問い",
+    theme_id: "theme-coating",
+    ai_superseded_by: { type: "task", id: "task-1" },
+  });
+  // 節⇄Task・ノートの関係（reference）。削除した関係は出さない。
+  database.save("reference", {
+    id: "ref-task",
+    source_type: "knowledge_node",
+    source_id: "kn-old",
+    target_type: "task",
+    target_id: "task-1",
+    relation_type: "links_to",
+  });
+  database.save("reference", {
+    id: "ref-note",
+    source_type: "note",
+    source_id: "note-live",
+    target_type: "knowledge_node",
+    target_id: "kn-old",
+    relation_type: "derived_from",
+  });
+  database.save("reference", {
+    id: "ref-gone-note",
+    source_type: "note",
+    source_id: "note-gone",
+    target_type: "knowledge_node",
+    target_id: "kn-old",
+    relation_type: "links_to",
+  });
+  database.save("reference", {
+    id: "ref-deleted",
+    source_type: "knowledge_node",
+    source_id: "kn-old",
+    target_type: "task",
+    target_id: "task-1",
+    relation_type: "blocks",
+  });
+  database.remove("reference", "ref-deleted");
+
+  assert.equal(run(context, { syncRoot: "" }).result.state, "done");
+  const markdown = fs.readFileSync(
+    path.join(context.userDataExports, "Knowledge - 塗膜の密着.md"),
+    "utf8",
+  );
+  const start = markdown.indexOf("### 古い主張");
+  assert.ok(start >= 0);
+  const next = markdown.indexOf("\n#", start + 1);
+  const old = markdown.slice(start, next < 0 ? undefined : next + 1);
+  assert.match(old, /- AI 向け概要: 粗さで 剥離が減る\n/u);
+  assert.match(old, /- 鮮度: 置き換え済み\n/u);
+  assert.match(old, /- 根拠: ユーザー確認済み\n/u);
+  assert.match(old, /- 最後に確かめた日: 2026-10-01\n/u);
+  assert.match(old, /- 置き換え先: 新しい主張（Claim）\n/u);
+  assert.match(
+    old,
+    /出典:\n\n- URL: 論文 — https:\/\/example\.com\/paper\n- ファイル: Data\/run-1\.csv\n/u,
+  );
+  assert.match(old, /ほかの記録との関係:\n/u);
+  assert.match(old, /- → links_to: Task「下地を 3 水準で比べる」（task-1）\n/u);
+  assert.match(old, /- ← derived_from: ノート「生きているノート」（note-live）\n/u);
+  // 削除したノートは、出どころでも関係でも題名を出さない。
+  assert.match(old, /- 出どころ: 削除したノート（note-gone）\n/u);
+  assert.match(old, /- ← links_to: 削除したノート（note-gone）\n/u);
+  assert.doesNotMatch(markdown, /消したノートの題名/u);
+  assert.doesNotMatch(markdown, /blocks/u);
+  // 置き換え先が Task の時は、Task の題名で書く。
+  assert.match(markdown, /- 置き換え先: Task「下地を 3 水準で比べる」（task-1）\n/u);
+});
+
+test("印の後に節が届いたり直されたりしたら、次の起動で書き出し直す（変わらないテーマは増えない）", async (t) => {
+  const context = await setup(t);
+  const { database } = context;
+  database.save("theme", { id: "theme-a", name: "テーマA" });
+  database.save("theme", { id: "theme-b", name: "テーマB" });
+  database.save("knowledge_node", {
+    id: "kn-a",
+    node_type: "claim",
+    title: "Aの主張",
+    theme_id: "theme-a",
+    updated_at: "2026-11-10T00:00:00.000Z",
+  });
+  database.save("knowledge_node", {
+    id: "kn-b",
+    node_type: "claim",
+    title: "Bの主張",
+    theme_id: "theme-b",
+    updated_at: "2026-11-10T00:00:00.000Z",
+  });
+  assert.equal(run(context).result.state, "done");
+  assert.deepEqual(names(context.syncExports), [
+    "Knowledge - テーマA.md",
+    "Knowledge - テーマB.md",
+  ]);
+  assert.deepEqual(run(context).result, { state: "already_done" });
+
+  // 同期で届いた節（件数が変わる）。
+  database.save("knowledge_node", {
+    id: "kn-a2",
+    node_type: "evidence",
+    title: "あとから届いた根拠",
+    theme_id: "theme-a",
+    updated_at: "2026-11-09T00:00:00.000Z",
+  });
+  assert.equal(run(context).result.state, "done");
+  for (const directory of [context.userDataExports, context.syncExports])
+    assert.deepEqual(names(directory), [
+      "Knowledge - テーマA (2).md",
+      "Knowledge - テーマA.md",
+      "Knowledge - テーマB.md",
+    ]);
+  assert.match(
+    fs.readFileSync(path.join(context.syncExports, "Knowledge - テーマA (2).md"), "utf8"),
+    /あとから届いた根拠/u,
+  );
+  assert.deepEqual(run(context).result, { state: "already_done" });
+
+  // 別の端末での編集（件数は同じで、更新の時刻が進む）。
+  Object.assign(
+    database.list("knowledge_node").find((node) => node.id === "kn-b"),
+    { title: "Bの主張（直した）", updated_at: "2026-11-12T00:00:00.000Z" },
+  );
+  assert.equal(run(context).result.state, "done");
+  assert.deepEqual(names(context.syncExports), [
+    "Knowledge - テーマA (2).md",
+    "Knowledge - テーマA.md",
+    "Knowledge - テーマB (2).md",
+    "Knowledge - テーマB.md",
+  ]);
+  assert.match(
+    fs.readFileSync(path.join(context.syncExports, "Knowledge - テーマB (2).md"), "utf8"),
+    /Bの主張（直した）/u,
+  );
+  assert.deepEqual(run(context).result, { state: "already_done" });
 });

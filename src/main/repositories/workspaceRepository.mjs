@@ -948,7 +948,8 @@ export class WorkspaceDatabase {
   }
 
   /**
-   * 切る前の控え（#755）を一度だけ書き出す処理の、済んだ印。値は済んだ時刻、まだなら null。
+   * 切る前の控え（#755）を書き出す処理の、済んだ印。値は書き出す側が決める文字列（Knowledge は
+   * 済んだ時刻と、その時の件数・いちばん新しい更新の時刻の JSON）。まだなら null。
    * name は切った機能の名前（"knowledge" など）。端末ごとの印なので、同期には載せない。
    */
   readRetiredExportMark(name) {
