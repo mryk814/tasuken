@@ -103,4 +103,49 @@ class MobileRoutineOverlayTest {
         assertEquals(MobilePendingRoutineRecord("command-1", "habit-read", "2026-11-16", 2, OutboxState.Rejected, "PC にこの続けることが見つかりませんでした。"), read)
         assertNull(row.copy(commandName = "CreateCapture").toPendingRoutineRecord())
     }
+
+    // 2026-11-16 は月曜。週は Desktop と同じく月曜始まり。
+    private val wednesday = server.copy(date = "2026-11-18")
+
+    @Test
+    fun anUnsentRecordOfAnEarlierDayInTheSameWeekCountsForTheWeekAndIsMarked() {
+        val shown = overlayPendingRoutines(wednesday, listOf(record(1, date = "2026-11-17"), record(1, date = "2026-11-15"))).habits.single()
+
+        assertEquals(1, shown.unsent)
+        assertEquals("今日1回", shown.habit.todayLabel)
+        assertEquals("今週3/3回", shown.habit.weekLabel)
+        assertEquals(2, shown.habit.nextSequence)
+    }
+
+    @Test
+    fun aCopyOfAnEarlierDayKeepsNamesButNotTodaysCountsAndStillTakesRecords() {
+        val shown = overlayPendingRoutines(
+            server.copy(date = "2026-11-17"),
+            listOf(record(1, date = "2026-11-17"), record(2, date = "2026-11-17")),
+            copyAt = "2026-11-16T21:00:00Z",
+            countsKnown = false,
+        )
+
+        assertEquals(false, shown.countsKnown)
+        assertEquals(2, shown.habits.single().unsent)
+        // 次の押下は、列にある今日の記録の次（置き場所は Desktop が「1回足す」で決める）。
+        assertEquals(3, shown.habits.single().habit.nextSequence)
+    }
+
+    @Test
+    fun aDeliveredRecordIsAddedToTheCopyForTheDayAndTheWeek() {
+        val sameDay = server.withDeliveredRecord("habit-read", "2026-11-16").habits.single()
+        assertEquals("今日2回", sameDay.todayLabel)
+        assertEquals("今週3/3回", sameDay.weekLabel)
+        assertEquals(3, sameDay.nextSequence)
+
+        val earlier = wednesday.withDeliveredRecord("habit-read", "2026-11-17").habits.single()
+        assertEquals("今日1回", earlier.todayLabel)
+        assertEquals("今週3/3回", earlier.weekLabel)
+        assertEquals(2, earlier.nextSequence)
+
+        // 前の週の記録と、ほかの Habit の記録は数を変えない。
+        assertEquals(server, server.withDeliveredRecord("habit-read", "2026-11-15"))
+        assertEquals(server, server.withDeliveredRecord("habit-walk", "2026-11-16"))
+    }
 }

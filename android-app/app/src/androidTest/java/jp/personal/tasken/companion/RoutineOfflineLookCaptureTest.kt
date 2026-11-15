@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -45,6 +46,8 @@ class RoutineOfflineLookCaptureTest {
     private val today = LocalDate.now().toString()
     private var online = true
     private var desktopCount = 1
+    /** mode（1回足す）を知らない古い Desktop として断る。 */
+    private var oldDesktop = false
 
     @Before
     fun setUp() = runBlocking {
@@ -109,6 +112,70 @@ class RoutineOfflineLookCaptureTest {
 
     @Test fun reopenedDark() = reopenWhileOffline(dark = true)
 
+    @Test fun morningLight() = morningWhileOffline(dark = false)
+
+    @Test fun morningDark() = morningWhileOffline(dark = true)
+
+    @Test fun retryAllLight() = refusedByAnOldDesktop(dark = false)
+
+    @Test fun retryAllDark() = refusedByAnOldDesktop(dark = true)
+
+    /**
+     * 今日まだ一度も読めていない朝に圏外。前の日の写しから名前と頻度だけを出し、今日の数の所は電波なしの絵。
+     * 押した記録は列にたまり、「+1」と割印で見える。日付印は前の日の日付。
+     */
+    private fun morningWhileOffline(dark: Boolean) {
+        val suffix = if (dark) "dark" else "light"
+        val yesterday = LocalDate.parse(today).minusDays(1)
+        runBlocking {
+            repository().synchronizeIfPaired()
+            val copy = MobileRoutineContract.decode(routines()).data.copy(date = yesterday.toString())
+            database.mobileDao().upsertRoutineCache(
+                RoutineCacheEntity(
+                    serverId = "server-1",
+                    date = yesterday.toString(),
+                    payloadJson = MobileRoutineContract.encodeCopy(copy),
+                    fetchedAt = yesterday.atTime(21, 4).atZone(java.time.ZoneId.systemDefault()).toInstant().toString(),
+                ),
+            )
+        }
+        online = false
+        val viewModel = TodayViewModel(repository())
+        composeRule.setContent { Themed(dark) { TodayApp(todayViewModel = viewModel) } }
+        composeRule.waitUntil(10_000) { viewModel.routines.value?.countsKnown == false }
+        composeRule.onNodeWithTag("today-routines").performScrollTo()
+        composeRule.onNodeWithContentDescription("論文を読むを1回記録").performClick()
+        composeRule.waitUntil(5_000) { viewModel.routines.value?.habits?.first()?.unsent == 1 }
+        composeRule.onNodeWithTag("routine-habit-habit-read-counts-unknown", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("routine-habit-habit-read-unsent", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("today-routines-copy-stamp", useUnmergedTree = true).assertIsDisplayed()
+        capture("routine-today-morning-offline-$suffix")
+    }
+
+    /** 古い Desktop に断られた記録が二つ。同期の一覧から、まとめて送り直せる。 */
+    private fun refusedByAnOldDesktop(dark: Boolean) {
+        val suffix = if (dark) "dark" else "light"
+        runBlocking {
+            val before = repository()
+            before.synchronizeIfPaired()
+            checkNotNull(before.fetchRoutines(today))
+            oldDesktop = true
+            listOf(2, 3).forEach { sequence ->
+                before.recordRoutine(
+                    MobileRoutineActionDto(name = ROUTINE_RECORD_COMMAND, performedOn = today, habitId = "habit-read", sequence = sequence),
+                )
+            }
+            before.synchronizeIfPaired()
+        }
+        val viewModel = TodayViewModel(repository())
+        composeRule.setContent { Themed(dark) { TodayApp(todayViewModel = viewModel) } }
+        composeRule.waitUntil(10_000) { viewModel.routineRecords.value.count { it.rejected } == 2 }
+        composeRule.onNodeWithTag("open-sync-status").performClick()
+        composeRule.onNodeWithTag("sync-returned-routines-retry-all").assertIsDisplayed()
+        check(composeRule.onAllNodesWithText(ROUTINE_UPDATE_PC_REQUIRED).fetchSemanticsNodes().size == 2)
+        capture("routine-sync-retry-all-$suffix")
+    }
+
     /** つながる間に一度読み、圏外で 1 回記録してから開き直す。続けることは写しから出て、日付印と割印が付く。 */
     private fun reopenWhileOffline(dark: Boolean) {
         val suffix = if (dark) "dark" else "light"
@@ -145,6 +212,10 @@ class RoutineOfflineLookCaptureTest {
                 path.startsWith("/v1/bootstrap") -> GatewayHttpResponse(200, page("tasks", TASKS.mapIndexed { i, t -> taskJson("t$i", t) }))
                 path.startsWith("/v1/sync") -> GatewayHttpResponse(200, page("changes", emptyList()))
                 path.startsWith("/v1/routines") -> GatewayHttpResponse(200, routines())
+                path == "/v1/routine-actions" && method == "POST" && oldDesktop -> GatewayHttpResponse(
+                    400,
+                    """{"ok":false,"meta":${meta()},"error":{"code":"validation_failed","message":"invalid","retryable":false}}""",
+                )
                 path == "/v1/routine-actions" && method == "POST" -> {
                     val commandId = Json.parseToJsonElement(requireNotNull(body)).jsonObject.getValue("commandId").jsonPrimitive.content
                     desktopCount += 1

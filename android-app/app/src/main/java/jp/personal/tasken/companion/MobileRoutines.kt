@@ -183,7 +183,9 @@ internal fun TodayRoutinesSection(
             val habit = item.habit
             RoutineRow(
                 title = habit.title,
-                detail = "${habit.scheduleLabel} · ${habit.todayLabel} · ${habit.weekLabel}",
+                // 前の日の写しでは今日の数が分からないので、数の代わりに電波なしの絵を置く（つながると分かる）。
+                detail = if (routines.countsKnown) "${habit.scheduleLabel} · ${habit.todayLabel} · ${habit.weekLabel}" else habit.scheduleLabel,
+                countsUnknown = !routines.countsKnown,
                 actionLabel = "1回記録",
                 actionDescription = "${habit.title}を1回記録",
                 enabled = savingId == null && habit.nextSequence != null,
@@ -200,6 +202,7 @@ internal fun TodayRoutinesSection(
 private fun RoutineRow(
     title: String,
     detail: String,
+    countsUnknown: Boolean,
     actionLabel: String,
     actionDescription: String,
     enabled: Boolean,
@@ -217,11 +220,25 @@ private fun RoutineRow(
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(
-                    detail,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        detail,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (countsUnknown) {
+                        // 今日の数の場所に電波なしの絵。押した分だけ「+N」を添える（届くまでは割印も付く）。
+                        OflNowave(Modifier.testTag("$tag-counts-unknown"), description = "今日の数はつながると分かります")
+                        if (unsent > 0) {
+                            Text(
+                                "+$unsent",
+                                style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
+                                fontWeight = FontWeight.ExtraBold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                }
             }
             if (returned) OflModo(Modifier.testTag("$tag-returned"))
             FilledTonalButton(

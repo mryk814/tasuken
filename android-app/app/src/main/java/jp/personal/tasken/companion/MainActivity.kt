@@ -261,6 +261,7 @@ internal fun TodayApp(
     val taskWorkProposals by todayViewModel.taskWorkProposals.collectAsState()
     val feedPosts by todayViewModel.feedPosts.collectAsState()
     val proposalReviewOnline by todayViewModel.proposalReviewOnline.collectAsState()
+    val proposalRefreshing by todayViewModel.proposalRefreshing.collectAsState()
     val proposalReviewState by todayViewModel.proposalReviewState.collectAsState()
     val themes = themeCatalogState.themes
     val context = LocalContext.current
@@ -421,6 +422,19 @@ internal fun TodayApp(
     // 反応・返信が受け付けられなかったときだけ知らせる（保存できたときは画面に出るので黙る）。
     LaunchedEffect(todayViewModel) {
         todayViewModel.feedMessages.collect { message -> snackbarHostState.showSnackbar(message) }
+    }
+
+    // 断られた続けることの記録を消した時は、消す前の行に戻せるようにする。
+    LaunchedEffect(todayViewModel) {
+        todayViewModel.routineDiscards.collect { row ->
+            val result = snackbarHostState.showSnackbar(
+                message = "続けることの記録を消しました。",
+                actionLabel = "元に戻す",
+                withDismissAction = true,
+                duration = SnackbarDuration.Long,
+            )
+            if (result == SnackbarResult.ActionPerformed) todayViewModel.restoreRoutineRecord(row)
+        }
     }
 
     LaunchedEffect(todayViewModel) {
@@ -857,6 +871,8 @@ internal fun TodayApp(
                         workReceiptDetailState = workReceiptDetailState,
                         taskWorkProposals = taskWorkProposals.filter { it.taskId == task?.id },
                         proposalReviewOnline = proposalReviewOnline,
+                        proposalReviewChecking = proposalRefreshing,
+                        proposalReviewNeedsRepair = syncState.needsRepair,
                         proposalReviewState = proposalReviewState,
                         themes = themes,
                         themeCatalogState = themeCatalogState,
@@ -906,7 +922,12 @@ internal fun TodayApp(
             onOpenRecoveredInputs = { syncSheetOpen = false; recoveryOpen = true },
             onDismiss = { syncSheetOpen = false },
             onRetryRoutine = todayViewModel::retryRoutineRecord,
-            onDiscardRoutine = todayViewModel::discardRoutineRecord,
+            // 「元に戻す」の知らせを一覧の幕の下に隠さないよう、一覧を閉じてから消す。
+            onDiscardRoutine = { commandId ->
+                syncSheetOpen = false
+                todayViewModel.discardRoutineRecord(commandId)
+            },
+            onRetryAllRoutines = todayViewModel::retryAllRoutineRecords,
             onOpenReturned = { item ->
                 syncSheetOpen = false
                 item.taskId?.let { taskId ->
@@ -2341,6 +2362,10 @@ internal fun TodayDetailPane(
     workReceiptDetailState: WorkReceiptDetailUiState = WorkReceiptDetailUiState.Idle,
     taskWorkProposals: List<MobileTaskWorkProposal> = emptyList(),
     proposalReviewOnline: Boolean = false,
+    /** つながっているかを確かめている（提案を読み直している）間。「使えない」の形にせず、押せないだけにする。 */
+    proposalReviewChecking: Boolean = false,
+    /** この端末の登録が切れて、つなぎ直しが要る時。 */
+    proposalReviewNeedsRepair: Boolean = false,
     proposalReviewState: ProposalReviewUiState = ProposalReviewUiState.Idle,
     themes: List<MobileTheme> = emptyList(),
     themeCatalogState: MobileThemeCatalogState = if (themes.isEmpty()) {
@@ -2761,6 +2786,8 @@ internal fun TodayDetailPane(
                     online = proposalReviewOnline,
                     reviewState = proposalReviewState,
                     onDecision = onProposalDecision,
+                    checking = proposalReviewChecking,
+                    needsRepair = proposalReviewNeedsRepair,
                 )
             }
             task.latestWorkReceipt?.let { receipt ->
@@ -2932,6 +2959,8 @@ private fun TaskWorkProposalReviewCard(
     online: Boolean,
     reviewState: ProposalReviewUiState,
     onDecision: (MobileTaskWorkProposal, String) -> Unit,
+    checking: Boolean = false,
+    needsRepair: Boolean = false,
 ) {
     val reviewing = reviewState is ProposalReviewUiState.Reviewing && reviewState.proposalId == proposal.id
     val uriHandler = LocalUriHandler.current
@@ -2991,10 +3020,14 @@ private fun TaskWorkProposalReviewCard(
             }
             // 採否は Proposal と Task の版を Desktop で突き合わせるので、列にはためない。つながらない間は
             // 共通の「使えない」の形にし、押す前に分かるようにする。押されたら絵が首を振り、その場に一言。
+            // 読み直しの間は「使えない」にせず、元のボタンを押せない状態で出す（つながっているかを確かめている途中）。
+            // 登録が切れてつなぎ直しが要る時は、電波なしの絵でなく「!」で、つなぎ直すと使えることを示す。
+            val unavailable = !online && !checking
             var nudged by remember(proposal.id) { mutableStateOf(false) }
-            LaunchedEffect(online) { if (online) nudged = false }
+            LaunchedEffect(unavailable) { if (!unavailable) nudged = false }
+            val reason = if (needsRepair) "つなぎ直すと使えます" else "つながると使えます"
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (online || proposal.stale) {
+                if (!unavailable || proposal.stale) {
                     // 古い Proposal はつながっても採れないので、「使えない」の形にはしない。
                     Button(
                         onClick = { onDecision(proposal, "accept") },
@@ -3008,12 +3041,14 @@ private fun TaskWorkProposalReviewCard(
                         label = "採る",
                         onNudge = { nudged = true },
                         modifier = Modifier.testTag("proposal-approve-${proposal.id}"),
+                        reason = reason,
+                        needsRepair = needsRepair,
                     )
                 }
-                if (online) {
+                if (!unavailable) {
                     TextButton(
                         onClick = { onDecision(proposal, "reject") },
-                        enabled = !reviewing,
+                        enabled = online && !reviewing,
                         modifier = Modifier.widthIn(min = 88.dp).testTag("proposal-reject-${proposal.id}"),
                     ) {
                         Text(if (reviewing && reviewState.decision == "reject") "処理中" else "見送る")
@@ -3023,12 +3058,14 @@ private fun TaskWorkProposalReviewCard(
                         label = "見送る",
                         onNudge = { nudged = true },
                         modifier = Modifier.testTag("proposal-reject-${proposal.id}"),
+                        reason = reason,
+                        needsRepair = needsRepair,
                     )
                 }
             }
-            if (!online && nudged) {
+            if (unavailable && nudged) {
                 Text(
-                    "つながると使えます",
+                    reason,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.testTag("proposal-offline-hint-${proposal.id}"),

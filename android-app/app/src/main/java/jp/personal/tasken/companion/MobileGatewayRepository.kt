@@ -928,10 +928,13 @@ class AndroidMobileTaskRepository(
         }
     }
 
-    /** その日の続けることの写し。接続先の Desktop の物で、日が同じ時だけ返す（別の日の「今日N回」は見せない）。 */
+    /**
+     * 続けることの写し（最後に読めた 1 日分）。接続先の Desktop の物だけ返す。
+     * 日が [date] と違う時（今日まだ一度も読めていない朝）も返し、呼ぶ側が今日の数を出さずに名前と頻度だけ使う。
+     */
     override suspend fun cachedRoutines(date: String): MobileRoutinesCopy? {
         val serverId = dao.syncState()?.serverId ?: return null
-        val cache = dao.routineCache(serverId)?.takeIf { it.date == date } ?: return null
+        val cache = dao.routineCache(serverId) ?: return null
         return runCatching { MobileRoutinesCopy(MobileRoutineContract.decodeCopy(cache.payloadJson), cache.fetchedAt) }
             .onFailure { Log.w(MOBILE_GATEWAY_LOG_TAG, "Discarding an unreadable routines copy", it) }
             .getOrNull()
@@ -944,7 +947,11 @@ class AndroidMobileTaskRepository(
 
     override suspend fun retryRoutineRecord(commandId: String) = routineOutbox.retry(commandId)
 
-    override suspend fun discardRoutineRecord(commandId: String) = routineOutbox.discard(commandId)
+    override suspend fun retryAllRoutineRecords(): Int = routineOutbox.retryAll()
+
+    override suspend fun discardRoutineRecord(commandId: String): OutboxCommandEntity? = routineOutbox.discard(commandId)
+
+    override suspend fun restoreRoutineRecord(row: OutboxCommandEntity) = routineOutbox.restore(row)
 
     /**
      * 列から送る続けることの記録（/v1/routine-actions）。応答の読み方は /v1/commands と同じ：
@@ -992,7 +999,9 @@ class AndroidMobileTaskRepository(
                         MobileCommandSendResult.Rejected(
                             code = code,
                             message = when (code) {
-                                "not_found" -> "PC にこの続けることが見つかりませんでした（消したか止めた物かもしれません）。"
+                                // 古い Desktop は「1回足す」（mode）を知らずに validation_failed を返し、
+                                // 受け口の無い版は not_found を返す。どちらも PC を新しくすれば届く。
+                                "not_found", "validation_failed" -> ROUTINE_UPDATE_PC_REQUIRED
                                 "forbidden" -> "この権限では記録できません。新しいコードでつなぎ直してから送り直してください。"
                                 "capability_unavailable" -> "この PC は続けることの記録を受け取れません。PC の Tasken を新しくしてから送り直してください。"
                                 else -> error?.error?.message ?: "PC が記録を受け取りませんでした。"

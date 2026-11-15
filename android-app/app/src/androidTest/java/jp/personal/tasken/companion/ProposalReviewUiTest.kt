@@ -6,6 +6,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -102,6 +103,58 @@ class ProposalReviewUiTest {
         composeRule.onNodeWithTag("proposal-offline-hint-${proposal.id}").assertDoesNotExist()
         composeRule.onNodeWithTag("proposal-approve-${proposal.id}").assertIsEnabled().performClick()
         assertEquals(listOf("accept"), decisions)
+    }
+
+    /** 読み直しの間は「使えない」の形にせず、元のボタンを押せない状態で出す。 */
+    @Test
+    fun whileCheckingTheButtonsKeepTheirShapeButCannotBePressed() {
+        val decisions = mutableListOf<String>()
+        val proposal = proposal()
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = task(),
+                    actionState = TaskActionUiState.Idle,
+                    taskWorkProposals = listOf(proposal),
+                    proposalReviewOnline = false,
+                    proposalReviewChecking = true,
+                    onStateAction = {},
+                    onProposalDecision = { _, decision -> decisions += decision },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("proposal-detail-${proposal.id}").performScrollTo()
+        composeRule.onNodeWithTag("proposal-approve-${proposal.id}")
+            .assertIsNotEnabled()
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
+        composeRule.onNodeWithTag("proposal-reject-${proposal.id}").assertIsNotEnabled().performClick()
+        composeRule.onNodeWithTag("proposal-offline-hint-${proposal.id}").assertDoesNotExist()
+        assertEquals(emptyList<String>(), decisions)
+    }
+
+    /** 登録が切れている時は「つながると」でなく、つなぎ直すと使えると分かる形にする。 */
+    @Test
+    fun whenTheDeviceNeedsPairingAgainTheButtonsSaySo() {
+        val proposal = proposal()
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = task(),
+                    actionState = TaskActionUiState.Idle,
+                    taskWorkProposals = listOf(proposal),
+                    proposalReviewOnline = false,
+                    proposalReviewNeedsRepair = true,
+                    onStateAction = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("proposal-detail-${proposal.id}").performScrollTo()
+        composeRule.onNodeWithTag("proposal-approve-${proposal.id}")
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "つなぎ直すと使えます"))
+            .performClick()
+        composeRule.onNodeWithTag("proposal-offline-hint-${proposal.id}").assertTextEquals("つなぎ直すと使えます")
     }
 
     private fun task() = MobileTask(

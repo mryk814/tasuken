@@ -5,8 +5,11 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.IOException
+import java.time.LocalDate
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
@@ -39,6 +42,9 @@ class MobileRoutineOutboxTest {
     private var online = false
     private var dropNextReceipt = false
     private var refuseHabit: String? = null
+    private var oldDesktop = false
+    /** false の間、続けることの読み出し（GET /v1/routines）だけが失敗する（送るのは通る）。 */
+    private var routinesReadable = true
 
     @Before
     fun setUp() = runBlocking {
@@ -78,6 +84,7 @@ class MobileRoutineOutboxTest {
             if (!online) throw IOException("offline")
             when {
                 path.startsWith("/v1/bootstrap") -> GatewayHttpResponse(200, page("tasks"))
+                path.startsWith("/v1/routines") && !routinesReadable -> GatewayHttpResponse(503, "")
                 path.startsWith("/v1/routines") -> GatewayHttpResponse(
                     200,
                     """{"ok":true,"meta":${meta()},"data":{"date":"2026-11-16","habits":[{"habitId":"habit-read","title":"論文を読む",""" +
@@ -105,6 +112,13 @@ class MobileRoutineOutboxTest {
             return GatewayHttpResponse(
                 404,
                 """{"ok":false,"meta":${meta()},"error":{"code":"not_found","message":"not found","retryable":false}}""",
+            )
+        }
+        // mode を知らない古い Desktop の断り方。
+        if (oldDesktop) {
+            return GatewayHttpResponse(
+                400,
+                """{"ok":false,"meta":${meta()},"error":{"code":"validation_failed","message":"invalid","retryable":false}}""",
             )
         }
         val entry = "$habitId:${action.getValue("performedOn").jsonPrimitive.content}:${action.getValue("sequence").jsonPrimitive.int}"
@@ -180,7 +194,8 @@ class MobileRoutineOutboxTest {
         val refused = repository.observePendingRoutineRecords().first().single()
         assertEquals("habit-gone", refused.habitId)
         assertTrue(refused.rejected)
-        assertTrue(requireNotNull(refused.reason).contains("見つかりませんでした"))
+        // 受け口の無い古い Desktop も not_found を返すので、PC を新しくすれば届くと伝える。
+        assertEquals(ROUTINE_UPDATE_PC_REQUIRED, refused.reason)
         // 断られた記録は送る数（waiting）には入らず、同期の一覧の「受け取られなかった」に出る。
         assertEquals(0, dao.pendingCount())
 
@@ -211,7 +226,10 @@ class MobileRoutineOutboxTest {
         assertEquals(0, dao.outboxCount())
     }
 
-    /** 読めた続けることは端末の写しに残り、圏外で開き直しても同じ日なら出せる。別の日・別の Desktop の写しは出さない。 */
+    /**
+     * 読めた続けることは端末の写しに残り、圏外で開き直しても出せる。別の日を頼まれても最後の写しを返し
+     * （呼ぶ側が今日の数を出さずに使う）、別の Desktop の写しは出さない。
+     */
     @Test
     fun routinesReadOnceStayOnTheDeviceForTheSameDay() = runBlocking {
         val repository = repository()
@@ -224,10 +242,97 @@ class MobileRoutineOutboxTest {
         val copy = requireNotNull(repository.cachedRoutines("2026-11-16"))
         assertEquals(read.copy(maintenances = emptyList()), copy.routines)
         assertEquals("2026-11-16T02:00:00Z", copy.fetchedAt)
-        assertNull(repository.cachedRoutines("2026-11-17"))
+        // 前の日の写しも返す（名前と頻度だけを使う。今日の数は呼ぶ側が出さない）。
+        assertEquals("2026-11-16", repository.cachedRoutines("2026-11-17")?.routines?.date)
 
         dao.upsertSyncState(requireNotNull(dao.syncState()).copy(serverId = "server-2"))
         assertNull(repository.cachedRoutines("2026-11-16"))
+    }
+
+    /** 筋書き A: 閉じている間に記録が届き、圏外で開く。写しの数に届いた分が入っていて、二重に押させない。 */
+    @Test
+    fun aRecordDeliveredWhileClosedIsInTheCopyWhenOpenedOffline() = runBlocking {
+        val repository = repository()
+        online = true
+        requireNotNull(repository.fetchRoutines("2026-11-16"))
+        online = false
+        repository.recordRoutine(action())
+        // 閉じている間に、送り手（WorkManager）だけが動いて届けた。
+        online = true
+        repository.synchronizeIfPaired()
+        assertEquals(0, dao.outboxCount())
+        online = false
+
+        val habit = requireNotNull(repository.cachedRoutines("2026-11-16")).routines.habits.single()
+        assertEquals(2, habit.todayCount)
+        assertEquals("今日2回", habit.todayLabel)
+        assertEquals("今週4/7回", habit.weekLabel)
+        assertEquals(3, habit.nextSequence)
+    }
+
+    /** 筋書き B: 届いた後の読み直しが失敗する。画面は写しへ戻るが、届いた分は数から抜けない。 */
+    @Test
+    fun aRecordDeliveredWhenTheRereadFailsStaysCountedOnTheScreen() = runBlocking {
+        val repository = repository()
+        online = true
+        val viewModel = TodayViewModel(repository, today = { LocalDate.parse("2026-11-16") })
+        viewModel.loadNow()
+        waitFor { viewModel.routines.value?.habits?.singleOrNull()?.habit?.todayCount == 1 }
+        online = false
+        viewModel.recordHabit(requireNotNull(viewModel.routines.value).habits.single().habit)
+        waitFor { viewModel.routines.value?.habits?.single()?.unsent == 1 }
+        assertEquals(2, viewModel.routines.value?.habits?.single()?.habit?.todayCount)
+
+        online = true
+        routinesReadable = false
+        repository.synchronizeIfPaired()
+
+        waitFor {
+            val shown = viewModel.routines.value?.habits?.single()
+            shown?.unsent == 0 && viewModel.routines.value?.copyAt != null
+        }
+        val shown = requireNotNull(viewModel.routines.value).habits.single()
+        assertEquals(2, shown.habit.todayCount)
+        assertEquals(3, shown.habit.nextSequence)
+    }
+
+    @Test
+    fun recordsRefusedByAnOldDesktopSayToUpdateThePcAndCanBeSentAgainTogether() = runBlocking {
+        val repository = repository()
+        oldDesktop = true
+        repository.recordRoutine(action(sequence = 2))
+        repository.recordRoutine(action(sequence = 3))
+        online = true
+        repository.synchronizeIfPaired()
+        val refused = repository.observePendingRoutineRecords().first()
+        assertEquals(2, refused.size)
+        assertTrue(refused.all { it.rejected && it.reason == ROUTINE_UPDATE_PC_REQUIRED })
+
+        oldDesktop = false
+        assertEquals(2, repository.retryAllRoutineRecords())
+        assertTrue(repository.observePendingRoutineRecords().first().none { it.rejected })
+        repository.synchronizeIfPaired()
+        assertEquals(0, dao.outboxCount())
+    }
+
+    @Test
+    fun aDiscardedRecordCanBePutBackAsItWas() = runBlocking {
+        val repository = repository()
+        refuseHabit = "habit-gone"
+        repository.recordRoutine(action(habitId = "habit-gone", sequence = 1))
+        online = true
+        repository.synchronizeIfPaired()
+        val before = requireNotNull(dao.routineRecords().single())
+
+        val removed = requireNotNull(repository.discardRoutineRecord(before.commandId))
+        assertEquals(0, dao.outboxCount())
+        repository.restoreRoutineRecord(removed)
+
+        assertEquals(before, dao.outbox(before.commandId))
+    }
+
+    private suspend fun waitFor(condition: () -> Boolean) {
+        withTimeout(10_000) { while (!condition()) delay(50) }
     }
 
     private fun meta(): String =

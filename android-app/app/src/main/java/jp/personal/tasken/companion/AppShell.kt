@@ -125,6 +125,8 @@ internal data class SyncSummary(
     val unsentCaptures: Int,
     val recoveredInputs: Int,
 ) {
+    /** 断られた続けることの記録の数（[returned] の内）。2 件以上なら「まとめて送り直す」を出す。 */
+    val routineReturned: Int get() = returned.count { it.routineCommandId != null }
     /** 上の帯の「割印＋数」。端末に残った入力（回復した下書き）も、本人が入れてまだ届いていない物として数える。 */
     val unsent: Int get() = waiting + fixable + returned.size + recoveredInputs
     val healthy: Boolean get() = connected && unsent == 0
@@ -279,6 +281,7 @@ internal fun SyncStatusSheet(
     onOpenReturned: (SyncReturned) -> Unit = {},
     onRetryRoutine: (String) -> Unit = {},
     onDiscardRoutine: (String) -> Unit = {},
+    onRetryAllRoutines: () -> Unit = {},
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         SheetColumn(Modifier.testTag("sync-status-sheet")) {
@@ -363,6 +366,14 @@ internal fun SyncStatusSheet(
                     count = summary.returned.size,
                     modifier = Modifier.testTag("sync-conflicts"),
                 ) {
+                    // 断られた続けることの記録が二つ以上なら、1 件ずつ押さずにまとめて送り直せる。
+                    // 一覧に出るのは先の三つまでなので、それより後の記録もここから送り直せる。
+                    if (summary.routineReturned >= 2) {
+                        ToolButton(
+                            onClick = onRetryAllRoutines,
+                            modifier = Modifier.testTag("sync-returned-routines-retry-all"),
+                        ) { Text("続けることをまとめて送り直す（${summary.routineReturned}）", fontWeight = FontWeight.Bold) }
+                    }
                     // 多い時は先の三つまで。残りは、開いた先（Task の一覧の「戻」の印）で見つかる。
                     summary.returned.take(3).forEachIndexed { index, item ->
                         Text(

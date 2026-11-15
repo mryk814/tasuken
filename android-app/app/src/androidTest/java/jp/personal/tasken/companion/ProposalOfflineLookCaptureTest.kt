@@ -32,6 +32,32 @@ class ProposalOfflineLookCaptureTest {
 
     @Test fun dark() = offlineThenOnline(dark = true)
 
+    @Test fun checkingLight() = checking(dark = false)
+
+    @Test fun checkingDark() = checking(dark = true)
+
+    /** 読み直しの間。「使えない」の形にせず、元のボタンを押せない状態で出す。 */
+    private fun checking(dark: Boolean) {
+        val suffix = if (dark) "dark" else "light"
+        val proposal = proposal()
+        composeRule.setContent {
+            Themed(dark) {
+                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    TodayDetailPane(
+                        task = task(),
+                        actionState = TaskActionUiState.Idle,
+                        taskWorkProposals = listOf(proposal),
+                        proposalReviewOnline = false,
+                        proposalReviewChecking = true,
+                        onStateAction = {},
+                    )
+                }
+            }
+        }
+        composeRule.onNodeWithTag("proposal-reject-${proposal.id}").performScrollTo()
+        capture("proposal-checking-$suffix")
+    }
+
     private fun offlineThenOnline(dark: Boolean) {
         val suffix = if (dark) "dark" else "light"
         val online = mutableStateOf(false)

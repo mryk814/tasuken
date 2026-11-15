@@ -1095,7 +1095,7 @@ class MobileOutbox(
                         setAside()
                         continue
                     }
-                    if (dao.applyRoutineReceipt(command.commandId, serverId, command.attemptCount) != 1) return stopped()
+                    if (dao.completeRoutineRecord(command, serverId) != 1) return stopped()
                 }
                 is MobileCommandSendResult.Applied -> {
                     val response = result.response

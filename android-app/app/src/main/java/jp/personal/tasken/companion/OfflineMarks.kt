@@ -224,6 +224,8 @@ internal fun OflUnavailableButton(
     onNudge: () -> Unit,
     modifier: Modifier = Modifier,
     reason: String = "つながると使えます",
+    /** この端末の登録が切れている時。電波なしの絵の代わりに「!」（本人が直す）を添える。 */
+    needsRepair: Boolean = false,
 ) {
     val colors = taskenOfflineColors()
     val ink = MaterialTheme.colorScheme.onSurfaceVariant
@@ -265,7 +267,11 @@ internal fun OflUnavailableButton(
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        OflNowave(Modifier.rotate(shake.value), color = ink)
+        if (needsRepair) {
+            OflBang(Modifier.rotate(shake.value), description = null)
+        } else {
+            OflNowave(Modifier.rotate(shake.value), color = ink)
+        }
         Text(label, color = ink, style = MaterialTheme.typography.labelLarge)
     }
 }

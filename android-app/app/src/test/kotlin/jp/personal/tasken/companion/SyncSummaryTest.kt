@@ -104,6 +104,8 @@ class SyncSummaryTest {
         )
         assertEquals(1, summary.waiting)
         assertEquals(3, summary.unsent)
+        // 二つ以上なら「まとめて送り直す」を出す。
+        assertEquals(2, summary.routineReturned)
     }
 
     /** PC の版が古くて受け取れなかった入力は、捨てる・決めるではなく、本人が PC を新しくすれば送れる。 */

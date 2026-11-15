@@ -637,6 +637,30 @@ abstract class MobileLocalDao {
     @Query("DELETE FROM outbox_command WHERE commandId = :commandId AND commandName = 'RecordHabitEntry' AND state = 'rejected'")
     abstract suspend fun discardRejectedRoutineRecord(commandId: String): Int
 
+    @Query(
+        "UPDATE outbox_command SET state = 'pending', lastError = NULL " +
+            "WHERE commandName = 'RecordHabitEntry' AND state = 'rejected' AND serverId = :serverId",
+    )
+    abstract suspend fun retryAllRejectedRoutineRecords(serverId: String): Int
+
+    /**
+     * 届いた記録を列から消し、同じ取引で写しの数へ足す（[withDeliveredRecord]）。
+     * 列から消えただけで写しが古いままだと、圏外で開いた時や読み直しに失敗した時に、届いた記録が数から抜けて見える。
+     * 消せなかった（別の送り手が触った）時は写しも変えず、0 を返す。
+     */
+    @Transaction
+    open suspend fun completeRoutineRecord(command: OutboxCommandEntity, serverId: String): Int {
+        val removed = applyRoutineReceipt(command.commandId, serverId, command.attemptCount)
+        if (removed != 1) return removed
+        val record = command.toPendingRoutineRecord() ?: return removed
+        val cache = routineCache(serverId) ?: return removed
+        val copy = runCatching { MobileRoutineContract.decodeCopy(cache.payloadJson) }.getOrNull() ?: return removed
+        upsertRoutineCache(
+            cache.copy(payloadJson = MobileRoutineContract.encodeCopy(copy.withDeliveredRecord(record.habitId, record.performedOn))),
+        )
+        return removed
+    }
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertRoutineCache(cache: RoutineCacheEntity)
 
