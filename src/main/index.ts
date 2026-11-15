@@ -54,9 +54,7 @@ import { WorkspaceService } from "./services/workspaceService";
 import { AiProposalAcceptanceService } from "./services/aiProposalAcceptanceService";
 import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
-import { runKnowledgeRetirementExportOnce } from "./services/knowledgeRetirementExport";
-import { runTranscriptionRetirementExportOnce } from "./services/transcriptionRetirementExport";
-import { runSavedViewRetirementExportOnce } from "./services/savedViewRetirementExport";
+import { runRetiredExportsOnce } from "./services/retiredExports";
 import { runRetiredOutputCleanupOnce } from "./services/retiredOutputCleanup.mjs";
 import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBackup";
 import { applyPendingRestore, cancelStagedRestore } from "./services/workspaceRestore";
@@ -2171,8 +2169,7 @@ async function startDesktopApp(): Promise<void> {
         RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS,
       ).unref?.();
     }
-    // 棚卸し（Knowledge）の画面を外す前の控え（#755 束8）。節と線をテーマごとの Markdown に書き出す
-    // （印の時から節と線が変わった時だけ、もう一度）。
+    // 切った機能の記録の控え（#755 の決まり 4。Knowledge・文字起こし・保存した絞り込み）。
     // 配布した版と、検証用の場所を指定した開発中の起動（TASKEN_DEV_USER_DATA_DIR）だけで走らせる。
     // 場所を指定しない開発中の起動や bench は本物の DB やその写しを開くことがあり、同期ルートは
     // 本物を指したままなので、そこへは書かず、済んだ印も付けない（配布した版が最初の起動で書き出す）。
@@ -2181,35 +2178,7 @@ async function startDesktopApp(): Promise<void> {
       const exportRepository = workspaceRepository;
       setTimeout(
         () =>
-          void runKnowledgeRetirementExportOnce({
-            repository: exportRepository,
-            userDataDirectory: app.getPath("userData"),
-            syncRoot: app.isPackaged
-              ? String(exportRepository.readPreference("artifactDirectory") || "")
-              : null,
-            log: (level, message) => logMain(level, "retired-export", message),
-          }),
-        RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS,
-      ).unref?.();
-      // 文字起こしの履歴の表示を外す前の控え（#755 束4）。完了済みの文字起こしを 1 件ずつ書き出す。
-      // 置き場と印の扱いは上の Knowledge と同じ。
-      setTimeout(
-        () =>
-          void runTranscriptionRetirementExportOnce({
-            repository: exportRepository,
-            userDataDirectory: app.getPath("userData"),
-            syncRoot: app.isPackaged
-              ? String(exportRepository.readPreference("artifactDirectory") || "")
-              : null,
-            log: (level, message) => logMain(level, "retired-export", message),
-          }),
-        RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS,
-      ).unref?.();
-      // やることの画面の保存した絞り込みを外した後の控え（#755 束6）。名前と条件を 1 つの Markdown に
-      // 書き出す。置き場と印の扱いは上の Knowledge と同じ。
-      setTimeout(
-        () =>
-          void runSavedViewRetirementExportOnce({
+          runRetiredExportsOnce({
             repository: exportRepository,
             userDataDirectory: app.getPath("userData"),
             syncRoot: app.isPackaged

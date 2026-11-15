@@ -228,6 +228,7 @@
         "tests/media-capture-sqlite.test.mjs",
         "tests/mcp-feed-post.test.mjs",
         "tests/repository-context.test.mjs",
+        "tests/saved-view-retirement-export.test.mjs",
         "tests/shared-folder-sync.test.mjs",
         "tests/task-notifications.test.mjs",
         "tests/task-place-reminder.test.mjs",
