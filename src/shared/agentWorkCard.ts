@@ -295,8 +295,10 @@ export interface AgentWorkCardSources {
  * 古い会話と新しい記録を、同じカードの並びにする（終わりの新しい順）。
  *
  * 同じ作業を 2 回並べない: 移行で畳んだ記録は会話と同じ ID なので、記録を取る。AI が書いた記録と
- * 同じ会話（AI の種類 ＋ 会話の ID）の古い会話は、記録の終わりが会話の最後の動きの 10 分前より
- * 後なら並べない（Core の受け口の判定と同じ向き）。それより長い続きがある会話は、両方を並べる。
+ * 同じ会話（AI の種類 ＋ 会話の ID）の古い会話は、記録がその範囲を覆う時（終わりが会話の最後の
+ * 動きの 10 分前より後で、始まりが無いか会話の始まり以前）だけ並べない。会話の終わりから後だけを
+ * 書いた続きの記録（拾い上げが、古い形で入っている会話の続きを書いた物）は、会話と両方を並べる。
+ * 続きの記録は会話の依頼も残りも持たないので、会話を隠すと引き継ぎ（残り）が消える。
  *
  * 本人が消した記録は、この判定に数えない。消した記録と同じ会話の古い会話は、もう一度並ぶ
  * （画面は消した記録を持っていないので、画面と Core の読む道具で結果を変えないため。隠れたまま
@@ -319,7 +321,7 @@ export function listAgentWorkCards(sources: AgentWorkCardSources): AgentWorkCard
   };
 
   const recordIds = new Set<string>();
-  const latestEndByConversation = new Map<string, number>();
+  const rangesByConversation = new Map<string, Array<{ start: number | null; end: number }>>();
   const cards: AgentWorkCard[] = [];
   for (const entry of sources.records || []) {
     const row = record(entry);
@@ -328,10 +330,12 @@ export function listAgentWorkCards(sources: AgentWorkCardSources): AgentWorkCard
     recordIds.add(card.id);
     const key = conversationKey(card.client_kind, card.source_session_id);
     if (key) {
-      latestEndByConversation.set(
-        key,
-        Math.max(latestEndByConversation.get(key) ?? 0, Date.parse(card.ended_at)),
-      );
+      const ranges = rangesByConversation.get(key) || [];
+      ranges.push({
+        start: card.started_at ? Date.parse(card.started_at) : null,
+        end: Date.parse(card.ended_at),
+      });
+      rangesByConversation.set(key, ranges);
     }
     cards.push(withTaskThemes(card));
   }
@@ -342,15 +346,21 @@ export function listAgentWorkCards(sources: AgentWorkCardSources): AgentWorkCard
     if (!row || row.deleted_at) continue;
     const card = agentWorkCardFromSession(row, links.get(text(row.id)));
     if (!card || recordIds.has(card.id)) continue;
-    const reportedUntil = latestEndByConversation.get(
-      conversationKey(card.client_kind, card.source_session_id || card.id),
+    // 記録が、この会話の範囲を覆う時だけ隠す: 終わりが会話の最後の動きの 10 分前より後で、
+    // 始まりが無い（AI が範囲を書かなかった）か、会話の始まり以前。会話の終わりから後だけを
+    // 書いた「続き」の記録は、会話の中身（依頼・残り）を持たないので、会話と並べる。
+    const sessionStart = Date.parse(card.started_at || card.ended_at);
+    const sessionEnd = Date.parse(card.ended_at);
+    const covered = (
+      rangesByConversation.get(
+        conversationKey(card.client_kind, card.source_session_id || card.id),
+      ) || []
+    ).some(
+      (range) =>
+        range.end >= sessionEnd - SAME_WORK_SLACK_MS &&
+        (range.start === null || range.start <= sessionStart),
     );
-    if (
-      reportedUntil !== undefined &&
-      reportedUntil >= Date.parse(card.ended_at) - SAME_WORK_SLACK_MS
-    ) {
-      continue;
-    }
+    if (covered) continue;
     cards.push(withTaskThemes(card));
   }
   return cards.sort(

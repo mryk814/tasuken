@@ -1063,3 +1063,117 @@ export const ClipboardItem = unavailable;
   );
   assert.equal(db.get("agent_work_record", written.id).summary, "新しい記録の要約。");
 });
+
+test("続きだけを書いた記録は、古い会話を隠さない。会話の範囲を覆う記録だけが隠す", () => {
+  const old = session({
+    id: "old-conversation",
+    source_session_id: "conversation-long",
+    started_at: "2026-11-10T00:00:00.000Z",
+    ended_at: "2026-11-10T01:00:00.000Z",
+  });
+  const ids = (records) =>
+    listAgentWorkCards({ records, sessions: [old] })
+      .map((card) => card.id)
+      .sort();
+  const fromSameConversation = (patch) =>
+    record({ client_kind: "codex", source_session_id: "conversation-long", ...patch });
+
+  // ログは 00:00〜03:00。古い会話（00:00〜01:00）はもう入っているので、拾い上げは続き
+  // （01:00〜03:00）だけを書く。続きの記録は会話の依頼も残りも持たないので、両方を並べる。
+  assert.deepEqual(
+    ids([
+      fromSameConversation({
+        id: "continuation",
+        basis: "log_pickup",
+        started_at: "2026-11-10T01:00:00.000Z",
+        ended_at: "2026-11-10T03:00:00.000Z",
+        remaining: [],
+      }),
+    ]),
+    ["continuation", "old-conversation"],
+  );
+  // 会話の途中から後を書いた記録も、会話を隠さない。
+  assert.deepEqual(
+    ids([
+      fromSameConversation({
+        id: "second-half",
+        started_at: "2026-11-10T00:30:00.000Z",
+        ended_at: "2026-11-10T01:00:00.000Z",
+      }),
+    ]),
+    ["old-conversation", "second-half"],
+  );
+  // 会話の範囲を覆う記録（始まりが会話の始まり以前、または始まりを書いていない）は、会話を隠す。
+  for (const startedAt of ["2026-11-10T00:00:00.000Z", "2026-11-09T23:50:00.000Z", null])
+    assert.deepEqual(
+      ids([
+        fromSameConversation({
+          id: "whole",
+          started_at: startedAt,
+          ended_at: "2026-11-10T00:55:00.000Z",
+        }),
+      ]),
+      ["whole"],
+    );
+});
+
+test("拾い上げが続きだけを書いた後も、MCP の読む道具に古い会話とその残り（引き継ぎ）が残る", async (t) => {
+  const { db, composition, client } = await startDesktop(t);
+  db.save("repository_context", {
+    id: "repo-long",
+    label: "long-repo",
+    local_path: "C:/synthetic/long-repo",
+  });
+  db.save(
+    "agent_session",
+    session({
+      id: "old-long",
+      client_kind: "codex",
+      source_session_id: "conversation-long",
+      started_at: `${DAY}T00:00:00.000Z`,
+      ended_at: `${DAY}T01:00:00.000Z`,
+    }),
+  );
+  db.save("reference", {
+    id: "old-long-repo",
+    source_type: "agent_session",
+    source_id: "old-long",
+    target_type: "repository_context",
+    target_id: "repo-long",
+    relation_type: "worked_on",
+    layer: "provenance",
+    status: "asserted",
+    origin: "system_action",
+  });
+  // 同じ会話が続いて、ログは 00:00〜03:00 になった。
+  const picked = composition.pickUpAgentWork({
+    client_kind: "codex",
+    source_session: "conversation-long",
+    started_at: `${DAY}T00:00:00.000Z`,
+    ended_at: `${DAY}T03:00:00.000Z`,
+    summary: "続きの最後の回答。",
+    intent: "古い依頼",
+    cwd: "C:/synthetic/long-repo/src",
+  });
+  assert.equal(picked.status, "recorded");
+  const continuation = db.get("agent_work_record", picked.id);
+  assert.deepEqual(
+    [continuation.started_at, continuation.ended_at],
+    [`${DAY}T01:00:00.000Z`, `${DAY}T03:00:00.000Z`],
+  );
+
+  const context = await client.getAgentSessionContext({
+    repository_context_id: "repo-long",
+    client_kind: "codex",
+    source_session: "a-new-conversation",
+  });
+  assert.deepEqual(
+    context.agent_work.map((card) => card.id).sort(),
+    ["old-long", picked.id].sort(),
+  );
+  // 古い会話の残りは、続きの記録（残りを持たない）に隠されない。
+  assert.equal(context.previous_handoff.id, "old-long");
+  assert.deepEqual(context.previous_handoff.remaining, ["古い残り"]);
+  const daily = await client.getAgentSessionContext({ date: DAY, source_session: "reader" });
+  assert.deepEqual(daily.agent_work.map((card) => card.id).sort(), ["old-long", picked.id].sort());
+});
