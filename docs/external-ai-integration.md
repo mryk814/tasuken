@@ -43,7 +43,7 @@ rtk copilot mcp get tasken
 ユーザーの`.copilot/mcp-config.json`に登録されます。
 新しいセッションで`/mcp`を確認し、Taskenのツール利用を許可します。
 解除は`rtk copilot mcp remove tasken`です。
-TaskenのAgent Session hooksは別の機能で、MCP登録の代わりにはなりません。
+AIの作業の記録は、AIが`tasken.report_work`で書く1件と、Desktopが登録済みの保存先のログから拾う1件です（hooksは使いません。前に入れたhooksの外し方はREADME）。
 ここでの登録・実接続確認はCopilot CLIが対象です。VS Code内のGitHub CopilotやWeb版とは設定を区別し、それらへの接続は未検証です。
 
 ### 接続できない場合
@@ -163,7 +163,7 @@ node scripts/tasken-core-client.mjs revoke awai                                 
 | -------------------- | ---------------------------------------------------- | -------------------------- |
 | 日報                 | MCP Prompt `daily-report`、Debriefの依頼文           | Note Proposal → Agent Desk |
 | 選択会話を公開する   | Conversation AI Context（`conversationContext.mjs`） | 明示公開したMarkdown       |
-| AI作業の履歴を集める | [Agent Session hooks](agent-session-provenance.md)   | Session記録／Debrief       |
+| AI作業の履歴を集める | `tasken.report_work`、日誌の「AI のログから拾う」    | AI の作業／日誌            |
 
 Context Packから構造化JSONを貼り戻して既存Taskを更新するUIは、現在のAgent Deskにはありません。
 新規Taskの作成には、Today・ToDoの[外部AI取り込み](mobile-capture-organizer-providers.md)で自然文を外部AIへ渡し、返ってきたJSONをプレビューして採用できます。

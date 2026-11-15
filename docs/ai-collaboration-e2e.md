@@ -30,6 +30,8 @@ AI Ready TaskのAppend / Done / Blockedは開始Proposalを必須にせず、最
 
 `tasken.report_work` を `task_id` なしで呼ぶと、Core の `/v1/commands/record-agent-work` が AI の作業を 1 件（種類 `agent_work_record`）だけ書く。案を通さず、Task・Note・Theme は変えず、来歴を作らず、同期の差分は 1 つ。書き手は Core が固定する（HTTP は認証した client 名）。同じ `idempotency_key` と、同じ client・`source_session` でもう記録した時間までの作業は、既にある 1 件を `duplicate` で返す。本人は消せて戻せ、AI は自分が書いた記録だけを `tasken.undo_change` に記録の ID を渡して取り消せる。Desktop の stdio と NAS の HTTP で同じに動くことと、2 台の同期・空の差分（`retired`）の受け方は `tests/agent-work-record.test.mjs` が確かめる。上の Fixed sequence は、`task_id` を付けた委任した Task の作業報告（案）の流れ。
 
+AI が書かなかった会話は、本人が保存先を登録していれば、Desktop が静かになった後（最後の動きから 60 分）にログから 1 件として拾う（`basis = log_pickup`）。AI がもう書いた会話は拾わない。会話の ID が合えば確実で、合わない時は同じ AI・同じリポジトリ・重なる時間で見るので、`source_session` には分かれば client の会話の ID を、`cwd` には作業場所を渡す（Claude Code は shell の環境変数 `CLAUDE_CODE_SESSION_ID`。手引き `tasken://guide/work_report`）。決まりは [engineering-contracts](engineering-contracts.md) の「AI のログからの拾い上げ」、試験は同じ `tests/agent-work-record.test.mjs` と `tests/agent-log-sync.test.mjs`。
+
 ## Validation
 
 ```powershell

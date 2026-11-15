@@ -3,6 +3,8 @@
 Issue #498 の Phase 0 で確定した、repository・作業環境・AI session の境界である。
 この文書は raw client log の保存形式ではなく、Tasken が所有する canonical data の意味を定める。
 
+> **今の形（#751）**: `AgentSession` はもう新しく作られない。AI の作業は、AI が書く 1 件（`tasken.report_work`）と、Desktop が登録済みの保存先のログから拾う 1 件（`agent_work_record`）に替わった。start/finish の Proposal、lifecycle hooks、ファイルを選ぶ取り込みは無い。受け口 `/v1/commands/propose-agent-session` は「受信済み」と答えて保存しない。この文書は、今ある古い会話（読むだけ）の意味を読むために残してあり、移行で会話を畳んだ後に消す。今の決まりは [engineering-contracts](engineering-contracts.md) の「AI作業ログの時間表示」と「AI のログからの拾い上げ」。
+
 ## Concrete referent map
 
 | 実在する対象                                                       | Tasken の概念            | 同一性                                                                               | 含めないもの                                       |
@@ -135,92 +137,6 @@ client固有のraw logはprojectionへ直接渡さず、Session Packetで不足�
 Codex、Claude Code、Cursor、GitHub CopilotはいずれもPhase 3の同じcanonical Agent Session contractへ正規化してから表示する。
 この契約互換は複数client fixtureで検証するが、各clientのnative log自動収集はPhase 4の別adapter作業として残す。
 
-## Phase 4 lifecycle collection
+## Phase 4 lifecycle collection（切った）
 
-### Concrete referent map
-
-| Source                  | Purpose                                                             | Concrete referent                                  | Role                   | Order or relation                                      | Label                |
-| ----------------------- | ------------------------------------------------------------------- | -------------------------------------------------- | ---------------------- | ------------------------------------------------------ | -------------------- |
-| client lifecycle hook   | sessionの開始・入力・応答・終了を知らせる                           | client固有の一回のhook JSON                        | 一時的な観測event      | 同じclient session IDで束ねる                          | hook event           |
-| Tasken userData内のJSON | Tasken停止中を含め、完結まで欠落させない                            | 一つのclient sessionについて集約中の端末内レコード | local-only retry state | start → all user requests → response checkpoints → end | session observation  |
-| Session observations    | Intentとterminal Outcomeが揃ったSession PacketをDebriefまで保持する | 完結したcanonical AgentSession候補                 | passive Proposal       | session observationから一回だけ生成                    | Agent Session record |
-
-`session observation`は正式データではない。absolute pathをrepository解決に使う場合も端末内と認証済みloopback Coreに閉じ、ProposalへはopaqueなRepositoryContext / WorkingCopy IDだけを送る。
-
-### Collection flow
-
-```text
-SessionStart ───────┐
-all user requests ─┼→ local session observation → SessionEnd → one Session Packet → Debrief
-response checkpoints┤          │                       │
-SessionEnd ─────────┘          └─ Stopで結果を観測     └─ Core停止中は保持して再送
-```
-
-開始と終了を別Proposalにしないことで、開始Proposalの採用待ち中に終了hookが来てもOutcomeを失わない。
-正式AgentSessionとReferenceは、Agent DeskのSession observationsから個別採用した時、またはDebrief保存時の一つの確認境界で保存する。
-
-収集対象はcanonical metadataだけである。GitHub Copilotの`agentStop` / `Stop`だけは、そのhookが指すローカルJSONLをadapter境界で一時的に読む。読み込み対象は`COPILOT_HOME/session-state`（未指定時は`~/.copilot/session-state`）のreal path配下にある通常fileへ限定し、上限を超える本文は末尾だけを読む。root agentの最後の`assistant.message.data.content`だけを取り出し、raw transcript、path、user/tool event、subagent結果、hidden reasoning、client固有raw schemaはsession observationにもProposalにも保存しない。ファイルを読めない場合も終了理由だけで収集を継続する。
-最初に観測したuser promptをIntentとして固定しつつ、後続のuser requestとassistant response checkpointも順序付きで保持する。Outcome summaryは最後のcheckpointから作るが、途中の方針転換は捨てない。
-
-### Client adapters
-
-同梱`agent-session-hook.mjs`はstdinのclient固有JSONを次の共通eventへ変換する。
-
-| client         | lifecycle events                                                                                                                       | source session ID                | Intent source                       | Outcome source                                | terminal boundary |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ----------------------------------- | --------------------------------------------- | ----------------- |
-| Codex          | `SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd`                                                                            | `session_id`                     | first `prompt`                      | latest `last_assistant_message`               | `SessionEnd`      |
-| Claude Code    | `SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd`                                                                            | `session_id`                     | first `prompt`                      | latest `last_assistant_message`               | `SessionEnd`      |
-| Cursor         | `sessionStart` / `beforeSubmitPrompt` / `afterAgentResponse` / `sessionEnd`                                                            | `conversation_id` / `session_id` | first `prompt`                      | latest response `text`                        | `sessionEnd`      |
-| GitHub Copilot | `sessionStart` / `userPromptSubmitted` / `agentStop` / `sessionEnd`、または`SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd` | `sessionId` / `session_id`       | `initialPrompt`またはfirst `prompt` | `agentStop`が指す最後のroot assistant message | `sessionEnd`      |
-
-GitHub Copilotは設定eventがcamelCaseならcamelCase payload、PascalCaseならVS Code互換snake_case payloadを渡す。両形式をfixtureで固定し、commandの`--event`をpayloadより優先する。`transcriptPath`は`agentStop` / `Stop`だけに存在し、`sessionEnd` / `SessionEnd`には存在しない。詳細は[GitHub Copilot hooks reference](https://docs.github.com/en/copilot/reference/hooks-reference)と[CLI configuration directory](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference)を正本とする。
-
-### Hook command
-
-開発版:
-
-```text
-node scripts/agent-session-hook.mjs --client codex --event SessionStart
-node scripts/agent-session-hook.mjs --client claude_code --event UserPromptSubmit
-node scripts/agent-session-hook.mjs --client cursor --event afterAgentResponse
-node scripts/agent-session-hook.mjs --client github_copilot --event agentStop
-```
-
-インストール版はTaskenの`resources/mcp/agent-session-hook.mjs`を同じ引数で起動する。
-各clientでは上表の4 eventを同じcommandへ接続する。hookは必ずJSON objectをstdoutへ返し、Tasken未起動時の診断はstderrだけに出すためagent loopを妨げない。
-
-未送信のterminal observationは次で再送できる。
-
-```text
-node agent-session-hook.mjs --flush
-```
-
-### Codex user hook installation
-
-Codexのuser hookは既存の`~/.codex/hooks.json`を置換せず、Taskenが所有するcommand handlerだけを追加・更新する。
-
-```text
-npm run hooks:codex:install
-npm run hooks:codex:status
-npm run hooks:codex:uninstall
-```
-
-`install`はstandalone bundleを`~/.codex/hooks/tasken-agent-session-hook.mjs`へコピーし、`SessionStart` / `UserPromptSubmit` / `Stop` / `SessionEnd`を接続する。`SessionStart`では未送信terminal observationの再送も行う。再実行は冪等で、変更前の`hooks.json`はtimestamp付きbackupへ退避する。`uninstall`はTasken handlerとmanaged bundleだけを削除し、他のhookは維持する。
-
-導入後は新しいCodex sessionで`/hooks`を開き、表示されたTasken hookのcommandとsourceを確認して信頼する。信頼されるまでCodexは非managed hookを通常実行しない。
-
-### GitHub Copilot user hook installation
-
-Copilot CLIにはTasken専用のuser hook fileを追加し、既存fileやinline hooksを変更しない。Windowsでは`%USERPROFILE%\.copilot\hooks\tasken-agent-session.json`、macOS/Linuxでは`~/.copilot/hooks/tasken-agent-session.json`、`COPILOT_HOME`指定時はその`hooks`配下を使う。
-
-```text
-npm run hooks:copilot:install
-npm run hooks:copilot:status
-npm run hooks:copilot:uninstall
-```
-
-設定は公式version 1形式で、`sessionStart` / `userPromptSubmitted` / `agentStop` / `sessionEnd`の各commandへ対応する`--event`を明示する。導入後はCopilot CLIを再起動する。`install` / `uninstall`はTasken専用fileとmanaged bundleだけを扱い、他のuser / repository / plugin hookを維持する。
-
-送信成功後は本文を持たない小さなreceiptだけをローカルに残す。同じterminal hookが再送された場合はreceiptで収束させ、Coreへ二つ目のSessionを作らない。後日の新しい`SessionStart`はそのsession IDの新しいlifecycleとして分離し、直前の終了時刻以前に遅着したStart / Endはstaleとして無視する。新しいactive stateを書き終えてから直前receiptを外すため、停止や競合で世代境界だけが失われることはない。
-
-明示的な紐づけが必要な場合だけ`TASKEN_AGENT_SESSION_THEME_IDS` / `TASKEN_AGENT_SESSION_TASK_IDS`へcomma区切りのIDを渡す。未指定時はrepositoryを一意に解決し、Theme / WorkingCopyも一意な場合だけ自動で関連付ける。Task候補は自動選択しない。
+client の lifecycle hooks で会話を集める仕組みは切った（#751）。hook の受け取り・再送・入れる手順は無い。前に hooks を入れた PC は、README の「古い hooks を外す」の手順で外す。外すまでの間、古い hook が送ってくる会話には、Core が「受信済み」と答えて保存しない（hook は手元の控えを捨てる）。

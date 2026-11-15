@@ -193,6 +193,28 @@ SQLiteファイルそのものは共有せず、端末別の変更差分だけ�
 
 NASの開始専用権限は`task.start_work`です。本人の個人業務のAI Ready Taskだけを対象にし、`create-only`とは独立して有効化します。開始にはUUIDの`work_attempt_id`も必須です。同じ要求の再送はversionを含む内容を保持し、返却されたTaskが現在も同じ作業単位・実行者のin_progressであることを確認してください。設定・撤回と報告採用の境界は[開始専用権限](docs/ai-task-start.md)を参照してください。
 
+### AIの作業の記録と、古いhooksを外す
+
+AIの作業が日誌に入る道は2つです。
+
+- AIが自分で書く: 作業の終わりに`tasken.report_work`を呼ぶと、1件で入ります。
+- Desktopがログから拾う: 日誌の「AI のログから拾う」で、Codex（`~/.codex/sessions`）やClaude Code（`~/.claude/projects`）の保存先を登録します。最後の動きから60分たった会話だけを、1件ずつ拾います。AIがもう書いた会話は拾いません。「今すぐ拾う」を押すか、「Tasken 起動中に5分ごとに拾う」を入れておきます。登録はPCごとです。
+
+前の版で入れたhooks（会話の始まりと終わりをTaskenへ送る仕組み）は使わなくなりました。入れたPCごとに、このリポジトリで一度だけ外します。
+
+```bash
+npm run hooks:codex:status
+npm run hooks:codex:uninstall
+npm run hooks:copilot:status
+npm run hooks:copilot:uninstall
+```
+
+- `status`の結果の`"status"`が`"present"`なら残っていて、`"absent"`なら外れています。入れていないPCで`uninstall`を流しても、何も変わりません。
+- `uninstall`は、`~/.codex/hooks.json`（Copilotは`~/.copilot/hooks/tasken-agent-session.json`）からTaskenの行だけを消し、`hooks`フォルダーの`tasken-agent-session-hook.mjs`を消します。ほかのhookは残ります。変える前の設定は、同じ場所に`.tasken-backup-<日時>`の名前で残ります。
+- Claude CodeやCursorの設定に、手で`agent-session-hook.mjs`を呼ぶhookを書いた場合は、その行を手で消します。
+- 外した後は、AIのclient（Codex・Copilot CLI）を開き直します。
+- 外し忘れても、記録は増えません。古いhookが送ってきた会話に、Taskenは「受信済み」とだけ答えて保存しません。hookが送る前に置いていた控え（`%APPDATA%\tasken\agent-session-observations`）は、外した後に消して構いません。
+
 ## 運用の要点
 
 変更を入れる前、検証、本番に触る前に決めてあることです。コマンドと理由の正本は[AGENTS.md](./AGENTS.md)の「実データと検証」です。
