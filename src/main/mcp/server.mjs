@@ -626,7 +626,7 @@ export function createTaskenMcpServer(options = {}) {
   server.registerTool(
     "tasken.get_theme_context",
     {
-      description: "Return themes, open work, recent notes, knowledge, and health.",
+      description: "Return themes, open work, recent notes, AI work, and health.",
       inputSchema: {
         theme_id: z.string().trim().min(1).max(200),
         limit: optionalLimit,

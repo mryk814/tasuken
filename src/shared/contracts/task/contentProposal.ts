@@ -375,18 +375,6 @@ export const proposeContentRequestSchema = z
     z
       .object({
         ...requestBase,
-        kind: z.literal("knowledge_create"),
-        title: boundedText(200),
-        body: optionalText(20_000),
-        node_type: z.enum(["question", "claim", "evidence", "decision", "insight"]).optional(),
-        theme: optionalText(500),
-        confidence: z.enum(["low", "medium", "high"]).optional(),
-        reason: optionalText(2_000),
-      })
-      .strict(),
-    z
-      .object({
-        ...requestBase,
         kind: z.literal("sketch_create"),
         title: boundedText(200),
         svg: z.string().min(1).max(500_000),

@@ -102,23 +102,6 @@ const noteSchema = z
   })
   .strict();
 
-const knowledgeNodeSchema = z
-  .object({
-    id: z.string(),
-    title: z.string(),
-    node_type: z.string().nullable(),
-    theme_id: z.string().nullable(),
-    body: z.string(),
-    source_type: z.string().nullable(),
-    source_id: z.string().nullable(),
-    created_at: z.string().nullable(),
-    updated_at: z.string().nullable(),
-    included_because: z.string(),
-    relation_path: relationPathSchema,
-    ai: aiHeaderSchema.optional(),
-  })
-  .strict();
-
 const graphNodeSchema = z
   .object({
     type: z.string(),
@@ -288,16 +271,9 @@ const successSchema = z
     open_items: z.array(openItemSchema),
     recent_notes: z.array(noteSchema),
     agent_work: z.array(agentWorkCardSchema).max(AGENT_WORK_IN_THEME_CONTEXT_LIMIT).default([]),
-    knowledge: z
-      .object({
-        knowledge_nodes: z.array(knowledgeNodeSchema),
-        knowledge_edges: z.array(graphEdgeSchema),
-      })
-      .strict(),
     health: z
       .object({
         plan: z.object({ open_count: z.number().int().nonnegative() }).strict(),
-        knowledge: z.object({ represented_node_count: z.number().int().nonnegative() }).strict(),
       })
       .strict(),
     context_graph: contextGraphSchema,

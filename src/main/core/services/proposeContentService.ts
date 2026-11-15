@@ -28,7 +28,6 @@ const TOOL_BY_KIND = {
   feed_reply: "tasken.answer_feed_question",
   note_create: "tasken.propose_note",
   note_edit: "tasken.propose_note_edit",
-  knowledge_create: "tasken.propose_knowledge",
   sketch_create: "tasken.propose_sketch",
   artifact_create: "tasken.propose_artifact",
 } as const;
@@ -38,7 +37,6 @@ const PAYLOAD_TYPE_BY_KIND = {
   feed_reply: "feed_replies",
   note_create: "notes",
   note_edit: "notes",
-  knowledge_create: "knowledge_nodes",
   sketch_create: "sketches",
   artifact_create: "artifacts",
 } as const satisfies Record<ProposeContentRequest["kind"], ContentProposalPayloadType>;
@@ -197,23 +195,6 @@ function payloadFor(
         ],
       },
       target: { type: "note", id: request.note_id, base_version: request.base_version },
-    };
-  }
-  if (request.kind === "knowledge_create") {
-    return {
-      payload: {
-        knowledge_nodes: [
-          {
-            action: "create",
-            title: request.title,
-            body: request.body || "",
-            node_type: request.node_type || "insight",
-            theme: request.theme || "",
-            confidence: request.confidence || "medium",
-            reason: request.reason || "",
-          },
-        ],
-      },
     };
   }
   if (request.kind === "sketch_create") {

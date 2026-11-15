@@ -123,7 +123,7 @@ sudo docker exec -i -e TASKEN_MCP_READ_ONLY=1 tasken-headless node mcp-dist/serv
 
 既定では読み取りだけです。`deploy/synology/.env`で`TASKEN_CORE_WRITE_MODE=proposals`にすると、CoreはテキストのFeed投稿・Feedの返信・Note案・Note編集案・Task案・Task作業報告だけを提案として受け付けます。さらにtunnel側で`TASKEN_MCP_READ_ONLY=0`にすると、外部AIからこれらの提案を送れます（**両方の設定が必要**）。
 
-- Core側が許可範囲を強制します。範囲外の種類（画像付きの提案・`knowledge_create`などの未対応の種類・`repository_context`・直接開始など）は`WRITE_NOT_ALLOWED`で拒否されます。
+- Core側が許可範囲を強制します。範囲外の種類（画像付きの提案・`sketch_create`などの未対応の種類・`repository_context`・直接開始など）は`WRITE_NOT_ALLOWED`で拒否されます。
 - Task作業報告（`report_work(status=progress)`・`report_work(status=done)`・`report_work(status=blocked)`）はProposalなので、NASでも正式データはDesktopでの採用まで変わりません。開始（`start_task_work`）は直接書き込みのため公開しません。Desktopから開始するか、完了報告の採用時に開始も記録させてください。
 - AIの作業の記録（`task_id`なしの`report_work`。AIが自分の1回の作業を要約した1件）は、本人の記録を作らず変えないので、案を通さずにNASでもすぐ残ります（Desktopと同じ。AGENTS.md）。取り消し（`undo_change`）は`allowTaskChange`を許したclientだけで、それ以外は本人がDesktopで消します。
 - 作ったProposalは正式データではなく、DesktopのAgent Desk・Feedで人が確認して採用します。

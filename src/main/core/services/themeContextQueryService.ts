@@ -100,23 +100,8 @@ function publicThemeGraphEntity(
     const ai = (publicAiHeader as any)(record, budget);
     return ai ? { ...output, ai } : output;
   }
-  if (type === "knowledge_node") {
-    const output = {
-      id: String(record.id),
-      title: budget.take(record.title, 500),
-      node_type: record.node_type || null,
-      theme_id: record.theme_id || null,
-      body: budget.take(record.body, 8_000),
-      source_type: record.source_type || null,
-      source_id: record.source_id || null,
-      created_at: record.created_at || null,
-      updated_at: record.updated_at || null,
-      included_because: relation.includedBecause,
-      relation_path: relation.path,
-    };
-    const ai = (publicAiHeader as any)(record, budget);
-    return ai ? { ...output, ai } : output;
-  }
+  // Knowledge の節（knowledge_node）は #755 束8 で応答から外した。記録は残るが、ここでは形にせず、
+  // 呼び出し側が theme_context_scope の対象外として数える（本文の字数も使わない）。
   if (["task", "waiting", "plan_node", "item"].includes(type)) {
     const output = {
       id: String(record.id),
@@ -287,15 +272,6 @@ export class ThemeContextQueryService {
       .filter((entry) => ["task", "waiting", "plan_node", "item"].includes(entry.type))
       .map((entry) => entry.output);
     const recentNotes = byType("note");
-    const knowledgeNodes = byType("knowledge_node");
-    const knowledgeNodeIds = new Set(knowledgeNodes.map((node) => String(node.id)));
-    const knowledgeEdges = contextGraph.edges.filter(
-      (edge: Record<string, any>) =>
-        edge.source.type === "knowledge_node" &&
-        edge.target.type === "knowledge_node" &&
-        knowledgeNodeIds.has(String(edge.source.id)) &&
-        knowledgeNodeIds.has(String(edge.target.id)),
-    );
     const repositoryContextById = new Map(
       repositoryContexts.map((context) => [String(context.id), context]),
     );
@@ -373,11 +349,7 @@ export class ThemeContextQueryService {
         .filter((card) => card.theme_ids.includes(themeId))
         .slice(0, AGENT_WORK_IN_THEME_CONTEXT_LIMIT)
         .map((card) => safeReceiptValue(card)),
-      knowledge: { knowledge_nodes: knowledgeNodes, knowledge_edges: knowledgeEdges },
-      health: {
-        plan: { open_count: openItems.length },
-        knowledge: { represented_node_count: knowledgeNodes.length },
-      },
+      health: { plan: { open_count: openItems.length } },
       context_graph: contextGraph,
       context_selection: contextSelection,
       limits: { max_text_length: textLimit, graph: contextGraph.limits },

@@ -840,7 +840,15 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
 
     // 拒否: bridgeを経由しない要求も、許可範囲外の種類はCore自身がWRITE_NOT_ALLOWEDで止める。
     const coreClient = new TaskenCoreClient({ userDataPath });
-    for (const request of [{ kind: "knowledge_create", title: "知識" }]) {
+    // 範囲外の種類の例は手書き（sketch_create）。Knowledge の節の案（knowledge_create）は
+    // 種類ごと外した（#755 束8）ので、下で別に確かめる。
+    for (const request of [
+      {
+        kind: "sketch_create",
+        title: "絵",
+        svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"></svg>',
+      },
+    ]) {
       await assert.rejects(
         coreClient.proposeContent({
           ...request,
@@ -856,6 +864,19 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
             JSON.stringify(["feed_post", "feed_reply", "note_create", "note_edit"]),
       );
     }
+
+    // 拒否: 外した種類（Knowledge の節の案）は、許可の判定より前に、知らない種類として断る。
+    await assert.rejects(
+      coreClient.proposeContent({
+        kind: "knowledge_create",
+        title: "知識",
+        idempotency_key: "retired-knowledge_create",
+        caller: "gate test",
+        actor: { kind: "ai_agent" },
+        source: "mcp",
+      }),
+      (error) => error instanceof TaskenCoreClientError && error.code !== "WRITE_NOT_ALLOWED",
+    );
 
     // 拒否: 一覧に残る種類でも、画像付きの提案はCoreがWRITE_NOT_ALLOWEDで止める。
     for (const [name, args] of [
