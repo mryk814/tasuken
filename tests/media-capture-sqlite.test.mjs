@@ -1104,3 +1104,43 @@ test("起動の確定は窓を出した後に回し、例外でも起動を止�
   assert.match(main, /setPermissionRequestHandler\([\s\S]*?callback\(!denied\.has\(permission\)\)/);
   assert.match(main, /await app\.whenReady\(\);[\s\S]*?denyMediaCapturePermissions\(\);/);
 });
+
+test("保存先が無くて確定できなかった session は、印を付けず、保存先を設定した次の起動で確定する（#755 束4）", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-leftover-retry-"));
+  const userDataPath = path.join(root, "user-data");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const session = writeLeftoverSession(userDataPath, {
+    kind: "microphone",
+    bytes: tinyWebm("waiting-for-directory"),
+  });
+  let directory = null;
+  const db = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
+  const commands = new ApplicationCommandService(db);
+  const media = new MediaCaptureService({
+    userDataPath,
+    repository: db,
+    commands: { executeMediaCapture: (command) => commands.executeMediaCapture(command) },
+    resolveManagedDirectory: () =>
+      directory ? { kind: "ok", directory } : { kind: "needs_directory" },
+  });
+
+  // 保存先が未設定の起動。一時の失敗なので印を付けない。
+  assert.deepEqual(media.commitLeftoverRecordings(), { committed: 0, kept: ["commit_failed"] });
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(session.directory, "session.json"), "utf8"),
+  );
+  assert.equal(manifest.leftoverKept, undefined);
+  assert.equal(db.list("artifact").length, 0);
+
+  // 保存先を設定した次の起動では確定する。
+  directory = path.join(root, "managed");
+  assert.deepEqual(media.commitLeftoverRecordings(), { committed: 1, kept: [] });
+  assert.equal(db.list("artifact").length, 1);
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(session.directory, "session.json"), "utf8")).state,
+    "committed",
+  );
+  // 保存済みの session の取り消しは「保存の途中」とは別の理由で断る（画面が保存済みと出せるように）。
+  assert.throws(() => media.cancel(session.sessionId), /保存済みです/);
+  db.db.close();
+});

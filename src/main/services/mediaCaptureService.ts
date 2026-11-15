@@ -546,6 +546,12 @@ const LEFTOVER_RECORDING_CODES = [
   "commit_failed",
 ] as const;
 export type LeftoverRecordingCode = (typeof LEFTOVER_RECORDING_CODES)[number];
+/** 中身を読み直しても変わらない理由。これだけを manifest の印にして、次から読まない。 */
+const PERMANENT_LEFTOVER_CODES: ReadonlySet<LeftoverRecordingCode> = new Set([
+  "recording_incomplete",
+  "duration_unknown",
+  "dimensions_unknown",
+]);
 
 interface DirectoryIdentity {
   dev: string;
@@ -1903,6 +1909,9 @@ export class MediaCaptureService {
     const sessionIdentity = captureDirectoryIdentity(sessionDirectory, "音声Capture session");
     const manifest = this.readManifest(sessionDirectory);
     assertDirectoryIdentity(sessionDirectory, sessionIdentity, "音声Capture session");
+    if (manifest.state === "committed") {
+      throw new Error("この音声Captureは保存済みです。破棄できません。");
+    }
     if (
       manifest.state !== "prepared" &&
       manifest.state !== "recording" &&
@@ -1962,9 +1971,10 @@ export class MediaCaptureService {
    * 録る側と「保存待ち」の画面を外したので、残った session は本人が開く所が無い。
    * 決まり 4（記録がある機能は、最初の起動で自動に残す）に合わせ、起動の後でここを通す。
    * - 確定した session は manifest が committed になり、次からは対象にならない。
-   * - 確定できない session は manifest に「残した印」（code と時刻）を書き、次からは読み直さない
-   *   （chunk のつなぎ直しも hash もしない）。本人が後で直す道は今は無いので、ファイルを消さずに
-   *   残すことだけを守る。
+   * - 中身が足りず確定できない session（chunk の欠け・長さ不明・寸法不明）は manifest に
+   *   「残した印」（code と時刻）を書き、次からは読み直さない（chunk のつなぎ直しも hash もしない）。
+   *   本人が後で直す道は今は無いので、ファイルを消さずに残すことだけを守る。
+   *   保存の失敗や読み取りの失敗（一時の状態でありうる）には印を付けず、次の起動でやり直す。
    * - createdBefore より後に作られた session（この起動で始めた音声の取り込み）には触らない。
    * - 1 つの session の例外で残りを止めない。返すのは数と理由の code だけ（path も ID も返さない）。
    * 取り込んだ動画（owner 付き）は添付の欄に保存待ちの画面が残っているので、ここでは触らない。
@@ -1997,7 +2007,9 @@ export class MediaCaptureService {
         const code = this.commitLeftoverRecording(sessionDirectory, manifest);
         if (code) {
           kept.push(code);
-          this.markLeftoverKept(sessionDirectory, code);
+          // 印は、何度読み直しても変わらない理由だけに付ける。保存先が未設定・ドライブが
+          // 付いていない等の一時の失敗（commit_failed・media_unavailable）は次の起動でやり直す。
+          if (PERMANENT_LEFTOVER_CODES.has(code)) this.markLeftoverKept(sessionDirectory, code);
         } else committed += 1;
       } catch {
         kept.push("media_unavailable");

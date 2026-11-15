@@ -174,13 +174,20 @@ export function ArtifactsPage({
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       let resumesOnNextStart = false;
+      let alreadySaved = false;
       if (sessionId) {
         try {
           await workspaceApi.cancelAudioCapture(sessionId);
         } catch (cancelError) {
-          resumesOnNextStart =
-            cancelError instanceof Error && /保存処理を開始した/.test(cancelError.message);
+          const cancelMessage = cancelError instanceof Error ? cancelError.message : "";
+          // 保存は済んだのに、その後の返事で失敗した形。取り込み直しを促さない。
+          alreadySaved = /保存済み/.test(cancelMessage);
+          resumesOnNextStart = /保存処理を開始した/.test(cancelMessage);
         }
+      }
+      if (alreadySaved) {
+        setToast("音声を添付に保存しました。", "success");
+        return;
       }
       setToast(
         resumesOnNextStart

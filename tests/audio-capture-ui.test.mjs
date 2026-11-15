@@ -106,6 +106,11 @@ test("音声の取り込みは添付の画面の見出しから、専用の保�
   // 失敗したら保存待ちを残さない（それを開く画面は無い）。保存の途中で断られた時は、
   // 次の起動の復旧が保存し直すことを伝える。
   assert.match(artifactsPage, /await workspaceApi\.cancelAudioCapture\(sessionId\)/);
-  assert.match(artifactsPage, /\/保存処理を開始した\/\.test\(cancelError\.message\)/);
+  assert.match(artifactsPage, /resumesOnNextStart = \/保存処理を開始した\/\.test\(cancelMessage\)/);
   assert.match(artifactsPage, /次の起動で保存し直します。/);
+  // 保存は済んだのに返事で失敗した時は、保存しましたと出し、取り込み直しを促さない。
+  assert.match(
+    artifactsPage,
+    /alreadySaved = \/保存済み\/\.test\(cancelMessage\)[\s\S]*?if \(alreadySaved\) \{\s*setToast\("音声を添付に保存しました。", "success"\);\s*return;/,
+  );
 });
