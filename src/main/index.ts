@@ -7,6 +7,7 @@ import {
   net,
   dialog,
   safeStorage,
+  session as electronSession,
   shell,
 } from "electron";
 import fs from "node:fs";
@@ -125,6 +126,8 @@ let agentLogSyncService: WorkspaceService | null = null;
 const AUTOMATIC_BACKUP_STARTUP_DELAY_MS = 30_000;
 // 前の版の AI Pack・日別 Context の出力の片付け（#755 束2）。起動の直後の読み込みと競らせない。
 const RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS = 20_000;
+// 前の版が残した録音・録画の確定（#755 束4）。chunk のつなぎと hash があるので、最初の表示の後に回す。
+const LEFTOVER_RECORDINGS_STARTUP_DELAY_MS = 10_000;
 let smokeMediaCaptureService: MediaCaptureService | null = null;
 let smokeVideoSourcePath = "";
 let lastSmokeStage = "startup";
@@ -1837,6 +1840,49 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
+/**
+ * 前の版が確定しないまま残した録音・録画を、添付として確定する（#755 束4）。
+ * 起動を待たせないよう窓を出した後で回し、この起動で作られた session には触らない。
+ * どの session で例外が出ても起動は止めない。ログへは数と理由の code だけを出す。
+ */
+function commitLeftoverRecordingsAfterStartup(
+  mediaCapture: MediaCaptureService,
+  createdBefore: string,
+): void {
+  try {
+    const result = mediaCapture.commitLeftoverRecordings({ createdBefore });
+    if (!result.committed && !result.kept.length) return;
+    logMain(
+      "info",
+      "media-capture:leftover-recordings",
+      `committed=${result.committed} kept=${result.kept.length} codes=${[
+        ...new Set(result.kept),
+      ].join(",")}`,
+    );
+    if (result.committed) notifyMainWindowRefresh();
+  } catch (error) {
+    logMain(
+      "warn",
+      "media-capture:leftover-recordings",
+      `failed code=${error instanceof Error ? error.name : "unknown"}`,
+    );
+  }
+}
+
+/**
+ * 録音・録画を外した（#755 束4）ので、マイク・カメラと画面の取得の許可はどこにも要らない。
+ * 求められても断る。それ以外の許可の扱いは今までどおり（Electron の既定）にする。
+ */
+function denyMediaCapturePermissions(): void {
+  const denied = new Set(["media", "display-capture"]);
+  electronSession.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) =>
+    callback(!denied.has(permission)),
+  );
+  electronSession.defaultSession.setPermissionCheckHandler(
+    (_webContents, permission) => !denied.has(permission),
+  );
+}
+
 async function startDesktopApp(): Promise<void> {
   await app.whenReady();
   if (mcpPackageSmoke.enabled && mcpPackageSmoke.verifyOnly) {
@@ -1848,6 +1894,7 @@ async function startDesktopApp(): Promise<void> {
     app.exit(0);
     return;
   }
+  denyMediaCapturePermissions();
   migrateLegacyUserDataIfNeeded();
   applyEmbeddedAiRetirementMigration(app.getPath("userData"));
   configureMainLog(app.getPath("userData"));
@@ -1997,18 +2044,8 @@ async function startDesktopApp(): Promise<void> {
       `Media Capture recovery: recovered=${mediaRecovery.recovered}, pending=${mediaRecovery.pending}`,
     );
   }
-  // 前の版が確定しないまま残した録音・録画を、添付として確定する（#755 束4）。
-  // 録る側の画面は無いので、確定できない物は残して、数と理由の code だけを残す。
-  const leftoverRecordings = mediaCapture.commitLeftoverRecordings();
-  if (leftoverRecordings.committed || leftoverRecordings.kept.length) {
-    logMain(
-      "info",
-      "media-capture:leftover-recordings",
-      `committed=${leftoverRecordings.committed} kept=${leftoverRecordings.kept.length} codes=${[
-        ...new Set(leftoverRecordings.kept),
-      ].join(",")}`,
-    );
-  }
+  // この時刻より前に作られた session だけを、窓を出した後で確定する（#755 束4）。
+  const leftoverRecordingsCreatedBefore = new Date().toISOString();
   if (smokeAudioSourcePath) mediaCapture.prepareFile(smokeAudioSourcePath, null);
   registerMediaProtocol(mediaCapture);
   sharedFolderSyncService = new SharedFolderSyncService(
@@ -2109,6 +2146,10 @@ async function startDesktopApp(): Promise<void> {
   createWindow();
 
   if (!isSmokeTest) {
+    setTimeout(
+      () => commitLeftoverRecordingsAfterStartup(mediaCapture, leftoverRecordingsCreatedBefore),
+      LEFTOVER_RECORDINGS_STARTUP_DELAY_MS,
+    ).unref?.();
     setTimeout(
       () => void automaticSnapshotBackup?.run("startup"),
       AUTOMATIC_BACKUP_STARTUP_DELAY_MS,

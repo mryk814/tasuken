@@ -82,6 +82,8 @@ interface AudioSessionManifest {
   commandIssuedAt?: string;
   command?: CommandEnvelope;
   recoveryError?: "final_file_missing" | "final_hash_mismatch" | "commit_failed";
+  /** 起動の確定で確定できず、残した印（#755 束4）。これがある session は次から読み直さない。 */
+  leftoverKept?: { code: LeftoverRecordingCode; at: string };
   captureMethod?: "audio_import" | "microphone" | "screen_recording";
   /** 紐づけ先未選択の画面録画。commit時にCaptureEntryごと作る（#383）。 */
   pendingCaptureEntry?: boolean;
@@ -535,13 +537,15 @@ function elapsedSince(startedAt: string, now: string): number {
 const VIDEO_HEADER_READ_BYTES = 1024 * 1024;
 
 /** 前の版が残した録音・録画を確定できなかった理由。ログへはこの code だけを出す。 */
-export type LeftoverRecordingCode =
-  | "manifest_invalid"
-  | "recording_incomplete"
-  | "media_unavailable"
-  | "duration_unknown"
-  | "dimensions_unknown"
-  | "commit_failed";
+const LEFTOVER_RECORDING_CODES = [
+  "manifest_invalid",
+  "recording_incomplete",
+  "media_unavailable",
+  "duration_unknown",
+  "dimensions_unknown",
+  "commit_failed",
+] as const;
+export type LeftoverRecordingCode = (typeof LEFTOVER_RECORDING_CODES)[number];
 
 interface DirectoryIdentity {
   dev: string;
@@ -1088,6 +1092,7 @@ function validateManifest(value: unknown, expectedSessionId: string): AudioSessi
       "recordingStartedAt",
       "recordingElapsedMs",
       "recordingStateStartedAt",
+      "leftoverKept",
     ],
     "Media Capture manifest",
   );
@@ -1149,6 +1154,18 @@ function validateManifest(value: unknown, expectedSessionId: string): AudioSessi
     )
   ) {
     throw new Error("Media recovery stateが不正です。");
+  }
+  if (manifest.leftoverKept !== undefined) {
+    const kept = manifest.leftoverKept as Record<string, unknown> | null;
+    if (
+      !kept ||
+      typeof kept !== "object" ||
+      Array.isArray(kept) ||
+      Object.keys(kept).some((key) => key !== "code" && key !== "at") ||
+      !LEFTOVER_RECORDING_CODES.includes(kept.code as LeftoverRecordingCode) ||
+      !isIsoTimestamp(kept.at)
+    )
+      throw new Error("Media leftover markが不正です。");
   }
   const state = manifest.state as SessionState;
   const recordingState = state === "recording" || state === "recording_paused";
@@ -1943,34 +1960,61 @@ export class MediaCaptureService {
    * 前の版が録って、確定しないまま残した録音・画面録画を、添付として一度だけ確定する（#755 束4）。
    *
    * 録る側と「保存待ち」の画面を外したので、残った session は本人が開く所が無い。
-   * 決まり 4（記録がある機能は、最初の起動で自動に残す）に合わせ、起動のたびにここを通す。
-   * 確定した session は manifest が committed になるので、次の起動では何もしない。
-   * 確定できない物は消さずに残し、理由の code だけを返す（path や ID は返さない）。
+   * 決まり 4（記録がある機能は、最初の起動で自動に残す）に合わせ、起動の後でここを通す。
+   * - 確定した session は manifest が committed になり、次からは対象にならない。
+   * - 確定できない session は manifest に「残した印」（code と時刻）を書き、次からは読み直さない
+   *   （chunk のつなぎ直しも hash もしない）。本人が後で直す道は今は無いので、ファイルを消さずに
+   *   残すことだけを守る。
+   * - createdBefore より後に作られた session（この起動で始めた音声の取り込み）には触らない。
+   * - 1 つの session の例外で残りを止めない。返すのは数と理由の code だけ（path も ID も返さない）。
    * 取り込んだ動画（owner 付き）は添付の欄に保存待ちの画面が残っているので、ここでは触らない。
    */
-  commitLeftoverRecordings(): { committed: number; kept: LeftoverRecordingCode[] } {
+  commitLeftoverRecordings(options: { createdBefore?: string } = {}): {
+    committed: number;
+    kept: LeftoverRecordingCode[];
+  } {
     let committed = 0;
     const kept: LeftoverRecordingCode[] = [];
     for (const entry of fs.readdirSync(this.recoveryRoot, { withFileTypes: true })) {
       if (!entry.isDirectory() || !SESSION_ID_PATTERN.test(entry.name)) continue;
-      const sessionDirectory = this.sessionDirectory(entry.name);
-      let manifest: AudioSessionManifest;
       try {
-        manifest = this.readManifest(sessionDirectory);
+        const sessionDirectory = this.sessionDirectory(entry.name);
+        let manifest: AudioSessionManifest;
+        try {
+          manifest = this.readManifest(sessionDirectory);
+        } catch {
+          // 読めない manifest には印も書けない。読むのは manifest だけなので、毎回数える。
+          if (this.readManifestMediaKindLoose(sessionDirectory) === "video") continue;
+          kept.push("manifest_invalid");
+          continue;
+        }
+        if (manifest.leftoverKept) continue;
+        if (options.createdBefore && !(manifest.createdAt < options.createdBefore)) continue;
+        const isRecordedVideo =
+          manifest.mediaKind === "video" && manifest.captureMethod === "screen_recording";
+        if (manifest.mediaKind !== "audio" && !isRecordedVideo) continue;
+        if (!["prepared", "recording", "recording_paused"].includes(manifest.state)) continue;
+        const code = this.commitLeftoverRecording(sessionDirectory, manifest);
+        if (code) {
+          kept.push(code);
+          this.markLeftoverKept(sessionDirectory, code);
+        } else committed += 1;
       } catch {
-        if (this.readManifestMediaKindLoose(sessionDirectory) === "video") continue;
-        kept.push("manifest_invalid");
-        continue;
+        kept.push("media_unavailable");
       }
-      const isRecordedVideo =
-        manifest.mediaKind === "video" && manifest.captureMethod === "screen_recording";
-      if (manifest.mediaKind !== "audio" && !isRecordedVideo) continue;
-      if (!["prepared", "recording", "recording_paused"].includes(manifest.state)) continue;
-      const code = this.commitLeftoverRecording(sessionDirectory, manifest);
-      if (code) kept.push(code);
-      else committed += 1;
     }
     return { committed, kept };
+  }
+
+  /** 確定できなかった session に印を書く。書けなくても次の起動でもう一度試すだけなので握る。 */
+  private markLeftoverKept(sessionDirectory: string, code: LeftoverRecordingCode): void {
+    try {
+      const current = this.readManifest(sessionDirectory);
+      if (current.state === "committed") return;
+      this.writeManifest(sessionDirectory, { ...current, leftoverKept: { code, at: this.now() } });
+    } catch {
+      // 印が無ければ、次の起動でもう一度試す。
+    }
   }
 
   private commitLeftoverRecording(
@@ -1978,38 +2022,63 @@ export class MediaCaptureService {
     initial: AudioSessionManifest,
   ): LeftoverRecordingCode | null {
     let manifest = initial;
-    if (manifest.state === "recording" || manifest.state === "recording_paused") {
+    const interrupted = manifest.state === "recording" || manifest.state === "recording_paused";
+    // 長さが分からない物は、ファイルを読む前に断る（hash もしない）。
+    if (!interrupted && manifest.durationMs === undefined) return "duration_unknown";
+    if (interrupted) {
       try {
         manifest = this.finishInterruptedRecording(sessionDirectory, manifest);
       } catch {
         return "recording_incomplete";
       }
     }
-    const resolution = this.resolveSessionMedia(manifest.sessionId);
-    if (resolution.availability !== "available") return "media_unavailable";
-    let head: Buffer;
-    try {
-      head = Buffer.alloc(Math.min(resolution.fileSize, VIDEO_HEADER_READ_BYTES));
-      fs.readSync(resolution.fileDescriptor, head, 0, head.length, 0);
-    } finally {
-      fs.closeSync(resolution.fileDescriptor);
-    }
     if (manifest.durationMs === undefined) return "duration_unknown";
+    let dimensions: { widthPx: number; heightPx: number } | null = null;
+    if (manifest.mediaKind === "video") {
+      // 幅と高さは見出しだけを読む。中身の検証（hash）は commitVideo が一度だけ行う。
+      let head: Buffer;
+      try {
+        head = this.readStagedHead(sessionDirectory, manifest);
+      } catch {
+        return "media_unavailable";
+      }
+      dimensions = readVideoDimensions(head, manifest.mimeType);
+      if (!dimensions) return "dimensions_unknown";
+    }
     try {
       if (manifest.mediaKind === "audio") {
         this.commit({ sessionId: manifest.sessionId, durationMs: manifest.durationMs });
-        return null;
+      } else {
+        this.commitVideo({
+          sessionId: manifest.sessionId,
+          durationMs: manifest.durationMs,
+          ...dimensions!,
+        });
       }
-      const dimensions = readVideoDimensions(head, manifest.mimeType);
-      if (!dimensions) return "dimensions_unknown";
-      this.commitVideo({
-        sessionId: manifest.sessionId,
-        durationMs: manifest.durationMs,
-        ...dimensions,
-      });
       return null;
     } catch {
       return "commit_failed";
+    }
+  }
+
+  private readStagedHead(sessionDirectory: string, manifest: AudioSessionManifest): Buffer {
+    const stagedPath = path.resolve(sessionDirectory, manifest.stagedFileName);
+    assertWithin(sessionDirectory, stagedPath, "録画temporary file");
+    const noFollow = "O_NOFOLLOW" in fs.constants ? Number(fs.constants.O_NOFOLLOW) : 0;
+    const descriptor = fs.openSync(stagedPath, fs.constants.O_RDONLY | noFollow);
+    try {
+      const stat = fs.fstatSync(descriptor);
+      if (!stat.isFile()) throw new Error("録画temporary fileが通常のファイルではありません。");
+      const head = Buffer.alloc(Math.min(stat.size, VIDEO_HEADER_READ_BYTES));
+      let offset = 0;
+      while (offset < head.length) {
+        const bytesRead = fs.readSync(descriptor, head, offset, head.length - offset, offset);
+        if (bytesRead <= 0) break;
+        offset += bytesRead;
+      }
+      return head.subarray(0, offset);
+    } finally {
+      fs.closeSync(descriptor);
     }
   }
 

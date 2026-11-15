@@ -3,8 +3,8 @@
 > 録る側（マイク録音、画面・window・範囲の録画、切り出し、文字起こしの履歴、収録の画面、同梱の ffmpeg）は #755 束4 で外した。
 > 残っているのは、既存の音声・動画ファイルの取り込みの保存と復旧、前に録った音声・動画を添付から再生する所。
 > 種類（`capture_entry`・`artifact`）と、録った記録の `capture_method=microphone | screen_recording` はそのまま残る。
-> 前の版が録りかけ・保存待ちで残した録音・録画と音声の取り込みは、起動のたびに `commitLeftoverRecordings` が添付として確定する（録りかけは chunk をつなぐ。画面録画の幅と高さは WebM・MP4 の見出しから読む）。確定した session は `committed` になり、次の起動では何もしない。確定できない物は `userData/media-recovery/sessions` に残し、ログへは数と理由の code だけを出す。紐づけ先つきの動画の取り込みは、添付の欄に保存待ちの画面があるので触らない。
-> 音声ファイルの取り込みの入口は、添付の画面の見出しの「音声を取り込む」。普通の添付の追加は音声を断るので、こちらの専用の道（長さを測ってから保存）を通す。保存に失敗した取り込みは保存待ちに残さず破棄する（元のファイルは選んだ場所に残る）。
+> 前の版が録りかけ・保存待ちで残した録音・録画は、起動して窓を出した後に `commitLeftoverRecordings` が添付として確定する（録りかけは chunk をつなぐ。画面録画の幅と高さは WebM・MP4 の見出しから読む）。確定した session は `committed` になる。確定できない物（chunk の欠け・hash の不一致・見出しが読めない・長さを持たない音声の取り込み・読み取りの失敗）は消さずに `userData/media-recovery/sessions` に残し、manifest に `leftoverKept`（code と時刻）を書いて、次の起動からは読み直さない。前の版の保存待ちの音声の取り込みは長さを manifest に持たないので、`duration_unknown` で残る（元のファイルは本人が選んだ場所にある）。ログへは数と code だけを出す。この起動で作られた session と、紐づけ先つきの動画の取り込み（添付の欄に保存待ちの画面がある）には触らない。
+> 音声ファイルの取り込みの入口は、添付の画面の見出しの「音声を取り込む」。普通の添付の追加は音声を断るので、こちらの専用の道（長さを測ってから保存）を通す。保存に失敗した取り込みは保存待ちを破棄する（元のファイルは選んだ場所に残る）。保存の途中（finalize の後）で落ちた物は破棄できないので、次の起動の復旧（`recoverPending`）が保存し直し、画面もそう伝える。
 
 Issue #367 では、既存音声を Inbox の Voice Capture と managed Artifact へ取り込む。
 Issue #368 の Video Phase 0 では、既存動画を managed / linked Video Artifact として Task / Note / Capture / 実行中Focusから取り込む。
@@ -17,7 +17,7 @@ owner関係はContext Graphへ`derived_from`として投影し、同じ関係を
 確定順序は `temporary原音 → durable session manifest → managed原音 → CommitAudioCapture transaction → renderer通知` とする。
 動画のmanaged確定順序も `temporary動画 → durable session manifest → managed動画 → CommitVideoArtifact transaction → renderer通知` とし、linkedは選択時のstaged previewを正本にせず、commit・recovery・再生のたびに元fileのidentityとbytesを再検証する。
 DB失敗時は原音とmanifestを保持し、次回起動で同じcommand receiptを再実行する。
-prepare後・commit前に終了したsessionは自動確定せず、Inboxの「保存待ち音声」でpreview・保存・破棄を選べる。
+prepare後・commit前に終了した音声のsessionは、取り込みの画面がその場で破棄する。前の版が残した物は、上の起動の確定が扱う。
 動画も選択直後には確定せず、各owner詳細の「保存待ち動画」でmetadataを確認してから「添付する」または「破棄」を選ぶ。
 
 ## Renderer境界

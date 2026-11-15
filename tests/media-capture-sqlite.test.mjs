@@ -81,7 +81,10 @@ function webmWithDimensions(widthPx, heightPx, label = "frames") {
  * 前の版が残した session を置く。形は前の版の録音・録画・音声の取り込みが書いた manifest と同じ。
  * kind: microphone | screen_recording | audio_import。state: prepared | recording。
  */
-function writeLeftoverSession(userDataPath, { kind, bytes, state = "prepared", chunkHash }) {
+function writeLeftoverSession(
+  userDataPath,
+  { kind, bytes, state = "prepared", chunkHash, sequenceCount = 1, createdAt },
+) {
   const sessionId = randomUUID();
   const directory = path.join(userDataPath, "media-recovery", "sessions", sessionId);
   fs.mkdirSync(directory, { recursive: true });
@@ -93,7 +96,7 @@ function writeLeftoverSession(userDataPath, { kind, bytes, state = "prepared", c
     kind === "audio_import"
       ? {}
       : {
-          recordingNextSequence: 1,
+          recordingNextSequence: sequenceCount,
           recordingChunkHashes: chunkHash || sha256Hex(bytes),
           recordingStartedAt: "2026-08-09T00:00:00.000Z",
           recordingElapsedMs: recording ? 0 : 1000,
@@ -111,7 +114,7 @@ function writeLeftoverSession(userDataPath, { kind, bytes, state = "prepared", c
     themeId: null,
     ...(isVideo ? { storageMode: "managed" } : {}),
     stagedFileName: "original.webm",
-    createdAt: "2026-08-09T00:00:00.000Z",
+    createdAt: createdAt || "2026-08-09T00:00:00.000Z",
     updatedAt: "2026-08-09T00:00:01.500Z",
     ...(recording || kind === "audio_import" ? {} : { durationMs: 1000 }),
     captureMethod: kind,
@@ -938,9 +941,36 @@ test("確定できない録音・録画は消さずに残し、理由の code �
   );
   assert.equal(fs.existsSync(path.join(unknownDuration.directory, "original.webm")), true);
   assert.equal(fs.existsSync(path.join(corruptDirectory, "session.json")), true);
-  // もう一度流しても同じ物を同じ理由で残すだけで、増えも消えもしない。
-  assert.deepEqual([...media.commitLeftoverRecordings().kept].sort(), [...result.kept].sort());
+  // 残した session には印（code と時刻）を書く。読めない manifest には書けない。
+  for (const [session, code] of [
+    [noDimensions, "dimensions_unknown"],
+    [brokenChunk, "recording_incomplete"],
+    [unknownDuration, "duration_unknown"],
+  ]) {
+    const kept = JSON.parse(fs.readFileSync(path.join(session.directory, "session.json"), "utf8"));
+    assert.equal(kept.leftoverKept.code, code);
+    assert.ok(Date.parse(kept.leftoverKept.at));
+  }
+  // 二度目の起動では、印のある session の中身を読み直さない（chunk のつなぎも hash もしない）。
+  const opened = [];
+  const originalOpen = fs.openSync;
+  fs.openSync = (target, ...rest) => {
+    opened.push(path.basename(String(target)));
+    return originalOpen.call(fs, target, ...rest);
+  };
+  let second;
+  try {
+    second = media.commitLeftoverRecordings();
+  } finally {
+    fs.openSync = originalOpen;
+  }
+  assert.deepEqual(second, { committed: 0, kept: ["manifest_invalid"] });
+  assert.deepEqual(
+    opened.filter((name) => name !== "session.json"),
+    [],
+  );
   assert.equal(db.list("artifact").length, 0);
+  assert.equal(fs.existsSync(path.join(brokenChunk.directory, "chunk-00000000.part")), true);
   db.db.close();
 });
 
@@ -963,4 +993,114 @@ test("取り込みの保存待ちの動画（紐づけ先つき）には、起�
     "ready",
   );
   db.db.close();
+});
+
+test("録りかけの chunk が 1 つ欠けていれば、確定せずに残し、残りのファイルも消さない（#755 束4）", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-leftover-missing-chunk-"));
+  const userDataPath = path.join(root, "user-data");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const bytes = tinyWebm("first-half");
+  // 前の版は 2 つ目の chunk まで書いたと manifest に残したが、ファイルは 1 つ目しか無い。
+  const session = writeLeftoverSession(userDataPath, {
+    kind: "microphone",
+    bytes,
+    state: "recording",
+    sequenceCount: 2,
+    chunkHash: sha256Hex(bytes) + sha256Hex(Buffer.from("second-half")),
+  });
+  const { db, media } = leftoverMedia(root);
+  assert.deepEqual(media.commitLeftoverRecordings(), {
+    committed: 0,
+    kept: ["recording_incomplete"],
+  });
+  assert.equal(db.list("artifact").length, 0);
+  assert.equal(db.list("capture_entry").length, 0);
+  assert.deepEqual(fs.readFileSync(path.join(session.directory, "chunk-00000000.part")), bytes);
+  assert.equal(fs.existsSync(path.join(session.directory, "original.webm")), false);
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(session.directory, "session.json"), "utf8"),
+  );
+  assert.equal(manifest.state, "recording");
+  assert.equal(manifest.leftoverKept.code, "recording_incomplete");
+  db.db.close();
+});
+
+test("1 つの session が例外を投げても、残りを確定して返る（#755 束4）", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-leftover-throw-"));
+  const userDataPath = path.join(root, "user-data");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const failing = writeLeftoverSession(userDataPath, {
+    kind: "screen_recording",
+    bytes: webmWithDimensions(800, 600, "unreadable"),
+  });
+  writeLeftoverSession(userDataPath, { kind: "microphone", bytes: tinyWebm("fine") });
+  const { db, media } = leftoverMedia(root);
+  // 先頭を読む所で、OS が読み取りを断った形を作る。
+  const failingFile = path.join(failing.directory, "original.webm");
+  const originalOpen = fs.openSync;
+  fs.openSync = (target, ...rest) => {
+    if (path.resolve(String(target)) === path.resolve(failingFile))
+      throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+    return originalOpen.call(fs, target, ...rest);
+  };
+  let result;
+  try {
+    result = media.commitLeftoverRecordings();
+  } finally {
+    fs.openSync = originalOpen;
+  }
+  assert.deepEqual(result, { committed: 1, kept: ["media_unavailable"] });
+  assert.equal(db.list("artifact").length, 1);
+  assert.equal(fs.existsSync(failingFile), true);
+
+  // 想定していない所で投げても、その session を media_unavailable にして続ける。
+  const thrower = leftoverMedia(path.join(root, "second"));
+  writeLeftoverSession(path.join(root, "second", "user-data"), {
+    kind: "microphone",
+    bytes: tinyWebm("boom"),
+  });
+  thrower.media.commitLeftoverRecording = () => {
+    throw new Error("unexpected");
+  };
+  assert.deepEqual(thrower.media.commitLeftoverRecordings(), {
+    committed: 0,
+    kept: ["media_unavailable"],
+  });
+  thrower.db.db.close();
+  db.db.close();
+});
+
+test("この起動で作られた session（取り込みの途中）には、起動の確定は触らない（#755 束4）", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-leftover-fresh-"));
+  const userDataPath = path.join(root, "user-data");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const fresh = writeLeftoverSession(userDataPath, {
+    kind: "microphone",
+    bytes: tinyWebm("fresh"),
+    createdAt: "2026-08-09T09:00:00.000Z",
+  });
+  const { db, media } = leftoverMedia(root);
+  assert.deepEqual(media.commitLeftoverRecordings({ createdBefore: "2026-08-09T08:00:00.000Z" }), {
+    committed: 0,
+    kept: [],
+  });
+  const manifest = JSON.parse(fs.readFileSync(path.join(fresh.directory, "session.json"), "utf8"));
+  assert.equal(manifest.state, "prepared");
+  assert.equal(manifest.leftoverKept, undefined);
+  db.db.close();
+});
+
+test("起動の確定は窓を出した後に回し、例外でも起動を止めない。録音・画面の取得の許可は断る（#755 束4）", () => {
+  const main = fs.readFileSync("src/main/index.ts", "utf8");
+  assert.match(
+    main,
+    /function commitLeftoverRecordingsAfterStartup\([\s\S]*?try \{[\s\S]*?commitLeftoverRecordings\(\{ createdBefore \}\)[\s\S]*?\} catch/,
+  );
+  assert.match(
+    main,
+    /createWindow\(\);[\s\S]*?setTimeout\(\s*\(\) => commitLeftoverRecordingsAfterStartup\(/,
+  );
+  assert.match(main, /const denied = new Set\(\["media", "display-capture"\]\)/);
+  assert.match(main, /setPermissionRequestHandler\([\s\S]*?callback\(!denied\.has\(permission\)\)/);
+  assert.match(main, /await app\.whenReady\(\);[\s\S]*?denyMediaCapturePermissions\(\);/);
 });
