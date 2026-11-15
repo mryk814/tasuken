@@ -301,10 +301,6 @@ export function registerIpc(
     service.openActivityCanonicalRef(ref),
   );
   ipcMain.handle(IPC.aiContextPreview, (_event, request) => service.getAiContextPreview(request));
-  ipcMain.handle(IPC.dataHealthGet, (_event, query) => service.getDataHealth(query));
-  ipcMain.handle(IPC.dataHealthSetState, (_event, request) =>
-    service.setDataHealthIssueState(request),
-  );
   ipcMain.handle(IPC.conversationContextPreview, (_event, request) =>
     service.getConversationContextPreview(request),
   );

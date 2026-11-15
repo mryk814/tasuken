@@ -4,6 +4,8 @@ TaskenはElectron + React + SQLiteのローカルデスクトップアプリと�
 
 この文書はKnowledge Model、AI Context Export、MCP連携、安全なwrite提案の実装方針を固定する。実装時は既存のWorkspace Repository、Snapshot、AI Import / Export、typed IPCの境界に合わせて段階導入する。
 
+> **2026-11-15 / Issue #755 束8**: 棚卸しの画面、節と線の入力、Data Health、Knowledge の節の案（`knowledge_create`）、`get_theme_context` の Knowledge の欄を外した。種類の登録（`knowledge_node`・`knowledge_edge`）は読むだけで残り、記録は外した版の最初の起動でテーマごとの Markdown に書き出される。以下の記述は、モデルと保存の履歴として残す。
+>
 > **2026-08-08 / Issue #319**: Knowledge画面は実験・診断用へ戻し、既存Entity / Edge / Relation / internal link / backlink / source relation / export / backupの正本互換を保ったまま、通常の作成導線から切り離す。Context Graph、Backlink、Provenance、Data Healthは共有read projectionとして成立し、AI Contextは手動Knowledge整理に依存しない。以下の旧UX記述はモデル・保存・AI/MCP契約の履歴として残す。
 
 ## 基本方針

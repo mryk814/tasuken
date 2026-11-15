@@ -16,7 +16,7 @@ import { mkdirSync } from "node:fs";
 const OUT_DIR = process.argv[2] || "audit-shots";
 const WIDTHS = [980, 1120, 1440];
 const ZOOMS = [1, 1.3];
-const ROUTES = ["今日", "Inbox", "工程表", "ノート", "棚卸し", "手書き", "会話録", "添付", "設定"];
+const ROUTES = ["今日", "Inbox", "工程表", "ノート", "手書き", "会話録", "添付", "設定"];
 const ZOOM_STORAGE_KEY = "tasken:shell:zoom-factor:v1";
 
 /** ページ内で実行する検出器。行ボックスを実測して縦積みだけを拾う。 */
@@ -55,7 +55,7 @@ function detectLayoutBreakage() {
   }
   // 画面全体だけでなく、作業領域の内側に生まれる横スクロールも拾う。
   // Timelineや表のように本質的に横幅が必要なものは、意図した局所スクロールとして除く。
-  const INTENTIONAL_SCROLL = ["gantt-scroll", "full-gantt", "todo-table-scroll", "knowledge-selector-list"];
+  const INTENTIONAL_SCROLL = ["gantt-scroll", "full-gantt", "todo-table-scroll"];
   const overflowing = [];
   for (const element of document.querySelectorAll(".main-area, .main-area *")) {
     if (element.clientWidth <= 0 || element.scrollWidth <= element.clientWidth + 1) continue;

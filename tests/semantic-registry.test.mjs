@@ -14,7 +14,6 @@ test("RouteDefinition is the only route label/icon/navigation registry", () => {
     "waiting",
     "inbox",
     "timeline",
-    "knowledge",
     "notes",
     "sketch",
     "chat-refs",

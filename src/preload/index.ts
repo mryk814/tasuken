@@ -37,10 +37,6 @@ const api: ResearchDeskApi = {
   aiContext: {
     preview: (request) => ipcRenderer.invoke(IPC.aiContextPreview, request),
   },
-  dataHealth: {
-    get: (query) => ipcRenderer.invoke(IPC.dataHealthGet, query),
-    setState: (request) => ipcRenderer.invoke(IPC.dataHealthSetState, request),
-  },
   conversationContext: {
     preview: (request) => ipcRenderer.invoke(IPC.conversationContextPreview, request),
     publish: (request) => ipcRenderer.invoke(IPC.conversationContextPublish, request),

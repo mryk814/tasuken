@@ -27,7 +27,6 @@ test("major entity details including Conversation reuse the shared lineage panel
     /seed=\{\{ type: "waiting", id: waiting\.id \}\}/,
     /seed=\{\{ type: "plan_node", id: planNode\.id \}\}/,
     /seed=\{\{ type: "capture_entry", id: entry\.id \}\}/,
-    /seed=\{\{ type: "knowledge_node", id: node\.id \}\}/,
   ]) assert.match(drawer, pattern);
   assert.match(artifacts, /seed=\{\{ type: "artifact", id: artifact\.id \}\}/);
 });

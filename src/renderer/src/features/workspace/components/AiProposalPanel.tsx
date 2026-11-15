@@ -269,12 +269,23 @@ export function buildPreview(
     knowledge_edges: props.data.knowledge_edges || [],
   }) as ProposalPreview;
   preview.candidates = preview.candidates.map((candidate) => {
+    // Knowledge の節と線は採れない（#755 束8）。前の版が受け取った案は、中身を見て見送るだけにする。
+    if (isRetiredKnowledgeCandidate(candidate)) return { ...candidate, action: "ignore" };
     const hunks = noteDiffHunks(candidate);
     return hunks.length
       ? { ...candidate, acceptedHunks: hunks.map((_, index) => index) }
       : candidate;
   });
+  if (preview.candidates.some(isRetiredKnowledgeCandidate))
+    preview.payloadIssues = [...preview.payloadIssues, RETIRED_KNOWLEDGE_NOTICE];
   return preview;
+}
+
+const RETIRED_KNOWLEDGE_NOTICE = "Knowledgeの節と線は採れません。見送るだけができます";
+
+/** 入力を外した Knowledge の節と線（#755 束8）。案の中身としては読めるが、採る対象にしない。 */
+function isRetiredKnowledgeCandidate(candidate: Pick<ProposalCandidate, "type">): boolean {
+  return candidate.type === "knowledge_node" || candidate.type === "knowledge_edge";
 }
 
 /**
@@ -323,14 +334,6 @@ export function stabilizeProposalOperations(
       createdIdMap.has(operation.entity.owner_id)
         ? { owner_id: createdIdMap.get(operation.entity.owner_id) }
         : {}),
-      ...(typeof operation.entity.source_node_id === "string" &&
-      createdIdMap.has(operation.entity.source_node_id)
-        ? { source_node_id: createdIdMap.get(operation.entity.source_node_id) }
-        : {}),
-      ...(typeof operation.entity.target_node_id === "string" &&
-      createdIdMap.has(operation.entity.target_node_id)
-        ? { target_node_id: createdIdMap.get(operation.entity.target_node_id) }
-        : {}),
     },
   })) as SaveOperation[];
 }
@@ -378,36 +381,9 @@ export function buildCandidateOperations(
       repositoryContexts,
     ) as SaveOperation[]),
   );
-  const acceptedKnowledgeNodeIds = new Map<string, string>();
-  for (const candidate of candidates.filter((entry) => entry.type === "knowledge_node")) {
-    if (candidate.action === "ignore") continue;
-    const base: Record<string, unknown> =
-      candidate.action === "merge" && candidate.duplicate ? candidate.duplicate : {};
-    const entry = candidate.entry;
-    const id = str(base.id) || uuid();
-    if (str(entry.temp_id)) acceptedKnowledgeNodeIds.set(str(entry.temp_id), id);
-    operations.push({
-      action: "save",
-      type: "knowledge_node",
-      entity: {
-        ...base,
-        id,
-        node_type: str(entry.node_type) || "insight",
-        title: str(entry.title) || "無題",
-        body: str(entry.body),
-        theme_id: candidate.theme?.id || str(base.theme_id) || null,
-        source_note_id: str(entry.source_note_id) || str(base.source_note_id) || null,
-        source_link_id: str(entry.source_link_id) || str(base.source_link_id) || null,
-        source_item_id: str(entry.source_item_id) || str(base.source_item_id) || null,
-        confidence: str(entry.confidence) || str(base.confidence) || "medium",
-        status: str(entry.status) || str(base.status) || "active",
-      },
-      options: { source: "imported" },
-    });
-  }
   for (const candidate of candidates.filter(
     (entry) =>
-      entry.type !== "knowledge_node" &&
+      !isRetiredKnowledgeCandidate(entry) &&
       entry.type !== "repository_context" &&
       entry.type !== "agent_session" &&
       entry.type !== "reference",
@@ -549,25 +525,6 @@ export function buildCandidateOperations(
           },
         },
         options: { source: "ai_proposal" },
-      });
-    } else if (candidate.type === "knowledge_edge") {
-      const sourceNodeId =
-        str(entry.source_node_id) || acceptedKnowledgeNodeIds.get(str(entry.source_temp_id)) || "";
-      const targetNodeId =
-        str(entry.target_node_id) || acceptedKnowledgeNodeIds.get(str(entry.target_temp_id)) || "";
-      if (!sourceNodeId || !targetNodeId || sourceNodeId === targetNodeId) continue;
-      operations.push({
-        action: "save",
-        type: "knowledge_edge",
-        entity: {
-          ...base,
-          id: str(base.id) || uuid(),
-          source_node_id: sourceNodeId,
-          target_node_id: targetNodeId,
-          relation_type: str(entry.relation_type) || str(base.relation_type) || "supports",
-          description: str(entry.description) || str(base.description),
-        },
-        options: { source: "imported" },
       });
     }
   }
@@ -1224,7 +1181,7 @@ export function ProposalDetail(props: ProposalDetailProps) {
               </>
             )}
           </div>
-          {candidate.type !== "task_work" && (
+          {candidate.type !== "task_work" && !isRetiredKnowledgeCandidate(candidate) && (
             <select
               value={candidate.action}
               onChange={(event) =>
@@ -1325,13 +1282,16 @@ export function ProposalDetail(props: ProposalDetailProps) {
             見送る
           </ActionButton>
           {/* 採る は本人の操作なので主操作色（えんじ）。「採って完了」が並ぶ時はそちらが主操作。 */}
-          <ActionButton
-            action="aiProposalAccept"
-            emphasis={activeWork && canCompleteActiveWork ? undefined : "primary"}
-            onClick={() => void acceptProposal()}
-          >
-            採る
-          </ActionButton>
+          {/* 採れる物が 1 つも無い案（Knowledge の節と線だけの案）には、採る を出さない。 */}
+          {!preview.candidates.every(isRetiredKnowledgeCandidate) && (
+            <ActionButton
+              action="aiProposalAccept"
+              emphasis={activeWork && canCompleteActiveWork ? undefined : "primary"}
+              onClick={() => void acceptProposal()}
+            >
+              採る
+            </ActionButton>
+          )}
           {activeWork && canCompleteActiveWork && (
             <ActionButton
               action="aiProposalAcceptAndComplete"

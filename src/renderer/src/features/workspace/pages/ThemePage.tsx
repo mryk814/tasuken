@@ -6,12 +6,7 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import { usePreference } from "../../../utils/usePreference";
 import { AI_ICON } from "../../../pages/semanticIcons";
 import type { BaseRecord, PageProps, SaveOperation } from "../types";
-import {
-  KNOWLEDGE_NODE_LABELS,
-  NOTES_KIND_LABELS,
-  notesKindFromNoteType,
-  THEME_STATUS_LABELS,
-} from "../lib/domain";
+import { NOTES_KIND_LABELS, notesKindFromNoteType, THEME_STATUS_LABELS } from "../lib/domain";
 import { formatDate, str } from "../lib/format";
 import {
   FEED_POST_KIND_LABELS,
@@ -72,8 +67,6 @@ const TASK_PREVIEW_LIMIT = 7;
 /** 概要の「次の仕事」と「近いマイルストーン」は、次の判断に要る分だけを出す。 */
 const OVERVIEW_TASK_LIMIT = 3;
 const MILESTONE_PREVIEW_LIMIT = 3;
-/** 「いま分かっていること」に出すKnowledgeの上限。 */
-const KNOWLEDGE_PREVIEW_LIMIT = 2;
 const NOTE_PREVIEW_LIMIT = 4;
 function noteProps(note: BaseRecord): Record<string, unknown> {
   return note.properties_json && typeof note.properties_json === "object"
@@ -376,17 +369,6 @@ export function ThemePage({
     .slice(0, NOTE_PREVIEW_LIMIT);
   const overviewTasks = nextTasks.slice(0, OVERVIEW_TASK_LIMIT);
   const overviewMilestones = milestones.slice(0, MILESTONE_PREVIEW_LIMIT);
-  /**
-   * KnowledgeもNote・Taskと同じく、Themeに紐づく記録だけを投影する。
-   * 「確認済み」のような新しい印は作らず、出典の表示だけを行う。
-   */
-  const themeKnowledgeNodes = (data.knowledge_nodes || [])
-    .filter((node) => str(node.theme_id) === theme.id)
-    .sort((a, b) =>
-      str(b.updated_at || b.created_at).localeCompare(str(a.updated_at || a.created_at)),
-    )
-    .slice(0, KNOWLEDGE_PREVIEW_LIMIT);
-
   /*
    * Themeに紐づくFeed投稿は、Feedと同じ投影から読む（正本はProposalと返信Entity、
    * 自分の投稿はFeed専用Entityのまま）。
@@ -565,7 +547,7 @@ export function ThemePage({
           />
 
           {/* 出典がある分だけ出す。無ければ欄ごと出さず、空の見出しを残さない。 */}
-          {(latest || latestReport || themeKnowledgeNodes.length > 0) && (
+          {(latest || latestReport) && (
             <section className="panel theme-known-panel">
               <div className="section-heading">
                 <h2>いま分かっていること</h2>
@@ -598,19 +580,6 @@ export function ThemePage({
                     </p>
                   </button>
                 )}
-                {themeKnowledgeNodes.map((node) => (
-                  <button
-                    key={node.id}
-                    className="theme-known-row"
-                    onClick={() =>
-                      openDrawer({ type: "knowledge_node", mode: "view", entity: node })
-                    }
-                  >
-                    <span className="theme-known-source">棚卸し</span>
-                    <strong>{node.title || "無題"}</strong>
-                    <p>{KNOWLEDGE_NODE_LABELS[String(node.node_type || "")] || node.node_type}</p>
-                  </button>
-                ))}
               </div>
             </section>
           )}

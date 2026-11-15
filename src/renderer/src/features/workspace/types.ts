@@ -330,8 +330,6 @@ export type DrawerEntityType =
   | "note"
   | "resource"
   | "status_update"
-  | "knowledge_node"
-  | "knowledge_edge"
   | "task"
   | "waiting"
   | "plan_node"

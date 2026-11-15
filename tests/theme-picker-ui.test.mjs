@@ -162,7 +162,6 @@ test("major creation and filter surfaces use the shared picker contract", () => 
   for (const path of [
     "src/renderer/src/features/workspace/pages/TodoPage.tsx",
     "src/renderer/src/features/workspace/pages/TimelinePage.tsx",
-    "src/renderer/src/features/workspace/pages/KnowledgePage.tsx",
     "src/renderer/src/features/workspace/pages/NotesPage.tsx",
     "src/renderer/src/features/workspace/pages/SketchLibraryPage.tsx",
     "src/renderer/src/features/workspace/pages/ArtifactsPage.tsx",

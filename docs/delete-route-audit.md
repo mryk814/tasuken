@@ -12,8 +12,6 @@
 | Note | Notes/詳細から削除 | あり | 編集Drawerの削除 | あり | コメントはNoteの一部として復元 |
 | Resource / Link / チャット参照 | チャット参照棚の行削除 | あり | 編集Drawerの削除 | あり | 通常Resourceと同じdelete policy |
 | CaptureEntry / Inbox項目 | Inbox行編集または付箋カード削除 | あり | 編集Drawerの削除 | あり | Micro MemoはInboxから分離 |
-| KnowledgeNode | Knowledge詳細から削除 | あり | 編集Drawerの削除 | あり | 参照関係は既存delete policyに従う |
-| KnowledgeEdge | 編集Drawerから削除 | - | 編集Drawerの削除 | あり | 関係編集画面の危険操作として表示 |
 | Reference | 編集Drawerから削除 | - | 編集Drawerの削除 | あり | 汎用参照Entityとして論理削除 |
 | TaskDependency / PlanDependency | Timeline依存線はDeleteで削除 | - | 編集Drawerの削除 | あり | PlanDependencyはTimeline操作でもUndo可能 |
 | StatusUpdate | 編集Drawerから削除 | - | 編集Drawerの削除 | あり | 「現在地」記録の削除 |

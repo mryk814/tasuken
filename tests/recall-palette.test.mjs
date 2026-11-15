@@ -134,7 +134,7 @@ function fixture() {
   return { data, domain, themes };
 }
 
-test("Recall Paletteは本文・待ち・記録・Knowledge・ChatをWorkspace横断検索する", () => {
+test("Recall Paletteは本文・待ち・記録・ChatをWorkspace横断検索する", () => {
   const entries = prepareCommandEntries(buildRecallPaletteEntries(fixture()));
   const cases = [
     ["オリオン濃度", "task:t1"],
@@ -143,7 +143,6 @@ test("Recall Paletteは本文・待ち・記録・Knowledge・ChatをWorkspace�
     ["アウローラ条件", "note:n1"],
     ["旋光度アルファ", "waiting:w1"],
     ["ベテルギウス", "capture:c1"],
-    ["コバルト被毒", "knowledge:k1"],
     ["疎行列ゼータ", "chat:r1"],
     ["ケフェウス本文", "resource:r2"],
     ["polaris-results", "artifact:a1"],
@@ -189,13 +188,8 @@ test("Recall Paletteは全Theme投影と既存画面へのtargetを返す", () =
     entityId: "c1",
     mode: "edit",
   });
-  assert.deepEqual(byId.get("knowledge:k1").target, {
-    kind: "drawer",
-    route: "knowledge",
-    entityType: "knowledge_node",
-    entityId: "k1",
-    mode: "view",
-  });
+  // Knowledge の節は、開く画面を外したので候補に出さない（#755 束8）。記録は残っている。
+  assert.equal(byId.has("knowledge:k1"), false);
   assert.deepEqual(byId.get("chat:r1").target, {
     kind: "drawer",
     route: "chat-refs",

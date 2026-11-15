@@ -1912,75 +1912,6 @@ export function WorkspaceApp() {
         setToast("現在地の概要を入力してください。");
         return false;
       }
-    } else if (type === "knowledge_node") {
-      const autoTarget = str(base._auto_edge_target_id);
-      const autoRelation = str(base._auto_edge_relation_type);
-      const entityId = str(base.id) || uuid();
-      const sourceType = formText(values, "source_type") || null;
-      const sourceId = formText(values, "source_id") || null;
-      entity = {
-        ...base,
-        id: entityId,
-        node_type: formText(values, "node_type", "question"),
-        title: formText(values, "title"),
-        body: formText(values, "body"),
-        theme_id: canonicalThemeId(formText(values, "theme_id"), { defaultPersonal: true }),
-        source_type: sourceType,
-        source_id: sourceId,
-        source_note_id:
-          sourceType === "note" ? sourceId : ((base.source_note_id as string | null) ?? null),
-        source_link_id:
-          sourceType === "resource" ? sourceId : ((base.source_link_id as string | null) ?? null),
-        source_item_id:
-          sourceType === "task" || sourceType === "waiting" || sourceType === "plan_node"
-            ? sourceId
-            : ((base.source_item_id as string | null) ?? null),
-        confidence: formText(values, "confidence", "medium"),
-        status: formText(values, "status", "active"),
-        ...aiMetadataFromForm(values, base, (name) => Boolean(named(name))),
-      };
-      if (!entity.title) {
-        setToast("Knowledgeのタイトルを入力してください。");
-        return false;
-      }
-      delete entity._auto_edge_target_id;
-      delete entity._auto_edge_relation_type;
-      if (autoTarget && autoRelation) {
-        await saveEntities(
-          [
-            { action: "save", type: "knowledge_node", entity: entity as Entity },
-            {
-              action: "save",
-              type: "knowledge_edge",
-              entity: {
-                id: uuid(),
-                source_node_id: entityId,
-                target_node_id: autoTarget,
-                relation_type: autoRelation,
-              } as Entity,
-            },
-          ],
-          base.id ? "変更を保存しました。" : "Knowledgeを追加しました。",
-        );
-        finishSave();
-        return true;
-      }
-    } else if (type === "knowledge_edge") {
-      entity = {
-        ...base,
-        source_node_id: formText(values, "source_node_id"),
-        target_node_id: formText(values, "target_node_id"),
-        relation_type: formText(values, "relation_type", "supports"),
-        description: formText(values, "description"),
-      };
-      if (
-        !entity.source_node_id ||
-        !entity.target_node_id ||
-        entity.source_node_id === entity.target_node_id
-      ) {
-        setToast("異なる2つのKnowledgeを選択してください。");
-        return false;
-      }
     }
 
     if (!entity) return false;
@@ -2087,17 +2018,15 @@ export function WorkspaceApp() {
         ? fullDomain.capture_entries
         : target.entityType === "waiting"
           ? fullDomain.waitings
-          : target.entityType === "knowledge_node"
-            ? fullDomain.knowledge_nodes
-            : target.entityType === "resource"
-              ? fullDomain.resources
-              : target.entityType === "note"
-                ? fullDomain.notes
-                : target.entityType === "plan_node"
-                  ? fullDomain.plan_nodes
-                  : target.entityType === "task"
-                    ? fullDomain.tasks
-                    : [];
+          : target.entityType === "resource"
+            ? fullDomain.resources
+            : target.entityType === "note"
+              ? fullDomain.notes
+              : target.entityType === "plan_node"
+                ? fullDomain.plan_nodes
+                : target.entityType === "task"
+                  ? fullDomain.tasks
+                  : [];
     const entity = collection.find((entry) => entry.id === target.entityId);
     if (!entity) {
       throw new Error("検索結果を開けませんでした。画面を更新して、もう一度試してください。");

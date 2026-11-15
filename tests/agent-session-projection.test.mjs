@@ -491,7 +491,8 @@ test("DebriefはAI作業をTheme単位に整理し、Repositoryと未割当を�
 test("Feed stays beside Inbox and keeps Settings as the utility tool", () => {
   // #604前半でFeedを横断グループの先頭へ足した。Agent DeskはFeedへ集約し、ナビから外した。
   assert.deepEqual(crossNavigation, ["feed", "inbox", "debrief", "timeline"]);
-  assert.deepEqual(toolNavigation, ["settings", "knowledge"]);
+  // 棚卸しの画面は外した（#755 束8）。道具の群は設定だけ。
+  assert.deepEqual(toolNavigation, ["settings"]);
 });
 
 test("Sessionの活動は session.id と source_session_id のどちらかに一致するEventを元の順で重複なく持つ", () => {

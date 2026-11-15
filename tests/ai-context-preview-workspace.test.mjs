@@ -122,13 +122,6 @@ function fixtureRepository() {
       structuredClone((workspace[keyByType[type]] || []).find((entry) => entry.id === id) || null),
     getPreference: () => "",
     setPreference: () => true,
-    getDataHealthState: () => ({
-      schema: "tasken-data-health-state/v1",
-      revision: 0,
-      updatedAt: "",
-      issues: {},
-    }),
-    setDataHealthState: () => true,
   };
 }
 
@@ -209,31 +202,4 @@ test("WorkspaceService Previewはraw Core/discovery errorをRendererへ公開し
   });
   assert.equal(result.state, "error");
   assert.doesNotMatch(result.error, /C:\\Users|workspace\.sqlite|alice|private/);
-});
-
-test("Data Health CAS競合はraw DB errorをRendererへ公開しない (#296)", () => {
-  const repository = fixtureRepository();
-  const service = new WorkspaceService(
-    repository,
-    mkdtempSync(path.join(os.tmpdir(), "tasken-health-userdata-")),
-    () => "2026-08-09T00:00:00.000Z",
-  );
-  const health = service.getDataHealth({ state: "all" });
-  assert.ok(health.issues.length > 0);
-  repository.setDataHealthState = () => {
-    throw new Error("Data Health state revision conflict at C:\\Users\\alice\\workspace.sqlite");
-  };
-  assert.throws(
-    () =>
-      service.setDataHealthIssueState({
-        issueId: health.issues[0].id,
-        state: "ignored",
-        expectedRevision: health.stateRevision,
-      }),
-    (error) => {
-      assert.match(error.message, /別画面で更新/);
-      assert.doesNotMatch(error.message, /C:\\Users|workspace\.sqlite|revision conflict/);
-      return true;
-    },
-  );
 });

@@ -60,7 +60,7 @@ NotesとChat Refsについて、1280 × 800、1536 × 960、1920 × 1200、2560 
 
 ### 狭幅監査（#300）
 
-Today / Inbox / Timeline / Notes / Knowledge / Chat Refs / Artifacts / Sketch / Settings について、幅980・1120・1440、表示倍率1.0・1.3で次を確認する。
+Today / Inbox / Timeline / Notes / Chat Refs / Artifacts / Sketch / Settings について、幅980・1120・1440、表示倍率1.0・1.3で次を確認する。
 
 1. テキストの行ボックスを実測し、一文字ずつ縦積みになっている箇所がない。
 2. 画面全体と作業領域の内側に、意図しない横スクロールがない（Timelineのガント等、意図した局所スクロールは除外する）。
@@ -70,4 +70,4 @@ Today / Inbox / Timeline / Notes / Knowledge / Chat Refs / Artifacts / Sketch / 
 2026-08-06の監査では次を確認し、上記契約で解消した。
 
 - 縦積み: Timelineツールバー（年度・前後3か月・完了タスク・依存線・イナズマ線・依存をつなぐ・全展開・全折りたたみ）、AI IOの`書き出す`見出し、Todayの`コピー`、Notesの操作ボタン群
-- 作業領域内の横スクロール: Today / Inbox / Knowledge（`.page` の `min-width` と `.header-actions` の折り返し）、倍率1.3のSketch一覧とSettingsフォーム（container queryへ移行）
+- 作業領域内の横スクロール: Today / Inbox（`.page` の `min-width` と `.header-actions` の折り返し）、倍率1.3のSketch一覧とSettingsフォーム（container queryへ移行）

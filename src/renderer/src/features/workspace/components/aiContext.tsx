@@ -25,13 +25,7 @@ export function hasAiContextSection(type: string): boolean {
 }
 
 /** 置き換え先に指定できる種別。参照できるEntityだけを出す。 */
-const SUPERSEDED_BY_TYPES: EntityRefType[] = [
-  "note",
-  "task",
-  "knowledge_node",
-  "resource",
-  "plan_node",
-];
+const SUPERSEDED_BY_TYPES: EntityRefType[] = ["note", "task", "resource", "plan_node"];
 
 /**
  * 詳細ドロワーの「AI・情報状態」。通常編集を圧迫しないよう読み取り中心にし、

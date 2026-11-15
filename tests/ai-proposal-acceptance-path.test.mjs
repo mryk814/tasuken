@@ -95,9 +95,12 @@ const { ContentDetailQueryService } = await importBundled(
   "src/main/core/services/contentDetailQueryService.ts",
 );
 const { WorkspaceService } = await importWorkspaceService();
-const { buildPreview, buildCandidateOperations, stabilizeProposalOperations } = await importBundled(
-  "src/renderer/src/features/workspace/components/AiProposalPanel.tsx",
-);
+const {
+  buildPreview,
+  buildCandidateOperations,
+  buildContentProposalDecisions,
+  stabilizeProposalOperations,
+} = await importBundled("src/renderer/src/features/workspace/components/AiProposalPanel.tsx");
 
 function root() {
   return fs.mkdtempSync(path.join(process.cwd(), ".tasken-ai-acceptance-"));
@@ -245,20 +248,41 @@ test("preview candidates commit entities, relation, Activity events and exactly-
       themes: [],
       items: [],
     });
-    const firstOperations = stabilizeProposalOperations(
-      proposal.id,
-      buildCandidateOperations(preview.candidates),
-    );
-    const secondOperations = stabilizeProposalOperations(
-      proposal.id,
-      buildCandidateOperations(preview.candidates),
-    );
+    // 画面は Knowledge の節と線を採らなくなった（#755 束8）。前の版が受け取った案は、中身を見せて
+    // 見送るだけにする。採る口は Main に残っているので、受け取りが一度きりであることは、画面を
+    // 通さずに、同じ形の候補を手元で組み立てて確かめる。
     assert.deepEqual(
-      firstOperations.map((operation) => operation.entity.id),
-      secondOperations.map((operation) => operation.entity.id),
+      preview.candidates.map((candidate) => [candidate.type, candidate.action]),
+      [
+        ["knowledge_node", "ignore"],
+        ["knowledge_node", "ignore"],
+        ["knowledge_edge", "ignore"],
+      ],
     );
-    assert.equal(firstOperations[2].entity.source_node_id, firstOperations[1].entity.id);
-    assert.equal(firstOperations[2].entity.target_node_id, firstOperations[0].entity.id);
+    assert.deepEqual(buildCandidateOperations(preview.candidates), []);
+    assert.match(preview.payloadIssues.join(" / "), /Knowledgeの節と線は採れません/);
+    const nodeIds = [0, 1].map((index) =>
+      stableProposalEntityId(proposal.id, "knowledge_node", index),
+    );
+    const firstOperations = [
+      {
+        type: "knowledge_node",
+        entity: { id: nodeIds[0], node_type: "claim", title: "Claim", body: "C" },
+      },
+      {
+        type: "knowledge_node",
+        entity: { id: nodeIds[1], node_type: "evidence", title: "Evidence", body: "E" },
+      },
+      {
+        type: "knowledge_edge",
+        entity: {
+          id: stableProposalEntityId(proposal.id, "knowledge_edge", 2),
+          source_node_id: nodeIds[1],
+          target_node_id: nodeIds[0],
+          relation_type: "supports",
+        },
+      },
+    ];
     const candidates = firstOperations.map((operation) => ({
       type: operation.type,
       entity:
@@ -1822,6 +1846,78 @@ test("Note Proposal images are verified before acceptance and removed after a su
     );
     assert.equal(database.get("ai_proposal", tamperedProposal.id).status, "pending");
     assert.equal(fs.existsSync(tamperedPath), true);
+  } finally {
+    database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+// #755 束8。前の版が受け取った Knowledge の案は、画面からは見送るだけができる。
+test("the screen can only dismiss a Knowledge proposal, and dismissing it leaves no Knowledge record", () => {
+  const directory = root();
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  try {
+    const proposal = database.save("ai_proposal", {
+      id: "proposal-knowledge-dismiss-only",
+      source: "mcp",
+      source_app: "fixture",
+      payload_type: "knowledge_nodes",
+      payload: {
+        knowledge_nodes: [
+          { action: "create", temp_id: "claim", title: "Claim", body: "C", node_type: "claim" },
+          { action: "create", temp_id: "evidence", title: "Evidence", node_type: "evidence" },
+        ],
+        knowledge_edges: [
+          {
+            action: "create",
+            source_temp_id: "evidence",
+            target_temp_id: "claim",
+            relation_type: "supports",
+          },
+        ],
+      },
+      request: { tool: "tasken.propose_knowledge" },
+      status: "pending",
+      received_at: "2026-11-15T00:00:00.000Z",
+    });
+    const preview = buildPreview(proposal, {
+      data: { knowledge_nodes: [], knowledge_edges: [] },
+      themes: [],
+      items: [],
+    });
+    // 本人が「採る」を選べないので、画面が送る判断はどの行も見送りになる。
+    const decisions = buildContentProposalDecisions(preview);
+    assert.deepEqual(
+      decisions.map((decision) => [decision.type, decision.action]),
+      [
+        ["knowledge_node", "ignore"],
+        ["knowledge_node", "ignore"],
+        ["knowledge_edge", "ignore"],
+      ],
+    );
+    const candidates = stabilizeProposalOperations(
+      proposal.id,
+      buildCandidateOperations(preview.candidates),
+    ).map((operation) => ({ type: operation.type, entity: operation.entity }));
+    assert.deepEqual(candidates, []);
+
+    const acceptance = new AiProposalAcceptanceService(
+      new ApplicationCommandService(database),
+      {
+        materializeArtifactProposal() {
+          throw new Error("unexpected artifact");
+        },
+        rollbackMaterializedArtifactProposal() {},
+      },
+      database,
+    );
+    const command = envelope(proposal, candidates, decisions);
+    command.payload.decision = "reject";
+    command.payload.proposal.status = "rejected";
+    acceptance.execute(command);
+    assert.equal(database.get("ai_proposal", proposal.id).status, "rejected");
+    assert.equal(database.list("knowledge_node").length, 0);
+    assert.equal(database.list("knowledge_edge").length, 0);
   } finally {
     database.db.close();
     fs.rmSync(directory, { recursive: true, force: true });

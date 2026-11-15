@@ -545,7 +545,6 @@ test("page headers move purpose copy into an info popover instead of a permanent
     "ArtifactsPage",
     "ChatRefsPage",
     "InboxPage",
-    "KnowledgePage",
     "NotesPage",
     "ThemesPage",
     "TimelinePage",

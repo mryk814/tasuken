@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildKnowledgeHealth } from "../src/renderer/src/features/workspace/lib/knowledgeHealth.ts";
+// 画面の側の包み（lib/knowledgeHealth.ts）は棚卸しの画面と一緒に外した（#755 束8）。
+// 判定そのものは Core の読み取りがまだ使うので、共有の実装を直に確かめる。
+import { buildDataHealth as buildKnowledgeHealth } from "../src/shared/knowledgeHealth.mjs";
 
 test("knowledge health detects claim, question, evidence, contradiction, and isolated issues", () => {
   const nodes = [

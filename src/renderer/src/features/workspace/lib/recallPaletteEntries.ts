@@ -6,7 +6,7 @@ import {
   TASK_STATE_LABELS,
   WAITING_STATE_LABELS,
 } from "../domain-model/labels";
-import { KNOWLEDGE_NODE_LABELS, NOTE_TYPE_LABELS } from "./domain";
+import { NOTE_TYPE_LABELS } from "./domain";
 import { isChatReference } from "./chatRefs";
 import { CHAT_SERVICE_LABELS, resolveChatService } from "./chatServices";
 
@@ -16,7 +16,7 @@ export type RecallPaletteCategory =
   | "Plans / Milestones"
   | "ノート / 文書"
   | "待ち / 付箋"
-  | "棚卸し / 会話録"
+  | "会話録"
   | "近況"
   | "テーマ"
   | "資料 / 添付";
@@ -194,25 +194,6 @@ export function buildRecallPaletteEntries({
     };
   });
 
-  const knowledge: RecallPaletteDescriptor[] = domain.knowledge_nodes.map((node) => {
-    const nodeLabel = KNOWLEDGE_NODE_LABELS[node.node_type] || "Knowledge";
-    return {
-      id: `knowledge:${node.id}`,
-      label: text(node.title) || "無題のKnowledge",
-      keywords: ["knowledge", "知識", nodeLabel, themeName(node.project_id)],
-      searchText: text(node.body),
-      category: "棚卸し / 会話録",
-      context: context([nodeLabel, themeName(node.project_id), compactText(node.body)]),
-      target: {
-        kind: "drawer",
-        route: "knowledge",
-        entityType: "knowledge_node",
-        entityId: node.id,
-        mode: "view",
-      },
-    };
-  });
-
   const resources: RecallPaletteDescriptor[] = domain.resources.map((resource) => {
     const chat = isChatReference(resource);
     const service = chat ? CHAT_SERVICE_LABELS[resolveChatService(resource)] : "Resource";
@@ -230,7 +211,7 @@ export function buildRecallPaletteEntries({
       searchText: [resource.description, resource.body_markdown, resource.url, resource.chat_group]
         .map(text)
         .join(" "),
-      category: chat ? "棚卸し / 会話録" : "資料 / 添付",
+      category: chat ? "会話録" : "資料 / 添付",
       context: context([
         chat ? `Chat Ref · ${service}` : "Resource",
         themeName(resource.project_id),
@@ -304,7 +285,6 @@ export function buildRecallPaletteEntries({
     ...notes,
     ...waitings,
     ...captures,
-    ...knowledge,
     ...resources,
     ...feedPosts,
     ...artifacts,

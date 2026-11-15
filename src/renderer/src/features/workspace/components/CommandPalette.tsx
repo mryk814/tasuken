@@ -12,7 +12,7 @@ export type CommandPaletteCategory =
   | "Plans / Milestones"
   | "ノート / 文書"
   | "待ち / 付箋"
-  | "棚卸し / 会話録"
+  | "会話録"
   | "近況"
   | "テーマ"
   | "資料 / 添付";
@@ -202,7 +202,7 @@ function OpenCommandPalette({ entries, close }: Omit<CommandPaletteProps, "open"
               setSelectedIndex(0);
               setError("");
             }}
-            placeholder="Task、Plan、Note、待ち、記録、棚卸しをさがす"
+            placeholder="Task、Plan、Note、待ち、記録、会話録をさがす"
             aria-label="Tasken全体をさがす"
             role="combobox"
             aria-expanded="true"

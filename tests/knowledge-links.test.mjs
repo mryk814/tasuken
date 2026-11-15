@@ -32,42 +32,9 @@ test("wiki links parse target and alias from markdown text", () => {
   ]);
 });
 
-test("knowledge backlinks and unlinked mentions separate explicit and candidate links", () => {
-  const node = { id: "k1", title: "仮説A", node_type: "claim" };
-  const result = knowledgeLinks.buildKnowledgeLinkContext(node, {
-    notes: [
-      { id: "n1", title: "明示", body_markdown: "これは [[仮説A]] です。" },
-      { id: "n2", title: "候補", body_markdown: "仮説A をあとでつなぐ。" },
-      { id: "n3", title: "別名", body_markdown: "[[仮説A|この仮説]]" },
-    ],
-    knowledge_nodes: [
-      { id: "k1", title: "仮説A", body: "" },
-      { id: "k2", title: "関連", body: "仮説A と関係する" },
-    ],
-  });
-
-  assert.deepEqual(result.backlinks.map((entry) => entry.id), ["n1", "n3"]);
-  assert.deepEqual(result.unlinkedMentions.map((entry) => entry.id), ["k2", "n2"]);
-});
-
 test("markdown preview renders wiki links as knowledge chips", () => {
   const html = markdown.renderMarkdownPreview("関連: [[仮説A|この仮説]]");
   assert.match(html, /class="md-wiki-link"/);
   assert.match(html, /data-knowledge-target="仮説A"/);
   assert.match(html, />この仮説</);
-});
-
-test("Knowledge detail keeps shared links while page is read-only experimental", () => {
-  const pageSource = readFileSync("src/renderer/src/features/workspace/pages/KnowledgePage.tsx", "utf8");
-  const drawerSource = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
-
-  assert.match(pageSource, /実データ棚卸し/);
-  assert.match(pageSource, /Data Health/);
-  assert.doesNotMatch(pageSource, /Context Graph|#332の共有projection/);
-  assert.doesNotMatch(pageSource, /quickKnowledgeTitle|Knowledgeを追加|Knowledge化/);
-  assert.doesNotMatch(drawerSource, /Knowledge候補|Knowledge化する/);
-  assert.match(drawerSource, /buildKnowledgeLinkContext/);
-  assert.match(drawerSource, /Backlinks/);
-  assert.match(drawerSource, /未リンク候補/);
-  assert.doesNotMatch(drawerSource, /relation_type: "mentions"/);
 });

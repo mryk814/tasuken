@@ -18,10 +18,8 @@ import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
 import { normalizeExternalReferences } from "../../../../../shared/externalReference.mjs";
 import type {
-  BaseRecord,
   DrawerConfig,
   ExecuteCommand,
-  KnowledgeNode,
   Note,
   OpenContentViewer,
   RemoveEntity,
@@ -32,8 +30,6 @@ import type {
   WorkspaceData,
 } from "../types";
 import {
-  KNOWLEDGE_NODE_LABELS,
-  KNOWLEDGE_RELATION_LABELS,
   NOTE_TYPE_LABELS,
   NOTE_TYPE_OPTIONS,
   THEME_STATUS_LABELS,
@@ -44,7 +40,6 @@ import { dateOnly, formatDate, localDateIso, num, str, uuid } from "../lib/forma
 import { notePublishEnabled } from "../lib/io";
 import { normalizeTaskShelf } from "../lib/taskShelves";
 import { placeReminderSummary } from "../lib/placeReminder";
-import { buildKnowledgeLinkContext } from "../lib/knowledgeLinks";
 import { sketchCanvasMode } from "../lib/sketch";
 import {
   escapeHtml,
@@ -554,7 +549,6 @@ const chatDateInput = (value: unknown): string => {
   if (raw.length > 10 && !Number.isNaN(Date.parse(raw))) return localDateIso(new Date(raw));
   return dateOnly(raw);
 };
-const PRIMARY_KNOWLEDGE_NODE_TYPES = ["question", "claim", "evidence", "decision"];
 const REPEAT_FREQUENCY_LABELS = {
   daily: "毎日",
   weekly: "毎週",
@@ -976,16 +970,6 @@ export function EntityDrawer({
       />
     );
   }
-  if (type === "knowledge_node")
-    return <KnowledgeNodeDetailDrawer node={entity as KnowledgeNode} data={data} close={close} />;
-  if (type === "knowledge_edge")
-    return (
-      <KnowledgeEdgeDetailDrawer
-        edge={entity as unknown as import("../domain-model/types").KnowledgeEdge}
-        data={data}
-        close={close}
-      />
-    );
   if (type === "sketch") {
     const sketch = entity as unknown as Sketch;
     return (
@@ -1759,8 +1743,6 @@ function EditDrawer({
     note: "メモ",
     resource: "リソース",
     status_update: "現在地",
-    knowledge_node: "Knowledge",
-    knowledge_edge: "Knowledge Edge",
     task: "タスク",
     waiting: "待ち",
     plan_node: "計画ノード",
@@ -1932,8 +1914,6 @@ function EditDrawer({
               </Field>
             </>
           )}
-          {type === "knowledge_node" && <KnowledgeNodeFields entity={entity} data={data} />}
-          {type === "knowledge_edge" && <KnowledgeEdgeFields entity={entity} data={data} />}
           {type === "task" && (
             <TaskFields
               key={taskChecklistEditorKey}
@@ -2307,179 +2287,6 @@ function ResourceFields({ entity, data }: { entity: DrawerConfig["entity"]; data
           <p className="field-help">メモ本文は中央の編集エリアで書きます。</p>
         </>
       )}
-    </>
-  );
-}
-
-function KnowledgeNodeFields({
-  entity,
-  data,
-}: {
-  entity: DrawerConfig["entity"];
-  data: WorkspaceData;
-}) {
-  const selectedNodeType = str(entity.node_type) || "question";
-  const nodeTypeOptions = PRIMARY_KNOWLEDGE_NODE_TYPES.includes(selectedNodeType)
-    ? PRIMARY_KNOWLEDGE_NODE_TYPES
-    : [...PRIMARY_KNOWLEDGE_NODE_TYPES, selectedNodeType];
-  return (
-    <>
-      <Field label="種類">
-        <select name="node_type" defaultValue={selectedNodeType}>
-          {nodeTypeOptions.map((value) => (
-            <option key={value} value={value}>
-              {KNOWLEDGE_NODE_LABELS[value] || value}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="タイトル">
-        <input name="title" autoFocus defaultValue={str(entity.title)} />
-      </Field>
-      <ThemeSelect themes={data.themes} value={str(entity.theme_id)} />
-      <div className="form-grid">
-        <Field label="確度">
-          <select name="confidence" defaultValue={str(entity.confidence) || "medium"}>
-            <option value="low">low</option>
-            <option value="medium">medium</option>
-            <option value="high">high</option>
-          </select>
-        </Field>
-        <Field label="状態">
-          <select name="status" defaultValue={str(entity.status) || "active"}>
-            <option value="active">active</option>
-            <option value="resolved">resolved</option>
-            <option value="deprecated">deprecated</option>
-            <option value="rejected">rejected</option>
-          </select>
-        </Field>
-      </div>
-      <Field label="本文">
-        <textarea className="large-textarea" name="body" defaultValue={str(entity.body)} />
-      </Field>
-      <KnowledgeSourceFields entity={entity} data={data} />
-    </>
-  );
-}
-
-const SOURCE_TYPE_LABELS: Record<string, string> = {
-  note: "メモ",
-  resource: "リソース",
-  task: "タスク",
-  waiting: "待ち",
-  plan_node: "計画ノード",
-};
-
-function resolveSourceType(entity: DrawerConfig["entity"]): string {
-  if (entity.source_type) return str(entity.source_type);
-  if (entity.source_note_id) return "note";
-  if (entity.source_link_id) return "resource";
-  if (entity.source_item_id) return "task";
-  return "";
-}
-
-function resolveSourceId(entity: DrawerConfig["entity"]): string {
-  if (entity.source_id) return str(entity.source_id);
-  if (entity.source_note_id) return str(entity.source_note_id);
-  if (entity.source_link_id) return str(entity.source_link_id);
-  if (entity.source_item_id) return str(entity.source_item_id);
-  return "";
-}
-
-function KnowledgeSourceFields({
-  entity,
-  data,
-}: {
-  entity: DrawerConfig["entity"];
-  data: WorkspaceData;
-}) {
-  const [sourceType, setSourceType] = useState(resolveSourceType(entity));
-  const resourceIds = new Set((data.resources || []).map((r) => r.id));
-  const candidates: Record<string, { id: string; title: string }[]> = {
-    note: (data.notes || []).map((n) => ({ id: n.id, title: n.title })),
-    resource: [
-      ...(data.resources || []).map((r) => ({ id: r.id, title: str(r.title) })),
-      ...(data.links || [])
-        .filter((l) => !resourceIds.has(l.id))
-        .map((l) => ({ id: l.id, title: l.title })),
-    ],
-    task: (data.tasks || []).map((t) => ({ id: t.id, title: str(t.title) })),
-    waiting: (data.waitings || []).map((w) => ({ id: w.id, title: str(w.title) })),
-    plan_node: (data.plan_nodes || []).map((p) => ({ id: p.id, title: str(p.title) })),
-  };
-  const options = candidates[sourceType] || [];
-  return (
-    <div className="form-grid">
-      <Field label="出典の種類">
-        <select
-          name="source_type"
-          value={sourceType}
-          onChange={(e) => setSourceType(e.target.value)}
-        >
-          <option value="">未設定</option>
-          {Object.entries(SOURCE_TYPE_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="出典">
-        <select name="source_id" defaultValue={resolveSourceId(entity)} key={sourceType}>
-          <option value="">未設定</option>
-          {options.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.title}
-            </option>
-          ))}
-        </select>
-      </Field>
-    </div>
-  );
-}
-
-function KnowledgeEdgeFields({
-  entity,
-  data,
-}: {
-  entity: DrawerConfig["entity"];
-  data: WorkspaceData;
-}) {
-  const nodes = data.knowledge_nodes || [];
-  return (
-    <>
-      <Field label="関係元">
-        <select name="source_node_id" defaultValue={str(entity.source_node_id)}>
-          <option value="">選択</option>
-          {nodes.map((node) => (
-            <option key={node.id} value={node.id}>
-              {node.title}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="関係種別">
-        <select name="relation_type" defaultValue={str(entity.relation_type) || "supports"}>
-          {Object.entries(KNOWLEDGE_RELATION_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="関係先">
-        <select name="target_node_id" defaultValue={str(entity.target_node_id)}>
-          <option value="">選択</option>
-          {nodes.map((node) => (
-            <option key={node.id} value={node.id}>
-              {node.title}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="説明">
-        <textarea name="description" defaultValue={str(entity.description)} />
-      </Field>
     </>
   );
 }
@@ -3087,166 +2894,6 @@ function NoteDetailDrawer({
             削除する
           </button>
         </div>
-      </div>
-    </aside>
-  );
-}
-
-function KnowledgeNodeDetailDrawer({
-  node,
-  data,
-  close,
-}: {
-  node: KnowledgeNode;
-  data: WorkspaceData;
-  close: CloseDrawer;
-}) {
-  const relations = (
-    (data.knowledge_edges || []) as unknown as import("../domain-model/types").KnowledgeEdge[]
-  ).filter(
-    (relation) => relation.source_node_id === node.id || relation.target_node_id === node.id,
-  );
-  const linkContext = buildKnowledgeLinkContext(node as unknown as BaseRecord, {
-    notes: data.notes as unknown as BaseRecord[],
-    knowledge_nodes: data.knowledge_nodes as unknown as BaseRecord[],
-  });
-  const resourceIds = new Set((data.resources || []).map((r) => r.id));
-  const allResources = [
-    ...(data.resources || []),
-    ...(data.links || []).filter((l) => !resourceIds.has(l.id)),
-  ];
-  const allTasks = [...(data.tasks || []), ...(data.waitings || []), ...(data.plan_nodes || [])];
-  const sourceLabel = (() => {
-    if (node.source_type && node.source_id) {
-      const typeLabel = SOURCE_TYPE_LABELS[node.source_type] || node.source_type;
-      if (node.source_type === "note") {
-        const n = data.notes.find((n) => n.id === node.source_id);
-        return `${typeLabel}: ${n?.title || node.source_id}`;
-      }
-      if (node.source_type === "resource") {
-        const r = allResources.find((r) => r.id === node.source_id);
-        return `${typeLabel}: ${str(r?.title) || node.source_id}`;
-      }
-      const t = allTasks.find((t) => t.id === node.source_id);
-      return `${typeLabel}: ${str(t?.title) || node.source_id}`;
-    }
-    if (node.source_note_id)
-      return `メモ: ${data.notes.find((n) => n.id === node.source_note_id)?.title || "不明"}`;
-    if (node.source_link_id)
-      return `リソース: ${allResources.find((r) => r.id === node.source_link_id)?.title || "不明"}`;
-    if (node.source_item_id)
-      return `タスク: ${allTasks.find((t) => t.id === node.source_item_id)?.title || "不明"}`;
-    return "未設定";
-  })();
-
-  return (
-    <aside className="drawer">
-      <DrawerHeader title="Knowledge詳細" close={close} />
-      <div className="drawer-content">
-        <div className="badge-row">
-          <StatusBadge
-            value={node.status}
-            label={KNOWLEDGE_NODE_LABELS[node.node_type] || node.node_type}
-          />
-          <StatusBadge value="neutral" label={node.confidence || "medium"} />
-        </div>
-        <h2>{node.title}</h2>
-        <p className="note-body">{node.body || "本文なし"}</p>
-        <dl>
-          <dt>Theme</dt>
-          <dd>{data.themes.find((theme) => theme.id === node.theme_id)?.name || "未設定"}</dd>
-          <dt>出典</dt>
-          <dd>{sourceLabel}</dd>
-        </dl>
-        {relations.length > 0 && (
-          <div className="revision-list">
-            <h3>関係</h3>
-            {relations.map((relation) => {
-              const isSource = relation.source_node_id === node.id;
-              const other = data.knowledge_nodes.find(
-                (entry) =>
-                  entry.id === (isSource ? relation.target_node_id : relation.source_node_id),
-              );
-              return (
-                <div key={relation.id}>
-                  <span>
-                    {isSource ? "→" : "←"} {relation.relation_type}: {str(other?.title) || "不明"}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {linkContext.backlinks.length > 0 && (
-          <div className="revision-list">
-            <h3>Backlinks</h3>
-            {linkContext.backlinks.map((entry) => (
-              <div key={`${entry.type}-${entry.id}`}>
-                <div className="knowledge-link-row">
-                  <strong>{entry.title}</strong>
-                  <span>
-                    {entry.type === "note" ? "Note" : "Knowledge"} /{" "}
-                    {entry.body.slice(0, 80) || "本文なし"}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        {linkContext.unlinkedMentions.length > 0 && (
-          <div className="revision-list">
-            <h3>未リンク候補</h3>
-            {linkContext.unlinkedMentions.map((entry) => (
-              <div className="knowledge-link-candidate" key={`${entry.type}-${entry.id}`}>
-                <div className="knowledge-link-row">
-                  <strong>{entry.title}</strong>
-                  <span>
-                    {entry.type === "note" ? "Note" : "Knowledge"} /{" "}
-                    {entry.body.slice(0, 80) || "本文なし"}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        <LineagePanel
-          data={data}
-          seed={{ type: "knowledge_node", id: node.id }}
-          openDrawer={(next) => close(next)}
-        />
-      </div>
-    </aside>
-  );
-}
-
-function KnowledgeEdgeDetailDrawer({
-  edge,
-  data,
-  close,
-}: {
-  edge: import("../domain-model/types").KnowledgeEdge;
-  data: WorkspaceData;
-  close: CloseDrawer;
-}) {
-  const source = data.knowledge_nodes.find((node) => node.id === edge.source_node_id);
-  const target = data.knowledge_nodes.find((node) => node.id === edge.target_node_id);
-  return (
-    <aside className="drawer">
-      <DrawerHeader title="Knowledge Relation詳細" close={close} />
-      <div className="drawer-content">
-        <StatusBadge value="neutral" label="read-only" />
-        <dl>
-          <dt>関係元</dt>
-          <dd>{source?.title || edge.source_node_id || "不明"}</dd>
-          <dt>関係種別</dt>
-          <dd>{KNOWLEDGE_RELATION_LABELS[edge.relation_type] || edge.relation_type || "未設定"}</dd>
-          <dt>関係先</dt>
-          <dd>{target?.title || edge.target_node_id || "不明"}</dd>
-        </dl>
-        {edge.description && <p className="note-body">{edge.description}</p>}
-        <p className="field-help">
-          既存Relationの確認専用です。この画面からの追加・編集・削除は行いません。
-        </p>
       </div>
     </aside>
   );

@@ -504,10 +504,8 @@ test("Artifacts 一覧が知識整理ナビとルートに接続されている"
   assert.equal(existsSync("src/renderer/src/features/workspace/pages/ArtifactsPage.tsx"), true);
   assert.match(routesSource, /id: "artifacts",\s*label: "添付"/);
   assert.match(routesSource, /id: "artifacts"[\s\S]*group: "knowledge"/);
-  assert.match(
-    routesSource,
-    /navigation: \{\s*group: "knowledge",\s*parent: "knowledge",\s*order: 6,?\s*\}/,
-  );
+  // 知識整理の群の親だった棚卸しの画面は外した（#755 束8）。群と並び順だけを持つ。
+  assert.match(routesSource, /navigation: \{\s*group: "knowledge",\s*order: 6,?\s*\}/);
   assert.match(workspacePageRouterSource, /ArtifactsPage/);
   assert.match(workspacePageRouterSource, /case "artifacts":/);
 });

@@ -70,12 +70,6 @@ export const workspaceApi = {
   previewAiContext(request: Parameters<Window["api"]["aiContext"]["preview"]>[0]) {
     return desktopApi().aiContext.preview(request);
   },
-  getDataHealth(query: Parameters<Window["api"]["dataHealth"]["get"]>[0] = {}) {
-    return desktopApi().dataHealth.get(query);
-  },
-  setDataHealthIssueState(request: Parameters<Window["api"]["dataHealth"]["setState"]>[0]) {
-    return desktopApi().dataHealth.setState(request);
-  },
   previewConversationContext(
     request: Parameters<Window["api"]["conversationContext"]["preview"]>[0],
   ) {

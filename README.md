@@ -244,7 +244,7 @@ npm run hooks:copilot:uninstall
 - Context / Agent連携: MCP、外部AgentからのProposal差分確認、JSON / YAML / Markdownの書き出し
 - 控えと復元: 起動後に正本データベースと画像・写真の控えを作り、確かめてから世代を入れ替える。設定から控えを選んで戻せる
 - Theme Status / Plan Revision / 情報源管理 / Settings
-- Knowledge / Context Graph / MCP: 既存Knowledge・Relationの診断、read-only context、Preview必須のSafe Write Proposal。Context GraphとAI ContextはKnowledge画面の手動整理に依存しない
+- Context Graph / MCP: read-only context、Preview必須のSafe Write Proposal。Knowledge の節と線は、入力と棚卸しの画面を外した（#755）。記録は読むだけで残り、外した版の最初の起動で一度だけ、テーマごとの Markdown を userData と同期ルートの `Exports/retired/knowledge/` に書き出す
 
 ## 使い始める流れ
 

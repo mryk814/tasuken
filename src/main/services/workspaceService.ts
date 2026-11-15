@@ -66,9 +66,6 @@ import type {
   McpBridgeInfo,
   AiContextPreviewRequest,
   AiContextPreviewResult,
-  DataHealthQuery,
-  DataHealthQueryResult,
-  DataHealthStateUpdateRequest,
 } from "../../shared/ipc/contracts";
 import { createMcpBridgeInfo } from "../../shared/ipc/contracts";
 import { coreWriteProfile } from "../../shared/contracts/core/public.mjs";
@@ -96,14 +93,12 @@ import type {
   DocumentSaveRequest,
   SaveOperation,
   SaveOptions,
-  Workspace,
 } from "../../shared/types/workspace";
 import { referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
 import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs";
 import { reconcileStableLinkAssertions } from "../../shared/stableLinks.mjs";
 import { changeEventsForCommand } from "../../shared/activityEvent.mjs";
 import { previewTaskCoding } from "../../shared/aiContextPreview.mjs";
-import { DataHealthEvaluator, normalizeDataHealthState } from "../../shared/dataHealth.mjs";
 import { formatRecordCountsMarkdown, type RecordCountRow } from "./recordCounts.mjs";
 import {
   CONVERSATION_CONTEXT_PUBLICATION_SCHEMA,
@@ -236,9 +231,7 @@ interface WorkspaceRepository {
   ): Array<Record<string, unknown>>;
   getPreference(key: string): unknown;
   setPreference(key: string, value: unknown): unknown;
-  getDataHealthState(): unknown;
   countRecordsByType(): RecordCountRow[];
-  setDataHealthState(expectedRevision: number, value: unknown): unknown;
   get(type: string, id: string, includeDeleted?: boolean): Record<string, unknown> | null;
   list(type: string, includeDeleted?: boolean): Array<Record<string, unknown>>;
   runTransaction<T>(
@@ -718,7 +711,6 @@ function normalizeMarkdownImageAttachment(value: unknown): MarkdownImageAttachme
 export class WorkspaceService {
   private readonly canonicalRecoveryPath: string;
   private readonly canonicalRecoveryWarningPath: string;
-  private readonly dataHealthEvaluator = new DataHealthEvaluator();
   private readonly conversationContextRecoveryDirectory: string;
   private readonly proposalMarkdownImages: ProposalMarkdownImageStore;
   private readonly taskenCoreClient?: {
@@ -1140,80 +1132,6 @@ export class WorkspaceService {
         error: safeContextPreviewError(error),
       };
     }
-  }
-
-  getDataHealth(queryValue: unknown = {}): DataHealthQueryResult {
-    try {
-      return this.evaluateDataHealth(queryValue);
-    } catch {
-      throw new Error(
-        "Data Healthを確認できませんでした。画面を再読み込みして、もう一度お試しください。",
-      );
-    }
-  }
-
-  private evaluateDataHealth(queryValue: unknown = {}): DataHealthQueryResult {
-    const query = objectValue(queryValue) as DataHealthQuery;
-    const workspace = this.repository.loadWorkspace(false) as Workspace;
-    const state = normalizeDataHealthState(this.repository.getDataHealthState());
-    const evaluated = this.dataHealthEvaluator.evaluate(workspace, {
-      state,
-      generatedAt: this.now(),
-    });
-    const stateFilter = query.state && query.state !== "all" ? query.state : "open";
-    const issues = evaluated.issues.filter(
-      (entry) =>
-        (!query.themeId || entry.themeId === query.themeId) &&
-        (!query.entityType || entry.ref.type === query.entityType) &&
-        (!query.severity || entry.severity === query.severity) &&
-        (!stateFilter || entry.state === stateFilter),
-    );
-    return { ...evaluated, issues, totalIssueCount: evaluated.issues.length };
-  }
-
-  setDataHealthIssueState(requestValue: unknown): DataHealthQueryResult {
-    const request = objectValue(requestValue) as Partial<DataHealthStateUpdateRequest>;
-    const issueId = typeof request.issueId === "string" ? request.issueId.trim() : "";
-    const nextState = request.state;
-    if (!issueId || !["open", "ignored", "resolved"].includes(String(nextState))) {
-      throw new Error("Data Healthの状態変更が不正です。画面を開き直してください。");
-    }
-    let current;
-    try {
-      current = normalizeDataHealthState(this.repository.getDataHealthState());
-    } catch {
-      throw new Error("Data Healthの状態を読み込めませんでした。画面を再読み込みしてください。");
-    }
-    if (request.expectedRevision !== current.revision) {
-      throw new Error(
-        "Data Healthが別画面で更新されました。再読み込みしてからもう一度操作してください。",
-      );
-    }
-    const currentResult = this.getDataHealth({ state: "all" });
-    if (!currentResult.issues.some((entry) => entry.id === issueId)) {
-      throw new Error("Data Health issueは解消済みです。再読み込みしてください。");
-    }
-    const issues = { ...current.issues };
-    if (nextState === "open") delete issues[issueId];
-    else {
-      issues[issueId] = {
-        state: nextState as "ignored" | "resolved",
-        updatedAt: this.now(),
-        note: typeof request.note === "string" ? request.note.trim().slice(0, 500) : "",
-      };
-    }
-    try {
-      this.repository.setDataHealthState(current.revision, {
-        schema: "tasken-data-health-state/v1",
-        updatedAt: this.now(),
-        issues,
-      });
-    } catch {
-      throw new Error(
-        "Data Healthが別画面で更新されました。再読み込みしてからもう一度操作してください。",
-      );
-    }
-    return this.getDataHealth({ state: "all" });
   }
 
   private resolveThemeFolder(theme: Record<string, unknown>) {

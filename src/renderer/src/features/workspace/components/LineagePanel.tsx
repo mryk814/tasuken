@@ -114,12 +114,12 @@ export function LineagePanel({
       return;
     }
     const record = findRecord(data, item.ref.type, item.ref.id);
-    if (!record || !openDrawer || !["capture_entry", "knowledge_node", "note", "plan_node", "project", "resource", "sketch", "task", "waiting"].includes(item.ref.type)) return;
+    if (!record || !openDrawer || !["capture_entry", "note", "plan_node", "project", "resource", "sketch", "task", "waiting"].includes(item.ref.type)) return;
     const entity = item.ref.type === "task" || item.ref.type === "waiting" || item.ref.type === "plan_node"
       ? { ...record, _schedule: findSchedule(data, item.ref.type as "task" | "waiting" | "plan_node", item.ref.id) }
       : record;
     openDrawer({
-      type: (item.ref.type === "project" ? "theme" : item.ref.type) as "capture_entry" | "knowledge_node" | "note" | "plan_node" | "resource" | "sketch" | "task" | "theme" | "waiting",
+      type: (item.ref.type === "project" ? "theme" : item.ref.type) as "capture_entry" | "note" | "plan_node" | "resource" | "sketch" | "task" | "theme" | "waiting",
       entity,
     });
   }

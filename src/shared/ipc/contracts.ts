@@ -56,7 +56,6 @@ import type {
 import type { WebArtifactExecutionPolicy } from "../webArtifact.mjs";
 import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
 import type { AiContextPreview } from "../aiContextPreview.mjs";
-import type { DataHealthIssue, DataHealthResult, DataHealthSeverity } from "../dataHealth.mjs";
 import type {
   AudioCaptureCancelRequest,
   AudioCaptureCommitRequest,
@@ -132,8 +131,6 @@ export const IPC = {
   activityEvents: "activity:events",
   activityOpenCanonicalRef: "activity:open-canonical-ref",
   aiContextPreview: "ai-context:preview",
-  dataHealthGet: "data-health:get",
-  dataHealthSetState: "data-health:set-state",
   preferenceGet: "preference:get",
   preferenceSet: "preference:set",
   viewPreferenceGet: "view-preference:get",
@@ -440,25 +437,6 @@ export interface AiContextPreviewResult {
   error?: string;
 }
 
-export interface DataHealthQuery {
-  themeId?: string;
-  entityType?: string;
-  severity?: DataHealthSeverity;
-  state?: "open" | "ignored" | "resolved" | "all";
-}
-
-export interface DataHealthQueryResult extends Omit<DataHealthResult, "issues"> {
-  issues: DataHealthIssue[];
-  totalIssueCount: number;
-}
-
-export interface DataHealthStateUpdateRequest {
-  issueId: string;
-  state: "open" | "ignored" | "resolved";
-  expectedRevision: number;
-  note?: string;
-}
-
 export type ConversationContextScope = "full" | "selected_turns";
 
 export interface ConversationContextPreviewRequest {
@@ -694,10 +672,6 @@ export interface ResearchDeskApi {
   };
   aiContext: {
     preview(request: AiContextPreviewRequest): Promise<AiContextPreviewResult>;
-  };
-  dataHealth: {
-    get(query?: DataHealthQuery): Promise<DataHealthQueryResult>;
-    setState(request: DataHealthStateUpdateRequest): Promise<DataHealthQueryResult>;
   };
   conversationContext: {
     preview(request: ConversationContextPreviewRequest): Promise<ConversationContextPreviewResult>;

@@ -15,7 +15,6 @@ import {
   validateEntity,
   workspaceEntityTypes,
 } from "./domain.mjs";
-import { DATA_HEALTH_STATE_SCHEMA, normalizeDataHealthState } from "../../shared/dataHealth.mjs";
 import { normalizeDueNotificationTimes } from "../../shared/taskNotifications.ts";
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { migratePublishedFeedNotes } from "./feedPostMigration.mjs";
@@ -777,65 +776,6 @@ export class WorkspaceDatabase {
       value,
       revision: next.revision,
     };
-  }
-
-  getDataHealthState() {
-    const raw = this.ensureMeta(
-      "data_health_issue_states",
-      JSON.stringify({
-        schema: DATA_HEALTH_STATE_SCHEMA,
-        revision: 0,
-        updatedAt: "",
-        issues: {},
-      }),
-    );
-    try {
-      return normalizeDataHealthState(JSON.parse(raw));
-    } catch {
-      return normalizeDataHealthState(null);
-    }
-  }
-
-  setDataHealthState(expectedRevision, value) {
-    const transaction = this.db.transaction(() => {
-      const fallback = JSON.stringify({
-        schema: DATA_HEALTH_STATE_SCHEMA,
-        revision: 0,
-        updatedAt: "",
-        issues: {},
-      });
-      this.db
-        .prepare(
-          "INSERT INTO workspace_meta(key, value) VALUES('data_health_issue_states', ?) ON CONFLICT(key) DO NOTHING",
-        )
-        .run(fallback);
-      const row = this.db
-        .prepare("SELECT value FROM workspace_meta WHERE key = 'data_health_issue_states'")
-        .get();
-      let parsed;
-      try {
-        parsed = normalizeDataHealthState(JSON.parse(row.value));
-      } catch {
-        parsed = normalizeDataHealthState(null);
-      }
-      if (parsed.revision !== expectedRevision)
-        throw new Error("Data Health state revision conflict");
-      const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-      const next = normalizeDataHealthState({
-        schema: DATA_HEALTH_STATE_SCHEMA,
-        revision: expectedRevision + 1,
-        updatedAt: source.updatedAt,
-        issues: source.issues,
-      });
-      const result = this.db
-        .prepare(
-          "UPDATE workspace_meta SET value = ? WHERE key = 'data_health_issue_states' AND value = ?",
-        )
-        .run(JSON.stringify(next), row.value);
-      if (result.changes !== 1) throw new Error("Data Health state revision conflict");
-      return next;
-    });
-    return transaction.immediate();
   }
 
   getMeta() {

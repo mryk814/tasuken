@@ -22,7 +22,6 @@ export type CanonicalRouteId =
   | "inbox"
   | "feed"
   | "timeline"
-  | "knowledge"
   | "notes"
   | "sketch"
   | "studio"
@@ -158,15 +157,6 @@ export const ROUTE_DEFINITIONS = {
     availability: "always",
     navigation: { group: "cross", order: 4 },
   },
-  knowledge: {
-    id: "knowledge",
-    label: "棚卸し",
-    description: "既存データを読み取り、Research / Diagnosticとして確認します。",
-    icon: IconBulb,
-    semanticRole: "tool",
-    availability: "always",
-    navigation: { group: "tools", order: 3 },
-  },
   notes: {
     id: "notes",
     label: "ノート",
@@ -175,7 +165,7 @@ export const ROUTE_DEFINITIONS = {
     icon: IconNotes,
     semanticRole: "view",
     availability: "always",
-    navigation: { group: "knowledge", parent: "knowledge", order: 2 },
+    navigation: { group: "knowledge", order: 2 },
     aliases: [{ id: "prompts", parent: "notes" }],
   },
   sketch: {
@@ -184,7 +174,7 @@ export const ROUTE_DEFINITIONS = {
     icon: IconWriting,
     semanticRole: "view",
     availability: "always",
-    navigation: { group: "knowledge", parent: "knowledge", order: 3 },
+    navigation: { group: "knowledge", order: 3 },
     aliases: [{ id: "sketch-editor", parent: "sketch", kind: "child" }],
   },
   studio: {
@@ -195,16 +185,16 @@ export const ROUTE_DEFINITIONS = {
     icon: IconMicrophone,
     semanticRole: "view",
     availability: "always",
-    navigation: { group: "knowledge", parent: "knowledge", order: 4 },
+    navigation: { group: "knowledge", order: 4 },
   },
   "chat-refs": {
     id: "chat-refs",
     label: "会話録",
-    description: "外部AIチャットをテーマ単位で保管し、あとからノートや棚卸しに展開します。",
+    description: "外部AIチャットをテーマ単位で保管し、あとからノートに展開します。",
     icon: IconMessageCircle,
     semanticRole: "view",
     availability: "always",
-    navigation: { group: "knowledge", parent: "knowledge", order: 5 },
+    navigation: { group: "knowledge", order: 5 },
   },
   artifacts: {
     id: "artifacts",
@@ -214,7 +204,7 @@ export const ROUTE_DEFINITIONS = {
     icon: IconPaperclip,
     semanticRole: "view",
     availability: "always",
-    navigation: { group: "knowledge", parent: "knowledge", order: 6 },
+    navigation: { group: "knowledge", order: 6 },
   },
   theme: {
     id: "theme",
@@ -298,6 +288,8 @@ export function normalizeRoute(route: string): string {
   if (/^settings(?:[/?].*)?$/.test(route)) return "settings";
   // Agent DeskはFeedへ集約した。旧URL（ai-io / proposal-inbox）は対応待ちタブへ送る。
   if (route === "ai-io" || route === "proposal-inbox") return "feed";
+  // 棚卸しの画面は外した（#755 束8）。前の版が覚えていた行き先は今日へ送る。
+  if (route === "knowledge") return "today";
   return routeRedirects[route] || route;
 }
 

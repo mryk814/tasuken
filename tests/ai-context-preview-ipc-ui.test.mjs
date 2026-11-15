@@ -7,12 +7,8 @@ const contracts = fs.readFileSync("src/shared/ipc/contracts.ts", "utf8");
 const registerIpc = fs.readFileSync("src/main/ipc/registerIpc.ts", "utf8");
 const preload = fs.readFileSync("src/preload/index.ts", "utf8");
 const workspaceApi = fs.readFileSync("src/renderer/src/services/workspaceApi.ts", "utf8");
-const knowledgePage = fs.readFileSync(
-  "src/renderer/src/features/workspace/pages/KnowledgePage.tsx",
-  "utf8",
-);
 
-test("Context Preview/Data Health IPCはtyped requestだけをMainへ渡す (#296)", () => {
+test("Context Preview IPCはtyped requestだけをMainへ渡す (#296)", () => {
   assert.match(contracts, /aiContextPreview: "ai-context:preview"/);
   assert.match(
     contracts,
@@ -23,19 +19,10 @@ test("Context Preview/Data Health IPCはtyped requestだけをMainへ渡す (#29
     /path|content|query|relation/,
   );
   assert.match(registerIpc, /service\.getAiContextPreview\(request\)/);
-  assert.match(registerIpc, /service\.setDataHealthIssueState\(request\)/);
   assert.match(preload, /ipcRenderer\.invoke\(IPC\.aiContextPreview, request\)/);
-  assert.match(workspaceApi, /desktopApi\(\)\.dataHealth\.setState\(request\)/);
-});
-
-test("Data Healthの画面はrequest raceを守り、ruleIdでなくlabelを出す (#296)", () => {
-  assert.match(knowledgePage, /setUpdatingIssueId\(issue\.id\)/);
-  assert.match(knowledgePage, /disabled={Boolean\(updatingIssueId\)}/);
-  assert.match(knowledgePage, /healthRequestGate\.current\.isCurrent\(requestId\)/);
-  assert.match(knowledgePage, /label={issue\.label}/);
-  assert.match(knowledgePage, /issue\.fixActions\s*\.map/);
-  assert.doesNotMatch(knowledgePage, /label={issue\.ruleId}/);
-  assert.doesNotMatch(knowledgePage, /localStorage|healthRevisionKey/);
+  // Data Health（棚卸しの画面の診断）は外した（#755 束8）。IPC・preload・画面の口が残っていない。
+  for (const source of [contracts, registerIpc, preload, workspaceApi])
+    assert.doesNotMatch(source, /dataHealth|DataHealth|data-health/);
 });
 
 test("latest request gateはfilter切替後に遅着した古い結果を無効化する (#296)", async () => {

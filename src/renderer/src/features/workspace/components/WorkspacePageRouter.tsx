@@ -37,10 +37,6 @@ const ChatRefsPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("chat-refs
 const DebriefPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("debrief"), "DebriefPage");
 const FeedPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("feed"), "FeedPage");
 const InboxPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("inbox"), "InboxPage");
-const KnowledgePage = lazyNamedPage<PageProps>(
-  () => loadWorkspacePage("knowledge"),
-  "KnowledgePage",
-);
 const NotesPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("notes"), "NotesPage");
 const SketchLibraryPage = lazyNamedPage<PageProps>(
   () => loadWorkspacePage("sketch"),
@@ -114,9 +110,6 @@ export function WorkspacePageRouter({
       break;
     case "sketch-editor":
       page = <SketchPage {...common} />;
-      break;
-    case "knowledge":
-      page = <KnowledgePage {...common} />;
       break;
     case "waiting":
       page = <WaitingPage {...common} />;
