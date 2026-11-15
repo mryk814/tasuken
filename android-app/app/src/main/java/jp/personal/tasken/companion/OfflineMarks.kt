@@ -199,6 +199,7 @@ internal fun OflNowave(modifier: Modifier = Modifier, color: Color = MaterialThe
 
 /**
  * 日付印（丸い印＝時刻）。直径 56、輪郭 1.5、-7° 傾ける。上の語は「写し」か「届いた」、中は日付、下は時刻。
+ * 上下の語は帯に寄せる（字の升の中心が上から 11.75 と 44.25、字間なし）。円の幅が広い所に置き、3 文字の語と 2 桁の時の角を輪郭に当てない。
  * [scale] で印ごと小さくできる（見出しが縮んだ時）。押せる範囲は呼ぶ側が決める。
  */
 @Composable
@@ -235,9 +236,9 @@ internal fun OflStamp(label: String, at: Instant, modifier: Modifier = Modifier,
             }
             .clearAndSetSemantics { contentDescription = "$label $date $time" },
     ) {
-        Text(label, style = style(10f, FontWeight.Bold), modifier = Modifier.align(Alignment.TopCenter).stampOffset(4.5f * scale))
+        Text(label, style = style(10f, FontWeight.Bold), modifier = Modifier.align(Alignment.TopCenter).stampOffset(6.75f * scale))
         Text(date, style = style(12.5f, FontWeight.ExtraBold), modifier = Modifier.align(Alignment.Center))
-        Text(time, style = style(10f, FontWeight.Bold), modifier = Modifier.align(Alignment.BottomCenter).stampOffset(-6f * scale))
+        Text(time, style = style(10f, FontWeight.Bold), modifier = Modifier.align(Alignment.BottomCenter).stampOffset(-6.75f * scale))
     }
 }
 
