@@ -104,10 +104,16 @@ export class ProposeAgentSessionService {
       // Keep already-adopted pre-generation captures addressable without migration.
       if (request.action === "capture") {
         const legacyId = uuidFrom([request.source_app, "agent_session", request.source_session]);
-        const legacy = transaction.getEntity("agent_session", legacyId);
+        const legacy = transaction.getEntityIncludingDeleted("agent_session", legacyId);
         if (legacy && Date.parse(String(legacy.started_at)) === Date.parse(request.started_at)) {
           sessionId = legacyId;
         }
+      }
+      // 本人が日誌から消した会話は、ログの読み取りや hooks が同じ会話を送り直しても戻さない
+      // （#751）。案も作らない（採用待ちの案が「未確定の受信記録」として日誌に戻るため）。
+      // 送り手には受信済みと答える（送り手が手元の控えを捨て、同じ物を送り続けないように）。
+      if (transaction.getEntityIncludingDeleted("agent_session", sessionId)?.deleted_at) {
+        return "removed" as const;
       }
       const current =
         request.action === "finish" || (request.action === "capture" && request.expected_version)
@@ -269,12 +275,14 @@ export class ProposeAgentSessionService {
     return proposeAgentSessionResponseSchema.parse({
       proposal_id: proposalId,
       agent_session_id: sessionId,
-      status,
+      status: status === "removed" ? "duplicate" : status,
       payload_type: "agent_sessions",
       message:
         status === "queued"
           ? "Agent Session を提案として送りました。Tasken の Agent Desk で確認してください。"
-          : "同じ idempotency_key の Agent Session Proposal は受信済みです。",
+          : status === "removed"
+            ? "この Agent Session は本人が消しています。受信済みとして扱い、保存しません。"
+            : "同じ idempotency_key の Agent Session Proposal は受信済みです。",
     });
   }
 }

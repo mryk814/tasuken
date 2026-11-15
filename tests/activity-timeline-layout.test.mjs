@@ -179,7 +179,7 @@ test("Activity calendar keeps late and short controls usable within the day canv
 
 const now = "2026-10-04T00:00:00Z";
 // 行は AI の作業のカード（#751）。終わりの決め方（最後に見た時刻で止める、など）は
-// 読み替えの側の試験（tests/agent-work-card.test.mjs）で見る。
+// 読み替えの側の試験（tests/agent-work-read.test.mjs）で見る。
 const card = (extra = {}) => ({
   id: "s",
   started_at: "2026-10-03T00:00:00Z",

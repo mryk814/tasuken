@@ -31,11 +31,22 @@ import type { AgentContextReadPort, AgentContextRecord } from "../ports/agentCon
 
 import {
   agentWorkCardInDateRange,
+  agentWorkLocalDate,
   agentWorkCardsFromWorkspace,
 } from "../../../shared/agentWorkCard.ts";
 import { safeReceiptValue } from "../../../shared/taskContext.mjs";
 
 const DEFAULT_ACTIVITY_LIMIT = 100;
+
+/**
+ * from・to を、その時間帯の日付に直す。日付だけならそのまま。時刻付きの値の先頭 10 字は
+ * UTC の日付になりうるので（日本時間の朝 9 時より前は前の日）、時間帯で日付を取り直す。
+ */
+function boundaryDate(value: string | undefined, timezone: string): string | undefined {
+  if (!value) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  return agentWorkLocalDate(value, timezone) || value.slice(0, 10);
+}
 
 function text(value: unknown) {
   return value == null ? "" : String(value);
@@ -94,8 +105,8 @@ export class AgentContextQueryService {
       : agentWorkCardsFromWorkspace(snapshot.workspace)
           .filter((card) =>
             agentWorkCardInDateRange(card, {
-              from: request.date || request.from?.slice(0, 10),
-              to: request.date || request.to?.slice(0, 10),
+              from: request.date || boundaryDate(request.from, timezone),
+              to: request.date || boundaryDate(request.to, timezone),
               timezone,
             }),
           )

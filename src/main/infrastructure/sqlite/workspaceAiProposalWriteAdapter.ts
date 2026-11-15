@@ -33,6 +33,7 @@ export class WorkspaceAiProposalWriteAdapter implements AiProposalWritePort {
       callback({
         get: (id) => asProposal(repository.get("ai_proposal", id, true)),
         getEntity: (type, id) => repository.get(type, id, false),
+        getEntityIncludingDeleted: (type, id) => repository.get(type, id, true),
         save: (proposal) => {
           const saved = asProposal(
             repository.save("ai_proposal", { ...proposal }, { source: "mcp" }),

@@ -251,9 +251,54 @@ export const agentWorkCardSchema = z
     basis: z.enum(["ai_report", "log_pickup", "folded"]),
     written_by: z.string().nullable(),
     running: z.boolean(),
+    end_recorded: z.boolean(),
   })
   .strict();
 
+const agentSessionContextTaskWorkSchema = z
+  .array(
+    z.object({
+      id: z.string(),
+      task_id: z.string(),
+      title: z.string(),
+      started_at: z.string(),
+      ended_at: z.string().nullable(),
+      status: z.enum(["active", "completed", "blocked"]),
+      review_status: z.enum(["pending", "accepted", "recorded"]),
+      summary: z.string(),
+      executor_label: z.string(),
+      source_session: z.string().nullable(),
+      verification: z.array(z.string()),
+      remaining_work: z.array(z.string()),
+      proposal_id: z.string().nullable(),
+    }),
+  )
+  .default([]);
+
+/**
+ * 呼ぶ側（MCP の橋・hook の script）が応答を読む時の形。Core と呼ぶ側の版がずれても読める
+ * ように寛容にしてある。hook の script は main の checkout から動き、Desktop の Core は
+ * installer で上がるので、新しい script が古い Core の応答（`sessions` を持ち、`agent_work` が
+ * 無く、`previous_handoff` が古い会話の形）を読む組が必ず起きる。厳しく読むと応答ごと失敗し、
+ * hook はリポジトリとテーマの結び付けを黙って落とす。
+ *
+ * - 知らない欄（古い `sessions` など）は通す。
+ * - `agent_work` が無い・読めない時は空、`previous_handoff` が読めない時は null。
+ * - リポジトリ・テーマ・Task・作業場所は、古い版と同じ形なので厳しく読む。
+ */
+export const getAgentSessionContextClientResponseSchema = z.looseObject({
+  ...repositoryMatchShape,
+  repository_context: publicRepositoryContextSchema.nullable(),
+  themes: z.array(publicThemeSchema),
+  tasks: z.array(publicTaskSchema),
+  working_copies: z.array(publicWorkingCopySchema),
+  agent_work: z.array(agentWorkCardSchema).catch([]),
+  task_work: agentSessionContextTaskWorkSchema,
+  previous_handoff: agentWorkCardSchema.nullable().catch(null),
+  read_only: z.literal(true),
+});
+
+/** Core が応答を作る時の形（厳しい。知らない欄を出さない）。 */
 export const getAgentSessionContextResponseSchema = z
   .object({
     ...repositoryMatchShape,
@@ -263,25 +308,7 @@ export const getAgentSessionContextResponseSchema = z
     working_copies: z.array(publicWorkingCopySchema),
     /** そのリポジトリ（date だけの時は、その日）の AI の作業。終わりの新しい順。 */
     agent_work: z.array(agentWorkCardSchema),
-    task_work: z
-      .array(
-        z.object({
-          id: z.string(),
-          task_id: z.string(),
-          title: z.string(),
-          started_at: z.string(),
-          ended_at: z.string().nullable(),
-          status: z.enum(["active", "completed", "blocked"]),
-          review_status: z.enum(["pending", "accepted", "recorded"]),
-          summary: z.string(),
-          executor_label: z.string(),
-          source_session: z.string().nullable(),
-          verification: z.array(z.string()),
-          remaining_work: z.array(z.string()),
-          proposal_id: z.string().nullable(),
-        }),
-      )
-      .default([]),
+    task_work: agentSessionContextTaskWorkSchema,
     /** 引き継ぎ: 自分の会話ではない、残りのある（か止まった）直前の 1 件。 */
     previous_handoff: agentWorkCardSchema.nullable(),
     read_only: z.literal(true),

@@ -14,6 +14,8 @@ export interface AiProposalRecord {
 export interface AiProposalTransaction {
   get(id: string): AiProposalRecord | null;
   getEntity(type: string, id: string): Record<string, unknown> | null;
+  /** 消した印の付いた物も返す（本人が消した物を、AI の送り直しで戻さないために見る）。 */
+  getEntityIncludingDeleted(type: string, id: string): Record<string, unknown> | null;
   save(proposal: AiProposalRecord): AiProposalRecord;
 }
 

@@ -22,7 +22,11 @@ import {
   buildAgentSessionLinks,
   listAgentWorkCards,
 } from "../src/shared/agentWorkCard.ts";
-import { agentWorkCardSchema } from "../src/shared/contracts/task/public.ts";
+import {
+  agentWorkCardSchema,
+  getAgentSessionContextClientResponseSchema,
+  getAgentSessionContextResponseSchema,
+} from "../src/shared/contracts/task/public.ts";
 
 const bundles = fs.mkdtempSync(path.join(process.cwd(), ".agent-work-read-test-"));
 after(() => fs.rmSync(bundles, { recursive: true, force: true }));
@@ -351,7 +355,8 @@ test("近況: 気づき（notice）のある物と止まった物だけを、読
   });
   assert.deepEqual(
     posts.map((post) => post.id),
-    ["stopped", "noticed", "old-blocked"].map(feedPostIdForAgentWork),
+    // 新しい記録だけ。止まった古い会話（old-blocked）は近況に流さない。
+    ["stopped", "noticed"].map(feedPostIdForAgentWork),
   );
   for (const post of posts) {
     assert.equal(post.kind, "insight");
@@ -439,7 +444,7 @@ test("Mobile Gateway の形: 新しい記録からも、古い APK が読む欄�
     agentWorkCardFromRecord(record({ started_at: null, intent: null, status: "blocked" })),
   );
   assert.equal(bare.startedAt, bare.endedAt);
-  assert.equal(bare.intent, "");
+  assert.equal(bare.intent, "カードの読み替えを作った。", "依頼が無ければ要約の最初の一文");
   assert.equal(bare.status, "blocked");
   const old = mobileAgentSessionFromWorkCard(agentWorkCardFromSession(session()));
   assert.equal(old.status, "completed");
@@ -759,8 +764,360 @@ test("Mobile Gateway /v1/today: agentSessions の形は変えず、新しい記�
     },
   );
   assert.equal(sessions.get(blocked.id).status, "blocked");
+  // 依頼の無い記録は、要約の最初の一文が見出しになる（APK の行の見出しが空にならない）。
+  assert.equal(sessions.get(blocked.id).intent, "鍵が無くて止まった。");
+  assert.equal(sessions.get(blocked.id).endedAt, DAY + "T05:00:00.000Z");
   assert.deepEqual(sessions.get(blocked.id).remainingWork, ["鍵を待つ"]);
   assert.equal(sessions.get("pickup-1").status, "interrupted");
   assert.equal(sessions.get("old-finished").status, "completed");
   assert.deepEqual(sessions.get("old-finished").remainingWork, ["古い残り"]);
+});
+
+test("古い会話のカードは、字数も新しい記録の上限に切る（移行の畳み方と同じ）", () => {
+  const long = (length) => "あ".repeat(length);
+  const card = agentWorkCardFromSession(
+    session({
+      client_label: long(200),
+      model_label: long(200),
+      intent: { summary: long(4000) },
+      outcome: {
+        summary: long(8000),
+        decisions: [],
+        changed_items: [long(1000), "short.ts"],
+        verification: [long(1000)],
+        remaining_work: [long(1000)],
+      },
+    }),
+  );
+  assert.equal(card.summary.length, 400);
+  assert.ok(card.summary.endsWith("…"));
+  assert.equal(card.intent.length, 160);
+  assert.equal(card.client_label.length, 80);
+  assert.equal(card.model_label.length, 80);
+  assert.deepEqual(
+    card.changed.map((item) => item.length),
+    [100, "short.ts".length],
+  );
+  assert.equal(card.verified[0].length, 120);
+  assert.equal(card.remaining[0].length, 120);
+  // 最後の回答から作る要約も同じ上限。
+  const fromResponse = agentWorkCardFromSession(
+    session({
+      outcome: null,
+      response_checkpoints: [{ observed_at: "2026-11-10T01:50:00.000Z", text: long(8000) }],
+    }),
+  );
+  assert.equal(fromResponse.summary.length, 400);
+  // 会話の ID は同じ作業の判定の鍵なので切らない。
+  const id = "c".repeat(450);
+  assert.equal(agentWorkCardFromSession(session({ source_session_id: id })).source_session_id, id);
+  assert.equal(agentWorkCardSchema.safeParse(card).success, true);
+});
+
+test("Mobile Gateway の形: 依頼の無い記録は見出しを入れ、終わりの無い古い会話は endedAt を null のまま返す", () => {
+  const noIntent = mobileAgentSessionFromWorkCard(
+    agentWorkCardFromRecord(record({ intent: null, summary: "鍵が無くて止まった。続きは明日。" })),
+  );
+  assert.equal(noIntent.intent, "鍵が無くて止まった。", "APK の行の見出しが空にならない");
+  assert.equal(noIntent.outcome, "鍵が無くて止まった。続きは明日。");
+  // 終わりの記録が無い古い会話（動いていない物も）: 並べるための代わりの時刻を、終わりとして渡さない。
+  for (const status of ["unknown", "interrupted", "active"]) {
+    const open = mobileAgentSessionFromWorkCard(
+      agentWorkCardFromSession(session({ status, ended_at: null })),
+    );
+    assert.equal(open.endedAt, null, status);
+    assert.equal(open.startedAt, "2026-11-10T01:00:00.000Z");
+  }
+  // ログを最後に見た時刻しか無い会話も、今までどおり終わりは null。
+  const observedOnly = mobileAgentSessionFromWorkCard(
+    agentWorkCardFromSession(
+      session({
+        status: "unknown",
+        ended_at: null,
+        observation: { observed_until: "2026-11-10T01:30:00.000Z" },
+      }),
+    ),
+  );
+  assert.equal(observedOnly.endedAt, null);
+  const closed = mobileAgentSessionFromWorkCard(agentWorkCardFromSession(session()));
+  assert.equal(closed.endedAt, "2026-11-10T02:00:00.000Z");
+});
+
+test("版のずれ: 呼ぶ側は、古い Core の応答（sessions）も新しい Core の応答（agent_work）も読める", () => {
+  const base = {
+    status: "matched",
+    reason_code: "remote_url_match",
+    reason: "一致しました。",
+    selected: null,
+    candidates: [],
+    repository_context: {
+      id: "repo-demo",
+      label: "demo-repo",
+      provider: "github",
+      repository_slug: "owner/demo-repo",
+      canonical_url: "https://github.com/owner/demo-repo",
+      canonical_identity: "github.com/owner/demo-repo",
+      web_url: "https://github.com/owner/demo-repo",
+      owner: "owner",
+      name: "demo-repo",
+      remote_aliases: [],
+      default_branch: "main",
+      subdirectory: "",
+      active: true,
+      metadata: {},
+    },
+    themes: [],
+    tasks: [],
+    working_copies: [
+      {
+        id: "copy-1",
+        repository_context_id: "repo-demo",
+        device_id: "device-1",
+        storage_root_id: "root-1",
+        worktree_identity: null,
+        branch_hint: null,
+        active: true,
+        last_seen_at: null,
+      },
+    ],
+    read_only: true,
+  };
+  const repository = getAgentSessionContextClientResponseSchema.safeParse({
+    ...base,
+    agent_work: [],
+    previous_handoff: null,
+  });
+  // 試験の土台の形が今の契約に合っていること（合わないと下の比較が空振りする）。
+  assert.equal(repository.success, true, JSON.stringify(repository.error?.issues));
+  assert.equal(
+    getAgentSessionContextResponseSchema.safeParse({
+      ...base,
+      agent_work: [],
+      previous_handoff: null,
+    }).success,
+    true,
+  );
+
+  // 古い Desktop の Core（#751 PR 2 より前）の応答: sessions を持ち、agent_work が無く、
+  // previous_handoff は古い会話の形。hook が使う欄（リポジトリ・作業場所・テーマ）は読める。
+  const oldSession = {
+    id: "old-1",
+    started_at: "2026-11-10T01:00:00.000Z",
+    ended_at: "2026-11-10T02:00:00.000Z",
+    status: "completed",
+    client_kind: "codex",
+    source_session_id: "old-conversation",
+    intent: { summary: "古い依頼" },
+    outcome: { summary: "古い結果" },
+  };
+  const fromOld = getAgentSessionContextClientResponseSchema.parse({
+    ...base,
+    sessions: [oldSession],
+    task_work: [],
+    previous_handoff: oldSession,
+  });
+  assert.equal(fromOld.repository_context.id, "repo-demo");
+  assert.equal(fromOld.working_copies[0].id, "copy-1");
+  assert.deepEqual(fromOld.agent_work, []);
+  assert.equal(fromOld.previous_handoff, null);
+  // Core が応答を作る側の契約は厳しいまま（古い形を黙って出さない）。
+  assert.equal(
+    getAgentSessionContextResponseSchema.safeParse({ ...base, sessions: [oldSession] }).success,
+    false,
+  );
+
+  // 新しい Core の応答。
+  const card = agentWorkCardFromRecord(record({ remaining: ["残り"] }));
+  const fromNew = getAgentSessionContextClientResponseSchema.parse({
+    ...base,
+    agent_work: [card],
+    task_work: [],
+    previous_handoff: card,
+  });
+  assert.equal(fromNew.agent_work[0].id, "record-1");
+  assert.deepEqual(fromNew.previous_handoff.remaining, ["残り"]);
+});
+
+test("本人が消した古い会話は、ログの読み取りや hooks が送り直しても戻らず、案も作らない", async (t) => {
+  const { db, client } = await startDesktop(t);
+  const capture = (key, patch = {}) =>
+    client.proposeAgentSession({
+      action: "capture",
+      idempotency_key: key,
+      caller: "codex lifecycle hook",
+      source: "mcp",
+      source_app: "tasken-session-hook:codex",
+      source_session: "conversation-removed",
+      actor: { kind: "ai_agent" },
+      started_at: `${DAY}T01:00:00.000Z`,
+      ended_at: `${DAY}T02:00:00.000Z`,
+      status: "completed",
+      client_kind: "codex",
+      request_events: [],
+      response_checkpoints: [{ observed_at: `${DAY}T02:00:00.000Z`, text: "終わりました。" }],
+      intent: { summary: "消される会話" },
+      outcome: { summary: "消される会話の結果" },
+      ...patch,
+    });
+  const proposals = () =>
+    db.list("ai_proposal").filter((proposal) => proposal.payload_type === "agent_sessions");
+
+  // 1 回目は今までどおり案になる。その会話が保存され、本人が日誌から消した、という状態を作る。
+  const first = await capture("first");
+  assert.equal(first.status, "queued");
+  const sessionId = first.agent_session_id;
+  const pending = proposals();
+  assert.equal(pending.length, 1);
+  db.save("agent_session", pending[0].payload.agent_sessions[0].session);
+  db.save("ai_proposal", { ...pending[0], status: "accepted" });
+  db.remove("agent_session", sessionId);
+  assert.ok(db.get("agent_session", sessionId, true).deleted_at);
+  const before = proposals().length;
+
+  // 同じ会話の送り直し（中身が伸びた、鍵が違う）: 受信済みと答え、案を作らず、会話も戻さない。
+  const again = await capture("second", { ended_at: `${DAY}T03:00:00.000Z` });
+  assert.equal(again.status, "duplicate");
+  assert.equal(again.agent_session_id, sessionId);
+  assert.equal(proposals().length, before);
+  assert.equal(
+    proposals().filter((proposal) => proposal.status === "pending").length,
+    0,
+    "採用待ちの案が残らない（日誌に「未確定の受信記録」として戻らない）",
+  );
+  assert.ok(db.get("agent_session", sessionId, true).deleted_at);
+  assert.equal(db.get("agent_session", sessionId), null);
+
+  // 読む道具にも戻らない。
+  const daily = await client.getAgentSessionContext({ date: DAY, source_session: "reader" });
+  assert.deepEqual(daily.agent_work, []);
+
+  // 別の会話は、今までどおり案になる。
+  const other = await capture("other", { source_session: "conversation-kept" });
+  assert.equal(other.status, "queued");
+});
+
+test("get_activity の from・to: 時刻付きの境界は日本時間の日付で読む（UTC の日付にしない）", async (t) => {
+  const desktop = await startDesktop(t);
+  const { noticed } = await seedMixedDay(desktop);
+  const { client } = desktop;
+  // 日本時間の 11/11 00:00 から 11/11 の終わりまで。UTC では 11/10 15:00 から。
+  // 先頭 10 字で切ると 11/10 になり、11/10 の作業が混ざる。
+  const nextDay = await client.getActivity({
+    from: "2026-11-10T15:00:00.000Z",
+    to: "2026-11-11T14:59:59.000Z",
+  });
+  assert.deepEqual(nextDay.agent_work, []);
+  // 日本時間の 11/10 の 1 日（UTC では 11/9 15:00 から）。
+  const sameDay = await client.getActivity({
+    from: "2026-11-09T15:00:00.000Z",
+    to: "2026-11-10T14:59:59.000Z",
+  });
+  assert.ok(sameDay.agent_work.some((card) => card.id === noticed.id));
+  assert.equal(sameDay.agent_work.length, 4);
+  // 日付だけの境界は今までどおり。
+  const dates = await client.getActivity({ from: DAY, to: DAY });
+  assert.equal(dates.agent_work.length, 4);
+});
+
+test("画面（Renderer → IPC）から、AI の作業の記録を消して、元に戻せる", async (t) => {
+  // registerIpc を、electron の ipcMain だけを差し替えて組み立てる。画面の removeEntity・
+  // 「元に戻す」が呼ぶ entity:remove・entity:restore の受け口そのものを通す。
+  const handlers = new Map();
+  globalThis.__agentWorkReadIpcHandlers = handlers;
+  t.after(() => delete globalThis.__agentWorkReadIpcHandlers);
+  const fakeElectron = path.join(bundles, "fake-electron.mjs");
+  fs.writeFileSync(
+    fakeElectron,
+    `const unavailable = () => { throw new Error("electron is not available in this test"); };
+export const ipcMain = { handle: (name, handler) => globalThis.__agentWorkReadIpcHandlers.set(name, handler), on: () => {}, once: () => {}, removeHandler: () => {} };
+export const BrowserWindow = { getAllWindows: () => [], fromWebContents: () => null };
+export const dialog = new Proxy({}, { get: unavailable });
+export const app = new Proxy({}, { get: unavailable });
+export const clipboard = new Proxy({}, { get: unavailable });
+export const nativeImage = new Proxy({}, { get: unavailable });
+export const shell = new Proxy({}, { get: unavailable });
+export const ClipboardItem = unavailable;
+`,
+  );
+  await build({
+    stdin: {
+      contents: `
+      export { registerIpc } from "./src/main/ipc/registerIpc.ts";
+      export { IPC } from "./src/shared/ipc/contracts.ts";
+      export { WorkspaceService } from "./src/main/services/workspaceService.ts";
+    `,
+      resolveDir: process.cwd(),
+    },
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    packages: "external",
+    alias: { electron: fakeElectron },
+    outfile: path.join(bundles, "ipc.mjs"),
+    logLevel: "silent",
+  });
+  const ipc = await import(pathToFileURL(path.join(bundles, "ipc.mjs")));
+
+  const { db, client } = await startDesktop(t);
+  const userData = path.dirname(db.db.name);
+  const service = new ipc.WorkspaceService(db, userData, undefined, undefined, () => {
+    throw new Error("no images");
+  });
+  const notified = [];
+  // 消す・戻すの受け口が使うのは repository と service だけ。ほかの相手は、この試験では呼ばれない。
+  const unused = new Proxy(
+    {},
+    {
+      get: (_target, key) => () => {
+        throw new Error(`この試験では使わない相手が呼ばれた: ${String(key)}`);
+      },
+    },
+  );
+  ipc.registerIpc(
+    db,
+    service,
+    unused,
+    unused,
+    unused,
+    unused,
+    unused,
+    unused,
+    unused,
+    unused,
+    unused,
+    unused,
+    (types) => notified.push(types),
+  );
+  const invoke = (name, ...args) => handlers.get(name)({ sender: { id: 1 } }, ...args);
+
+  const written = await client.recordAgentWork(
+    report({ source_session: "conv-ipc", ended_at: `${DAY}T04:00:00.000Z` }),
+  );
+  const listed = () => invoke(ipc.IPC.entityList, "agent_work_record").map((entry) => entry.id);
+  assert.deepEqual(listed(), [written.id]);
+
+  const outboxCount = () => db.db.prepare("SELECT COUNT(*) AS count FROM sync_outbox").get().count;
+  let before = outboxCount();
+  const removed = invoke(ipc.IPC.entityRemove, "agent_work_record", written.id);
+  assert.ok(removed.deleted_at);
+  assert.deepEqual(listed(), []);
+  assert.ok(db.get("agent_work_record", written.id, true).deleted_at);
+  assert.equal(outboxCount(), before + 1, "消した印は同期の差分 1 つ");
+  assert.deepEqual(notified.at(-1), ["agent_work_record"]);
+
+  before = outboxCount();
+  const restored = invoke(ipc.IPC.entityRestore, "agent_work_record", written.id);
+  assert.equal(restored.deleted_at, null);
+  assert.deepEqual(listed(), [written.id]);
+  assert.equal(outboxCount(), before + 1);
+  // 画面からは書き換えられない（保存の受け口は既にある記録を断る）。
+  assert.throws(
+    () =>
+      invoke(ipc.IPC.entitySave, "agent_work_record", {
+        ...db.get("agent_work_record", written.id),
+        summary: "画面から書き換え",
+      }),
+    /書き換え/,
+  );
+  assert.equal(db.get("agent_work_record", written.id).summary, "新しい記録の要約。");
 });

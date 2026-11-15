@@ -839,7 +839,7 @@ export function feedPostIdForAgentWork(cardId: string): string {
 }
 
 /**
- * AI の作業のうち、本人に知らせたい気づき（notice）がある物と、止まった物（blocked）を、
+ * AI の作業の新しい記録のうち、本人に知らせたい気づき（notice）がある物と、止まった物（blocked）を、
  * AI の印の付いた「気づき」として近況に並べる（#751）。
  *
  * 保存する投稿は作らない。読む時に並べるだけなので、同期の差分は増えない。
@@ -855,6 +855,8 @@ export function buildPostsFromAgentWork(input: {
   const taskTitles = new Map(tasks.map((task) => [String(task.id), text(task.title)]));
   const posts: FeedPost[] = [];
   for (const card of input.cards) {
+    // 新しい記録だけ。古い会話は気づきを持たず、止まった古い会話を今さら近況に流さない。
+    if (card.origin !== "record") continue;
     const blocked = card.status === "blocked";
     if (!card.notice && !blocked) continue;
     const headline = agentWorkCardHeadline(card);

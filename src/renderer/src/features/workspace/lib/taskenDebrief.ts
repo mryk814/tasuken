@@ -1,7 +1,6 @@
 import type { BaseRecord } from "../types";
 import { taskWorkPeriods } from "../../../../../shared/contracts/task/public.ts";
 import {
-  agentWorkCardFromSession,
   agentWorkCardHasContent,
   agentWorkCardHeadline,
   listAgentWorkCards,
@@ -167,36 +166,43 @@ export function buildDailyDebriefEvidence(
   const hookSourceApps = agentSessionHookSourceApps(domain.ai_proposals);
   const sessionById = new Map((domain.agent_sessions || []).map((entry) => [entry.id, entry]));
   const onDate = (card: AgentWorkCard) => localDate(card.started_at || card.ended_at) === date;
-  const canonical = listAgentWorkCards({
+  // 採用待ちの会話（hooks の受け身の観測）。保存済みの会話と同じ ID の物は出さない。
+  // 判定は、日付や「同じ作業」で落とす前の、手元にある会話の ID すべてで行う（消した印の
+  // 付いた物が手元にあれば、それも含める）。本人が消した会話の送り直しは Core が案を作らずに
+  // 断るので（proposeAgentSessionService）、消した会話が採用待ちとして戻る事は無い。
+  const canonicalSessionIds = new Set((domain.agent_sessions || []).map((entry) => entry.id));
+  const pendingById = new Map<string, { session: AgentSession; proposal: BaseRecord }>();
+  for (const proposal of domain.ai_proposals) {
+    const base = proposal as BaseRecord;
+    if (!isPassiveAgentSessionProposal(base)) continue;
+    for (const session of sessionsFromProposal(base)) {
+      if (!session.id || canonicalSessionIds.has(session.id) || pendingById.has(session.id))
+        continue;
+      pendingById.set(session.id, { session, proposal: base });
+    }
+  }
+  // 採用待ちの会話も同じ読み替えに通す。AI が書いた記録と同じ作業の物は、ここで落ちる。
+  const sessionEvidence = listAgentWorkCards({
     records: domain.agent_work_records,
-    sessions: domain.agent_sessions,
+    sessions: [
+      ...(domain.agent_sessions || []).filter((entry) => !entry.deleted_at),
+      ...[...pendingById.values()].map((entry) => entry.session),
+    ],
     references: domain.references,
     working_copies: domain.working_copies,
   })
     .filter(onDate)
     .map((card) => {
-      const session = card.origin === "session" ? sessionById.get(card.id) : undefined;
+      const pending = card.origin === "session" ? pendingById.get(card.id) : undefined;
+      const session = pending?.session ?? sessionById.get(card.id);
       return evidenceFromCard(card, {
-        hasContent: session
-          ? agentSessionHasContent(session, hookSourceApps.get(session.id))
-          : undefined,
+        proposal: pending?.proposal,
+        hasContent:
+          card.origin === "session" && session
+            ? agentSessionHasContent(session, hookSourceApps.get(session.id))
+            : undefined,
       });
     });
-  const canonicalSessionIds = new Set(canonical.map((entry) => entry.sessionId));
-  const pending = domain.ai_proposals.flatMap((proposal) => {
-    const base = proposal as BaseRecord;
-    if (!isPassiveAgentSessionProposal(base)) return [];
-    return sessionsFromProposal(base).flatMap((session) => {
-      const card = agentWorkCardFromSession(session);
-      if (!card || !onDate(card) || canonicalSessionIds.has(card.id)) return [];
-      return [
-        evidenceFromCard(card, {
-          proposal: base,
-          hasContent: agentSessionHasContent(session, hookSourceApps.get(session.id)),
-        }),
-      ];
-    });
-  });
   const taskWork: DebriefSessionEvidence[] = taskWorkPeriods(
     domain.tasks as unknown as BaseRecord[],
     domain.ai_proposals,
@@ -238,19 +244,6 @@ export function buildDailyDebriefEvidence(
           ? domain.ai_proposals.find((proposal) => proposal.id === work.proposal_id)
           : undefined,
     }));
-  const seenSessionIds = new Set<string>();
-  const sessionEvidence = [...canonical, ...pending]
-    .sort(
-      (left, right) =>
-        Number(right.hasContent) - Number(left.hasContent) ||
-        left.startedAt.localeCompare(right.startedAt),
-    )
-    .filter((entry) => {
-      const key = entry.sessionId;
-      if (seenSessionIds.has(key)) return false;
-      seenSessionIds.add(key);
-      return true;
-    });
   return [...sessionEvidence, ...taskWork].sort((left, right) =>
     left.startedAt.localeCompare(right.startedAt),
   );

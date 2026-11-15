@@ -218,3 +218,63 @@ test("readTaskenDebrief keeps legacy saved reports readable", () => {
 
   assert.equal(readTaskenDebrief(note)?.decision, "Keep the protocol as a Note.");
 });
+
+test("Daily Debrief: 保存済みの会話と同じ ID の採用待ちは、日付や消した印に関わらず出さない", () => {
+  const domain = domainFixture();
+  const pendingSession = domain.ai_proposals[0].payload.agent_sessions[0].session;
+  // 同じ ID の会話が手元にある。始まりが別の日でも（その日の一覧には出なくても）、採用待ちを出さない。
+  domain.agent_sessions.push({
+    ...pendingSession,
+    started_at: new Date(2026, 7, 24, 10).toISOString(),
+    ended_at: new Date(2026, 7, 24, 11).toISOString(),
+  });
+  assert.deepEqual(
+    buildDailyDebriefEvidence(domain, "2026-08-25").map((entry) => entry.sourceSessionId),
+    ["canonical-source"],
+  );
+  // 消した印の付いた会話が手元にある時も、採用待ちとして戻さない。消した会話そのものも出さない。
+  const removed = domainFixture();
+  removed.agent_sessions.push({ ...pendingSession, deleted_at: new Date().toISOString() });
+  const evidence = buildDailyDebriefEvidence(removed, "2026-08-25");
+  assert.deepEqual(
+    evidence.map((entry) => entry.sourceSessionId),
+    ["canonical-source"],
+  );
+  assert.equal(
+    evidence.some((entry) => entry.proposal),
+    false,
+  );
+});
+
+test("Daily Debrief: AI が書いた記録と同じ作業の採用待ちは出さず、同じ会話の案が 2 つあっても 1 件", () => {
+  const domain = domainFixture();
+  const pendingSession = domain.ai_proposals[0].payload.agent_sessions[0].session;
+  domain.ai_proposals.push({ ...domain.ai_proposals[0], id: "proposal-2" });
+  assert.equal(
+    buildDailyDebriefEvidence(domain, "2026-08-25").filter((entry) => entry.proposal).length,
+    1,
+  );
+  // 同じ会話（AI の種類 ＋ 会話の ID）を AI が自分で書いていれば、採用待ちの会話は並べない。
+  domain.agent_work_records = [
+    {
+      id: "record-same-work",
+      started_at: pendingSession.started_at,
+      ended_at: pendingSession.ended_at,
+      client_kind: "codex",
+      source_session_id: pendingSession.source_session_id,
+      summary: "AI が書いた要約",
+      status: "done",
+      basis: "ai_report",
+      written_by: "codex",
+    },
+  ];
+  const evidence = buildDailyDebriefEvidence(domain, "2026-08-25");
+  assert.deepEqual(
+    evidence.map((entry) => [entry.sessionId, Boolean(entry.proposal)]),
+    [
+      ["session-canonical", false],
+      ["record-same-work", false],
+    ],
+  );
+  assert.equal(evidence[1].outcome, "AI が書いた要約");
+});

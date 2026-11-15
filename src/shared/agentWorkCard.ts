@@ -8,7 +8,9 @@ import { normalizeReferenceAssertion } from "./relationAssertion.mjs";
  * `agentWorkCardFromSession` の読み替えを通して同じ形にする。画面・日誌の出力・MCP の読む道具・
  * Mobile Gateway は、みなこのカードだけを読む。移行（PR 4）で会話を畳んだ後、読み替えは消す（PR 5）。
  *
- * 読み替えは移行の畳み方（設計 5 章）と同じ対応にしてある。移行の前後でカードの中身が変わらない。
+ * 読み替えは移行の畳み方（設計 5 章）と同じ対応にしてある。件数も字数も新しい記録の上限
+ * （AGENT_WORK_RECORD_LIMITS）に切るので、移行の前後でカードの中身が変わらない。古い会話は
+ * 要約 1,000 字・項目 100 件まで持てたが、カードにはその大きさのまま載せない。
  */
 export type AgentWorkCardStatus = "done" | "partial" | "blocked";
 /** ai_report = AI が書いた、log_pickup = 終わった会話のログから拾った、folded = 古い会話を畳んだ。 */
@@ -39,6 +41,11 @@ export interface AgentWorkCard {
   written_by: string | null;
   /** 古い会話だけ: 終わりが記録されていない（まだ動いている）。新しい記録は終わってから書くので常に false。 */
   running: boolean;
+  /**
+   * 終わりの時刻が記録されているか。false は古い会話だけで、その時の ended_at は並べるための
+   * 代わりの時刻（最後に見た時刻か、始まり）。新しい記録は常に true。
+   */
+  end_recorded: boolean;
 }
 
 type Row = Record<string, unknown>;
@@ -104,7 +111,18 @@ export function agentWorkCardFromRecord(input: Row): AgentWorkCard | null {
     basis: basis(input.basis),
     written_by: text(input.written_by) || null,
     running: false,
+    end_recorded: true,
   };
+}
+
+/** 上限を超えた字を切る（最後の 1 字を「…」にする）。移行の畳み方と同じ。 */
+function clip(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+function clipped(value: unknown, max: number): string | null {
+  const body = text(value);
+  return body ? clip(body, max) : null;
 }
 
 function lastCheckpoint(value: unknown): { observed_at: string; text: string } | null {
@@ -123,6 +141,8 @@ function lastCheckpoint(value: unknown): { observed_at: string; text: string } |
  *
  * - 状態: completed → done、blocked → blocked、ほかは partial。
  * - 要約: 結果の要約。無ければ最後の回答の先頭。
+ * - 字数と件数: 新しい記録の上限に切る（要約 400 字、依頼 160 字、変えた物 10 件 × 100 字で
+ *   超えた数は changed_more、確かめたこと・残りは 5 件 × 120 字、名前は 80 字）。
  * - 終わり: 記録された終わりと、ログを最後に見た時刻の早い方。どちらも無ければ始まり
  *   （長さの無い点として並ぶ）。
  * - 根拠: folded。拾い上げの点線は「まだ本人が見ていない、機械が拾った物」の印なので、
@@ -150,25 +170,32 @@ export function agentWorkCardFromSession(
         : recordedEnd
       : recordedEnd || observedEnd || notBeforeStart(lastResponse?.observed_at || "") || startedAt;
   const changed = strings(outcome?.changed_items);
-  const kept = changed.slice(0, AGENT_WORK_RECORD_LIMITS.changedKept);
+  const kept = changed
+    .slice(0, AGENT_WORK_RECORD_LIMITS.changedKept)
+    .map((item) => clip(item, AGENT_WORK_RECORD_LIMITS.changedItem));
+  const shortList = (value: unknown) =>
+    strings(value)
+      .slice(0, AGENT_WORK_RECORD_LIMITS.listItems)
+      .map((item) => clip(item, AGENT_WORK_RECORD_LIMITS.listItem));
   return {
     id,
     origin: "session",
     started_at: startedAt,
     ended_at: endedAt,
     client_kind: text(input.client_kind),
-    client_label: text(input.client_label) || null,
-    model_label: text(input.model_label) || null,
+    client_label: clipped(input.client_label, AGENT_WORK_RECORD_LIMITS.label),
+    model_label: clipped(input.model_label, AGENT_WORK_RECORD_LIMITS.label),
+    // 会話の ID は同じ作業の判定の鍵なので切らない（切ると別の会話と同じに見える）。
     source_session_id: text(input.source_session_id) || null,
     theme_ids: [...(links?.theme_ids || [])],
     task_ids: [...(links?.task_ids || [])],
     repository_context_ids: [...(links?.repository_context_ids || [])],
-    intent: text(intent?.summary) || null,
-    summary: text(outcome?.summary) || lastResponse?.text || null,
+    intent: clipped(intent?.summary, AGENT_WORK_RECORD_LIMITS.intent),
+    summary: clipped(outcome?.summary || lastResponse?.text, AGENT_WORK_RECORD_LIMITS.summary),
     changed: kept,
     changed_more: changed.length - kept.length,
-    verified: strings(outcome?.verification).slice(0, AGENT_WORK_RECORD_LIMITS.listItems),
-    remaining: strings(outcome?.remaining_work).slice(0, AGENT_WORK_RECORD_LIMITS.listItems),
+    verified: shortList(outcome?.verification),
+    remaining: shortList(outcome?.remaining_work),
     status:
       input.status === "completed" ? "done" : input.status === "blocked" ? "blocked" : "partial",
     notice: null,
@@ -176,6 +203,7 @@ export function agentWorkCardFromSession(
     written_by: null,
     // ログから読んだ会話（observation あり）は、最後に見た時刻までしか分からないので伸ばさない。
     running: input.status === "active" && !recordedEnd && !observation,
+    end_recorded: Boolean(recordedEnd),
   };
 }
 
@@ -408,6 +436,11 @@ export function agentWorkCardsFromWorkspace(workspace: Record<string, unknown>):
     working_copies: list("working_copies"),
     tasks: list("tasks"),
   });
+}
+
+/** その時刻の、指定した時間帯での日付（YYYY-MM-DD）。読めない値は空。 */
+export function agentWorkLocalDate(value: string, timezone: string): string {
+  return dateInZone(value, timezone);
 }
 
 function dateInZone(value: string, timezone: string): string {

@@ -21,7 +21,7 @@ import {
   getConversationResponseSchema,
   getNoteResponseSchema,
   getRepositoryContextResponseSchema,
-  getAgentSessionContextResponseSchema,
+  getAgentSessionContextClientResponseSchema,
   getThemeContextResponseSchema,
   getRecentNotesResponseSchema,
   searchKnowledgeResponseSchema,
@@ -550,7 +550,8 @@ export class TaskenCoreClient {
       "get-agent-session-context",
       TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY,
       request,
-      getAgentSessionContextResponseSchema,
+      // 版のずれた Core の応答も読めるよう、呼ぶ側は寛容に読む（#751）。
+      getAgentSessionContextClientResponseSchema,
     );
   }
 

@@ -160,6 +160,7 @@ export {
   getRepositoryContextRequestSchema,
   getRepositoryContextResponseSchema,
   getAgentSessionContextRequestSchema,
+  getAgentSessionContextClientResponseSchema,
   getAgentSessionContextResponseSchema,
   getTaskAssignmentRequestSchema,
   getTaskAssignmentResponseSchema,

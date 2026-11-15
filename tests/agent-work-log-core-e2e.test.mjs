@@ -300,7 +300,7 @@ test("Core keeps legacy identities safe, rejects changed-key content and exposes
       date: "2026-10-02",
       source_session: "fixture-reader",
     });
-    assert.ok(visible.sessions.some((session) => session.id === started.agent_session_id));
+    assert.ok(visible.agent_work.some((card) => card.id === started.agent_session_id));
     assert.equal(db.list("agent_session").length, 1, "changed content is never silently adopted");
   } finally {
     await host.stop();
