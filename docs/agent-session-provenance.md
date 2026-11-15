@@ -3,7 +3,7 @@
 Issue #498 の Phase 0 で確定した、repository・作業環境・AI session の境界である。
 この文書は raw client log の保存形式ではなく、Tasken が所有する canonical data の意味を定める。
 
-> **今の形（#751）**: `AgentSession` はもう新しく作られない。AI の作業は、AI が書く 1 件（`tasken.report_work`）と、Desktop が登録済みの保存先のログから拾う 1 件（`agent_work_record`）に替わった。start/finish の Proposal、lifecycle hooks、ファイルを選ぶ取り込みは無い。受け口 `/v1/commands/propose-agent-session` は「受信済み」と答えて保存しない。この文書は、今ある古い会話（読むだけ）の意味を読むために残してあり、移行で会話を畳んだ後に消す。今の決まりは [engineering-contracts](engineering-contracts.md) の「AI作業ログの時間表示」と「AI のログからの拾い上げ」。
+> **今の形（#751）**: `AgentSession` はもう新しく作られない。AI の作業は、AI が書く 1 件（`tasken.report_work`）と、Desktop が登録済みの保存先のログから拾う 1 件（`agent_work_record`）に替わった。start/finish の Proposal、lifecycle hooks、ファイルを選ぶ取り込みは無い。受け口 `/v1/commands/propose-agent-session` は、古い hooks が送ってくる終わった会話を AI の作業 1 件に畳んで書き、「受信済み」と答える（会話も案も作らない）。この文書は、今ある古い会話（読むだけ）の意味を読むために残してあり、移行で会話を畳んだ後に消す。今の決まりは [engineering-contracts](engineering-contracts.md) の「AI作業ログの時間表示」と「AI のログからの拾い上げ」。
 
 ## Concrete referent map
 
@@ -139,4 +139,4 @@ Codex、Claude Code、Cursor、GitHub CopilotはいずれもPhase 3の同じcano
 
 ## Phase 4 lifecycle collection（切った）
 
-client の lifecycle hooks で会話を集める仕組みは切った（#751）。hook の受け取り・再送・入れる手順は無い。前に hooks を入れた PC は、README の「古い hooks を外す」の手順で外す。外すまでの間、古い hook が送ってくる会話には、Core が「受信済み」と答えて保存しない（hook は手元の控えを捨てる）。
+client の lifecycle hooks で会話を集める仕組みは切った（#751）。hook の受け取り・再送・入れる手順は無い。前に hooks を入れた PC は、README の「古い hooks を外す」の手順で外す。外すまでの間、古い hook が送ってくる終わった会話は、Core が AI の作業 1 件に畳んで書いてから「受信済み」と答える（hook は手元の控えを消すので、捨てずに記録へ移す）。
