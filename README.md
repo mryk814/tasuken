@@ -213,7 +213,16 @@ npm run hooks:copilot:uninstall
 - `uninstall`は、`~/.codex/hooks.json`（Copilotは`~/.copilot/hooks/tasken-agent-session.json`）からTaskenの行だけを消し、`hooks`フォルダーの`tasken-agent-session-hook.mjs`を消します。ほかのhookは残ります。変える前の設定は、同じ場所に`.tasken-backup-<日時>`の名前で残ります。
 - Claude CodeやCursorの設定に、手で`agent-session-hook.mjs`を呼ぶhookを書いた場合は、その行を手で消します。
 - 外した後は、AIのclient（Codex・Copilot CLI）を開き直します。
-- 外し忘れても、同じ会話が2件になることはありません。古いhookが送ってきた終わった会話は、TaskenがAIの作業1件として記録します（もう記録してある会話は増やしません）。hookが送る前に置いている控え（`%APPDATA%\tasken\agent-session-observations`）には、Taskenが起動していなくて送れなかった会話が残っていることがあります。外す前に、この版のTaskenを起動したまま、そのAI（Codex・Copilot CLI）で新しい会話を始めるたびに、hookが残りを1件ずつ送り、送れた分の控えを消します。まとめて送るには、`node ~/.codex/hooks/tasken-agent-session-hook.mjs --flush`（Copilotは`~/.copilot/hooks/`の同じ名前）を、出力が`"submitted":0`になるまで繰り返します。終わっていない会話の控えは送られません。控えのフォルダーを消すのは、その後、または残りが要らない時にしてください。
+- 外し忘れても、同じ会話が2件になることはありません。古いhookが送ってきた終わった会話は、TaskenがAIの作業1件として記録します（もう記録してある会話は増やしません）。
+- hookが送る前に置いている控え（`%APPDATA%\tasken\agent-session-observations`）には、Taskenが起動していなくて送れなかった会話が残っていることがあります。外す前に、この版のTaskenを起動したまま、次を繰り返して送らせます。1回に1件ずつ送り、送れた分の控えを消します。
+
+  ```bash
+  node "$HOME/.codex/hooks/tasken-agent-session-hook.mjs" --flush
+  ```
+
+  結果は、エラー出力の`TASKEN_SESSION_HOOK {"submitted":1,"pending":0}`の行に出ます。`"submitted":0,"pending":0`になったら、送る物はもうありません。`"pending":1`が続く時は、Taskenが受け取れていません（起動しているかを確かめます）。控えのフォルダーはCodexとCopilotで共通なので、Codexのhookで流せばCopilotの分も送られます（Copilotだけに入れたPCは`$HOME/.copilot/hooks/`の同じ名前）。`$HOME`は、PowerShellでもGit Bashでも使えます。
+
+- 終わっていない会話の控えは送られません。控えのフォルダーを消すのは、送らせた後、または残りが要らない時にしてください。
 
 ## 運用の要点
 
