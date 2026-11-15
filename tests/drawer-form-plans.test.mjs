@@ -503,3 +503,29 @@ test("場所のリマインダー（#727）: 貼った座標を読み、空な�
     assert.equal(invalid.field, field);
   }
 });
+
+test("時刻の欄に触れずに保存すると、保存されている値（時差つき）をそのまま保ち、変えた時だけ書き替える", () => {
+  const stored = "2026-07-27T09:30:00.123456+09:00";
+  const local = (value) => {
+    const date = new Date(value);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+  const save = (formValue, base) =>
+    plan(
+      "task",
+      [
+        ["title", "解析する"],
+        ["state", "todo"],
+        ["reminder_at", formValue],
+      ],
+      { id: "task-1", ...base },
+    ).operations.find((operation) => operation.type === "task").entity.reminder_at;
+  // 欄は、保存されている瞬間を現地時刻で見せる。そのまま保存（ほかの欄の変更・チェックリストの自動保存）。
+  assert.equal(save(local(stored), { reminder_at: stored }), stored);
+  // 本人が時刻を変えたら、変えた値を書く。消したら null。
+  assert.equal(save("2026-07-28T10:00", { reminder_at: stored }), "2026-07-28T10:00");
+  assert.equal(save("", { reminder_at: stored }), null);
+  assert.equal(save("", {}), null);
+  assert.equal(save("2026-07-28T10:00", {}), "2026-07-28T10:00");
+});

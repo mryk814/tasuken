@@ -14,6 +14,8 @@ import {
   pruneFiredNotices,
   scheduleDueDate,
   snoozedReminderAt,
+  suggestedSecondDueTime,
+  unfiredNotices,
 } from "../src/shared/taskNotifications.ts";
 import { createMobileOfflineGateway } from "./helpers/mobile-offline-gateway.mjs";
 
@@ -442,4 +444,57 @@ test("golden の要約と更新の例は schema に合う", () => {
     }).success,
     false,
   );
+});
+
+test("小数秒が何桁でも時差つきの時刻を読む（AI の入口が受ける範囲と同じ）", () => {
+  for (const value of [
+    "2026-11-16T09:00:00.1+09:00",
+    "2026-11-16T09:00:00.123456+09:00",
+    "2026-11-16T00:00:00.123456789Z",
+  ]) {
+    // AI の入口が受ける値は、Desktop も読める（読めないと、引き出しの保存がこの欄を空にする）。
+    assert.equal(aiTaskEditSchema.safeParse({ reminder_at: value }).success, true, value);
+    assert.equal(normalizeReminderDateTime(value), localMinute(new Date(value)), value);
+    assert.notEqual(normalizeReminderDateTime(value), "", value);
+  }
+});
+
+test("2 回目の最初の時刻は、1 回目より後で重ならない", () => {
+  assert.equal(suggestedSecondDueTime("09:00"), "15:00");
+  assert.equal(suggestedSecondDueTime("15:00"), "21:00");
+  assert.equal(suggestedSecondDueTime("21:00"), "23:59");
+  assert.equal(suggestedSecondDueTime("22:30"), "23:59");
+  assert.equal(suggestedSecondDueTime("23:59"), null);
+});
+
+test("控えを使い始める最初の回は、今より前の知らせを鳴らさずに控え、次からは新しい知らせだけ出す", () => {
+  const now = local(2026, 11, 16, 10, 0);
+  const tasks = [
+    { id: "due", title: "書類を出す", state: "todo" },
+    { id: "timed", title: "電話する", state: "todo", reminder_at: "2026-11-15T20:00" },
+    { id: "later", title: "あとで", state: "todo", reminder_at: "2026-11-16T10:30" },
+  ];
+  const dueDates = new Map([["due", "2026-11-16"]]);
+  const noticesAt = (at) => dueTaskNotices({ tasks, dueDates, dueTimes: ["09:00"], now: at });
+  // 更新の直後: きのうの夜の時刻と今朝の期限が残っているが、まとめて鳴らさない。
+  const first = unfiredNotices({}, noticesAt(now), now);
+  assert.deepEqual(first.fresh, []);
+  assert.equal(first.started, true);
+  assert.deepEqual(Object.keys(first.fired).sort(), [
+    "due:due:2026-11-16T09:00",
+    "started",
+    "time:timed:2026-11-15T20:00",
+  ]);
+  // その後に来る時刻は、ふつうに知らせる。
+  const later = local(2026, 11, 16, 10, 30);
+  const second = unfiredNotices(first.fired, noticesAt(later), later);
+  assert.equal(second.started, false);
+  assert.deepEqual(
+    second.fresh.map((notice) => notice.key),
+    ["time:later:2026-11-16T10:30"],
+  );
+  // 印は古くなっても落とさない（落とすと、また「最初の回」になって知らせを飲み込む）。
+  const nextWeek = local(2026, 11, 23, 9, 0);
+  assert.equal(pruneFiredNotices(first.fired, nextWeek).started, "2026-11-16");
+  assert.equal(unfiredNotices(first.fired, [], nextWeek).started, false);
 });

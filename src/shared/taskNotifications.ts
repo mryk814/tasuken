@@ -28,13 +28,15 @@ export function localMinute(date: Date): string {
  * 保存された値は 2 つの形がある。画面が書く時差なし（現地の時刻）と、AI・スマホ・繰り返しが書く
  * 時差つき（Z や +09:00。その瞬間）。時差つきは瞬間として読んで現地に直す
  * （数字だけを拾うと、Z の値が時差の分だけずれて鳴る）。
+ * 小数秒は何桁でも読む（AI の入口の isoTimestampSchema が受ける範囲と同じ。読めないと、
+ * 引き出しがこの欄を空として保存し直してしまう）。
  */
 export function normalizeReminderDateTime(value: unknown): string {
   if (typeof value !== "string") return "";
   const trimmed = value.trim();
   if (!trimmed) return "";
   const match = trimmed.match(
-    /^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})(?::\d{2}(?:\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?$/,
+    /^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/,
   );
   if (!match) return "";
   if (match[4]) {
@@ -54,6 +56,14 @@ export function normalizeDueNotificationTimes(value: unknown): string[] {
     if (times.length === MAX_DUE_NOTIFICATION_TIMES) break;
   }
   return times.length > 0 ? times : [...DEFAULT_DUE_NOTIFICATION_TIMES];
+}
+
+/**
+ * 「2 回目を足す」の最初の時刻。1 回目より後で、重ならない時刻（15:00、21:00、23:59 の順）。
+ * 1 回目が 23:59 で後ろが無い時は null（足せない）。
+ */
+export function suggestedSecondDueTime(first: string): string | null {
+  return ["15:00", "21:00", "23:59"].find((time) => time > first) ?? null;
 }
 
 /** 日程の「期限の日」。終了日、無ければ開始日（一日だけの予定）。日程が無ければ空文字。 */
@@ -128,6 +138,9 @@ export function snoozedReminderAt(
   return `${localMinute(tomorrow).slice(0, 10)}T${first}`;
 }
 
+/** 控えを使い始めた日の印（知らせの鍵ではない。古くなっても落とさない）。 */
+export const FIRED_NOTICES_STARTED_KEY = "started";
+
 /** 出した知らせの控え（鍵 → 出した日）から、2 日より前のものを落とす。 */
 export function pruneFiredNotices(
   fired: Readonly<Record<string, unknown>>,
@@ -136,6 +149,27 @@ export function pruneFiredNotices(
   const keepFrom = localMinute(new Date(now.getTime() - 2 * DAY_MS)).slice(0, 10);
   const kept: Record<string, string> = {};
   for (const [key, date] of Object.entries(fired))
-    if (typeof date === "string" && date >= keepFrom) kept[key] = date;
+    if (typeof date === "string" && (date >= keepFrom || key === FIRED_NOTICES_STARTED_KEY))
+      kept[key] = date;
   return kept;
+}
+
+/**
+ * いま出すべき知らせのうち、まだ出していないもの（fresh）と、書き戻す控え（fired）。
+ * 控えがまだ無い時（この仕組みが入った後の最初の起動）は、今より前の知らせを全部「出した」ことにして、
+ * 何も鳴らさない（過去 24 時間の時刻と今日の期限が、更新の直後にまとめて鳴らないように）。
+ */
+export function unfiredNotices(
+  stored: Readonly<Record<string, unknown>>,
+  notices: readonly TaskNotice[],
+  now: Date,
+): { fresh: TaskNotice[]; fired: Record<string, string>; started: boolean } {
+  const today = localMinute(now).slice(0, 10);
+  const fired = pruneFiredNotices(stored, now);
+  if (typeof fired[FIRED_NOTICES_STARTED_KEY] !== "string") {
+    fired[FIRED_NOTICES_STARTED_KEY] = today;
+    for (const notice of notices) fired[notice.key] = today;
+    return { fresh: [], fired, started: true };
+  }
+  return { fresh: notices.filter((notice) => !fired[notice.key]), fired, started: false };
 }

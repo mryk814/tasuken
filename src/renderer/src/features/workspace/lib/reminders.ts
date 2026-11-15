@@ -33,6 +33,17 @@ export function normalizeReminderDateTime(value: unknown): string | null {
   return normalizeSharedReminderDateTime(value) || null;
 }
 
+/**
+ * 引き出しの時刻の欄から保存する値。本人が欄を変えていない時は、保存されている値をそのまま返す
+ * （時差つきの値を時差なしに書き替えて版を進めない。ほかの欄の保存やチェックリストの自動保存でも同じ）。
+ */
+export function reminderAtFromForm(formValue: unknown, stored: unknown): string | null {
+  const edited = normalizeReminderDateTime(formValue);
+  if (edited === normalizeReminderDateTime(stored))
+    return typeof stored === "string" && stored ? stored : null;
+  return edited;
+}
+
 export function normalizeReminderSettings(record: unknown): ReminderSettings {
   const source = record && typeof record === "object" ? (record as Record<string, unknown>) : {};
   return {

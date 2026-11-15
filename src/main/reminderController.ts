@@ -5,8 +5,8 @@ import { localDateString, reminderIsDueToday } from "./dateTime";
 import type { Entity } from "../shared/types/workspace";
 import {
   dueTaskNotices,
-  pruneFiredNotices,
   scheduleDueDate,
+  unfiredNotices,
   type TaskNotice,
 } from "../shared/taskNotifications.ts";
 
@@ -76,12 +76,16 @@ export function createReminderController(options: ReminderControllerOptions): Re
       dueTimes: options.repository.getPreference("dueNotificationTimes") as string[],
       now,
     });
-    if (notices.length === 0) return;
-    const fired = pruneFiredNotices(
+    const { fresh, fired, started } = unfiredNotices(
       options.repository.getPreference("taskNotificationsFired") as Record<string, unknown>,
+      notices,
       now,
     );
-    const fresh = notices.filter((notice) => !fired[notice.key]);
+    if (started) {
+      // 控えを使い始める最初の回は、今より前の知らせを鳴らさずに控えだけ作る。
+      options.repository.setPreference("taskNotificationsFired", fired);
+      return;
+    }
     if (fresh.length === 0) return;
     // 通知を出せない環境では控えない（出せるようになった時に知らせる）。
     if (!Notification.isSupported()) return;

@@ -26,7 +26,7 @@ import { resolveSubmittedChatCapturedAt } from "./chatRefs";
 import { aiMetadataFromForm } from "./aiMetadataForm";
 import { formText, uuid } from "./format";
 import { placeReminderFromForm } from "./placeReminder";
-import { normalizeReminderDateTime } from "./reminders";
+import { reminderAtFromForm } from "./reminders";
 import { listTaskSections, normalizeTaskSectionId } from "./taskSections";
 import { normalizeTaskShelf } from "./taskShelves";
 import {
@@ -212,7 +212,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
           : null
         : ((base.planned_duration_minutes as number | null) ?? null),
       planning_shelf: normalizeTaskShelf(formText(values, "planning_shelf")),
-      reminder_at: normalizeReminderDateTime(formText(values, "reminder_at")),
+      reminder_at: reminderAtFromForm(formText(values, "reminder_at"), base.reminder_at),
       place_reminder: place.value,
       description: formText(values, "description") || null,
       completion_note: hasField("completion_note")
@@ -386,7 +386,10 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
       waiting_for: waitingFor,
       project_id: themeIdFromForm(formText(values, "theme_id")),
       state: (formText(values, "state") || "waiting") as Waiting["state"],
-      check_reminder_at: normalizeReminderDateTime(formText(values, "check_reminder_at")),
+      check_reminder_at: reminderAtFromForm(
+        formText(values, "check_reminder_at"),
+        base.check_reminder_at,
+      ),
       next_action: formText(values, "next_action") || null,
       description: formText(values, "description") || null,
       legacy_item_id: (base.legacy_item_id as string | null) ?? null,

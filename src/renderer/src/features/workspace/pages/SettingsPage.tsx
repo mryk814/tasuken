@@ -27,6 +27,7 @@ import { RestoreBackupDialog } from "../components/RestoreBackupDialog";
 import {
   DEFAULT_DUE_NOTIFICATION_TIMES,
   normalizeDueNotificationTimes,
+  suggestedSecondDueTime,
 } from "../../../../../shared/taskNotifications";
 import {
   DIRECT_SHORTCUT_DEFINITIONS,
@@ -178,13 +179,20 @@ export function SettingsPage({
       });
   }, []);
 
+  const secondDueTime = suggestedSecondDueTime(dueNotificationTimes[0] || "");
+
   async function updateDueNotificationTimes(next: string[]) {
     const previous = dueNotificationTimes;
     setDueNotificationTimes(next);
     // 入力の途中（空の時刻）は保存しない。時刻がそろった時だけ保存する。
     if (next.some((time) => !time)) return;
     try {
-      await workspaceApi.setPreference("dueNotificationTimes", next);
+      // 保存された形を画面に戻す（2 回目を 1 回目と同じ時刻にしたら、1 行になる）。
+      setDueNotificationTimes(
+        normalizeDueNotificationTimes(
+          await workspaceApi.setPreference("dueNotificationTimes", next),
+        ),
+      );
     } catch (error) {
       setDueNotificationTimes(previous);
       setToast(
@@ -889,15 +897,12 @@ export function SettingsPage({
                     </span>
                   </label>
                 ))}
-                {dueNotificationTimes.length < 2 && (
+                {secondDueTime && dueNotificationTimes.length < 2 && (
                   <button
                     type="button"
                     className="text-button compact"
                     onClick={() =>
-                      void updateDueNotificationTimes([
-                        dueNotificationTimes[0],
-                        dueNotificationTimes[0] < "15:00" ? "15:00" : "21:00",
-                      ])
+                      void updateDueNotificationTimes([dueNotificationTimes[0], secondDueTime])
                     }
                   >
                     ＋ 2 回目を足す
