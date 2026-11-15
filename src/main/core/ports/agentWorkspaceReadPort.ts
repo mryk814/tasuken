@@ -16,5 +16,7 @@ export interface AgentWorkspaceReadPort {
   listAiProposals(includeArchived: boolean): AgentWorkspaceRecord[];
   listWorkingCopies(includeArchived: boolean): AgentWorkspaceRecord[];
   listAgentSessions(includeArchived: boolean): AgentWorkspaceRecord[];
+  /** AI の作業（新しい記録）。 */
+  listAgentWorkRecords(includeDeleted: boolean): AgentWorkspaceRecord[];
   listReferences(includeArchived: boolean): AgentWorkspaceRecord[];
 }

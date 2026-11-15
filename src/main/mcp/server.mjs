@@ -389,7 +389,7 @@ export function createTaskenMcpServer(options = {}) {
             content: {
               type: "text",
               text: [
-                `Use tasken.get_activity with date=${reportDate} for the day's Activity. Add related Agent Sessions with tasken.get_agent_session_context only when the Activity points to session work.`,
+                `Use tasken.get_activity with date=${reportDate} for the day's Activity; its agent_work lists that day's AI work (summary, changed, verified, remaining).`,
                 DAILY_REPORT_WRITING_GUIDANCE,
               ].join("\n"),
             },
@@ -610,7 +610,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.get_agent_session_context",
     {
       description:
-        "Resolve the current repository and return this client kind's related sessions plus its previous structured handoff. Private paths and raw transcripts are never returned.",
+        "Resolve the current repository and return this client kind's recent AI work there (agent_work) plus previous_handoff: the latest other work with remaining items. No private paths.",
       inputSchema: {
         ...repositoryLookupSchema,
         client_kind: z.enum(["codex", "claude_code", "cursor", "github_copilot", "other"]),

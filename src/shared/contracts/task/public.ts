@@ -154,6 +154,7 @@ export {
 } from "./agentReadyTasks.ts";
 
 export {
+  agentWorkCardSchema,
   findThemesForRepositoryResponseSchema,
   findTasksForRepositoryResponseSchema,
   getRepositoryContextRequestSchema,
@@ -177,6 +178,7 @@ export {
 } from "./agentWorkspaceQueries.ts";
 
 export {
+  AGENT_WORK_IN_THEME_CONTEXT_LIMIT,
   getThemeContextRequestSchema,
   getThemeContextResponseSchema,
   type GetThemeContextRequest,
@@ -293,6 +295,7 @@ export {
   exportAiContextRequestSchema,
   exportAiContextResponseSchema,
   getActivityRequestSchema,
+  AGENT_WORK_IN_ACTIVITY_LIMIT,
   getActivityResponseSchema,
   getContextSubgraphRequestSchema,
   getContextSubgraphResponseSchema,

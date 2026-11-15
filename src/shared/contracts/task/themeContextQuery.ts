@@ -1,6 +1,12 @@
 import * as z from "zod/v4";
 
-import { publicRepositoryContextSchema, publicThemeSchema } from "./agentWorkspaceQueries.ts";
+import {
+  agentWorkCardSchema,
+  publicRepositoryContextSchema,
+  publicThemeSchema,
+} from "./agentWorkspaceQueries.ts";
+
+export const AGENT_WORK_IN_THEME_CONTEXT_LIMIT = 10;
 import { aiHeaderSchema } from "./contentDetailQueries.ts";
 
 export const getThemeContextRequestSchema = z
@@ -281,6 +287,7 @@ const successSchema = z
     ),
     open_items: z.array(openItemSchema),
     recent_notes: z.array(noteSchema),
+    agent_work: z.array(agentWorkCardSchema).max(AGENT_WORK_IN_THEME_CONTEXT_LIMIT).default([]),
     knowledge: z
       .object({
         knowledge_nodes: z.array(knowledgeNodeSchema),

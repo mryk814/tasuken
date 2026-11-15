@@ -6,6 +6,7 @@ import {
   getContextSubgraph,
   projectContextGraph,
 } from "../../../shared/contextGraph.mjs";
+import { agentWorkCardsFromWorkspace } from "../../../shared/agentWorkCard.ts";
 import { publicRepositoryContext } from "../../../shared/repositoryContext.mjs";
 import { noteProjectId } from "../../../shared/themeRef.mjs";
 import {
@@ -23,6 +24,7 @@ import {
   summarizeExclusions,
 } from "../../../shared/contextSelection.mjs";
 import {
+  AGENT_WORK_IN_THEME_CONTEXT_LIMIT,
   getThemeContextRequestSchema,
   getThemeContextResponseSchema,
   type GetThemeContextRequest,
@@ -366,6 +368,11 @@ export class ThemeContextQueryService {
       theme_repository_contexts: themeRepositoryContexts,
       open_items: openItems,
       recent_notes: recentNotes,
+      // このテーマに関わる AI の作業（古い会話も同じカードの形）。終わりの新しい順（#751）。
+      agent_work: agentWorkCardsFromWorkspace(workspace)
+        .filter((card) => card.theme_ids.includes(themeId))
+        .slice(0, AGENT_WORK_IN_THEME_CONTEXT_LIMIT)
+        .map((card) => safeReceiptValue(card)),
       knowledge: { knowledge_nodes: knowledgeNodes, knowledge_edges: knowledgeEdges },
       health: {
         plan: { open_count: openItems.length },

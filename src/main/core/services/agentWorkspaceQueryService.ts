@@ -29,9 +29,15 @@ import {
   type GetTaskAssignmentResponse,
   type RepositoryLookupRequest,
   type ResolveRepositoryContextResponse,
+  normalizeAgentClientKind,
   taskAgentState,
 } from "../../../shared/contracts/task/public.ts";
-import { publicAgentSession, publicWorkingCopy } from "../../../shared/agentSession.mjs";
+import { publicWorkingCopy } from "../../../shared/agentSession.mjs";
+import {
+  agentWorkCardInterval,
+  agentWorkCardUnresolved,
+  listAgentWorkCards,
+} from "../../../shared/agentWorkCard.ts";
 import { AgentReadyTaskAiProjectionPolicy } from "../policies/agentReadyTaskAiProjectionPolicy.ts";
 import type { AgentWorkspaceReadPort } from "../ports/agentWorkspaceReadPort.ts";
 import {
@@ -232,62 +238,49 @@ export class AgentWorkspaceQueryService {
           )
           .map((copy) => publicWorkingCopy(copy))
       : [];
-    const workingCopyIds = new Set(workingCopies.map((copy) => copy.id));
-    const relatedSessionIds = new Set<string>();
-    if (repositoryContextId) {
-      for (const reference of this.readPort.listReferences(false)) {
-        const sourceIsSession = reference.source_type === "agent_session";
-        const targetIsSession = reference.target_type === "agent_session";
-        const otherMatchesRepository = sourceIsSession
-          ? (reference.target_type === "repository_context" &&
-              reference.target_id === repositoryContextId) ||
-            (reference.target_type === "working_copy" &&
-              workingCopyIds.has(String(reference.target_id)))
-          : targetIsSession
-            ? (reference.source_type === "repository_context" &&
-                reference.source_id === repositoryContextId) ||
-              (reference.source_type === "working_copy" &&
-                workingCopyIds.has(String(reference.source_id)))
-            : false;
-        if (sourceIsSession && otherMatchesRepository)
-          relatedSessionIds.add(String(reference.source_id));
-        if (targetIsSession && otherMatchesRepository)
-          relatedSessionIds.add(String(reference.target_id));
-      }
-    }
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const sessions = this.readPort
-      .listAgentSessions(false)
-      .filter((session) => globalDaily || relatedSessionIds.has(session.id))
+    const now = new Date().toISOString();
+    // 古い会話と新しい記録を、同じカードの形で読む（#751）。
+    const work = listAgentWorkCards({
+      records: this.readPort.listAgentWorkRecords(false),
+      sessions: this.readPort.listAgentSessions(false),
+      references: this.readPort.listReferences(false),
+      working_copies: this.readPort.listWorkingCopies(false),
+    })
       .filter(
-        (session) =>
-          !request.date ||
-          (localDate(session.started_at, timezone) <= request.date &&
-            localDate(
-              new Date(
-                Math.max(
-                  Date.parse(String(session.started_at)),
-                  Date.parse(String(session.ended_at || new Date().toISOString())) - 1,
-                ),
-              ).toISOString(),
-              timezone,
-            ) >= request.date),
+        (card) =>
+          globalDaily ||
+          Boolean(repositoryContextId && card.repository_context_ids.includes(repositoryContextId)),
       )
-      .filter((session) => !request.client_kind || session.client_kind === request.client_kind)
-      .filter((session) => !request.agent_label || session.agent_label === request.agent_label)
-      .sort((left, right) =>
-        String(right.ended_at || right.started_at).localeCompare(
-          String(left.ended_at || left.started_at),
-        ),
+      .filter((card) => {
+        if (!request.date) return true;
+        const interval = agentWorkCardInterval(card, now);
+        return (
+          localDate(interval.start_at, timezone) <= request.date &&
+          localDate(
+            new Date(
+              Math.max(Date.parse(interval.start_at), Date.parse(interval.end_at) - 1),
+            ).toISOString(),
+            timezone,
+          ) >= request.date
+        );
+      })
+      .filter(
+        (card) =>
+          !request.client_kind ||
+          normalizeAgentClientKind(card.client_kind) === request.client_kind,
       )
+      // agent_label（古い会話だけが持っていた欄）では絞らない。カードには無く、AI の種類
+      // （client_kind）で足りる。要求の欄は、今の呼び手のために受けるだけにしてある。
       .slice(0, request.limit ?? 20)
-      .map((session) => publicAgentSession(session));
+      .map((card) => safeReceiptValue(card) as typeof card);
+    // 引き継ぎ: 自分の会話ではない、残りのある（か止まった）直前の 1 件。
     const previousHandoff =
-      sessions.find(
-        (session) =>
-          session.source_session_id !== request.source_session &&
-          session.status !== "active" &&
-          session.outcome,
+      work.find(
+        (card) =>
+          card.source_session_id !== request.source_session &&
+          !card.running &&
+          agentWorkCardUnresolved(card),
       ) || null;
     const themes = repositoryDetail && "themes" in repositoryDetail ? repositoryDetail.themes : [];
     const tasks = repositoryDetail && "tasks" in repositoryDetail ? repositoryDetail.tasks : [];
@@ -325,7 +318,7 @@ export class AgentWorkspaceQueryService {
       themes,
       tasks,
       working_copies: workingCopies,
-      sessions,
+      agent_work: work,
       task_work: safeReceiptValue(taskWork),
       previous_handoff: previousHandoff,
       read_only: true,

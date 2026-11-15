@@ -223,16 +223,36 @@ const publicWorkingCopySchema = z
   })
   .strict();
 
-const publicAgentSessionSchema = z.looseObject({
-  id: z.string(),
-  started_at: z.string(),
-  ended_at: z.string().nullable(),
-  status: z.enum(["active", "completed", "blocked", "abandoned", "unknown", "interrupted"]),
-  client_kind: z.string(),
-  source_session_id: z.string().nullable(),
-  intent: z.looseObject({ summary: z.string() }),
-  outcome: z.looseObject({ summary: z.string() }).nullable(),
-});
+/**
+ * AI の作業を読む時の 1 つの形（`shared/agentWorkCard.ts` の AgentWorkCard）。新しい記録も、
+ * 古い会話の読み替えも、MCP の読む道具にはこの形で返す。
+ */
+export const agentWorkCardSchema = z
+  .object({
+    id: z.string(),
+    origin: z.enum(["record", "session"]),
+    started_at: z.string().nullable(),
+    ended_at: z.string(),
+    client_kind: z.string(),
+    client_label: z.string().nullable(),
+    model_label: z.string().nullable(),
+    source_session_id: z.string().nullable(),
+    theme_ids: z.array(z.string()),
+    task_ids: z.array(z.string()),
+    repository_context_ids: z.array(z.string()),
+    intent: z.string().nullable(),
+    summary: z.string().nullable(),
+    changed: z.array(z.string()),
+    changed_more: z.number().int().nonnegative(),
+    verified: z.array(z.string()),
+    remaining: z.array(z.string()),
+    status: z.enum(["done", "partial", "blocked"]),
+    notice: z.string().nullable(),
+    basis: z.enum(["ai_report", "log_pickup", "folded"]),
+    written_by: z.string().nullable(),
+    running: z.boolean(),
+  })
+  .strict();
 
 export const getAgentSessionContextResponseSchema = z
   .object({
@@ -241,7 +261,8 @@ export const getAgentSessionContextResponseSchema = z
     themes: z.array(publicThemeSchema),
     tasks: z.array(publicTaskSchema),
     working_copies: z.array(publicWorkingCopySchema),
-    sessions: z.array(publicAgentSessionSchema),
+    /** そのリポジトリ（date だけの時は、その日）の AI の作業。終わりの新しい順。 */
+    agent_work: z.array(agentWorkCardSchema),
     task_work: z
       .array(
         z.object({
@@ -261,7 +282,8 @@ export const getAgentSessionContextResponseSchema = z
         }),
       )
       .default([]),
-    previous_handoff: publicAgentSessionSchema.nullable(),
+    /** 引き継ぎ: 自分の会話ではない、残りのある（か止まった）直前の 1 件。 */
+    previous_handoff: agentWorkCardSchema.nullable(),
     read_only: z.literal(true),
   })
   .strict();

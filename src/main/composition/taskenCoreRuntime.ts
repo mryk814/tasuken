@@ -9,8 +9,8 @@ import {
   type AdminHandler,
   type WriteGate,
 } from "../infrastructure/http/taskenCoreHost.ts";
-import { entityIdSchema } from "../../shared/kernel/public.ts";
 import { createMobileActivityReadPort } from "./mobileActivityReadPort.ts";
+import { mobileAgentSessionFromWorkCard } from "./mobileAgentSessions.ts";
 import { createMobileRelatedDocumentReadPort } from "./mobileRelatedDocumentReadPort.ts";
 import { createMobileThemeContextReadPort } from "./mobileThemeContextReadPort.ts";
 import { createMobileFeedActionPort, type FeedWriterPort } from "./mobileFeedActionPort.ts";
@@ -343,19 +343,7 @@ export class TaskenCoreRuntime {
         queryAgentSessions: (date) =>
           this.agentSessionContext
             .execute({ date, limit: 21, source_session: "tasken-mobile-today" })
-            .sessions.map((session) => ({
-              id: entityIdSchema.parse(session.id),
-              sourceSessionId: session.source_session_id,
-              clientKind: session.client_kind,
-              startedAt: session.started_at,
-              endedAt: session.ended_at,
-              status: session.status,
-              intent: session.intent.summary,
-              outcome: session.outcome?.summary || null,
-              remainingWork: Array.isArray(session.outcome?.remaining_work)
-                ? (session.outcome.remaining_work as string[])
-                : [],
-            })),
+            .agent_work.map(mobileAgentSessionFromWorkCard),
         ...createMobileRelatedDocumentReadPort(this.persistence),
         getThemeContext: createMobileThemeContextReadPort(this.persistence),
         ...createMobileWorkLogPort(this.persistence, this.workLogWriter),

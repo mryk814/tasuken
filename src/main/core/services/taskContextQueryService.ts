@@ -7,6 +7,7 @@ import {
   projectContextGraph,
 } from "../../../shared/contextGraph.mjs";
 import { projectActivityJson, queryActivityEvents } from "../../../shared/activityProjection.mjs";
+import { agentWorkCardsFromWorkspace } from "../../../shared/agentWorkCard.ts";
 import {
   publicRepositoryContext,
   resolveRepositoryContext,
@@ -480,6 +481,14 @@ export class TaskContextQueryService {
         : null,
       workspace_match: includeSet.has("repository") ? repositoryMatch : null,
       related,
+      // この Task に関わる AI の作業（古い会話も同じカードの形）。終わりの新しい順（#751）。
+      // 上限のある短い要約なので、本文の文字数の枠（budget）には数えない。
+      agent_work: includeSet.has("activity")
+        ? agentWorkCardsFromWorkspace(workspace)
+            .filter((card) => card.task_ids.includes(taskId))
+            .slice(0, limits.maxItemsPerType)
+            .map((card) => safeReceiptValue(card))
+        : [],
       context_graph: contextGraph,
       context_selection: contextSelection,
       include,

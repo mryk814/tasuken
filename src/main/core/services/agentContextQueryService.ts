@@ -17,6 +17,7 @@ import {
   TaskContextTextBudget,
 } from "../../../shared/taskContext.mjs";
 import {
+  AGENT_WORK_IN_ACTIVITY_LIMIT,
   getActivityRequestSchema,
   getActivityResponseSchema,
   getContextSubgraphRequestSchema,
@@ -27,6 +28,12 @@ import {
   type GetContextSubgraphResponse,
 } from "../../../shared/contracts/task/public.ts";
 import type { AgentContextReadPort, AgentContextRecord } from "../ports/agentContextReadPort.ts";
+
+import {
+  agentWorkCardInDateRange,
+  agentWorkCardsFromWorkspace,
+} from "../../../shared/agentWorkCard.ts";
+import { safeReceiptValue } from "../../../shared/taskContext.mjs";
 
 const DEFAULT_ACTIVITY_LIMIT = 100;
 
@@ -77,9 +84,28 @@ export class AgentContextQueryService {
     });
     const { matched_count: matchedVisible, ...publicResult } = projectActivityJson(result);
     const format = request.format === "markdown" ? "markdown" : "json";
+    // AI の作業は来歴（change_event）を取らないので、events とは別に同じ範囲で並べる（#751）。
+    const timezone = request.timezone || "Asia/Tokyo";
+    const narrowed = Boolean(
+      entityId || request.entity_type || request.event_kinds?.length || request.cursor,
+    );
+    const agentWork = narrowed
+      ? []
+      : agentWorkCardsFromWorkspace(snapshot.workspace)
+          .filter((card) =>
+            agentWorkCardInDateRange(card, {
+              from: request.date || request.from?.slice(0, 10),
+              to: request.date || request.to?.slice(0, 10),
+              timezone,
+            }),
+          )
+          .filter((card) => !request.theme_id || card.theme_ids.includes(request.theme_id))
+          .slice(0, AGENT_WORK_IN_ACTIVITY_LIMIT)
+          .map((card) => safeReceiptValue(card));
     return getActivityResponseSchema.parse({
       ...publicResult,
       activity: format === "markdown" ? projectActivityMarkdown(result) : publicResult,
+      agent_work: agentWork,
       format,
       result_meta: {
         contract_version: 1,

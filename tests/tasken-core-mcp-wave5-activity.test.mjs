@@ -301,6 +301,7 @@ test("daily Activity and Session queries use the runtime local day without chang
       listAiProposals: () => [],
       listWorkingCopies: () => [],
       listReferences: () => [],
+      listAgentWorkRecords: () => [],
       listAgentSessions: () =>
         workspace.change_events.map((event) => ({
           id: event.id,
@@ -317,7 +318,7 @@ test("daily Activity and Session queries use the runtime local day without chang
     assert.deepEqual(
       sessions
         .getAgentSessionContext({ date: "2026-08-31", source_session: "daily-boundary" })
-        .sessions.map((session) => session.id),
+        .agent_work.map((card) => card.id),
       ["boundary-1"],
     );
   } finally {
@@ -337,6 +338,7 @@ test("Task work ending at midnight is not returned on the next local day", () =>
       listAiProposals: () => [],
       listWorkingCopies: () => [],
       listReferences: () => [],
+      listAgentWorkRecords: () => [],
       listAgentSessions: () => [],
       listWorkReceipts: () => [
         {

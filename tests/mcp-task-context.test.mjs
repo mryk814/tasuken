@@ -832,20 +832,22 @@ test("Agent Session proposals queue reviewable records at Core level without MCP
     source_session: "tasken-daily-report",
   });
   // 公開範囲の区別は無いので、削除済みThemeに紐づく作業も、同じ日の作業として並ぶ。
-  assert.deepEqual(dailySessions.sessions.map((session) => session.id).sort(), [
+  // AI の作業は 1 つのカードの形で返る（#751）。古い会話も、依頼と回答の生の記録は載らない。
+  assert.deepEqual(dailySessions.agent_work.map((card) => card.id).sort(), [
     "daily-hidden-session",
     "daily-visible-session",
   ]);
-  for (const session of dailySessions.sessions) {
-    assert.equal("request_events" in session, false);
-    assert.equal("response_checkpoints" in session, false);
+  for (const card of dailySessions.agent_work) {
+    assert.equal(card.origin, "session");
+    assert.equal("request_events" in card, false);
+    assert.equal("response_checkpoints" in card, false);
   }
   assert.deepEqual(
     core.getAgentSessionContext.execute({
       date: "2026-08-25",
       repository_slug: "missing/repository",
       source_session: "tasken-daily-report",
-    }).sessions,
+    }).agent_work,
     [],
   );
   const host = new TaskenCoreHost({ userDataPath: root, ...core });
@@ -929,7 +931,7 @@ test("Agent Session proposals queue reviewable records at Core level without MCP
       source_session: "codex-thread-498",
     };
     assert.equal(
-      core.getAgentSessionContext.execute(contextRequest).previous_handoff.outcome.summary,
+      core.getAgentSessionContext.execute(contextRequest).previous_handoff.summary,
       "Prior handoff",
     );
     const context = await client.callTool({
@@ -938,8 +940,9 @@ test("Agent Session proposals queue reviewable records at Core level without MCP
     });
     assert.equal(context.isError, undefined, JSON.stringify(context));
     assert.equal(context.structuredContent.repository_context.id, "repo-session");
-    assert.equal(context.structuredContent.sessions.length, 2);
-    assert.equal(context.structuredContent.previous_handoff.outcome.summary, "Prior handoff");
+    assert.equal(context.structuredContent.agent_work.length, 2);
+    assert.equal(context.structuredContent.previous_handoff.summary, "Prior handoff");
+    assert.deepEqual(context.structuredContent.previous_handoff.remaining, ["MCP workflow"]);
     assert.equal(JSON.stringify(context.structuredContent).includes("C:\\"), false);
 
     const finishArgs = {

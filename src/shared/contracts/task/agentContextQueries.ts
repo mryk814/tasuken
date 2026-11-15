@@ -1,6 +1,7 @@
 import * as z from "zod/v4";
 
 import { activityPageSchema, publicActivityEntrySchema } from "./activityEntries.ts";
+import { agentWorkCardSchema } from "./agentWorkspaceQueries.ts";
 
 export const agentContextEntityTypeSchema = z.enum([
   "theme",
@@ -158,9 +159,16 @@ export const getActivityRequestSchema = z
   })
   .strict();
 
+export const AGENT_WORK_IN_ACTIVITY_LIMIT = 20;
+
 export const getActivityResponseSchema = activityPayloadSchema
   .extend({
     activity: z.union([activityPayloadSchema, z.string()]),
+    /**
+     * その範囲（date・from/to・theme_id）の AI の作業。来歴を取らない記録なので events には出ない。
+     * 種類やページで絞った呼び出し（entity_type・event_kinds・cursor）では空。
+     */
+    agent_work: z.array(agentWorkCardSchema).max(AGENT_WORK_IN_ACTIVITY_LIMIT).default([]),
     format: z.enum(["json", "markdown"]),
     result_meta: z
       .object({

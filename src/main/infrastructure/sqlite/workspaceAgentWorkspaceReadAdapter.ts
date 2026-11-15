@@ -14,6 +14,7 @@ export interface AgentWorkspacePersistence {
       | "work_receipt"
       | "working_copy"
       | "agent_session"
+      | "agent_work_record"
       | "reference"
       | "ai_proposal",
     includeDeleted?: boolean,
@@ -50,6 +51,10 @@ export class WorkspaceAgentWorkspaceReadAdapter implements AgentWorkspaceReadPor
 
   listAgentSessions(includeArchived: boolean) {
     return this.persistence.list("agent_session", includeArchived);
+  }
+
+  listAgentWorkRecords(includeDeleted: boolean) {
+    return this.persistence.list("agent_work_record", includeDeleted);
   }
 
   listReferences(includeArchived: boolean) {
