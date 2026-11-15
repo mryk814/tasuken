@@ -78,6 +78,12 @@ class MobileRoutineOutboxTest {
             if (!online) throw IOException("offline")
             when {
                 path.startsWith("/v1/bootstrap") -> GatewayHttpResponse(200, page("tasks"))
+                path.startsWith("/v1/routines") -> GatewayHttpResponse(
+                    200,
+                    """{"ok":true,"meta":${meta()},"data":{"date":"2026-11-16","habits":[{"habitId":"habit-read","title":"論文を読む",""" +
+                        """"scheduleLabel":"毎日1回","todayCount":1,"nextSequence":2,"weekCount":3,"weekTarget":7,""" +
+                        """"todayLabel":"今日1回","weekLabel":"今週3/7回","met":false}]}}""",
+                )
                 path == "/v1/routine-actions" && method == "POST" -> routineAnswer(requireNotNull(body))
                 path == "/v1/commands" -> {
                     val commandId = Json.parseToJsonElement(requireNotNull(body)).jsonObject.getValue("commandId").jsonPrimitive.content
@@ -203,6 +209,25 @@ class MobileRoutineOutboxTest {
         repository.discardRoutineRecord(waiting.commandId)
 
         assertEquals(0, dao.outboxCount())
+    }
+
+    /** 読めた続けることは端末の写しに残り、圏外で開き直しても同じ日なら出せる。別の日・別の Desktop の写しは出さない。 */
+    @Test
+    fun routinesReadOnceStayOnTheDeviceForTheSameDay() = runBlocking {
+        val repository = repository()
+        online = true
+        val read = requireNotNull(repository.fetchRoutines("2026-11-16"))
+        assertEquals("論文を読む", read.habits.single().title)
+
+        online = false
+        assertNull(repository.fetchRoutines("2026-11-16"))
+        val copy = requireNotNull(repository.cachedRoutines("2026-11-16"))
+        assertEquals(read.copy(maintenances = emptyList()), copy.routines)
+        assertEquals("2026-11-16T02:00:00Z", copy.fetchedAt)
+        assertNull(repository.cachedRoutines("2026-11-17"))
+
+        dao.upsertSyncState(requireNotNull(dao.syncState()).copy(serverId = "server-2"))
+        assertNull(repository.cachedRoutines("2026-11-16"))
     }
 
     private fun meta(): String =

@@ -105,6 +105,35 @@ class RoutineOfflineLookCaptureTest {
         capture("routine-today-online-$suffix")
     }
 
+    @Test fun reopenedLight() = reopenWhileOffline(dark = false)
+
+    @Test fun reopenedDark() = reopenWhileOffline(dark = true)
+
+    /** つながる間に一度読み、圏外で 1 回記録してから開き直す。続けることは写しから出て、日付印と割印が付く。 */
+    private fun reopenWhileOffline(dark: Boolean) {
+        val suffix = if (dark) "dark" else "light"
+        runBlocking {
+            val before = repository()
+            before.synchronizeIfPaired()
+            checkNotNull(before.fetchRoutines(today))
+            online = false
+            check(
+                before.recordRoutine(
+                    MobileRoutineActionDto(name = ROUTINE_RECORD_COMMAND, performedOn = today, habitId = "habit-read", sequence = 2),
+                ) == MobileRoutineActionResult.Queued,
+            )
+        }
+        // 開き直し: 新しい送り手と ViewModel が、同じ端末の DB だけから組み立てる。
+        val viewModel = TodayViewModel(repository())
+        composeRule.setContent { Themed(dark) { TodayApp(todayViewModel = viewModel) } }
+        composeRule.waitUntil(10_000) { viewModel.routines.value?.copyAt != null }
+        composeRule.onNodeWithTag("today-routines").performScrollTo()
+        composeRule.onNodeWithTag("today-routines-copy-stamp", useUnmergedTree = true).assertIsDisplayed()
+        composeRule.onNodeWithText("毎日1回 · 今日2回 · 今週4/7回", substring = true).assertIsDisplayed()
+        composeRule.onNodeWithTag("routine-habit-habit-read-unsent", useUnmergedTree = true).assertIsDisplayed()
+        capture("routine-today-reopened-offline-$suffix")
+    }
+
     private fun repository() = AndroidMobileTaskRepository(
         context = context,
         store = store,

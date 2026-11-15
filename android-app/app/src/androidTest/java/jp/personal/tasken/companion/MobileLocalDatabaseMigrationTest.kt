@@ -15,6 +15,25 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class MobileLocalDatabaseMigrationTest {
+    @Test fun migrationThirtyOneToThirtyTwoAddsRoutineCopyAndKeepsTasksAndPendingRecords() {
+        helper.createDatabase(DatabaseName, 31).apply {
+            execSQL("INSERT INTO task_cache (id,serverVersion,title,themeId,state,workState,todayDate,updatedAt,optimisticCommandId,checklistJson,reminderAt) VALUES ('task',4,'保持するTask',NULL,'todo','not_delegated',NULL,'2026-11-16T08:00:00Z','command','[]','2026-11-16T09:00:00+09:00')")
+            execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt,taskId) VALUES ('command','key','request','device','2026-11-16T08:00:00Z','UpdateTask','保持する入力','server','pending',0,'2026-11-16T08:00:00Z','task')")
+            execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt,lastError) VALUES ('routine','routine','request-2','device','2026-11-16T08:01:00Z','RecordHabitEntry','保持する記録','server','rejected',1,'2026-11-16T08:01:00Z','断られた理由')")
+            close()
+        }
+        helper.runMigrationsAndValidate(DatabaseName, 32, true, MIGRATION_31_32).use { db ->
+            db.query("SELECT title,optimisticCommandId,reminderAt FROM task_cache WHERE id='task'").use {
+                assertTrue(it.moveToFirst()); assertEquals("保持するTask", it.getString(0)); assertEquals("command", it.getString(1)); assertEquals("2026-11-16T09:00:00+09:00", it.getString(2))
+            }
+            db.query("SELECT commandId,envelopeJson,state,lastError FROM outbox_command ORDER BY commandId").use {
+                assertTrue(it.moveToFirst()); assertEquals("command", it.getString(0)); assertEquals("保持する入力", it.getString(1)); assertEquals("pending", it.getString(2))
+                assertTrue(it.moveToNext()); assertEquals("routine", it.getString(0)); assertEquals("保持する記録", it.getString(1)); assertEquals("rejected", it.getString(2)); assertEquals("断られた理由", it.getString(3))
+            }
+            db.query("SELECT COUNT(*) FROM routine_cache").use { assertTrue(it.moveToFirst()); assertEquals(0, it.getInt(0)) }
+            db.execSQL("INSERT INTO routine_cache (serverId,date,payloadJson,fetchedAt) VALUES ('server','2026-11-16','{}','2026-11-16T08:02:00Z')")
+        }
+    }
     @Test fun migrationThirtyToThirtyOneAddsReminderColumnsAndKeepsTasksPlacesAndPendingWrites() {
         helper.createDatabase(DatabaseName, 30).apply {
             execSQL("INSERT INTO task_cache (id,serverVersion,title,themeId,state,workState,todayDate,updatedAt,optimisticCommandId,checklistJson,placeReminderJson) VALUES ('task',4,'保持するTask',NULL,'todo','not_delegated',NULL,'2026-11-15T08:00:00Z','command','[]','保持する場所')")

@@ -884,6 +884,17 @@ class AndroidMobileTaskRepository(
             require(response.status == 200) { "Routines request failed with HTTP ${response.status}" }
             val decoded = MobileRoutineContract.decode(response.body)
             if (decoded.meta.serverId != expectedServerId) return null
+            // 読めた分を写しとして置く。圏外で開き直しても出せるように（前もって取った物は圏外でも開ける）。
+            if (dao.syncState()?.serverId == expectedServerId) {
+                dao.upsertRoutineCache(
+                    RoutineCacheEntity(
+                        serverId = expectedServerId,
+                        date = decoded.data.date,
+                        payloadJson = MobileRoutineContract.encodeCopy(decoded.data),
+                        fetchedAt = decoded.meta.generatedAt,
+                    ),
+                )
+            }
             decoded.data
         } catch (error: CancellationException) {
             throw error
@@ -915,6 +926,15 @@ class AndroidMobileTaskRepository(
         } catch (error: IllegalArgumentException) {
             MobileRoutineActionResult.Failed(error.message ?: "記録できませんでした。")
         }
+    }
+
+    /** その日の続けることの写し。接続先の Desktop の物で、日が同じ時だけ返す（別の日の「今日N回」は見せない）。 */
+    override suspend fun cachedRoutines(date: String): MobileRoutinesCopy? {
+        val serverId = dao.syncState()?.serverId ?: return null
+        val cache = dao.routineCache(serverId)?.takeIf { it.date == date } ?: return null
+        return runCatching { MobileRoutinesCopy(MobileRoutineContract.decodeCopy(cache.payloadJson), cache.fetchedAt) }
+            .onFailure { Log.w(MOBILE_GATEWAY_LOG_TAG, "Discarding an unreadable routines copy", it) }
+            .getOrNull()
     }
 
     override fun observePendingRoutineRecords(): Flow<List<MobilePendingRoutineRecord>> =

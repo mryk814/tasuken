@@ -78,6 +78,18 @@ data class PlaceReminderNoticeEntity(
     val notifiedDate: String,
 )
 
+/**
+ * 続けることの写し（Desktop ごとに最後に読めた 1 日分）。圏外で開き直しても Today に出し、いつの写しかを日付印で見せる。
+ * 端末にだけある記録（送信の列）は、ここではなく outbox_command に残り、出す時に重ねる。
+ */
+@Entity(tableName = "routine_cache")
+data class RoutineCacheEntity(
+    @PrimaryKey val serverId: String,
+    val date: String,
+    val payloadJson: String,
+    val fetchedAt: String,
+)
+
 @Entity(tableName = "work_log_cache")
 data class WorkLogCacheEntity(
     @PrimaryKey val id: String,
@@ -624,6 +636,12 @@ abstract class MobileLocalDao {
 
     @Query("DELETE FROM outbox_command WHERE commandId = :commandId AND commandName = 'RecordHabitEntry' AND state = 'rejected'")
     abstract suspend fun discardRejectedRoutineRecord(commandId: String): Int
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    abstract suspend fun upsertRoutineCache(cache: RoutineCacheEntity)
+
+    @Query("SELECT * FROM routine_cache WHERE serverId = :serverId")
+    abstract suspend fun routineCache(serverId: String): RoutineCacheEntity?
 
     @Query("SELECT * FROM task_cache WHERE todayDate = :date ORDER BY updatedAt DESC, id ASC")
     @Transaction
@@ -2003,8 +2021,9 @@ abstract class MobileLocalDao {
         FeedCacheEntity::class,
         FeedPendingActionEntity::class,
         PlaceReminderNoticeEntity::class,
+        RoutineCacheEntity::class,
     ],
-    version = 31,
+    version = 32,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -2050,8 +2069,19 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                     MIGRATION_28_29,
                     MIGRATION_29_30,
                     MIGRATION_30_31,
+                    MIGRATION_31_32,
             ).build().also { instance = it }
         }
+    }
+}
+
+/** 続けることの写し: 表を一つ足すだけ。既存の表と行（送信の列の未送信の入力も）は変えない。 */
+internal val MIGRATION_31_32 = object : Migration(31, 32) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS routine_cache (serverId TEXT NOT NULL PRIMARY KEY, date TEXT NOT NULL, " +
+                "payloadJson TEXT NOT NULL, fetchedAt TEXT NOT NULL)",
+        )
     }
 }
 

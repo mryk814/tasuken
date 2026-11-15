@@ -45,7 +45,8 @@ internal data class TodayRoutineHabit(
     val returned: Int = 0,
 )
 
-internal data class TodayRoutines(val date: String, val habits: List<TodayRoutineHabit>) {
+/** [copyAt] は端末の写しを見せている時のその時刻（Desktop から読めた時は null）。 */
+internal data class TodayRoutines(val date: String, val habits: List<TodayRoutineHabit>, val copyAt: String? = null) {
     val isEmpty: Boolean get() = habits.isEmpty()
 }
 
@@ -61,8 +62,10 @@ internal data class TodayRoutines(val date: String, val habits: List<TodayRoutin
 internal fun overlayPendingRoutines(
     server: MobileRoutinesDataDto,
     pending: List<MobilePendingRoutineRecord>,
+    copyAt: String? = null,
 ): TodayRoutines = TodayRoutines(
     date = server.date,
+    copyAt = copyAt,
     habits = server.habits.map { habit ->
         val mine = pending.filter { it.habitId == habit.habitId }
         val sameDay = mine.filter { it.performedOn == server.date }

@@ -389,6 +389,8 @@ class TodayViewModel(
     val feedMessages: SharedFlow<String> = mutableFeedMessages.asSharedFlow()
     /** Desktopから読んだ続けること。取れなかったときは前回の内容を残す。 */
     private val serverRoutines = MutableStateFlow<MobileRoutinesDataDto?>(null)
+    /** 出している続けることが端末の写しの時、その時刻（Desktop から読めた時は null）。 */
+    @Volatile private var routinesCopyAt: String? = null
     private val mutableRoutineRecords = MutableStateFlow<List<MobilePendingRoutineRecord>>(emptyList())
     /** まだ届いていない（か、断られた）続けることの記録。同期の一覧に出す。 */
     val routineRecords: StateFlow<List<MobilePendingRoutineRecord>> = mutableRoutineRecords.asStateFlow()
@@ -510,14 +512,16 @@ class TodayViewModel(
         refreshRoutines(result !is MobileTodayResult.PairingRequired)
     }
 
-    /** 続けることの取り直し（#454）。失敗しても前回の内容を残す。 */
+    /**
+     * 続けることの取り直し（#454）。読めれば端末の写しにも置かれる。読めない時（圏外・つなぎ直しが要る）は、
+     * その日の写しを出し、いつの写しかを日付印で見せる。写しも無ければ節ごと出さない。
+     */
     private fun refreshRoutines(canConnect: Boolean) {
         routineRefreshJob?.cancel()
-        val gateway = repository as? MobileGatewayRepository
-        if (!canConnect || gateway == null) return
+        val gateway = repository as? MobileGatewayRepository ?: return
         routineRefreshJob = viewModelScope.launch(ioDispatcher) {
             val date = today().toString()
-            val read = try {
+            val read = if (!canConnect) null else try {
                 gateway.fetchRoutines(date)
             } catch (error: CancellationException) {
                 throw error
@@ -525,18 +529,24 @@ class TodayViewModel(
                 null
             }
             currentCoroutineContext().ensureActive()
-            if (read != null) {
-                serverRoutines.value = read
-                mutableRoutineTitles.value = mutableRoutineTitles.value + read.habits.associate { it.habitId to it.title }
-                projectRoutines()
+            val copy = if (read == null) gateway.cachedRoutines(date) else null
+            currentCoroutineContext().ensureActive()
+            val shown = read ?: copy?.routines
+            routinesCopyAt = if (read == null) copy?.fetchedAt else null
+            serverRoutines.value = shown
+            if (shown != null) {
+                mutableRoutineTitles.value = mutableRoutineTitles.value + shown.habits.associate { it.habitId to it.title }
             }
+            projectRoutines()
         }
     }
 
     // 読み直しと列の見張りが別々の IO スレッドから呼ぶので、重ねる元の二つを一度に読む。
     @Synchronized
     private fun projectRoutines() {
-        mutableRoutines.value = serverRoutines.value?.let { overlayPendingRoutines(it, mutableRoutineRecords.value) }
+        mutableRoutines.value = serverRoutines.value?.let {
+            overlayPendingRoutines(it, mutableRoutineRecords.value, routinesCopyAt)
+        }
     }
 
     /**
@@ -1529,8 +1539,10 @@ interface MobileGatewayRepository : MobileTaskRepository {
         MobileFeedActionResult.Unavailable("このDesktopでは返信を保存できません。")
     /** 送信待ちを送る。受け付けられなかった分の理由を返す（成功・接続できなかった分は返さない）。 */
     suspend fun flushFeedActions(): List<String> = emptyList()
-    /** 続けること（#454）。窓口を持たないDesktopや接続できないときはnull。 */
+    /** 続けること（#454）。窓口を持たないDesktopや接続できないときはnull。読めた分は端末の写しに置く。 */
     suspend fun fetchRoutines(date: String): MobileRoutinesDataDto? = null
+    /** その日の続けることの写し（最後に読めた物）。無ければnull。 */
+    suspend fun cachedRoutines(date: String): MobileRoutinesCopy? = null
     /** 続けることの記録。端末の送信の列に先に書き、つながったら送る。 */
     suspend fun recordRoutine(action: MobileRoutineActionDto): MobileRoutineActionResult =
         MobileRoutineActionResult.Failed("このDesktopでは記録できません。Desktopを更新してください。")

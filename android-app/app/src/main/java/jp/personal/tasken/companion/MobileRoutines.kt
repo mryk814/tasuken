@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.Serializable
@@ -109,6 +110,11 @@ object MobileRoutineContract {
 
     fun decodeEnvelope(body: String): MobileRoutineActionEnvelopeDto = json.decodeFromString(body)
 
+    /** 端末の写し（routine_cache）に置く形。手入れは画面に出さないので、写しには持たない。 */
+    fun encodeCopy(data: MobileRoutinesDataDto): String = json.encodeToString(data.copy(maintenances = emptyList()))
+
+    fun decodeCopy(body: String): MobileRoutinesDataDto = json.decodeFromString(body)
+
     fun decodeResponse(body: String): MobileRoutineActionResponseDto = json.decodeFromString(body)
 
     /**
@@ -126,6 +132,9 @@ object MobileRoutineContract {
         )
     }
 }
+
+/** 端末に置いた、続けることの写し。[fetchedAt] は Desktop が返した時刻（いつの写しか）。 */
+data class MobileRoutinesCopy(val routines: MobileRoutinesDataDto, val fetchedAt: String)
 
 /** 記録の結果。 */
 sealed interface MobileRoutineActionResult {
@@ -148,7 +157,20 @@ internal fun TodayRoutinesSection(
 ) {
     if (routines.isEmpty) return
     Column(Modifier.fillMaxWidth().padding(top = 8.dp).testTag("today-routines")) {
-        Text("続けること", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 12.dp))
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("続けること", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f).padding(vertical = 12.dp))
+            // Desktop から読めず、端末の写しを見せている時だけ、いつの写しかを日付印で示す（Today の見出しと同じ印）。
+            parseInstantOrNull(routines.copyAt)?.let { at ->
+                Text(
+                    stampAgeLabel(at),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+                OflStamp("写し", at, modifier = Modifier.testTag("today-routines-copy-stamp"), scale = 0.8f)
+            }
+        }
         routines.habits.forEach { item ->
             val habit = item.habit
             RoutineRow(
