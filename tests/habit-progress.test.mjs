@@ -127,3 +127,37 @@ test("不正な日付と順番は受け付けない", () => {
   assert.throws(() => habitEntryId("", "2026-09-20", 1), /1〜120/u);
   assert.throws(() => weekRangeOf("2026-9-20"), /YYYY-MM-DD/u);
 });
+
+test("新しく足す回は、消した記録と実施日を直した記録のIDを避け、上限を越えたら51を返す", async () => {
+  const { nextFreeEntrySequence } = await import("../src/shared/contracts/habit/progress.ts");
+  const id = (date, sequence) => habitEntryId("habit-a", date, sequence);
+  const entries = [
+    { id: id("2026-09-20", 1), performed_on: "2026-09-20", sequence: 1 },
+    // 2 回目は前の日へ直した（ID は元の日のまま）。
+    { id: id("2026-09-20", 2), performed_on: "2026-09-19", sequence: 2 },
+    // 3 回目は消した（墓標）。
+    {
+      id: id("2026-09-20", 3),
+      performed_on: "2026-09-20",
+      sequence: 3,
+      deleted_at: "2026-09-20T10:00:00Z",
+    },
+  ];
+  assert.equal(nextEntrySequence(entries, "2026-09-20"), 4);
+  assert.equal(nextFreeEntrySequence(entries.slice(0, 2), "habit-a", "2026-09-20"), 3);
+  assert.equal(nextFreeEntrySequence(entries, "habit-a", "2026-09-20"), 4);
+  const full = Array.from({ length: 50 }, (_, index) => ({
+    id: id("2026-09-21", index + 1),
+    performed_on: "2026-09-21",
+    sequence: index + 1,
+  }));
+  assert.equal(nextFreeEntrySequence(full, "habit-a", "2026-09-21"), 51);
+});
+
+test("最後に行った日は、遅れて届いた古い日で過去へ戻さない", async () => {
+  const { laterPerformedOn } = await import("../src/shared/contracts/habit/progress.ts");
+  assert.equal(laterPerformedOn("2026-09-20", "2026-09-18"), "2026-09-20");
+  assert.equal(laterPerformedOn("2026-09-18", "2026-09-20"), "2026-09-20");
+  assert.equal(laterPerformedOn(undefined, "2026-09-18"), "2026-09-18");
+  assert.equal(laterPerformedOn("壊れた値", "2026-09-18"), "2026-09-18");
+});

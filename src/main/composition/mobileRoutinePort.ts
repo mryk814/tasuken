@@ -2,7 +2,9 @@ import {
   habitEntryId,
   habitProgress,
   habitScheduleLabel,
+  laterPerformedOn,
   nextEntrySequence,
+  nextFreeEntrySequence,
 } from "../../shared/contracts/habit/progress.ts";
 import type { MobileRoutineActionRequest } from "../../shared/contracts/mobile/public.ts";
 import type {
@@ -13,8 +15,9 @@ import type {
 
 /**
  * 続けること（Habit）の書き込みをDesktopのmainへ任せる口（#454）。
- * Desktopの記録と同じEntity（`habit_entry` / `habit`）を保存し、
- * 保存後のDesktop画面の更新もmain側が行う。常時稼働nodeには渡さない。
+ * Desktopの記録と同じEntity（`habit_entry` / `habit`）を保存し、保存後の画面の更新は書き手（writer）が行う。
+ * Desktopも常時稼働node（NASのheadless）も、同じこの口を通る（tests/core-capability-parity.test.mjs）。
+ * スマホの記録は今のAPKが「1回足す」（commandIdで送り直しを見分ける）、古いAPKが「N回目にする」。
  * 手入れ（Maintenance）の読み出しと記録は #755 束9b で外した（記録は読むだけで残る）。
  */
 export interface RoutineWriterPort {
@@ -114,25 +117,16 @@ export function createMobileRoutinePort(
                   : { ok: false, code: "idempotency_conflict" };
               }
               // その日の次の空いた回に入れる。PCが同じ日に記録していても、端末の1回を潰さない。
-              // 消した記録の回も数える（同じIDで上書きしない）。
-              sequence = nextEntrySequence(
+              // 消した記録と、実施日を直した記録のIDも避ける（Desktopの画面と同じ決め方）。
+              sequence = nextFreeEntrySequence(
                 entries.map((entry) => ({
                   id: text(entry.id),
                   performed_on: text(entry.performed_on),
                   sequence: Number(entry.sequence),
                 })),
+                action.habitId,
                 action.performedOn,
               );
-              // 実施日を直した記録は元の日のIDのまま残るので、IDが空くまで回を進める。
-              while (
-                sequence <= 50 &&
-                persistence.get(
-                  "habit_entry",
-                  habitEntryId(action.habitId, action.performedOn, sequence),
-                  true,
-                )
-              )
-                sequence += 1;
               if (sequence > 50) return { ok: false, code: "validation_failed" };
             }
             const id = habitEntryId(action.habitId, action.performedOn, sequence);
@@ -151,7 +145,13 @@ export function createMobileRoutinePort(
                   ...(action.mode === "append" ? { source_command_id: input.commandId } : {}),
                 },
               },
-              { type: "habit", entity: { ...habit, last_performed_on: action.performedOn } },
+              {
+                type: "habit",
+                entity: {
+                  ...habit,
+                  last_performed_on: laterPerformedOn(habit.last_performed_on, action.performedOn),
+                },
+              },
             ]);
             return { ok: true, commandId: input.commandId, status: "applied" };
           },

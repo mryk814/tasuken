@@ -6,7 +6,8 @@ import {
   habitProgress,
   habitScheduleLabel,
   habitStateAfter,
-  nextEntrySequence,
+  laterPerformedOn,
+  nextFreeEntrySequence,
   weekRangeOf,
   type HabitScheduleKind,
 } from "../../../../../shared/contracts/habit/progress.ts";
@@ -94,8 +95,14 @@ export function HabitPanel({
   if (variant === "rows" && active.length === 0) return null;
 
   const record = async (habit: BaseRecord, performedOn: string) => {
-    const habitEntries = entriesOf(entries, String(habit.id));
-    const sequence = nextEntrySequence(habitEntries as never, performedOn);
+    // 実施日を直した記録は元の日の ID のまま残るので、その ID を同じ回の番号で上書きしない（スマホの受け口と同じ決め方）。
+    // 消した記録（墓標）は画面に届かない（projectWorkspaceData が除く）ので、ここでは避けられない。
+    const allEntries = entries.filter((entry) => entry.habit_id === String(habit.id));
+    const sequence = nextFreeEntrySequence(allEntries as never, String(habit.id), performedOn);
+    if (sequence > 50) {
+      setToast("この日はこれ以上記録できません。", "danger");
+      return;
+    }
     const entry: BaseRecord = {
       id: habitEntryId(String(habit.id), performedOn, sequence),
       habit_id: String(habit.id),
@@ -111,7 +118,10 @@ export function HabitPanel({
           {
             action: "save",
             type: "habit",
-            entity: { ...habit, last_performed_on: performedOn },
+            entity: {
+              ...habit,
+              last_performed_on: laterPerformedOn(habit.last_performed_on, performedOn),
+            },
           },
         ],
         "1回記録しました。",

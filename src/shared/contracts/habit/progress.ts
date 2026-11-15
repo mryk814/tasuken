@@ -96,6 +96,31 @@ export function nextEntrySequence(entries: readonly HabitEntryRef[], performedOn
 }
 
 /**
+ * 新しく記録を足す時の回（Desktopの画面とスマホの「1回足す」で同じ決め方）。
+ * [entries] にはそのHabitの記録を**消した物も含めて**渡す。消した記録の回を使うと、
+ * 同じIDで墓標を上書きして、消した記録の元へ戻せなくなるため。
+ * 実施日を直した記録は元の日のIDのまま残るので、IDが空くまで回を進める。
+ * 50を越えたら51を返す（呼ぶ側がその日の上限として断る）。
+ */
+export function nextFreeEntrySequence(
+  entries: readonly HabitEntryRef[],
+  habitId: string,
+  performedOn: string,
+): number {
+  const taken = new Set(entries.map((entry) => entry.id));
+  let sequence = nextEntrySequence(entries, performedOn);
+  while (sequence <= 50 && taken.has(habitEntryId(habitId, performedOn, sequence))) sequence += 1;
+  return Math.min(sequence, 51);
+}
+
+/** 最後に行った日は、遅れて届いた古い日で過去へ戻さない（大きい方を残す）。 */
+export function laterPerformedOn(current: unknown, performedOn: string): string {
+  return typeof current === "string" && DATE_PATTERN.test(current) && current > performedOn
+    ? current
+    : performedOn;
+}
+
+/**
  * 「今日1回」「今週2/3回」を導出する。**連続日数や達成率は出さない。**
  * 一時停止中のHabitは記録対象から外すが、過去の記録は書き換えない。
  */

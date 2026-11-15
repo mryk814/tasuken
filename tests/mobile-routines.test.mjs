@@ -451,3 +451,11 @@ test("古いAPKの形（modeなし）は今までどおり送られた回に保�
     false,
   );
 });
+
+test("遅れて届いた前の日の記録で、Habitの最後に行った日を過去へ戻さない", async () => {
+  const { adapter, repository } = gateway({ writable: true });
+  repository.save("habit", { ...repository.get("habit", "habit-read"), last_performed_on: today });
+  const late = await post(adapter, append("command-late", { performedOn: "2026-10-04" }));
+  assert.equal(late.body.data.status, "applied");
+  assert.equal(repository.get("habit", "habit-read").last_performed_on, today);
+});
