@@ -25,6 +25,10 @@ import { Button, IntegrationStatus, PageHeader } from "../components/common";
 import { StampLine, UnsentRow } from "../components/OfflineMarks";
 import { RestoreBackupDialog } from "../components/RestoreBackupDialog";
 import {
+  DEFAULT_DUE_NOTIFICATION_TIMES,
+  normalizeDueNotificationTimes,
+} from "../../../../../shared/taskNotifications";
+import {
   DIRECT_SHORTCUT_DEFINITIONS,
   formatShortcutLabel,
 } from "../../../../../shared/globalShortcuts";
@@ -95,6 +99,10 @@ export function SettingsPage({
   // ローカルのAI（Claude Codeなど）の直接の書き込み（#703）。既定は無効。
   const [aiDirectWriteEnabled, setAiDirectWriteEnabled] = useState(false);
   const [aiDirectWriteBusy, setAiDirectWriteBusy] = useState(false);
+  // 期限の日の知らせの時刻（#753）。この PC の設定で、スマホは自分の設定を持つ。
+  const [dueNotificationTimes, setDueNotificationTimes] = useState<string[]>([
+    ...DEFAULT_DUE_NOTIFICATION_TIMES,
+  ]);
   const [calendarStatus, setCalendarStatus] = useState<CalendarConnectionStatus | null>(null);
   const [calendarBusy, setCalendarBusy] = useState(false);
   const [calendarRefreshNote, setCalendarRefreshNote] = useState<string | null>(null);
@@ -160,6 +168,31 @@ export function SettingsPage({
         // 読めないときは無効として表示する（Coreも同じ値を読むので、表示と実際はずれない）。
       });
   }, []);
+
+  useEffect(() => {
+    workspaceApi
+      .getPreference("dueNotificationTimes")
+      .then((value) => setDueNotificationTimes(normalizeDueNotificationTimes(value)))
+      .catch(() => {
+        // 読めないときは既定（09:00）を表示する。知らせる側も同じ既定で動く。
+      });
+  }, []);
+
+  async function updateDueNotificationTimes(next: string[]) {
+    const previous = dueNotificationTimes;
+    setDueNotificationTimes(next);
+    // 入力の途中（空の時刻）は保存しない。時刻がそろった時だけ保存する。
+    if (next.some((time) => !time)) return;
+    try {
+      await workspaceApi.setPreference("dueNotificationTimes", next);
+    } catch (error) {
+      setDueNotificationTimes(previous);
+      setToast(
+        `設定を変更できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    }
+  }
 
   async function updateAiDirectWrite(enabled: boolean) {
     setAiDirectWriteEnabled(enabled);
@@ -819,6 +852,58 @@ export function SettingsPage({
                   <p className="field-help">Themeにgroupが設定されていません。</p>
                 );
               })()}
+            </section>
+            <section
+              className="panel settings-form"
+              hidden={activeSection !== "general"}
+              aria-labelledby="due-notification-title"
+            >
+              <h2 id="due-notification-title">期限の日の知らせ</h2>
+              <div className="due-notification-times">
+                {dueNotificationTimes.map((time, index) => (
+                  <label key={index}>
+                    {index === 0 ? "当日" : "2 回目"}
+                    <span className="due-notification-time">
+                      <input
+                        type="time"
+                        value={time}
+                        onChange={(event) =>
+                          void updateDueNotificationTimes(
+                            dueNotificationTimes.map((entry, at) =>
+                              at === index ? event.target.value : entry,
+                            ),
+                          )
+                        }
+                      />
+                      {index > 0 && (
+                        <button
+                          type="button"
+                          className="text-button compact"
+                          onClick={() =>
+                            void updateDueNotificationTimes(dueNotificationTimes.slice(0, 1))
+                          }
+                        >
+                          外す
+                        </button>
+                      )}
+                    </span>
+                  </label>
+                ))}
+                {dueNotificationTimes.length < 2 && (
+                  <button
+                    type="button"
+                    className="text-button compact"
+                    onClick={() =>
+                      void updateDueNotificationTimes([
+                        dueNotificationTimes[0],
+                        dueNotificationTimes[0] < "15:00" ? "15:00" : "21:00",
+                      ])
+                    }
+                  >
+                    ＋ 2 回目を足す
+                  </button>
+                )}
+              </div>
             </section>
             <section className="panel settings-form" hidden={activeSection !== "general"}>
               <h2>ショートカット</h2>

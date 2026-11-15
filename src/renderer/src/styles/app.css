@@ -6362,6 +6362,19 @@ textarea:hover {
   align-items: center;
   gap: var(--space-3);
 }
+.due-notification-times {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+}
+.due-notification-time {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.due-notification-time input {
+  width: auto;
+}
 .settings-layout {
   display: grid;
   grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
