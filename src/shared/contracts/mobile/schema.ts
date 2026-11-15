@@ -1405,11 +1405,14 @@ export const mobileCaptureOrganizationBatchSchema = z
     warnings: z.array(z.string().trim().min(1).max(500)).max(10),
   })
   .strict();
+// Desktop の Quick Capture の整理案。時間割の欄は #755 束6 で外したので、開始時刻と所要時間は
+// 書き込まない。前の版の依頼文で外部 AI が返した結果も取り込めるよう、欄は省いてもよく、
+// あれば形だけを確かめる。
 export const mobileCaptureOrganizationTimedSchema = z
   .object({
     ...mobileCaptureOrganizationSchema.shape,
-    plannedStartTime: mobilePlannedStartTimeSchema,
-    plannedDurationMinutes: mobilePlannedDurationMinutesSchema,
+    plannedStartTime: mobilePlannedStartTimeSchema.optional(),
+    plannedDurationMinutes: mobilePlannedDurationMinutesSchema.optional(),
   })
   .strict()
   .superRefine(validateMobileScheduleDates);

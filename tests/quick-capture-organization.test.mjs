@@ -151,8 +151,9 @@ test("Desktop Quick Capture posts directly to Feed without touching Inbox or Not
   assert.throws(() => f.call("save", "   ", "feed"));
 });
 
-test("Desktop confirmed planned time keeps execution time separate from the deadline and accepts duration alone", () => {
+test("Desktop organized Tasks no longer write planned time, while dates still become the schedule (#755 束6)", () => {
   const f = fixture();
+  // 時間割の欄は外した。前の版の案が開始時刻・所要時間を持っていても、Task には書かない。
   f.call(
     "save",
     "金曜まで。明日16時から90分",
@@ -168,27 +169,22 @@ test("Desktop confirmed planned time keeps execution time separate from the dead
       },
     ]),
   );
-  assert.equal(f.commands[0].payload.task.planned_start_time, "16:00");
-  assert.equal(f.commands[0].payload.task.planned_duration_minutes, 90);
+  assert.equal("planned_start_time" in f.commands[0].payload.task, false);
+  assert.equal("planned_duration_minutes" in f.commands[0].payload.task, false);
   assert.equal(f.commands[0].payload.schedule.start_date, "2026-09-07");
   assert.equal(f.commands[0].payload.schedule.end_date, "2026-09-11");
+  // 今の画面は開始時刻・所要時間の欄を送らない。
+  const { plannedStartTime: _start, plannedDurationMinutes: _duration, ...current } = proposal;
   f.call(
     "save",
     "作業は30分",
     "today-task",
     undefined,
     undefined,
-    submission([
-      {
-        ...proposal,
-        endDate: null,
-        plannedDurationMinutes: 30,
-      },
-    ]),
+    submission([{ ...current, endDate: null }]),
   );
   assert.equal(f.commands[1].payload.schedule, undefined);
-  assert.equal(f.commands[1].payload.task.planned_start_time, null);
-  assert.equal(f.commands[1].payload.task.planned_duration_minutes, 30);
+  assert.equal("planned_duration_minutes" in f.commands[1].payload.task, false);
   for (const changes of [
     { plannedStartTime: "24:00" },
     { plannedStartTime: "9:00" },

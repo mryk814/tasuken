@@ -51,6 +51,27 @@ test("External results preview without provider calls or saving, and use the exi
   );
 });
 
+test("External prompt no longer asks for planned time, and older results drop it before preview (#755 束6)", () => {
+  const f = fixture();
+  f.call("external-prompt", {
+    text: "明日16時から90分で比較実験",
+    themeId: "research",
+    capturedAt: "2026-09-08T02:00:00Z",
+    timeZone: "Asia/Tokyo",
+  });
+  assert.doesNotMatch(
+    globalThis.captureFixture.clipboardText,
+    /plannedStartTime|予定開始|所要時間/,
+  );
+  const older = result([{ ...proposal, plannedStartTime: "16:00", plannedDurationMinutes: 90 }]);
+  const parsed = f.call("external-import", JSON.stringify(older));
+  assert.equal(parsed.ok, true);
+  assert.equal("plannedStartTime" in parsed.organization.tasks[0], false);
+  assert.equal("plannedDurationMinutes" in parsed.organization.tasks[0], false);
+  const { plannedStartTime: _start, plannedDurationMinutes: _duration, ...current } = proposal;
+  assert.equal(f.call("external-import", JSON.stringify(result([current]))).ok, true);
+});
+
 test("External malformed, oversized, unknown-field, date and Theme results cannot save", () => {
   const f = fixture();
   const invalid = [

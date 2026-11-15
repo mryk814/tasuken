@@ -1314,19 +1314,6 @@ export function EntityDrawer({
             <dd>{themeName}</dd>
             <dt>予定</dt>
             <dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
-            {(task.planned_start_time || task.planned_duration_minutes) && (
-              <>
-                <dt>時刻・所要時間</dt>
-                <dd>
-                  {[
-                    task.planned_start_time,
-                    task.planned_duration_minutes ? `${task.planned_duration_minutes}分` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" / ")}
-                </dd>
-              </>
-            )}
             {task.place_reminder && (
               <>
                 <dt>場所</dt>

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { build } from "esbuild";
@@ -69,7 +70,7 @@ const emptyDomain = {
   change_events: [],
 };
 
-test("manual schedule fallback edits or clears planned time without losing unspecified values", () => {
+test("the drawer keeps planned time values it no longer edits (#755 束6)", () => {
   const base = {
     id: "task-timed",
     title: "測定",
@@ -82,18 +83,20 @@ test("manual schedule fallback edits or clears planned time without losing unspe
     ).entity;
   assert.equal(saved([]).planned_start_time, "14:00");
   assert.equal(saved([]).planned_duration_minutes, 60);
-  const changed = saved([
-    ["planned_start_time", "15:00"],
-    ["planned_duration_minutes", "30"],
-  ]);
-  assert.equal(changed.planned_start_time, "15:00");
-  assert.equal(changed.planned_duration_minutes, 30);
-  const cleared = saved([
+  // 時間割の欄は外したので、同じ名前の値がフォームに紛れても書き替えない（スマホや AI が書いた値を残す）。
+  const ignored = saved([
     ["planned_start_time", ""],
     ["planned_duration_minutes", ""],
   ]);
-  assert.equal(cleared.planned_start_time, null);
-  assert.equal(cleared.planned_duration_minutes, null);
+  assert.equal(ignored.planned_start_time, "14:00");
+  assert.equal(ignored.planned_duration_minutes, 60);
+  const drawerSource = [
+    "src/renderer/src/features/workspace/components/drawer.tsx",
+    "src/renderer/src/features/workspace/components/drawerEntityFields.tsx",
+  ]
+    .map((file) => readFileSync(file, "utf8"))
+    .join("\n");
+  assert.doesNotMatch(drawerSource, /planned_start_time|planned_duration_minutes|時刻・所要時間/);
 });
 
 function plan(type, entries, base = {}, data = emptyData) {

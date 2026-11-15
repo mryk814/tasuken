@@ -229,8 +229,6 @@ export function createQuickCaptureController(
               completed_at: null,
             })),
             today_date: null,
-            planned_start_time: proposal.plannedStartTime,
-            planned_duration_minutes: proposal.plannedDurationMinutes,
             created_at: issuedAt,
           },
           ...(proposal.startDate || proposal.endDate

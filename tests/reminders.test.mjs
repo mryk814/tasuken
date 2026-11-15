@@ -109,6 +109,11 @@ test("reminder settings normalize persisted view data", () => {
     enabled: false,
     activity_log_time: "",
   });
+  // 時刻の正規化は timeboxing.ts から移した（#755 束6）。1 桁の時も 2 桁にそろえる。
+  assert.equal(
+    reminders.normalizeReminderSettings({ activity_log_time: "9:05" }).activity_log_time,
+    "09:05",
+  );
 });
 
 test("task reminders stay on tasks; due ones are raised above the page and on rows", () => {

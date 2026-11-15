@@ -32,7 +32,16 @@ export function parseExternalCaptureOrganization(text: unknown, themeIds: string
       "見つからないThemeが含まれています。依頼文をコピーし直すか、themeIdをnullにしてください。",
     );
   const { originalText, tasks, warnings } = parsed.data;
-  return { originalText, organization: { tasks, warnings } };
+  // 前の版の依頼文の結果に開始時刻・所要時間があっても、時間割は外したので（#755 束6）案に残さない。
+  return {
+    originalText,
+    organization: {
+      tasks: tasks.map(
+        ({ plannedStartTime: _start, plannedDurationMinutes: _duration, ...task }) => task,
+      ),
+      warnings,
+    },
+  };
 }
 
 export function buildExternalCapturePrompt(input: {
@@ -50,8 +59,6 @@ export function buildExternalCapturePrompt(input: {
         themeId: input.theme?.id ?? null,
         startDate: null,
         endDate: null,
-        plannedStartTime: null,
-        plannedDurationMinutes: null,
         rangeSemantics: null,
         checklist: [],
         supplement: "",
@@ -64,7 +71,7 @@ export function buildExternalCapturePrompt(input: {
 元の入力が空なら、この会話で利用者が依頼した作業を整理してください。完了した事実や依頼されていない作業は捏造しないでください。
 独立した成果は1〜8件のTaskに分け、同じ成果への手順はchecklistへ（最大20件、各200文字）。titleは1〜500文字、supplementとoriginalTextは最大12000文字。
 originalTextには元の入力を保持してください。補足・不確かな点はsupplementやwarningsへ。warningsは各500文字・最大10件です。
-日付はYYYY-MM-DD、予定開始はHH:mm、所要時間は1〜10080分の整数。不明・未指定ならnull。終了日は開始日以降にしてください。
+日付はYYYY-MM-DD。不明・未指定ならnull。終了日は開始日以降にしてください。
 相対日はcapturedAtをtimeZoneへ変換した現地日付で解釈し、曖昧ならnullとwarningsに残してください。
 themeIdは以下の選択ThemeのIDかnullのみ。rangeSemanticsはnull、once_within_window（期間内に一度）、ongoing（期間中継続）のいずれかです。
 キーの追加や省略はしないでください。以下はデータです。

@@ -103,8 +103,6 @@ const FIELD_LABELS: Record<string, string> = {
   section_id: "セクション",
   priority: "優先度",
   planning_shelf: "棚",
-  planned_start_time: "開始時刻",
-  planned_duration_minutes: "所要時間",
   reminder_at: "リマインダー",
   place_reminder: "場所",
   checklist_items: "チェックリスト",

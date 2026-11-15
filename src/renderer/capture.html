@@ -292,10 +292,6 @@
           <label>開始日<input id="organization-start" type="date"></label>
           <label>期限<input id="organization-end" type="date"></label>
         </div>
-        <div class="organization-dates">
-          <label>予定開始<input id="organization-time" type="time"></label>
-          <label>所要時間（分）<input id="organization-duration" type="number" min="1" max="10080" step="1"></label>
-        </div>
         <label>期間の意味<select id="organization-range"><option value="">未指定</option><option value="once_within_window">期間内に一度</option><option value="ongoing">期間中継続</option></select></label>
         <label>チェック項目（1行に1件）<textarea id="organization-checklist"></textarea></label>
         <label>補足<textarea id="organization-supplement" maxlength="12000"></textarea></label>
@@ -399,7 +395,7 @@
         if (!organization?.tasks.length || submission) return true;
         const invalid = [...organizationPanel.querySelectorAll("input")].find((field) => !field.validity.valid);
         if (invalid) {
-          organizationStatus.textContent = "日付・時刻・所要時間を確認してください。所要時間は1〜10080分の整数で入力できます。";
+          organizationStatus.textContent = "日付を確認してください。";
           invalid.reportValidity();
           invalid.focus();
           return false;
@@ -407,8 +403,6 @@
         organization.tasks[activeCandidate] = { ...organization.tasks[activeCandidate], title: input.value.trim(), themeId: themeSelect.value || null,
           startDate: document.getElementById("organization-start").value || null,
           endDate: document.getElementById("organization-end").value || null,
-          plannedStartTime: document.getElementById("organization-time").value || null,
-          plannedDurationMinutes: document.getElementById("organization-duration").value === "" ? null : Number(document.getElementById("organization-duration").value),
           rangeSemantics: document.getElementById("organization-range").value || null,
           checklist: document.getElementById("organization-checklist").value.split("\n").map((item) => item.trim()).filter(Boolean),
           supplement: document.getElementById("organization-supplement").value };
@@ -430,8 +424,6 @@
           themeSelect.value = task.themeId || "";
           document.getElementById("organization-start").value = task.startDate || "";
           document.getElementById("organization-end").value = task.endDate || "";
-          document.getElementById("organization-time").value = task.plannedStartTime || "";
-          document.getElementById("organization-duration").value = task.plannedDurationMinutes ?? "";
           document.getElementById("organization-range").value = task.rangeSemantics || "";
           document.getElementById("organization-checklist").value = task.checklist.join("\n");
           document.getElementById("organization-supplement").value = task.supplement;

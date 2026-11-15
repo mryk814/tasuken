@@ -9062,75 +9062,6 @@ kbd {
   color: var(--color-text-secondary);
   font-size: var(--text-xs);
 }
-.timebox-panel {
-  display: grid;
-  gap: var(--space-2);
-  margin-bottom: var(--space-2);
-}
-.timebox-list {
-  display: grid;
-  gap: var(--space-1);
-  padding: 0 var(--pad-card);
-}
-.timebox-row {
-  display: grid;
-  grid-template-columns: 110px minmax(0, 1fr);
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 42px;
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  text-align: left;
-}
-.timebox-row:hover {
-  border-color: var(--color-border-strong);
-  background: var(--color-surface-muted);
-}
-.timebox-row time {
-  color: var(--color-accent-strong);
-  font: var(--text-sm) var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-.timebox-row strong,
-.timebox-row small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.timebox-row small {
-  color: var(--color-text-secondary);
-  font-size: var(--text-xs);
-}
-.timebox-row.timebox-conflict {
-  border-color: var(--color-warning-bd);
-  background: color-mix(in srgb, var(--color-warning-bg) 54%, var(--color-surface));
-}
-.timebox-untimed {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1);
-  padding: 0 var(--pad-card) var(--space-2);
-}
-.timebox-untimed .shelf-lane-heading {
-  width: 100%;
-}
-.timebox-untimed button {
-  min-height: 28px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-}
-.timebox-untimed button:hover {
-  border-color: var(--color-border-strong);
-  background: var(--color-surface-muted);
-  color: var(--color-text);
-}
 .reminder-panel {
   display: grid;
   gap: var(--space-2);
@@ -11900,9 +11831,6 @@ kbd {
     grid-column: 4;
     justify-self: start;
     text-align: left;
-  }
-  .timebox-row {
-    grid-template-columns: 1fr;
   }
   .inbox-card-main,
   .inbox-card-details {

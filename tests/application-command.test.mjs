@@ -2333,7 +2333,7 @@ test("Desktop通常追加は保存後の再送・SQLite再起動でもTaskとSch
   }
 });
 
-test("Desktop organized execution time and original text survive canonical CreateTask and SQLite reopen", async () => {
+test("Desktop organized dates and original text survive canonical CreateTask and SQLite reopen, without planned time (#755 束6)", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "tasken-capture-planned-time-"));
   let database;
   try {
@@ -2358,8 +2358,9 @@ test("Desktop organized execution time and original text survive canonical Creat
     database.db.close();
     database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite"));
     const reopened = database.get("task", taskId);
-    assert.equal(reopened.planned_start_time, "16:30");
-    assert.equal(reopened.planned_duration_minutes, 75);
+    // 時間割の欄は外したので、整理案に開始時刻・所要時間があっても Task には書かない。
+    assert.equal(reopened.planned_start_time ?? null, null);
+    assert.equal(reopened.planned_duration_minutes ?? null, null);
     assert.ok(reopened.description.endsWith(original));
     const schedule = database.list("schedule").find((entry) => entry.owner_id === taskId);
     assert.equal(schedule.start_date, "2026-09-07");

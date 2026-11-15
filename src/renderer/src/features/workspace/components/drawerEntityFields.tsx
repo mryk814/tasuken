@@ -265,27 +265,6 @@ export function TaskFields({
         />
       </Field>
       <div className="form-grid">
-        <Field label="予定時刻">
-          <input
-            name="planned_start_time"
-            type="time"
-            defaultValue={str(entity.planned_start_time)}
-          />
-        </Field>
-        <Field label="所要時間（分）">
-          <input
-            name="planned_duration_minutes"
-            type="number"
-            min={1}
-            max={10080}
-            step={1}
-            defaultValue={
-              entity.planned_duration_minutes == null ? "" : Number(entity.planned_duration_minutes)
-            }
-          />
-        </Field>
-      </div>
-      <div className="form-grid">
         <Field label="開始">
           <input
             name="start_date"

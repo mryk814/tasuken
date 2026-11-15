@@ -1,5 +1,4 @@
 import { normalizeReminderDateTime as normalizeSharedReminderDateTime } from "../../../../../shared/taskNotifications";
-import { normalizeStartTime } from "./timeboxing";
 import type { BaseRecord } from "../types";
 import type { Task, Waiting } from "../domain-model/types";
 
@@ -22,6 +21,16 @@ export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
+}
+
+/** 「H:mm」「HH:mm」を「HH:mm」にそろえる。時刻として読めなければ空文字。 */
+function normalizeStartTime(value: unknown): string {
+  const match = typeof value === "string" ? value.trim().match(/^(\d{1,2}):(\d{2})$/) : null;
+  if (!match) return "";
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours > 23 || minutes > 59) return "";
+  return `${pad(hours)}:${pad(minutes)}`;
 }
 
 export function localDateTimeMinute(date = new Date()): string {
