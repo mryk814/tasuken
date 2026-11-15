@@ -2983,31 +2983,56 @@ private fun TaskWorkProposalReviewCard(
                     "Taskが更新されています。採らずに、AIへ再報告を依頼してください。",
                     color = MaterialTheme.colorScheme.error,
                 )
-                !online -> Text(
-                    "Offline cache · Desktop接続時に採れます",
-                    color = MaterialTheme.colorScheme.secondary,
-                )
                 proposal.truncated -> Text(
                     "長いProposalの一部を省略しています。",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { onDecision(proposal, "accept") },
-                    enabled = online && !proposal.stale && !reviewing,
-                    modifier = Modifier.widthIn(min = 88.dp).testTag("proposal-approve-${proposal.id}"),
-                ) {
-                    Text(if (reviewing && reviewState.decision == "accept") "処理中" else "採る")
+            // 採否は Proposal と Task の版を Desktop で突き合わせるので、列にはためない。つながらない間は
+            // 共通の「使えない」の形にし、押す前に分かるようにする。押されたら絵が首を振り、その場に一言。
+            var nudged by remember(proposal.id) { mutableStateOf(false) }
+            LaunchedEffect(online) { if (online) nudged = false }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (online || proposal.stale) {
+                    // 古い Proposal はつながっても採れないので、「使えない」の形にはしない。
+                    Button(
+                        onClick = { onDecision(proposal, "accept") },
+                        enabled = online && !proposal.stale && !reviewing,
+                        modifier = Modifier.widthIn(min = 88.dp).testTag("proposal-approve-${proposal.id}"),
+                    ) {
+                        Text(if (reviewing && reviewState.decision == "accept") "処理中" else "採る")
+                    }
+                } else {
+                    OflUnavailableButton(
+                        label = "採る",
+                        onNudge = { nudged = true },
+                        modifier = Modifier.testTag("proposal-approve-${proposal.id}"),
+                    )
                 }
-                TextButton(
-                    onClick = { onDecision(proposal, "reject") },
-                    enabled = online && !reviewing,
-                    modifier = Modifier.widthIn(min = 88.dp).testTag("proposal-reject-${proposal.id}"),
-                ) {
-                    Text(if (reviewing && reviewState.decision == "reject") "処理中" else "見送る")
+                if (online) {
+                    TextButton(
+                        onClick = { onDecision(proposal, "reject") },
+                        enabled = !reviewing,
+                        modifier = Modifier.widthIn(min = 88.dp).testTag("proposal-reject-${proposal.id}"),
+                    ) {
+                        Text(if (reviewing && reviewState.decision == "reject") "処理中" else "見送る")
+                    }
+                } else {
+                    OflUnavailableButton(
+                        label = "見送る",
+                        onNudge = { nudged = true },
+                        modifier = Modifier.testTag("proposal-reject-${proposal.id}"),
+                    )
                 }
+            }
+            if (!online && nudged) {
+                Text(
+                    "つながると使えます",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("proposal-offline-hint-${proposal.id}"),
+                )
             }
         }
     }

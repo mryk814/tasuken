@@ -1,6 +1,10 @@
 package jp.personal.tasken.companion
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -63,6 +67,41 @@ class ProposalReviewUiTest {
             .assertIsDisplayed()
         composeRule.onNodeWithTag("proposal-approve-${proposal.id}").assertIsNotEnabled()
         composeRule.onNodeWithTag("proposal-reject-${proposal.id}").assertIsNotEnabled()
+    }
+
+    /** つながらない間は押す前に「使えない」と分かり、押しても判断は送らず一言だけ出す。つながったら元に戻る。 */
+    @Test
+    fun offlineReviewLooksUnavailableAndRecoversWhenConnected() {
+        val decisions = mutableListOf<String>()
+        val proposal = proposal()
+        val online = mutableStateOf(false)
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = task(),
+                    actionState = TaskActionUiState.Idle,
+                    taskWorkProposals = listOf(proposal),
+                    proposalReviewOnline = online.value,
+                    onStateAction = {},
+                    onProposalDecision = { _, decision -> decisions += decision },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("proposal-detail-${proposal.id}").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("proposal-approve-${proposal.id}")
+            .assertIsNotEnabled()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "つながると使えます"))
+        composeRule.onNodeWithTag("proposal-offline-hint-${proposal.id}").assertDoesNotExist()
+        composeRule.onNodeWithTag("proposal-approve-${proposal.id}").performClick()
+        composeRule.onNodeWithTag("proposal-reject-${proposal.id}").performClick()
+        composeRule.onNodeWithTag("proposal-offline-hint-${proposal.id}").assertIsDisplayed()
+        assertEquals(emptyList<String>(), decisions)
+
+        online.value = true
+        composeRule.onNodeWithTag("proposal-offline-hint-${proposal.id}").assertDoesNotExist()
+        composeRule.onNodeWithTag("proposal-approve-${proposal.id}").assertIsEnabled().performClick()
+        assertEquals(listOf("accept"), decisions)
     }
 
     private fun task() = MobileTask(

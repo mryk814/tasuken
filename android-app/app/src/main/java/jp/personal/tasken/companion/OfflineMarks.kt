@@ -1,11 +1,18 @@
 package jp.personal.tasken.companion
 
+import android.provider.Settings
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -15,8 +22,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
@@ -29,10 +38,14 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.launch
 
 /*
  * つながらない時の見せ方の型（割印と日付印）。
@@ -194,6 +208,65 @@ internal fun OflNowave(modifier: Modifier = Modifier, color: Color = MaterialThe
         scale(unit, unit, pivot = Offset.Zero) {
             drawPath(path, color, style = Stroke(width = 1.8f, cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
+    }
+}
+
+/**
+ * 「使えない」の押す物（つながらないと使えない時）。形と大きさは元の押す物のまま、道具の色を抜いて
+ * 薄い墨の実線の枠 1 にし、電波なしの絵を添える。面と影は無く、字は補足の墨。
+ * 押せないことは押す前に形で分かるが、押すと電波なしの絵が首を振り（0.4 秒で -14°・+12°・-8°・+5°・0°）、
+ * [onNudge] で呼ぶ側がその場に一言（「つながると使えます」）を出す。動きを減らす設定では首を振らない。
+ * 読み上げでは押せない物（disabled）として読み、[reason] を状態として添える。
+ */
+@Composable
+internal fun OflUnavailableButton(
+    label: String,
+    onNudge: () -> Unit,
+    modifier: Modifier = Modifier,
+    reason: String = "つながると使えます",
+) {
+    val colors = taskenOfflineColors()
+    val ink = MaterialTheme.colorScheme.onSurfaceVariant
+    val context = LocalContext.current
+    val shake = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val reduceMotion = remember(context) {
+        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+    }
+    Row(
+        modifier
+            .defaultMinSize(minWidth = 88.dp, minHeight = 40.dp)
+            .clip(CircleShape)
+            // 枠は元の大きさの外の端に沿わせ、中身を動かさない（border は中身の上に引く）。
+            .border(1.dp, colors.inkFaint, CircleShape)
+            .clickable(role = Role.Button) {
+                onNudge()
+                if (!reduceMotion) {
+                    scope.launch {
+                        shake.snapTo(0f)
+                        shake.animateTo(
+                            0f,
+                            keyframes {
+                                durationMillis = 400
+                                -14f at 80
+                                12f at 160
+                                -8f at 240
+                                5f at 320
+                            },
+                        )
+                    }
+                }
+            }
+            .semantics {
+                disabled()
+                stateDescription = reason
+            }
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OflNowave(Modifier.rotate(shake.value), color = ink)
+        Text(label, color = ink, style = MaterialTheme.typography.labelLarge)
     }
 }
 
