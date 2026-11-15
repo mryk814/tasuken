@@ -18,8 +18,6 @@ flowchart LR
     SKETCH[Sketch]
     FILE[File / Screenshot paste]
     CHAT[AI Conversation Import]
-    AUDIO[Voice Capture · Experimental]
-    VIDEO[Screen Recording · Research]
   end
 
   subgraph CLARIFY[Clarify / 意味を与える]
@@ -90,12 +88,11 @@ flowchart LR
 
 ### Satellite surfaces
 
-| Surface        | 役割                     | 正本                    |
-| -------------- | ------------------------ | ----------------------- |
-| Quick Capture  | どこからでも入力         | CaptureEntry / Task等   |
-| Sticky Memo    | Memoをデスクトップ表示   | 同じMemo Entity         |
-| Detached Note  | Noteを別Windowで編集     | 同じNote Entity         |
-| Media Recorder | Voice / Screen Recording | CaptureEntry + Artifact |
+| Surface       | 役割                   | 正本                  |
+| ------------- | ---------------------- | --------------------- |
+| Quick Capture | どこからでも入力       | CaptureEntry / Task等 |
+| Sticky Memo   | Memoをデスクトップ表示 | 同じMemo Entity       |
+| Detached Note | Noteを別Windowで編集   | 同じNote Entity       |
 
 Satellite Windowは新しい正本を作らず、本体と同じCommand・Selector・Preferenceを利用する。
 
@@ -250,7 +247,7 @@ supporting:
   Waiting, Timeline, Themes, Sketch, Chat Refs, Settings, Agent Desk
 
 experimental:
-  Voice Capture, Screen Recording, Web Artifact, Source Anchor, Agent連携再設計
+  Web Artifact, Source Anchor, Agent連携再設計
 
 diagnostic:
   Knowledge / Context Graph diagnostics, Data Health

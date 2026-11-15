@@ -17,7 +17,7 @@
 - テストは Electron の Node で動かす：`node scripts/run-electron-node.mjs --test tests/<対象>.test.mjs`（全体は `npm test`）。型は `npm run typecheck`、ビルドは `npm run build`。
 - 保存→再起動→再表示は `npm run smoke:model` と `npm run smoke:desktop` で確かめる。`smoke:desktop:focused` は build を省くので、ソースを変えたら build し直してから使う。古い成果物での成功は今回の検証に数えない。
 - merge 前の品質ゲートは `npm run ci`。
-- Windows 固有の機能（tray、global shortcut、clipboard、画面録画、ファイルダイアログ）と配布物は、[開発環境](docs/development-environment.md) の Windows runtime clone と GitHub Actions で確かめる。
+- Windows 固有の機能（tray、global shortcut、clipboard、ファイルダイアログ）と配布物は、[開発環境](docs/development-environment.md) の Windows runtime clone と GitHub Actions で確かめる。
 - Electron の画面は既存の smoke runner と同じく Playwright の `_electron` で操作する。そのためにブラウザ用のテスト基盤を新しく作らない。
 
 ## 先に聞くこと

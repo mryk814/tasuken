@@ -11,6 +11,22 @@
 - 再発防止: 記録だけ。範囲の端は `sed -n 'Np'` を 1 行ずつ出して確かめ、消した直後に typecheck（CSS は波括弧の数）を流す。文字どおりの置き換えで済む時は、行番号ではなく前後の文を含めた置き換えにする。
 - 同じ作業で分かったこと: 作業ツリーが CRLF の時、`npx prettier --check` はどのファイルも「整っていない」と言い、`--write` は名指しのファイルを LF に書き直す（差分には出ないが、作業ツリーが変わる）。整形を確かめる時は、中身の改行を LF にそろえてから prettier の API で比べ、書く時は CRLF に戻す。HEAD の時点で整っていなかったファイルは、丸ごと整形しない（差分が読めなくなる）。
 
+## 2026-11-16 整形だけの commit に、先に `git rm` した削除が混ざった
+
+- しようとしたこと: #755 束4 で、機能の差分の前に「整形だけ」の commit を作る。整形する 5 ファイルを `git add` して、パスを付けずに `git commit` した。
+- 起きたこと: その前に `git rm` で消していた 34 ファイルの削除も index に乗っていて、整形の commit に 6,842 行の削除が入った（`git show --stat` で気づいた。push の前）。
+- 原因: `git rm` は削除をその場で stage する。パスを付けない `git commit` は index の全部を commit する。
+- 直し方: `git reset --soft HEAD~1` と `git reset` で index を空にし、5 ファイルだけを stage して作り直した。
+- 再発防止: 記録だけ。途中で commit を分ける作業では、ファイルは `rm` で消して（stage しない）、commit の直前に `git diff --cached --stat` を見る。
+
+## 2026-11-16 使われていない CSS を消す自作の script が、`:is(a, b)` の中のカンマで selector を割った
+
+- しようとしたこと: #755 束4 で、消した画面だけが使っていた class の rule を `app.css` から外す。selector をカンマで分け、死んだ class を含む物だけを消した。
+- 起きたこと: `.content-viewer-overlay:is(.is-expanded, .is-video) .video-trim-editor` が `:is(` の中で割れ、`.content-viewer-overlay:is(.is-expanded {` という壊れた rule が 2 つ残った。
+- 原因: 括弧の中のカンマを数えずに `split(",")` した。
+- 直し方: 壊れた 2 つを手で消した。`git diff` の足された行（`+`）だけを見て、想定の 1 行のほかに無いことを確かめた。
+- 再発防止: 記録だけ。消すだけの変更は、`git diff` の `+` の行が想定どおりかを必ず見る（消す変更で `+` が出たら壊している）。
+
 ## 2026-11-15 新しい worktree で Electron の画面を起こすと「Process failed to launch!」
 
 - しようとしたこと: #751 の拾い上げ（PR 3）で、新しい worktree に `npm ci` を流した後、Playwright の `_electron.launch` で日誌の画面の絵を撮る。

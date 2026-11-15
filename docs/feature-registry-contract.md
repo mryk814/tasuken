@@ -80,8 +80,6 @@ capture
   inbox
   memo
   sticky-memo
-  voice-capture
-  screen-recording
 
 document
   notes-workbench
