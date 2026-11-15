@@ -1018,3 +1018,25 @@ test("前の版の出力の起動時の片付けは一度だけ走り、済ん�
     item.close();
   }
 });
+
+// #755 束8。切る前の控え（Knowledge の節と線の書き出し）の済んだ印は、DB に残り、再起動の後も読める。
+test("retired export mark survives restart and keeps the schema version", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-retired-export-mark-"));
+  const databasePath = path.join(root, "workspace.sqlite");
+  let database = new WorkspaceDatabase(databasePath);
+  try {
+    const schemaVersion = database.getMeta().schemaVersion;
+    assert.equal(database.readRetiredExportMark("knowledge"), null);
+    database.markRetiredExportDone("knowledge", "2026-11-15T00:00:00.000Z");
+    database.db.close();
+    database = new WorkspaceDatabase(databasePath);
+    assert.equal(database.readRetiredExportMark("knowledge"), "2026-11-15T00:00:00.000Z");
+    // 印は名前ごと。別の束の控えとは混ざらない。
+    assert.equal(database.readRetiredExportMark("waiting"), null);
+    assert.throws(() => database.readRetiredExportMark("bad name"), /名前が不正/);
+    assert.equal(database.getMeta().schemaVersion, schemaVersion);
+  } finally {
+    database.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

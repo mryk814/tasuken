@@ -192,6 +192,11 @@ function normalizeImportedTask(input, previous, fallbackSource) {
   return normalizeTaskAssignment(input, previous);
 }
 
+function retiredExportMarkKey(name) {
+  if (!/^[a-z][a-z_]{0,40}$/.test(String(name))) throw new Error("切る前の控えの名前が不正です。");
+  return `retired_export_${name}_v1`;
+}
+
 function automaticSnapshotGenerations(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 5;
@@ -1000,6 +1005,26 @@ export class WorkspaceDatabase {
       return next;
     });
     return transaction.immediate();
+  }
+
+  /**
+   * 切る前の控え（#755）を一度だけ書き出す処理の、済んだ印。値は済んだ時刻、まだなら null。
+   * name は切った機能の名前（"knowledge" など）。端末ごとの印なので、同期には載せない。
+   */
+  readRetiredExportMark(name) {
+    return (
+      this.db
+        .prepare("SELECT value FROM workspace_meta WHERE key = ?")
+        .get(retiredExportMarkKey(name))?.value ?? null
+    );
+  }
+
+  markRetiredExportDone(name, at) {
+    this.db
+      .prepare(
+        "INSERT INTO workspace_meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      )
+      .run(retiredExportMarkKey(name), String(at));
   }
 
   setPreference(key, value) {

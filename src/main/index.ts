@@ -56,6 +56,7 @@ import { WorkspaceService } from "./services/workspaceService";
 import { AiProposalAcceptanceService } from "./services/aiProposalAcceptanceService";
 import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
+import { runKnowledgeRetirementExportOnce } from "./services/knowledgeRetirementExport";
 import { runRetiredOutputCleanupOnce } from "./services/retiredOutputCleanup.mjs";
 import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBackup";
 import { applyPendingRestore, cancelStagedRestore } from "./services/workspaceRestore";
@@ -2535,6 +2536,23 @@ async function startDesktopApp(): Promise<void> {
             repository: cleanupRepository,
             trash: (filePath) => shell.trashItem(filePath),
             log: (level, message) => logMain(level, "retired-output-cleanup", message),
+          }),
+        RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS,
+      ).unref?.();
+    }
+    // 棚卸し（Knowledge）の画面を外す前の控え（#755 束8）。節と線をテーマごとの Markdown に一度だけ書き出す。
+    // 配布した版と、検証用の場所を指定した開発中の起動（TASKEN_DEV_USER_DATA_DIR）だけで走らせる。
+    // 場所を指定しない開発中の起動や bench は本物の DB やその写しを開くことがあり、同期ルートは
+    // 本物を指したままなので、そこへは書かず、済んだ印も付けない（配布した版が最初の起動で書き出す）。
+    if (app.isPackaged || process.env.TASKEN_DEV_USER_DATA_DIR) {
+      const exportRepository = workspaceRepository;
+      setTimeout(
+        () =>
+          void runKnowledgeRetirementExportOnce({
+            repository: exportRepository,
+            userDataDirectory: app.getPath("userData"),
+            syncRoot: String(exportRepository.readPreference("artifactDirectory") || ""),
+            log: (level, message) => logMain(level, "retired-export", message),
           }),
         RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS,
       ).unref?.();
