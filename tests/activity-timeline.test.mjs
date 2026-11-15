@@ -166,14 +166,23 @@ test("Activity includes a cross-day AI session in each overlapping JST day", () 
 
 test("AI session aggregation keeps related Activity kinds and effective Themes", () => {
   const sessionRow = {
-    session: {
+    // 行は AI の作業のカード（#751）。古い会話も新しい記録も、この形で渡る。
+    card: {
       id: "session-a",
       source_session_id: "source-a",
       started_at: "2026-08-28T00:00:00.000Z",
       ended_at: "2026-08-28T01:00:00.000Z",
+      running: false,
       client_kind: "codex",
-      intent: { summary: "振り返りを整える" },
-      outcome: { summary: "完了", remaining_work: [] },
+      client_label: null,
+      intent: "振り返りを整える",
+      summary: "完了",
+      changed: [],
+      changed_more: 0,
+      verified: [],
+      remaining: [],
+      notice: null,
+      status: "done",
     },
     themes: [{ id: "theme-a" }],
     repositories: [{ label: "tasuken" }],
@@ -225,13 +234,22 @@ test("Activity Markdown appends the AI work visible in the daily review", () => 
 
 test("Task AI work joins its recorded source Session without consuming unrelated task periods", () => {
   const row = {
-    session: {
+    card: {
       id: "session-a",
       source_session_id: "source-a",
       started_at: "2026-08-28T00:00:00Z",
       ended_at: "2026-08-28T02:00:00Z",
+      running: false,
       client_kind: "codex",
-      intent: { summary: "Taskの作業" },
+      client_label: null,
+      intent: "Taskの作業",
+      summary: null,
+      changed: [],
+      changed_more: 0,
+      verified: [],
+      remaining: [],
+      notice: null,
+      status: "partial",
     },
     themes: [],
     repositories: [],

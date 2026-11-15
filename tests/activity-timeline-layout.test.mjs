@@ -22,10 +22,8 @@ const {
   ACTIVITY_TIMELINE_DAY_HEIGHT,
   ACTIVITY_TIMELINE_PIXELS_PER_HOUR,
   buildActivityTimelineLayout,
-  agentSessionInterval,
   agentDateText,
   buildAgentDayLayout,
-  agentOutcomeDetails,
 } = await importBundled("src/renderer/src/features/workspace/lib/activityTimelineLayout.ts");
 
 const date = "2026-08-28";
@@ -179,63 +177,53 @@ test("Activity calendar keeps late and short controls usable within the day canv
   );
 });
 
-const start = "2026-10-03T00:00:00Z";
 const now = "2026-10-04T00:00:00Z";
-const session = (extra = {}) => ({ id: "s", started_at: start, status: "unknown", ...extra });
+// 行は AI の作業のカード（#751）。終わりの決め方（最後に見た時刻で止める、など）は
+// 読み替えの側の試験（tests/agent-work-card.test.mjs）で見る。
+const card = (extra = {}) => ({
+  id: "s",
+  started_at: "2026-10-03T00:00:00Z",
+  ended_at: "2026-10-03T00:00:00Z",
+  running: false,
+  ...extra,
+});
 test("JST date and midnight point do not depend on the browser timezone", () => {
   assert.equal(agentDateText(new Date("2026-10-02T15:00:00Z")), "2026-10-03");
   const layout = buildAgentDayLayout(
-    [{ session: session({ started_at: "2026-10-02T15:00:00Z" }) }],
+    [
+      {
+        card: card({ started_at: "2026-10-02T15:00:00Z", ended_at: "2026-10-02T15:00:00Z" }),
+      },
+    ],
     "2026-10-03",
     now,
   );
   assert.equal(layout.length, 1);
   assert.equal(layout[0].start_minutes, 0);
 });
-test("unknown ends stay at last observation, never now or completed", () => {
-  assert.deepEqual(agentSessionInterval(session(), now), { end: start, endLabel: "終了未確認" });
-  assert.deepEqual(
-    agentSessionInterval(session({ observation: { observed_until: "2026-10-03T01:00:00Z" } }), now),
-    { end: "2026-10-03T01:00:00Z", endLabel: "最終観測" },
-  );
-  assert.equal(agentSessionInterval(session({ status: "active" }), now).end, now);
-  assert.equal(
-    agentSessionInterval(session({ status: "active", observation: { observed_until: start } }), now)
-      .end,
-    start,
-  );
-});
-test("recorded end is capped by import observation and malformed ends do not expand the span", () => {
-  assert.equal(agentSessionInterval(session({ ended_at: now }), now).endLabel, "記録末尾");
-  assert.equal(
-    agentSessionInterval(session({ ended_at: start, observation: { observed_until: start } }), now)
-      .endLabel,
-    "最終観測",
-  );
-  assert.equal(
-    agentSessionInterval(session({ ended_at: now, observation: { observed_until: start } }), now)
-      .end,
-    start,
-  );
-  assert.equal(agentSessionInterval(session({ ended_at: "invalid" }), now).end, start);
-});
-test("JST day includes cross-midnight overlaps but unknown end does not occupy later days", () => {
+test("JST day includes cross-midnight overlaps but an ended point does not occupy later days", () => {
   const rows = [
     {
-      session: session({
+      card: card({
         id: "overnight",
         started_at: "2026-10-02T14:30:00Z",
         ended_at: "2026-10-02T16:00:00Z",
       }),
     },
     {
-      session: session({
+      card: card({
         id: "overlap",
         started_at: "2026-10-02T15:00:00Z",
         ended_at: "2026-10-02T16:00:00Z",
       }),
     },
-    { session: session({ id: "unknown", started_at: "2026-10-01T00:00:00Z" }) },
+    {
+      card: card({
+        id: "unknown",
+        started_at: "2026-10-01T00:00:00Z",
+        ended_at: "2026-10-01T00:00:00Z",
+      }),
+    },
   ];
   const layout = buildAgentDayLayout(
     rows,
@@ -250,23 +238,18 @@ test("JST day includes cross-midnight overlaps but unknown end does not occupy l
     ),
   );
 });
-
-test("recorded changes, decisions and next action survive detail presentation without invented evidence", () => {
-  assert.deepEqual(
-    agentOutcomeDetails({
-      changed_items: ["weekly-view.tsx", "demo commit abc123"],
-      decisions: ["観測区間を表示"],
-      next_suggested_action: "実機で確認",
-    }),
-    [
-      { label: "変更したもの", values: ["weekly-view.tsx", "demo commit abc123"] },
-      { label: "判断", values: ["観測区間を表示"] },
-      { label: "次の提案", values: ["実機で確認"] },
-    ],
+test("a record without a start is a point at its end, and a running old session reaches now", () => {
+  const point = buildAgentDayLayout(
+    [{ card: card({ id: "point", started_at: null, ended_at: "2026-10-03T03:00:00Z" }) }],
+    "2026-10-03",
+    now,
   );
-  assert.deepEqual(agentOutcomeDetails(null), []);
-  assert.deepEqual(
-    agentOutcomeDetails({ changed_items: [], decisions: [], next_suggested_action: null }),
-    [],
+  assert.equal(point[0].start_minutes, 12 * 60);
+  assert.equal(point[0].end_minutes, 12 * 60);
+  const running = buildAgentDayLayout(
+    [{ card: card({ id: "running", running: true }) }],
+    "2026-10-03",
+    "2026-10-03T02:00:00Z",
   );
+  assert.equal(running[0].end_minutes, 11 * 60);
 });

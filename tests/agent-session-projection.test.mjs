@@ -219,10 +219,10 @@ test("Tasken Debrief evidence derives today's cross-theme/repository AI work and
   const rows = buildAgentWorkProjection(domain, { date: "2026-08-25" });
 
   assert.deepEqual(
-    rows.map((row) => row.session.id),
+    rows.map((row) => row.card.id),
     ["session-same-theme-repo-b", "session-other", "session-today"],
   );
-  const tasken = rows.find((row) => row.session.id === "session-today");
+  const tasken = rows.find((row) => row.card.id === "session-today");
   assert.deepEqual(
     tasken.themes.map((theme) => theme.id),
     ["theme-a"],
@@ -244,11 +244,12 @@ test("Tasken Debrief evidence derives today's cross-theme/repository AI work and
     agentSessionActivities(domain.change_events, tasken.session).map((event) => event.id),
     ["event-a"],
   );
-  assert.equal(tasken.sessionIdentity, "codex-498");
-  assert.equal(tasken.topic, "Agent Session — Issue #498を進める");
-  assert.equal(tasken.result, "MCP workflowを実装");
-  assert.equal(tasken.requestCount, 2);
-  assert.equal(tasken.responseCount, 1);
+  // 行は 1 つのカードの形で読む（#751）。古い会話も、要約・依頼・会話の ID はカードにある。
+  assert.equal(tasken.card.origin, "session");
+  assert.equal(tasken.card.source_session_id, "codex-498");
+  assert.equal(tasken.card.intent, "Issue #498を進める");
+  assert.equal(tasken.card.summary, "MCP workflowを実装");
+  assert.equal(tasken.headline, "MCP workflowを実装");
   assert.equal(tasken.assignmentIncomplete, false);
   assert.deepEqual(
     domain,
@@ -338,7 +339,7 @@ test("確かな空hook記録だけを畳み、通常MCP結果と自動Activity�
 
   const hookSourceApps = agentSessionHookSourceApps(domain.ai_proposals);
   const rows = new Map(
-    buildAgentWorkProjection(domain, { limit: 20 }).map((row) => [row.session.id, row]),
+    buildAgentWorkProjection(domain, { limit: 20 }).map((row) => [row.card.id, row]),
   );
   const metadataOnly = rows.get(hookMetadataOnly.id);
 
@@ -365,7 +366,7 @@ test("unresolved handoff stays visible on the next day and Theme/repository filt
     includeUnresolved: true,
   });
   assert.deepEqual(
-    rows.map((row) => row.session.id),
+    rows.map((row) => row.card.id),
     ["session-handoff", "session-same-theme-repo-b", "session-today"],
   );
   assert.equal(rows[0].unresolved, true);
@@ -377,13 +378,13 @@ test("unresolved handoff stays visible on the next day and Theme/repository filt
   });
   assert.equal(limitedRows.length, 2);
   assert.ok(
-    limitedRows.some((row) => row.session.id === "session-handoff"),
+    limitedRows.some((row) => row.card.id === "session-handoff"),
     "the limit must reserve room for an older unresolved handoff",
   );
 
   const repoRows = buildAgentWorkProjection(domain, { repositoryContextId: "repo-b" });
   assert.deepEqual(
-    repoRows.map((row) => row.session.id),
+    repoRows.map((row) => row.card.id),
     ["session-same-theme-repo-b", "session-other"],
   );
 });
@@ -398,17 +399,17 @@ test("作業の引き継ぎと関連付け不足を別々に判定し、carryove
     intent: { summary: "関連付け前の作業" },
   });
   const rows = buildAgentWorkProjection(domain, { date: "2026-08-25" });
-  const other = rows.find((row) => row.session.id === "session-other");
+  const other = rows.find((row) => row.card.id === "session-other");
   assert.equal(other.unresolved, false);
   assert.equal(other.assignmentIncomplete, true);
-  const unassigned = rows.find((row) => row.session.id === "session-unassigned");
+  const unassigned = rows.find((row) => row.card.id === "session-unassigned");
   assert.equal(unassigned.unresolved, false);
   assert.equal(unassigned.assignmentIncomplete, true);
 
   const handoff = buildAgentWorkProjection(domain, {
     date: "2026-08-25",
     includeUnresolved: true,
-  }).find((row) => row.session.id === "session-handoff");
+  }).find((row) => row.card.id === "session-handoff");
   assert.equal(handoff.unresolved, true);
   assert.equal(handoff.assignmentIncomplete, true);
 
@@ -417,7 +418,7 @@ test("作業の引き継ぎと関連付け不足を別々に判定し、carryove
     carryoverOnly: true,
   });
   assert.deepEqual(
-    carryover.map((row) => row.session.id),
+    carryover.map((row) => row.card.id),
     ["session-handoff"],
   );
 });
@@ -477,7 +478,7 @@ test("DebriefはAI作業をTheme単位に整理し、Repositoryと未割当を�
     groups.map((group) => ({
       theme: group.themeLabel,
       repository: group.repositoryLabel,
-      sessions: group.rows.map((row) => row.session.id),
+      sessions: group.rows.map((row) => row.card.id),
     })),
     [
       { theme: "Tasken", repository: "other", sessions: ["session-same-theme-repo-b"] },
@@ -513,7 +514,7 @@ test("Sessionの活動は session.id と source_session_id のどちらかに一
     )
     .map((event) => event.id);
   const row = buildAgentWorkProjection(domain, { limit: 100 }).find(
-    (entry) => entry.session.id === "session-today",
+    (entry) => entry.card.id === "session-today",
   );
   assert.deepEqual(expected, ["e1", "e3", "e5"]);
   // 行は来歴を持たない（#755 束0b）。Main へ問い合わせるIDと、読んだEventの絞り込みで同じ結果になる。

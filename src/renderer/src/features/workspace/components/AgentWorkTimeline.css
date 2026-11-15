@@ -212,6 +212,33 @@
 .agent-log-block.is-live {
   border-style: dashed;
 }
+/*
+ * 色は誰が、線は決まったか（#751）。AI の作業は AI の種類で色を分けず、藍の 1 色にする。
+ * ログから機械が拾い上げた物は、薄い墨の点線。
+ */
+.agent-log-block {
+  --agent-log-color: var(--color-ai);
+}
+.agent-log-block.is-pickup {
+  --agent-log-color: var(--color-candidate-bd);
+  border-style: dashed;
+}
+.agent-log-list-entry.agent-work-line {
+  border-left: 3px solid var(--color-ai);
+}
+.agent-log-list-entry.agent-work-line.is-pickup {
+  border-style: dashed;
+  border-left: 3px dashed var(--color-candidate-bd);
+}
+.agent-log-detail-client {
+  margin: 0 0 var(--space-2);
+}
+.agent-log-source {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-tertiary);
+}
 .agent-log-panel button:focus-visible,
 .agent-log-import-dialog button:focus-visible,
 .agent-log-detail-dialog button:focus-visible {

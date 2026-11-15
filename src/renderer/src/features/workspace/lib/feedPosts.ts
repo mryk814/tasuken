@@ -22,6 +22,11 @@ import {
   feedReactionId as sharedFeedReactionId,
 } from "../../../../../shared/feedIds.mjs";
 import { noteProjectId } from "../../../../../shared/themeRef.mjs";
+import {
+  agentWorkCardClientLabel,
+  agentWorkCardHeadline,
+  type AgentWorkCard,
+} from "../../../../../shared/agentWorkCard.ts";
 
 /** 実データの投稿に付く参照。fixtureでは未設定。 */
 export interface FeedPostRefs {
@@ -823,6 +828,60 @@ export function buildPostsFromWorkReceipts(input: {
       taskTitle,
       themeId: themeId || null,
       evidence: paragraphs(receipt.verification),
+    } as FeedPost);
+  }
+  return posts.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+}
+
+/** AI の作業から読む時に作る「気づき」の投稿の ID。記録の ID から決まる（印や非表示が保たれる）。 */
+export function feedPostIdForAgentWork(cardId: string): string {
+  return `feed-post:agent-work:${cardId}`;
+}
+
+/**
+ * AI の作業のうち、本人に知らせたい気づき（notice）がある物と、止まった物（blocked）を、
+ * AI の印の付いた「気づき」として近況に並べる（#751）。
+ *
+ * 保存する投稿は作らない。読む時に並べるだけなので、同期の差分は増えない。
+ * 記録を消せば、ここからも消える。
+ */
+export function buildPostsFromAgentWork(input: {
+  cards: readonly AgentWorkCard[];
+  tasks?: readonly unknown[];
+}): FeedPost[] {
+  const tasks = (input.tasks ?? []).filter((entry): entry is Row =>
+    Boolean(entry && typeof entry === "object" && "id" in entry),
+  );
+  const taskTitles = new Map(tasks.map((task) => [String(task.id), text(task.title)]));
+  const posts: FeedPost[] = [];
+  for (const card of input.cards) {
+    const blocked = card.status === "blocked";
+    if (!card.notice && !blocked) continue;
+    const headline = agentWorkCardHeadline(card);
+    const body = [
+      ...(card.notice ? [card.notice] : []),
+      ...(blocked
+        ? [
+            `作業が止まっています: ${headline}`,
+            ...(card.remaining.length ? [`残り: ${card.remaining.join(" / ")}`] : []),
+          ]
+        : [`作業: ${headline}`]),
+    ];
+    const taskId = card.task_ids.find((id) => taskTitles.has(id)) || null;
+    posts.push({
+      id: feedPostIdForAgentWork(card.id),
+      author: authorIdForLabel(agentWorkCardClientLabel(card)),
+      kind: "insight",
+      createdAt: card.ended_at,
+      paragraphs: body,
+      attachment: null,
+      replyTo: null,
+      // 止まった知らせは「学び」ではない。気づきが書かれた物だけを学びにも出す。
+      learnable: Boolean(card.notice),
+      taskId,
+      taskTitle: taskId ? (taskTitles.get(taskId) ?? null) : null,
+      themeId: card.theme_ids[0] || null,
+      evidence: card.verified,
     } as FeedPost);
   }
   return posts.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));

@@ -245,6 +245,16 @@
       "issue": 751,
       "expiresAt": "2026-12-31",
       "removalCondition": "Use the public temporary-database fixture factory once available."
+    },
+    {
+      "rule": "compatibility.consumer_added",
+      "source": "tests/agent-work-read.test.mjs",
+      "target": "workspace-repository",
+      "reason": "#751 needs the production SQLite database in a temporary userData folder to verify that the MCP read tools and the Mobile Gateway read old agent sessions and new AI work records through one reader, and that the response shape for old Android builds is unchanged. This adds no runtime repository consumer and opens no production data.",
+      "owner": "issue-751-agent-work-record",
+      "issue": 751,
+      "expiresAt": "2026-12-31",
+      "removalCondition": "Use the public temporary-database fixture factory once available."
     }
   ]
 }

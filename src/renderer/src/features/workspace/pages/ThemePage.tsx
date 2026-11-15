@@ -675,9 +675,10 @@ export function ThemePage({
             themeId={theme.id}
             includeUnresolved
             limit={3}
-            title="Recent AI work"
+            title="AI の作業"
             openDrawer={openDrawer}
             saveEntities={saveEntities}
+            removeEntity={removeEntity}
           />
           <div className="theme-ai-work-actions">
             <button

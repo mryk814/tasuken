@@ -1,8 +1,4 @@
 import {
-  agentSessionHeading,
-  formatAgentActiveDuration,
-} from "../../../../../shared/agentWorkLogImport";
-import {
   useEffect,
   useRef,
   useState,
@@ -39,10 +35,10 @@ import {
   ACTIVITY_TIMELINE_DAY_HEIGHT,
   ACTIVITY_TIMELINE_PIXELS_PER_HOUR,
   buildActivityTimelineLayout,
-  agentSessionInterval,
   agentDateText,
-  agentOutcomeDetails,
 } from "../lib/activityTimelineLayout";
+import { agentWorkCardInterval } from "../../../../../shared/agentWorkCard.ts";
+import { AgentWorkCardDetail, agentWorkCardLineClass } from "./AgentWorkCardDetail";
 import {
   buildActivityTimelineBursts,
   type ActivityTimelineBurstOrigin,
@@ -386,10 +382,13 @@ export function ActivityLogPanel({
   onDateChange,
   saveEntities,
   removeEntityQuiet,
+  removeEntity,
   onImport,
 }: Pick<PageProps, "data" | "domain" | "themes" | "openDrawer" | "setToast"> & {
   saveEntities?: PageProps["saveEntities"];
   removeEntityQuiet?: PageProps["removeEntityQuiet"];
+  /** AI の作業のカードを消す（消した印を付ける。すぐ後の「元に戻す」で戻せる）。 */
+  removeEntity?: PageProps["removeEntity"];
   onImport?(): void;
   date: string;
   onDateChange(date: string): void;
@@ -603,13 +602,11 @@ export function ActivityLogPanel({
     activity.events as BaseRecord[],
     date,
   );
-  const agentSessions = buildAgentWorkProjection(domain, {
-    limit: Math.max(domain.agent_sessions.length, 1),
-  });
-  const dailySessionInterval = (session: AgentWorkProjectionRow["session"]) => {
-    const observed = agentSessionInterval(session);
-    const interval = activitySessionInterval({ ...session, ended_at: observed.end }, date);
-    return interval ? { ...interval, endLabel: observed.endLabel } : null;
+  const agentSessions = buildAgentWorkProjection(domain, { limit: Number.MAX_SAFE_INTEGER });
+  // 動いている古い会話を「今」まで伸ばさない（最後に見た時刻まで。経過は実作業時間ではない）。
+  const dailySessionInterval = (card: AgentWorkProjectionRow["card"]) => {
+    const whole = agentWorkCardInterval({ ...card, running: false });
+    return activitySessionInterval({ started_at: whole.start_at, ended_at: whole.end_at }, date);
   };
   const sessionContexts = buildDailyAgentSessionContexts(
     agentSessions,
@@ -680,7 +677,7 @@ export function ActivityLogPanel({
       event,
     })),
     ...visibleSessions.map(({ sessionRow, interval, events: relatedEvents, themeIds }) => ({
-      id: `session:${sessionRow.session.id}`,
+      id: `session:${sessionRow.card.id}`,
       item_type: "session" as const,
       start_at: interval.start_at,
       end_at: interval.end_at,
@@ -706,7 +703,6 @@ export function ActivityLogPanel({
   const expandedDrawerType = isOpenableActivityEntity(expandedRef.type) ? expandedRef.type : null;
   const expandedSessionRow =
     expandedTimelineItem?.item_type === "session" ? expandedTimelineItem.session_row : null;
-  const expandedSession = expandedSessionRow?.session || null;
   const expandedRelatedSessionEvents =
     expandedTimelineItem?.item_type === "session" ? expandedTimelineItem.session_events : [];
   const expandedBurstEvents =
@@ -1028,7 +1024,7 @@ export function ActivityLogPanel({
                     const sessionRow = row.item_type === "session" ? row.session_row : null;
                     const event = row.item_type === "event" ? row.event : null;
                     const title =
-                      (sessionRow ? agentSessionHeading(sessionRow.session.intent) : "") ||
+                      (sessionRow ? sessionRow.headline : "") ||
                       (event
                         ? eventTitle(
                             event,
@@ -1039,7 +1035,7 @@ export function ActivityLogPanel({
                           ? row.calendar_event.title
                           : "まとめた活動");
                     const origin = sessionRow
-                      ? agentSessionClientLabel(sessionRow.session)
+                      ? agentSessionClientLabel(sessionRow.card)
                       : event
                         ? originLabel(event)
                         : "活動";
@@ -1061,7 +1057,6 @@ export function ActivityLogPanel({
                             {sessionRow
                               ? activitySessionTimeLabel({
                                   sessionRow,
-                                  endLabel: agentSessionInterval(sessionRow.session).endLabel,
                                   interval: { start_at: row.start_at, end_at: row.end_at },
                                 })
                               : localTime(row.start_at)}{" "}
@@ -1070,9 +1065,9 @@ export function ActivityLogPanel({
                           <strong>{title}</strong>
                           {sessionRow && (
                             <>
-                              <span>{sessionRow.session.outcome?.summary || "成果は未記録"}</span>
                               <small>
-                                {sessionRow.repositories.map((repo) => repo.label).join(" / ")}
+                                {sessionRow.repositories.map((repo) => repo.label).join(" / ") ||
+                                  sessionRow.themes.map((theme) => theme.name).join(" / ")}
                               </small>
                               <span
                                 aria-label={
@@ -1167,7 +1162,7 @@ export function ActivityLogPanel({
                           const ref = event?.entity_ref || {};
                           const entity = event ? findActivityEntity(domain, ref) : null;
                           const sessionRow = row.item_type === "session" ? row.session_row : null;
-                          const session = sessionRow?.session || null;
+                          const session = sessionRow?.card || null;
                           const eventActor = event ? actorLabel(event) : null;
                           const burstEntityTitle = burst
                             ? (() => {
@@ -1198,9 +1193,7 @@ export function ActivityLogPanel({
                                 ? burstEntityTitle
                                   ? `${burstEntityTitle} · ${burst.events.length}件`
                                   : `${burst.events.length}件のActivity`
-                                : (session ? agentSessionHeading(session.intent) : "") ||
-                                  session?.client_label ||
-                                  "AI セッション";
+                                : sessionRow?.headline || "AI の作業";
                           const timeLabel = calendarEvent
                             ? calendarEvent.isAllDay
                               ? "終日"
@@ -1208,7 +1201,6 @@ export function ActivityLogPanel({
                             : session && sessionRow
                               ? activitySessionTimeLabel({
                                   sessionRow,
-                                  endLabel: agentSessionInterval(sessionRow.session).endLabel,
                                   interval: { start_at: row.start_at, end_at: row.end_at },
                                 })
                               : burst
@@ -1276,7 +1268,7 @@ export function ActivityLogPanel({
                           return (
                             <li
                               key={row.id}
-                              className={`activity-calendar-event activity-timeline-row--${row.display_kind}${compact ? " is-compact" : ""}${isRange ? " is-range-event" : " is-point-event"}${calendarEvent ? " is-calendar" : ""}${expandedTimelineItemId === row.id ? " is-selected" : ""}`}
+                              className={`activity-calendar-event activity-timeline-row--${row.display_kind}${session ? ` agent-work-line ${agentWorkCardLineClass(session)}` : ""}${compact ? " is-compact" : ""}${isRange ? " is-range-event" : " is-point-event"}${calendarEvent ? " is-calendar" : ""}${expandedTimelineItemId === row.id ? " is-selected" : ""}`}
                               style={blockStyle}
                             >
                               {timeAnchors.map((anchor) => (
@@ -1385,10 +1377,9 @@ export function ActivityLogPanel({
                   >
                     <div className="activity-calendar-detail-heading">
                       <span className="activity-calendar-detail-time">
-                        {expandedSession && expandedSessionRow
+                        {expandedSessionRow
                           ? activitySessionTimeLabel({
                               sessionRow: expandedSessionRow,
-                              endLabel: agentSessionInterval(expandedSessionRow.session).endLabel,
                               interval: {
                                 start_at: expandedTimelineItem.start_at,
                                 end_at: expandedTimelineItem.end_at,
@@ -1403,8 +1394,8 @@ export function ActivityLogPanel({
                         {displayKindLabel(expandedTimelineItem.display_kind)}
                       </span>
                       <span className="activity-timeline-origin-chip">
-                        {expandedSession
-                          ? agentSessionClientLabel(expandedSession)
+                        {expandedSessionRow
+                          ? agentSessionClientLabel(expandedSessionRow.card)
                           : expandedTimelineItem.item_type === "burst"
                             ? burstOriginLabel(expandedTimelineItem.origin)
                             : expandedEvent
@@ -1480,180 +1471,136 @@ export function ActivityLogPanel({
                           })}
                         </ul>
                       </div>
-                    ) : expandedSession ? (
+                    ) : expandedSessionRow ? (
                       <>
-                        <dl className="activity-timeline-detail-grid">
-                          <div>
-                            <dt>意図</dt>
-                            <dd>{expandedSession.intent.summary || "未記録"}</dd>
-                          </div>
-                          {formatAgentActiveDuration(
-                            expandedSession.observation?.active_duration_ms,
-                          ) && (
-                            <div>
-                              <dt>AIが動いた時間</dt>
-                              <dd>
-                                {formatAgentActiveDuration(
-                                  expandedSession.observation?.active_duration_ms,
-                                )}
-                              </dd>
-                            </div>
-                          )}
-                          <div>
-                            <dt>成果</dt>
-                            <dd>{expandedSession.outcome?.summary || "未記録"}</dd>
-                          </div>
-                        </dl>
-                        {typeFilter && typeFilter !== "ai_work" && (
-                          <p className="activity-timeline-detail-summary">
-                            関連活動に
-                            {displayKindLabel(typeFilter as ActivityTimelineItem["display_kind"])}
-                            があるため表示しています。
+                        {/* 要約が 1 文より長い時は、下のカードが全文を出す（同じ文を 2 度並べない）。 */}
+                        {(!expandedSessionRow.card.summary ||
+                          expandedSessionRow.card.summary === expandedSessionRow.headline) && (
+                          <p className="activity-timeline-detail-summary agent-work-card-headline">
+                            {expandedSessionRow.headline}
                           </p>
                         )}
-                        {expandedSessionRow && expandedSessionRow.repositories.length > 0 && (
-                          <div className="activity-timeline-detail-section">
-                            <span>リポジトリ</span>
-                            <span>
-                              {expandedSessionRow.repositories
-                                .map((repository) => repository.label)
-                                .join(" / ")}
-                            </span>
-                          </div>
-                        )}
-                        {expandedSessionRow && (
-                          <div className="activity-timeline-detail-section activity-session-task-links">
-                            <span>関連タスク {expandedSessionRow.tasks.length ? "" : "なし"}</span>
-                            <span className="activity-timeline-detail-links">
-                              {expandedSessionRow.tasks.map((task) => (
-                                <span key={task.id}>
-                                  <Button
-                                    variant="secondary"
-                                    compact
-                                    onClick={() =>
-                                      openDrawer({
-                                        type: "task",
-                                        mode: "edit",
-                                        entity: task as unknown as Record<string, unknown>,
-                                      })
-                                    }
-                                  >
-                                    {task.title}
-                                  </Button>
-                                  {removeEntityQuiet && (
+                        <AgentWorkCardDetail
+                          row={expandedSessionRow}
+                          removeEntity={
+                            removeEntity
+                              ? async (type, entity) => {
+                                  await removeEntity(type, entity);
+                                  closeTimelineDetail();
+                                }
+                              : undefined
+                          }
+                        >
+                          {typeFilter && typeFilter !== "ai_work" && (
+                            <p className="activity-timeline-detail-summary">
+                              関連活動に
+                              {displayKindLabel(typeFilter as ActivityTimelineItem["display_kind"])}
+                              があるため表示しています。
+                            </p>
+                          )}
+                          {(expandedSessionRow.tasks.length > 0 || expandedSessionRow.session) && (
+                            <div className="activity-timeline-detail-section activity-session-task-links">
+                              <span>
+                                関連タスク {expandedSessionRow.tasks.length ? "" : "なし"}
+                              </span>
+                              <span className="activity-timeline-detail-links">
+                                {expandedSessionRow.tasks.map((task) => (
+                                  <span key={task.id}>
                                     <Button
                                       variant="secondary"
                                       compact
-                                      disabled={savingLink}
-                                      aria-label={`${task.title}との関連付けを解除`}
-                                      title="関連付けを解除"
                                       onClick={() =>
-                                        void setTaskLink(expandedSession.id, task.id, false)
+                                        openDrawer({
+                                          type: "task",
+                                          mode: "edit",
+                                          entity: task as unknown as Record<string, unknown>,
+                                        })
                                       }
                                     >
-                                      <IconUnlink size={16} />
+                                      {task.title}
                                     </Button>
-                                  )}
-                                </span>
-                              ))}
-                            </span>
-                            {saveEntities && (
-                              <div className="inline-actions">
-                                <select
-                                  aria-label="関連付けるタスク"
-                                  value={taskToLink}
-                                  onChange={(event) => setTaskToLink(event.target.value)}
-                                >
-                                  <option value="">タスクを選ぶ</option>
-                                  {domain.tasks
-                                    .filter(
-                                      (task) =>
-                                        !expandedSessionRow.tasks.some(
-                                          (linked) => linked.id === task.id,
-                                        ),
-                                    )
-                                    .map((task) => (
-                                      <option key={task.id} value={task.id}>
-                                        {task.title}
-                                      </option>
-                                    ))}
-                                </select>
-                                <Button
-                                  variant="secondary"
-                                  compact
-                                  aria-label="選んだタスクに関連付ける"
-                                  title="関連付ける"
-                                  disabled={!taskToLink || savingLink}
-                                  onClick={() =>
-                                    void setTaskLink(expandedSession.id, taskToLink, true)
-                                  }
-                                >
-                                  <IconLink size={16} />
-                                </Button>
-                              </div>
-                            )}
-                            <small>関連付けはタスクの完了や成果の承認を意味しません。</small>
-                          </div>
-                        )}
-                        <div className="activity-timeline-detail-section activity-session-evidence">
-                          <span>
-                            {agentSessionInterval(expandedSession).endLabel} ·
-                            経過時間は実作業時間ではありません
-                          </span>
-                          <span>
-                            出典: {expandedSession.source_session_id || expandedSession.id} ·
-                            費用・実作業時間: 未収録
-                          </span>
-                        </div>
-                        <details className="activity-timeline-detail-section activity-session-outcome">
-                          <summary>成果の詳細</summary>
-                          {agentOutcomeDetails(expandedSession.outcome).map((section) => (
-                            <div key={section.label}>
-                              <strong>{section.label}</strong>
-                              <ul>
-                                {section.values.map((item, index) => (
-                                  <li key={index}>{item}</li>
+                                    {removeEntityQuiet && expandedSessionRow.session && (
+                                      <Button
+                                        variant="secondary"
+                                        compact
+                                        disabled={savingLink}
+                                        aria-label={`${task.title}との関連付けを解除`}
+                                        title="関連付けを解除"
+                                        onClick={() =>
+                                          void setTaskLink(
+                                            expandedSessionRow.card.id,
+                                            task.id,
+                                            false,
+                                          )
+                                        }
+                                      >
+                                        <IconUnlink size={16} />
+                                      </Button>
+                                    )}
+                                  </span>
                                 ))}
+                              </span>
+                              {/* 関連付けを後から足せるのは古い会話だけ。新しい記録は書き換えない。 */}
+                              {saveEntities && expandedSessionRow.session && (
+                                <div className="inline-actions">
+                                  <select
+                                    aria-label="関連付けるタスク"
+                                    value={taskToLink}
+                                    onChange={(event) => setTaskToLink(event.target.value)}
+                                  >
+                                    <option value="">タスクを選ぶ</option>
+                                    {domain.tasks
+                                      .filter(
+                                        (task) =>
+                                          !expandedSessionRow.tasks.some(
+                                            (linked) => linked.id === task.id,
+                                          ),
+                                      )
+                                      .map((task) => (
+                                        <option key={task.id} value={task.id}>
+                                          {task.title}
+                                        </option>
+                                      ))}
+                                  </select>
+                                  <Button
+                                    variant="secondary"
+                                    compact
+                                    aria-label="選んだタスクに関連付ける"
+                                    title="関連付ける"
+                                    disabled={!taskToLink || savingLink}
+                                    onClick={() =>
+                                      void setTaskLink(expandedSessionRow.card.id, taskToLink, true)
+                                    }
+                                  >
+                                    <IconLink size={16} />
+                                  </Button>
+                                </div>
+                              )}
+                              {expandedSessionRow.session && (
+                                <small>関連付けはタスクの完了や成果の承認を意味しません。</small>
+                              )}
+                            </div>
+                          )}
+                          {expandedRelatedSessionEvents.length > 0 && (
+                            <div className="activity-timeline-detail-section">
+                              <span>活動</span>
+                              <ul>
+                                {expandedRelatedSessionEvents.map((relatedEvent, index) => {
+                                  const relatedRef = relatedEvent.entity_ref || {};
+                                  const relatedEntity = findActivityEntity(domain, relatedRef);
+                                  return (
+                                    <li
+                                      key={relatedEvent.id || `${expandedTimelineItem.id}:${index}`}
+                                    >
+                                      {eventLabel(String(relatedEvent.event_kind || ""))}：
+                                      {eventTitle(relatedEvent, relatedRef, relatedEntity)}
+                                    </li>
+                                  );
+                                })}
                               </ul>
                             </div>
-                          ))}
-                          <strong>確認結果</strong>
-                          {!expandedSession.outcome?.verification.length && <span>未記録</span>}
-                          <ul>
-                            {expandedSession.outcome?.verification.map((item, index) => (
-                              <li key={index}>{item}</li>
-                            ))}
-                          </ul>
-                        </details>
-                        {expandedRelatedSessionEvents.length > 0 && (
-                          <div className="activity-timeline-detail-section">
-                            <span>活動</span>
-                            <ul>
-                              {expandedRelatedSessionEvents.map((relatedEvent, index) => {
-                                const relatedRef = relatedEvent.entity_ref || {};
-                                const relatedEntity = findActivityEntity(domain, relatedRef);
-                                return (
-                                  <li
-                                    key={relatedEvent.id || `${expandedTimelineItem.id}:${index}`}
-                                  >
-                                    {eventLabel(String(relatedEvent.event_kind || ""))}：
-                                    {eventTitle(relatedEvent, relatedRef, relatedEntity)}
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          </div>
-                        )}
-                        {expandedSession.outcome?.remaining_work.length ? (
-                          <div className="activity-timeline-detail-section">
-                            <span>残作業</span>
-                            <ul>
-                              {expandedSession.outcome.remaining_work.slice(0, 3).map((item) => (
-                                <li key={item}>{item}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : null}
+                          )}
+                        </AgentWorkCardDetail>
                       </>
                     ) : expandedEvent ? (
                       <>

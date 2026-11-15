@@ -352,7 +352,13 @@ export type ActivitySessionLogEntry = {
   intent: string;
   outcome?: string;
   repository_names?: string[];
+  /** 変えた物の名前（新しい記録は 10 件まで。超えた数は changed_more）。 */
+  changed?: string[];
+  changed_more?: number;
+  verified?: string[];
   remaining_work?: string[];
+  notice?: string;
+  blocked?: boolean;
 };
 
 function logLine(value: unknown): string {
@@ -365,7 +371,7 @@ export function appendActivitySessionsToLog(
 ): string {
   if (!sessions.length) return base;
   const rows = sessions.flatMap((session) => {
-    const heading = `- ${logLine(session.time_label)} [${logLine(session.client_label)}] ${logLine(session.intent) || "意図未記録"}`;
+    const heading = `- ${logLine(session.time_label)} [${logLine(session.client_label)}] ${logLine(session.intent) || "意図未記録"}${session.blocked ? "（停止）" : ""}`;
     const details: string[] = [];
     if (session.theme_names.length) {
       details.push(`  - Theme: ${session.theme_names.map(logLine).join(" / ")}`);
@@ -374,9 +380,17 @@ export function appendActivitySessionsToLog(
     if (session.repository_names?.length) {
       details.push(`  - リポジトリ: ${session.repository_names.map(logLine).join(" / ")}`);
     }
+    if (session.changed?.length) {
+      const more = session.changed_more ? ` ほか${session.changed_more}件` : "";
+      details.push(`  - 変えた物: ${session.changed.map(logLine).join(" / ")}${more}`);
+    }
+    if (session.verified?.length) {
+      details.push(`  - 確かめたこと: ${session.verified.map(logLine).join(" / ")}`);
+    }
     if (session.remaining_work?.length) {
       details.push(`  - 残作業: ${session.remaining_work.map(logLine).join(" / ")}`);
     }
+    if (logLine(session.notice)) details.push(`  - 気づき: ${logLine(session.notice)}`);
     return [heading, ...details];
   });
   return `${base.trimEnd()}\n\n## AI作業\n\n${rows.join("\n")}\n`;
@@ -398,6 +412,7 @@ export function buildActivityPublication(
   if (input.changeEvents === undefined) {
     throw new Error("日誌を生成できません。活動履歴を再読み込みしてください。");
   }
+  const safeList = (items?: string[]) => items?.map((item) => safeReceiptText(item));
   const sessions = sessionEntries.map((session) => ({
     ...session,
     intent: safeReceiptText(session.intent),
@@ -405,7 +420,10 @@ export function buildActivityPublication(
     theme_names: session.theme_names.map((name) => safeReceiptText(name)),
     // Machine/repository labels are operational context, not the published result.
     repository_names: [],
-    remaining_work: session.remaining_work?.map((item) => safeReceiptText(item)),
+    changed: safeList(session.changed),
+    verified: safeList(session.verified),
+    remaining_work: safeList(session.remaining_work),
+    notice: session.notice ? safeReceiptText(session.notice) : undefined,
   }));
   const base = buildActivityLog({
     ...input,

@@ -1,3 +1,8 @@
+import {
+  agentWorkCardHeadline,
+  agentWorkCardInterval,
+  type AgentWorkCard,
+} from "../../../../../shared/agentWorkCard.ts";
 import { focusSessionProperties, isFocusSession } from "../../../../../shared/focusSession.mjs";
 
 export type ActivityDisplayKind = "ai_work" | "outcome" | "record" | "organize";
@@ -37,20 +42,33 @@ export type ActivitySessionLogEntry = {
   intent: string;
   outcome?: string;
   repository_names?: string[];
+  changed?: string[];
+  changed_more?: number;
+  verified?: string[];
   remaining_work?: string[];
+  notice?: string;
+  blocked?: boolean;
 };
 
 type ActivitySessionProjectionRow = {
-  session: {
-    id: string;
-    source_session_id?: string | null;
-    started_at: string;
-    ended_at?: string | null;
-    client_kind: string;
-    client_label?: string | null;
-    intent: { summary: string };
-    outcome?: { summary: string; remaining_work: string[] } | null;
-  };
+  card: Pick<
+    AgentWorkCard,
+    | "id"
+    | "source_session_id"
+    | "started_at"
+    | "ended_at"
+    | "running"
+    | "client_kind"
+    | "client_label"
+    | "intent"
+    | "summary"
+    | "changed"
+    | "changed_more"
+    | "verified"
+    | "remaining"
+    | "notice"
+    | "status"
+  >;
   themes: Array<{ id: string }>;
   repositories: Array<{ label: string }>;
 };
@@ -276,19 +294,21 @@ export function buildDailyAgentSessionContexts<
   rows: TRow[],
   date: string,
   events: TEvent[],
-  intervalForSession?: (session: TRow["session"]) => ActivitySessionInterval | null,
+  intervalForCard?: (card: TRow["card"]) => ActivitySessionInterval | null,
+  nowAt: string = new Date().toISOString(),
 ): DailyAgentSessionContext<TEvent, TRow>[] {
   const sessions = rows.flatMap((sessionRow) => {
-    const interval = intervalForSession
-      ? intervalForSession(sessionRow.session)
-      : activitySessionInterval(sessionRow.session, date);
+    const whole = agentWorkCardInterval(sessionRow.card, nowAt);
+    const interval = intervalForCard
+      ? intervalForCard(sessionRow.card)
+      : activitySessionInterval({ started_at: whole.start_at, ended_at: whole.end_at }, date);
     return interval ? [{ sessionRow, interval }] : [];
   });
   const sessionByOriginId = new Map<string, (typeof sessions)[number]>();
   for (const context of sessions) {
-    sessionByOriginId.set(context.sessionRow.session.id, context);
-    if (context.sessionRow.session.source_session_id) {
-      sessionByOriginId.set(context.sessionRow.session.source_session_id, context);
+    sessionByOriginId.set(context.sessionRow.card.id, context);
+    if (context.sessionRow.card.source_session_id) {
+      sessionByOriginId.set(context.sessionRow.card.source_session_id, context);
     }
   }
   const eventsBySessionId = new Map<string, TEvent[]>();
@@ -298,11 +318,11 @@ export function buildDailyAgentSessionContexts<
       (event.event_kind === "task_ai_work" ? text(event.metadata?.source_session) : "");
     const context = sessionByOriginId.get(originId);
     if (!context) continue;
-    const sessionId = context.sessionRow.session.id;
+    const sessionId = context.sessionRow.card.id;
     eventsBySessionId.set(sessionId, [...(eventsBySessionId.get(sessionId) || []), event]);
   }
   return sessions.map(({ sessionRow, interval }) => {
-    const relatedEvents = eventsBySessionId.get(sessionRow.session.id) || [];
+    const relatedEvents = eventsBySessionId.get(sessionRow.card.id) || [];
     const themeIds = [
       ...new Set([
         ...sessionRow.themes.map((theme) => theme.id),
@@ -321,8 +341,10 @@ const AGENT_CLIENT_LABELS: Record<string, string> = {
   other: "AI連携",
 };
 
-export function agentSessionClientLabel(session: ActivitySessionProjectionRow["session"]): string {
-  return session.client_label || AGENT_CLIENT_LABELS[session.client_kind] || "AI連携";
+export function agentSessionClientLabel(
+  card: Pick<ActivitySessionProjectionRow["card"], "client_kind" | "client_label">,
+): string {
+  return card.client_label || AGENT_CLIENT_LABELS[card.client_kind] || "AI連携";
 }
 
 function activityLocalTime(value: string): string {
@@ -336,35 +358,44 @@ function activityLocalTime(value: string): string {
   }).format(parsed);
 }
 
+/** 始まりの無い記録は、終わりの時刻だけを出す。動いている古い会話は「進行中」。 */
 export function activitySessionTimeLabel(
-  context: Pick<DailyAgentSessionContext, "sessionRow" | "interval"> & { endLabel?: string },
+  context: Pick<DailyAgentSessionContext, "sessionRow" | "interval">,
 ): string {
-  const endLabel = context.endLabel || context.interval.endLabel;
-  if (endLabel) {
-    return `${activityLocalTime(context.interval.start_at)}–${activityLocalTime(context.interval.end_at)} (${endLabel})`;
-  }
-  return context.sessionRow.session.ended_at
-    ? `${activityLocalTime(context.interval.start_at)}–${activityLocalTime(context.interval.end_at)}`
-    : `${activityLocalTime(context.interval.start_at)}–進行中`;
+  const start = activityLocalTime(context.interval.start_at);
+  if (context.sessionRow.card.running) return `${start}–進行中`;
+  if (!context.sessionRow.card.started_at) return activityLocalTime(context.interval.end_at);
+  return `${start}–${activityLocalTime(context.interval.end_at)}`;
 }
 
+/** 日ごとの日誌の出力（Markdown）の「AI作業」の節に並べる 1 件。新しい記録も古い会話も同じ形。 */
 export function projectActivitySessionLogEntries(
   contexts: DailyAgentSessionContext[],
   themes: Array<{ id: string; name: string }>,
 ): ActivitySessionLogEntry[] {
-  return contexts.map((context) => ({
-    time_label: activitySessionTimeLabel(context),
-    client_label: agentSessionClientLabel(context.sessionRow.session),
-    theme_names: context.themeIds.map(
-      (themeId) => themes.find((theme) => theme.id === themeId)?.name || "Theme不明",
-    ),
-    intent: context.sessionRow.session.intent.summary,
-    outcome: context.sessionRow.session.outcome?.summary || undefined,
-    repository_names: context.sessionRow.repositories.map((repository) => repository.label),
-    remaining_work: context.sessionRow.session.outcome?.remaining_work || [],
-  }));
+  return contexts.map((context) => {
+    const card = context.sessionRow.card;
+    const headline = agentWorkCardHeadline(card);
+    return {
+      time_label: activitySessionTimeLabel(context),
+      client_label: agentSessionClientLabel(card),
+      theme_names: context.themeIds.map(
+        (themeId) => themes.find((theme) => theme.id === themeId)?.name || "Theme不明",
+      ),
+      // 見出しは最初の依頼。依頼の無い記録は、要約の最初の一文。
+      intent: card.intent || headline,
+      outcome:
+        card.summary && (card.intent || card.summary !== headline) ? card.summary : undefined,
+      repository_names: context.sessionRow.repositories.map((repository) => repository.label),
+      changed: card.changed,
+      changed_more: card.changed_more,
+      verified: card.verified,
+      remaining_work: card.remaining,
+      notice: card.notice || undefined,
+      blocked: card.status === "blocked",
+    };
+  });
 }
-
 export function activityThemeIds(event: ActivityThemeSource = {}): string[] {
   const ids: string[] = [];
   if (event.theme_ref?.kind === "theme" && text(event.theme_ref.id)) {

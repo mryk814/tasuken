@@ -38,6 +38,7 @@ export function DebriefPage(props: PageProps) {
           setToast={setToast}
           saveEntities={props.saveEntities}
           removeEntityQuiet={props.removeEntityQuiet}
+          removeEntity={props.removeEntity}
           onImport={() => {
             setWeeklyOpen(true);
             setImporting(true);

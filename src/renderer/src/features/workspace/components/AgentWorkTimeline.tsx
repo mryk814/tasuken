@@ -9,7 +9,7 @@ import {
   IconCopy,
   IconPlayerPause,
   IconCircleCheck,
-  IconQuestionMark,
+  IconProgress,
 } from "@tabler/icons-react";
 import {
   buildAgentWorkProjection,
@@ -17,15 +17,18 @@ import {
 } from "../domain-model/agentSessionProjection";
 import type { AgentSession } from "../domain-model/types";
 import {
-  agentSessionHeading,
-  formatAgentActiveDuration,
-} from "../../../../../shared/agentWorkLogImport";
+  agentWorkCardClientLabel,
+  type AgentWorkCard,
+} from "../../../../../shared/agentWorkCard.ts";
+import { normalizeAgentClientKind } from "../../../../../shared/contracts/task/public.ts";
+import { agentDateText, buildAgentDayLayout } from "../lib/activityTimelineLayout";
 import {
-  agentDateText,
-  agentSessionInterval,
-  buildAgentDayLayout,
-  agentOutcomeDetails,
-} from "../lib/activityTimelineLayout";
+  AgentWorkCardDetail,
+  AgentWorkClientMark,
+  agentWorkCardLineClass,
+  agentWorkCardStatusLabel,
+  agentWorkRowPlace,
+} from "./AgentWorkCardDetail";
 import type { BaseRecord, PageProps } from "../types";
 import { Button } from "./common";
 import { AgentWorkLogImportDialog } from "./AgentWorkLogImportDialog";
@@ -409,10 +412,11 @@ function time(value: string) {
     timeZone: "Asia/Tokyo",
   });
 }
-function intervalText(session: AgentSession, now: string) {
-  const interval = agentSessionInterval(session, now);
+/** いつ。始まりの無い記録は、終わりの時刻だけ。動いている古い会話は「作業中」まで。 */
+function intervalText(card: AgentWorkCard) {
   const stamp = (value: string) => `${dateText(new Date(value))} ${time(value)}`;
-  return `${stamp(session.started_at)} ～ ${interval.endLabel === "終了未確認" ? "終了未確認" : `${stamp(interval.end)} (${interval.endLabel})`}`;
+  if (!card.started_at) return stamp(card.ended_at);
+  return `${stamp(card.started_at)} ～ ${card.running ? "作業中" : stamp(card.ended_at)}`;
 }
 function pendingRecords(proposals: PageProps["domain"]["ai_proposals"]) {
   return proposals.flatMap((proposal) => {
@@ -437,25 +441,16 @@ function pendingRecords(proposals: PageProps["domain"]["ai_proposals"]) {
     return entries.map((entry) => ({ ...entry, proposal }));
   });
 }
-function StatusIcon({ session }: { session: AgentSession }) {
-  const Icon =
-    session.status === "completed"
+function StatusIcon({ card }: { card: Pick<AgentWorkCard, "status" | "running"> }) {
+  const Icon = card.running
+    ? IconClock
+    : card.status === "done"
       ? IconCircleCheck
-      : session.status === "active"
-        ? IconClock
-        : session.status === "unknown"
-          ? IconQuestionMark
-          : IconPlayerPause;
+      : card.status === "blocked"
+        ? IconPlayerPause
+        : IconProgress;
   return <Icon size={16} aria-hidden="true" />;
 }
-const STATUSES: Record<string, string> = {
-  active: "進行中",
-  completed: "終了",
-  blocked: "停止",
-  abandoned: "中断",
-  interrupted: "中断",
-  unknown: "終了未確認",
-};
 
 export function AgentWorkTimeline(
   props: PageProps & {
@@ -507,19 +502,19 @@ export function AgentWorkTimeline(
     effectiveMode === "week" ? Array.from({ length: 7 }, (_, i) => offsetDate(monday, i)) : [date];
   const filtered = rows.filter(
     (row) =>
-      (!client || row.session.client_kind === client) &&
+      (!client || normalizeAgentClientKind(row.card.client_kind) === client) &&
       (!repository || row.repositories.some((repo) => repo.id === repository)),
   );
   const now = new Date().toISOString();
   const dayLayouts = days.map((day) => buildAgentDayLayout(filtered, day, now));
   const visibleIds = new Set(dayLayouts.flatMap((layout) => layout.map((entry) => entry.id)));
-  const selectedRow = rows.find((row) => row.session.id === selected);
+  const selectedRow = rows.find((row) => row.card.id === selected);
   const selectedProposal = pending.find((entry) => entry.session.id === selected)?.proposal as
     BaseRecord | undefined;
   useEffect(() => {
     const dialog = detailDialog.current;
     if (narrow && selected && dialog && !dialog.open) dialog.showModal();
-  }, [narrow, selected, selectedRow?.session.id]);
+  }, [narrow, selected, selectedRow?.card.id]);
   const minHour = Math.min(
     8,
     ...dayLayouts.flatMap((layout) => layout.map((entry) => Math.floor(entry.start_minutes / 60))),
@@ -537,177 +532,88 @@ export function AgentWorkTimeline(
     onDateChange(next);
   }
   function renderDetail(row: AgentWorkProjectionRow) {
-    const session = row.session;
-    const outcomeDetails = agentOutcomeDetails(session.outcome);
+    const { card } = row;
     return (
       <>
         <header>
           <span>
-            <StatusIcon session={session} />
-            {STATUSES[session.status]}
+            <StatusIcon card={card} />
+            {agentWorkCardStatusLabel(card)}
             {selectedProposal ? " · 未決" : ""}
           </span>
           <Button aria-label="詳細を閉じる" onClick={closeDetail}>
             <IconX size={18} aria-hidden="true" />
           </Button>
         </header>
-        <h3>{agentSessionHeading(session.intent)}</h3>
+        <h3>{row.headline}</h3>
         <p className="agent-log-detail-client">
-          {CLIENTS[session.client_kind] || session.client_kind}
+          <AgentWorkClientMark card={card} />
         </p>
         <p className="agent-log-interval">
           <IconClock size={16} aria-hidden="true" />
-          {intervalText(session, now)}
-          <small>JST · 経過区間（待機・背景処理を含む）</small>
+          {intervalText(card)}（JST）
         </p>
-        <dl>
-          <dt>AIが動いた時間</dt>
-          <dd>
-            {formatAgentActiveDuration(session.observation?.active_duration_ms) ?? "未収録"}
-            {session.observation?.active_duration_ms != null && (
-              <small>（clientが記録したターン処理時間の合計）</small>
-            )}
-          </dd>
-          <dt>依頼</dt>
-          <dd>
-            {(session.request_events?.length ?? 0) > 1 ? (
-              <ol className="agent-log-requests">
-                {session.request_events!.map((event) => (
-                  <li key={`${event.observed_at}:${event.text.slice(0, 20)}`}>
-                    <time>{time(event.observed_at)}</time> {event.text}
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              session.intent.summary
-            )}
-          </dd>
-          <dt>成果</dt>
-          <dd>{session.outcome?.summary || "未記録"}</dd>
-          <dt>残件</dt>
-          <dd>
-            {session.outcome?.remaining_work.length
-              ? session.outcome.remaining_work.join("\n")
-              : "未記録"}
-          </dd>
-          {session.outcome?.verification.length ? (
-            <>
-              <dt>確認</dt>
-              <dd>{session.outcome.verification.join("\n")}</dd>
-            </>
-          ) : null}
-          {row.repositories.length ? (
-            <>
-              <dt>Repository</dt>
-              <dd>{row.repositories.map((repo) => repo.label).join(" / ")}</dd>
-            </>
-          ) : null}
-        </dl>
-        {outcomeDetails.length > 0 && (
-          <details>
-            <summary>成果の詳細</summary>
-            <dl>
-              {outcomeDetails.map((section) => (
-                <div key={section.label}>
-                  <dt>{section.label}</dt>
-                  <dd>{section.values.join("\n")}</dd>
+        <AgentWorkCardDetail
+          row={row}
+          // 採る前の記録（まだ保存されていない）は、消す物が無い。
+          removeEntity={
+            selectedProposal
+              ? undefined
+              : async (type, entity) => {
+                  await props.removeEntity(type, entity);
+                  closeDetail();
+                }
+          }
+        >
+          {(row.tasks.length > 0 || row.receipts.length > 0) && (
+            <div className="agent-work-links" aria-label="関連タスクと報告">
+              {row.tasks.map((task) => (
+                <Button
+                  key={task.id}
+                  onClick={() => {
+                    closeDetail();
+                    props.openDrawer({ type: "task", entity: task as unknown as BaseRecord });
+                  }}
+                >
+                  Task: {task.title}
+                </Button>
+              ))}
+              {row.receipts.map((receipt) => (
+                <div key={receipt.id}>
+                  <p>{receipt.summary}</p>
+                  {(receipt.external_references || []).map((reference) => (
+                    <a
+                      key={`${reference.kind}:${reference.url}`}
+                      href={reference.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {reference.display_label}
+                    </a>
+                  ))}
                 </div>
               ))}
-            </dl>
-          </details>
-        )}
-        {(row.tasks.length > 0 || row.receipts.length > 0 || row.themes.length > 0) && (
-          <details>
-            <summary>関連タスクと報告</summary>
-            {row.themes.length > 0 && <p>{row.themes.map((theme) => theme.name).join(" / ")}</p>}
-            {row.tasks.map((task) => (
+            </div>
+          )}
+          {card.source_session_id && (
+            <p className="agent-log-source">
+              <code>{card.source_session_id}</code>
               <Button
-                key={task.id}
-                onClick={() => {
-                  closeDetail();
-                  props.openDrawer({ type: "task", entity: task as unknown as BaseRecord });
-                }}
+                aria-label="元の会話の ID をコピー"
+                onClick={() =>
+                  void workspaceApi
+                    .copyText(card.source_session_id || card.id)
+                    .then(() => props.setToast("会話の ID をコピーしました。", "success"))
+                    .catch(() =>
+                      props.setToast("コピーできませんでした。再試行してください。", "danger"),
+                    )
+                }
               >
-                Task: {task.title}
+                <IconCopy size={16} aria-hidden="true" />
               </Button>
-            ))}
-            {row.receipts.map((receipt) => (
-              <div key={receipt.id}>
-                <p>{receipt.summary}</p>
-                {(receipt.external_references || []).map((reference) => (
-                  <a
-                    key={`${reference.kind}:${reference.url}`}
-                    href={reference.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {reference.display_label}
-                  </a>
-                ))}
-              </div>
-            ))}
-          </details>
-        )}
-        <details>
-          <summary>元Sessionと収録範囲</summary>
-          <code>{session.source_session_id || session.id}</code>
-          <Button
-            aria-label="元Session IDをコピー"
-            onClick={() =>
-              void workspaceApi
-                .copyText(session.source_session_id || session.id)
-                .then(() => props.setToast("Session IDをコピーしました。", "success"))
-                .catch(() =>
-                  props.setToast("コピーできませんでした。再試行してください。", "danger"),
-                )
-            }
-          >
-            <IconCopy size={16} aria-hidden="true" />
-          </Button>
-          <p>
-            {session.observation
-              ? `${session.observation.adapter} · client ${session.observation.client_version} · ${session.observation.coverage === "partial" ? "一部の履歴" : "選択範囲全体"}`
-              : "Sessionに記録された内容"}
-          </p>
-          <dl>
-            <dt>Client</dt>
-            <dd>{session.client_label || CLIENTS[session.client_kind]}</dd>
-            {session.agent_label && (
-              <>
-                <dt>Agent</dt>
-                <dd>{session.agent_label}</dd>
-              </>
-            )}
-            {session.model_label && (
-              <>
-                <dt>Model</dt>
-                <dd>{session.model_label}</dd>
-              </>
-            )}
-          </dl>
-        </details>
-        {session.request_events?.length || session.response_checkpoints?.length ? (
-          <details>
-            <summary>依頼と回答の経過</summary>
-            <ol>
-              {[
-                ...(session.request_events || []).map((entry) => ({ ...entry, kind: "依頼" })),
-                ...(session.response_checkpoints || []).map((entry) => ({
-                  ...entry,
-                  kind: "回答",
-                })),
-              ]
-                .sort((a, b) => a.observed_at.localeCompare(b.observed_at))
-                .map((entry, index) => (
-                  <li key={index}>
-                    <time>{time(entry.observed_at)}</time>
-                    <strong>{entry.kind}</strong>
-                    <p>{entry.text}</p>
-                  </li>
-                ))}
-            </ol>
-          </details>
-        ) : null}
+            </p>
+          )}
+        </AgentWorkCardDetail>
         {selectedProposal && (
           <ProposalDetail
             {...props}
@@ -807,7 +713,7 @@ export function AgentWorkTimeline(
             ))}
           </select>
         </label>
-        <small>{visibleIds.size} Session · JST · 経過区間</small>
+        <small>{visibleIds.size} 件 · JST</small>
       </div>
       <div
         className="agent-log-body"
@@ -816,35 +722,26 @@ export function AgentWorkTimeline(
         <div className="agent-log-calendar">
           {narrow ? (
             <ol className="agent-log-day-list" aria-label={`${date}のAI作業`}>
-              {dayLayouts[0].map((entry) => (
-                <li key={entry.id}>
-                  <button
-                    type="button"
-                    className="agent-log-list-entry"
-                    onClick={() => setSelected(entry.id)}
-                  >
-                    <span>
-                      <StatusIcon session={entry.row.session} />
-                      {CLIENTS[entry.row.session.client_kind]} ·{" "}
-                      {STATUSES[entry.row.session.status]}
-                    </span>
-                    <strong>{agentSessionHeading(entry.row.session.intent)}</strong>
-                    <small className="agent-log-list-result">
-                      成果: {entry.row.result || "未記録"}
-                    </small>
-                    <span>
-                      {entry.row.repositories.map((repo) => repo.label).join(" / ") ||
-                        "Repository未関連"}
-                    </span>
-                    <small>
-                      {intervalText(entry.row.session, now)}
-                      {formatAgentActiveDuration(entry.row.session.observation?.active_duration_ms)
-                        ? ` · AI ${formatAgentActiveDuration(entry.row.session.observation?.active_duration_ms)}`
-                        : ""}
-                    </small>
-                  </button>
-                </li>
-              ))}
+              {dayLayouts[0].map((entry) => {
+                const { card } = entry.row;
+                return (
+                  <li key={entry.id}>
+                    <button
+                      type="button"
+                      className={`agent-log-list-entry agent-work-line ${agentWorkCardLineClass(card)}`}
+                      onClick={() => setSelected(entry.id)}
+                    >
+                      <span>
+                        <StatusIcon card={card} />
+                        {agentWorkCardClientLabel(card)} · {agentWorkCardStatusLabel(card)}
+                      </span>
+                      <strong>{entry.row.headline}</strong>
+                      <span>{agentWorkRowPlace(entry.row) || "リポジトリ・テーマなし"}</span>
+                      <small>{intervalText(card)}</small>
+                    </button>
+                  </li>
+                );
+              })}
             </ol>
           ) : (
             <>
@@ -892,16 +789,16 @@ export function AgentWorkTimeline(
                   {dayLayouts.map((layout, index) => (
                     <div key={days[index]} className="agent-log-day">
                       {layout.map((entry) => {
-                        const session = entry.row.session;
-                        const color = (Object.keys(CLIENTS).indexOf(session.client_kind) % 6) + 1;
+                        const { card } = entry.row;
+                        const place = agentWorkRowPlace(entry.row);
                         return (
                           <button
                             key={entry.id}
                             type="button"
-                            className={`agent-log-block${selected === entry.id ? " is-selected" : ""}${session.status === "active" ? " is-live" : ""}`}
+                            className={`agent-log-block agent-work-line ${agentWorkCardLineClass(card)}${selected === entry.id ? " is-selected" : ""}${card.running ? " is-live" : ""}${entry.row.unresolved ? " is-unresolved" : ""}`}
                             aria-pressed={selected === entry.id}
-                            aria-label={`${CLIENTS[session.client_kind]} ${time(session.started_at)} ${agentSessionHeading(session.intent)} ${STATUSES[session.status]}`}
-                            title={`${entry.row.repositories.map((repo) => repo.label).join(" / ") || "Repository未関連"}\n${session.intent.summary}\n${intervalText(session, now)} · ${STATUSES[session.status]}`}
+                            aria-label={`${agentWorkCardClientLabel(card)} ${time(card.started_at || card.ended_at)} ${entry.row.headline} ${agentWorkCardStatusLabel(card)}`}
+                            title={`${place || "リポジトリ・テーマなし"}\n${entry.row.headline}\n${intervalText(card)} · ${agentWorkCardStatusLabel(card)}`}
                             onClick={() => setSelected(entry.id)}
                             style={
                               {
@@ -909,24 +806,20 @@ export function AgentWorkTimeline(
                                 height: entry.height,
                                 left: `calc(${(entry.lane / entry.lane_count) * 100}% + 3px)`,
                                 width: `calc(${100 / entry.lane_count}% - 6px)`,
-                                "--agent-log-color": `var(--color-chart-${color})`,
                               } as CSSProperties
                             }
                           >
                             <span>
-                              <StatusIcon session={session} />
+                              <StatusIcon card={card} />
                               <span className="agent-log-client">
-                                {CLIENTS[session.client_kind]}
+                                {agentWorkCardClientLabel(card)}
                               </span>
                             </span>
-                            <strong>{agentSessionHeading(session.intent)}</strong>
+                            <strong>{entry.row.headline}</strong>
+                            {entry.height >= 72 && place && <small>{place}</small>}
                             {entry.height >= 72 && (
-                              <small>
-                                {entry.row.repositories.map((repo) => repo.label).join(" / ") ||
-                                  "Repository未関連"}
-                              </small>
+                              <small>{time(card.started_at || card.ended_at)}</small>
                             )}
-                            {entry.height >= 72 && <small>{time(session.started_at)}</small>}
                           </button>
                         );
                       })}

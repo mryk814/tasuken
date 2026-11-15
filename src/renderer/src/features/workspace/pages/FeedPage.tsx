@@ -26,11 +26,13 @@ import {
 import { buildLiveFeed } from "../lib/feedProjection";
 import { taskWorkEntry } from "../../../../../shared/contracts/task/public";
 import { buildSaveTaskOperations } from "../domain-model/persistence";
+import { listAgentWorkCards } from "../../../../../shared/agentWorkCard.ts";
 import {
   FEED_AUTHORS,
   FEED_POSTS,
   authorOf,
   buildOwnPosts,
+  buildPostsFromAgentWork,
   buildPostsFromProposals,
   buildPostsFromWorkReceipts,
   buildRepliesFromEntities,
@@ -371,8 +373,29 @@ export function FeedPage(props: PageProps) {
         themes: data.themes as unknown[],
         tasks: domain.tasks as unknown[],
       }),
+      // AI の作業の気づき（notice）と止まった物は、読む時に「気づき」として並べる（#751）。
+      // 保存する投稿は作らない。古い会話も新しい記録も、同じカードの読み方を通る。
+      ...buildPostsFromAgentWork({
+        cards: listAgentWorkCards({
+          records: domain.agent_work_records,
+          sessions: domain.agent_sessions,
+          references: domain.references,
+          working_copies: domain.working_copies,
+          tasks: domain.tasks,
+        }),
+        tasks: domain.tasks as unknown[],
+      }),
     ],
-    [domain.ai_proposals, domain.tasks, data.themes, data.work_receipts],
+    [
+      domain.ai_proposals,
+      domain.tasks,
+      data.themes,
+      data.work_receipts,
+      domain.agent_work_records,
+      domain.agent_sessions,
+      domain.references,
+      domain.working_copies,
+    ],
   );
   /** 返信は投稿のIDに紐づくEntity、AIの返答はProposalとして届く。同じスレッドへ並べる。 */
   const replyPosts = useMemo(

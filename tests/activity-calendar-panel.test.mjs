@@ -24,8 +24,16 @@ test("Activity calendar reapplies its initial scroll when the panel reopens", ()
 });
 
 test("AI session detail retains labeled remaining work", () => {
-  assert.match(panelSource, /expandedSession\.outcome\?\.remaining_work\.length/);
-  assert.match(panelSource, /<span>残作業<\/span>/);
+  // 開いた中身は、日誌・テーマ・週の表で共通のカード（AgentWorkCardDetail）が出す（#751）。
+  // 残りは、変えた物・確かめたことと並べて、名前を付けて出す。
+  const detailSource = readFileSync(
+    path.resolve("src/renderer/src/features/workspace/components/AgentWorkCardDetail.tsx"),
+    "utf8",
+  );
+  assert.match(panelSource, /<AgentWorkCardDetail\s+row=\{expandedSessionRow\}/);
+  assert.match(detailSource, /<List label="残り" items=\{card\.remaining\} \/>/);
+  assert.match(detailSource, /<List label="変えた物" items=\{card\.changed\}/);
+  assert.match(detailSource, /<List label="確かめたこと" items=\{card\.verified\} \/>/);
 });
 
 test("calendar blocks reduce visible metadata while detail and aria retain context", () => {

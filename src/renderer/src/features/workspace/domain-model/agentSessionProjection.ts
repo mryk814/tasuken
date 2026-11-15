@@ -1,4 +1,11 @@
-import { agentSessionHeading } from "../../../../../shared/agentWorkLogImport.ts";
+import {
+  agentWorkCardHasContent,
+  agentWorkCardHeadline,
+  agentWorkCardUnresolved,
+  buildAgentSessionLinks,
+  listAgentWorkCards,
+  type AgentWorkCard,
+} from "../../../../../shared/agentWorkCard.ts";
 import { normalizeReferenceAssertion } from "../../../../../shared/relationAssertion.mjs";
 import type { RepositoryContext } from "../../../../../shared/repositoryContext.mjs";
 
@@ -14,18 +21,20 @@ import type {
 import type { SaveOperation } from "../types";
 
 export interface AgentWorkProjectionRow {
-  session: AgentSession;
-  sessionHasContent: boolean;
-  sessionIdentity: string;
-  topic: string;
-  result: string | null;
-  requestCount: number;
-  responseCount: number;
+  /** 読む時の 1 つの形。新しい記録も、古い会話の読み替えも、ここから読む。 */
+  card: AgentWorkCard;
+  /** 古い会話のカードだけ: 元の会話（関連付けを足す時に使う）。新しい記録は書き換えないので null。 */
+  session: AgentSession | null;
+  /** カードの 1 行（要約の最初の一文）。 */
+  headline: string;
+  hasContent: boolean;
   date: string;
   themes: Project[];
   repositories: RepositoryContext[];
   tasks: Task[];
   receipts: WorkReceipt[];
+  /** 記録が指しているが、今は無い（消えた）テーマ・リポジトリ・Task の数。 */
+  missingLinkCount: number;
   presentation: "attention" | "content" | "record";
   unresolved: boolean;
   assignmentIncomplete: boolean;
@@ -65,44 +74,6 @@ function localDate(value: string): string {
   return `${year}-${month}-${day}`;
 }
 
-interface NormalizedSessionReference {
-  subject: { type: string; id: string };
-  object: { type: string; id: string };
-  status: string;
-}
-
-/** Referenceの正規化はSessionに依らないので、Sessionごとにやり直さず1回だけ行う。 */
-function normalizeSessionReferences(references: Reference[]): NormalizedSessionReference[] {
-  return references.flatMap((reference) => {
-    try {
-      return [
-        normalizeReferenceAssertion(reference as unknown as Record<string, unknown>, {
-          legacyRead: true,
-        }) as unknown as NormalizedSessionReference,
-      ];
-    } catch {
-      return [];
-    }
-  });
-}
-
-function referencesForSession(references: NormalizedSessionReference[], sessionId: string) {
-  return references.flatMap((normalized) => {
-    try {
-      if (normalized.status === "superseded") return [];
-      if (normalized.subject.type === "agent_session" && normalized.subject.id === sessionId) {
-        return [normalized.object];
-      }
-      if (normalized.object.type === "agent_session" && normalized.object.id === sessionId) {
-        return [normalized.subject];
-      }
-      return [];
-    } catch {
-      return [];
-    }
-  });
-}
-
 /** Main に問い合わせる、Sessionの来歴の origin.session_id（#755 束0b）。 */
 export function agentSessionActivityIds(
   session: Pick<AgentSession, "id" | "source_session_id">,
@@ -126,19 +97,6 @@ export function agentSessionActivities<T extends Pick<ChangeEvent, "origin">>(
       event.origin?.session_id === session.id ||
       Boolean(session.source_session_id && event.origin?.session_id === session.source_session_id),
   );
-}
-
-function byIds<T extends { id: string }>(records: T[], ids: Set<string>): T[] {
-  return records.filter((record) => ids.has(record.id));
-}
-
-function sessionTimestamp(session: AgentSession): string {
-  return session.ended_at || session.started_at;
-}
-
-function compactSessionId(value: string): string {
-  if (value.length <= 14) return value;
-  return `${value.slice(0, 8)}…${value.slice(-4)}`;
 }
 
 const SESSION_HOOK_SOURCE_APP_PREFIX = "tasken-session-hook:";
@@ -190,15 +148,15 @@ export function agentSessionHasContent(session: AgentSession, sourceApp?: string
   );
 }
 
-function presentationForSession({
-  sessionHasContent,
+function presentationFor({
+  hasContent,
   unresolved,
 }: Pick<
   AgentWorkProjectionRow,
-  "sessionHasContent" | "unresolved"
+  "hasContent" | "unresolved"
 >): AgentWorkProjectionRow["presentation"] {
   if (unresolved) return "attention";
-  return sessionHasContent ? "content" : "record";
+  return hasContent ? "content" : "record";
 }
 
 function presentationOrder(value: AgentWorkProjectionRow["presentation"]): number {
@@ -209,75 +167,77 @@ function prioritizeRows(rows: AgentWorkProjectionRow[]): AgentWorkProjectionRow[
   return [...rows].sort((left, right) => {
     const presentationComparison =
       presentationOrder(left.presentation) - presentationOrder(right.presentation);
-    return (
-      presentationComparison ||
-      sessionTimestamp(right.session).localeCompare(sessionTimestamp(left.session))
-    );
+    return presentationComparison || right.card.ended_at.localeCompare(left.card.ended_at);
   });
 }
 
+/**
+ * AI の作業を、画面の行にする。古い会話（agent_sessions）と新しい記録（agent_work_records）は
+ * `listAgentWorkCards` の 1 つの読み替えを通り、ここから先は同じカードとして扱う（#751）。
+ */
 export function buildAgentWorkProjection(
   domain: WorkspaceDomain,
   options: AgentWorkProjectionOptions = {},
 ): AgentWorkProjectionRow[] {
-  const workingCopies = new Map(domain.working_copies.map((copy) => [copy.id, copy]));
-  const taskById = new Map(domain.tasks.map((task) => [task.id, task]));
   const hookSourceApps = agentSessionHookSourceApps(domain.ai_proposals);
   const limit = options.limit ?? 20;
-  const sessionReferences = normalizeSessionReferences(domain.references);
+  const sessionById = new Map(domain.agent_sessions.map((session) => [session.id, session]));
+  const sessionLinks = buildAgentSessionLinks({ references: domain.references });
+  const themeById = new Map(domain.projects.map((theme) => [theme.id, theme]));
+  const repositoryById = new Map(domain.repository_contexts.map((repo) => [repo.id, repo]));
+  const taskById = new Map(domain.tasks.map((task) => [task.id, task]));
+  const present = <T>(ids: string[], records: Map<string, T>): T[] =>
+    ids.flatMap((id) => {
+      const found = records.get(id);
+      return found ? [found] : [];
+    });
 
-  const rows = domain.agent_sessions
-    .map((session) => {
-      const related = referencesForSession(sessionReferences, session.id);
-      const themeIds = new Set(
-        related.filter((ref) => ref.type === "project").map((ref) => ref.id),
-      );
-      const taskIds = new Set(related.filter((ref) => ref.type === "task").map((ref) => ref.id));
-      const repositoryIds = new Set(
-        related.filter((ref) => ref.type === "repository_context").map((ref) => ref.id),
-      );
-      for (const ref of related.filter((entry) => entry.type === "working_copy")) {
-        const copy = workingCopies.get(ref.id);
-        if (copy) repositoryIds.add(copy.repository_context_id);
-      }
-      for (const taskId of taskIds) {
-        const projectId = taskById.get(taskId)?.project_id;
-        if (projectId) themeIds.add(projectId);
-      }
-
+  const rows = listAgentWorkCards({
+    records: domain.agent_work_records || [],
+    sessions: domain.agent_sessions,
+    references: domain.references,
+    working_copies: domain.working_copies,
+    tasks: domain.tasks,
+  })
+    .map((card) => {
+      const session = card.origin === "session" ? sessionById.get(card.id) || null : null;
+      const themes = present(card.theme_ids, themeById);
+      const repositories = present(card.repository_context_ids, repositoryById);
+      const tasks = present(card.task_ids, taskById);
+      const receiptIds = new Set(session ? sessionLinks.get(session.id)?.work_receipt_ids : []);
       const receipts = domain.work_receipts.filter(
         (receipt) =>
-          related.some((ref) => ref.type === "work_receipt" && ref.id === receipt.id) ||
-          (session.source_session_id && receipt.source_session === session.source_session_id),
+          receiptIds.has(receipt.id) ||
+          (card.source_session_id && receipt.source_session === card.source_session_id),
       );
-      const remaining = session.outcome?.remaining_work || [];
-      const themes = byIds(domain.projects, themeIds);
-      const repositories = byIds(domain.repository_contexts, repositoryIds);
-      const tasks = byIds(domain.tasks, taskIds);
-      const heading = agentSessionHeading(session.intent);
-      const topic = tasks.length > 0 ? `${tasks[0].title} — ${heading}` : heading;
-      const unresolved = session.status === "blocked" || remaining.length > 0;
-      const sessionHasContent = agentSessionHasContent(session, hookSourceApps.get(session.id));
+      const unresolved = agentWorkCardUnresolved(card);
+      const hasContent = session
+        ? agentSessionHasContent(session, hookSourceApps.get(session.id))
+        : agentWorkCardHasContent(card);
       const row = {
+        card,
         session,
-        sessionHasContent,
-        sessionIdentity: compactSessionId(session.source_session_id || session.id),
-        topic,
-        result: session.outcome?.summary || null,
-        requestCount: session.request_events?.length || 0,
-        responseCount: session.response_checkpoints?.length || 0,
-        date: localDate(sessionTimestamp(session)),
+        headline: agentWorkCardHeadline(card),
+        hasContent,
+        date: localDate(card.ended_at),
         themes,
         repositories,
         tasks,
         receipts,
+        // 関わる記録が消えても、記録そのものは残る。読む側が「今は無い」と出す。
+        missingLinkCount:
+          card.theme_ids.length +
+          card.repository_context_ids.length +
+          card.task_ids.length -
+          themes.length -
+          repositories.length -
+          tasks.length,
         unresolved,
-        assignmentIncomplete: themes.length === 0 || repositories.length === 0,
+        // 関連付けを後から足せるのは古い会話だけ（新しい記録は書き換えない）。
+        assignmentIncomplete:
+          Boolean(session) && (themes.length === 0 || repositories.length === 0),
       } satisfies Omit<AgentWorkProjectionRow, "presentation">;
-      return {
-        ...row,
-        presentation: presentationForSession(row),
-      } satisfies AgentWorkProjectionRow;
+      return { ...row, presentation: presentationFor(row) } satisfies AgentWorkProjectionRow;
     })
     .filter((row) => !options.themeId || row.themes.some((theme) => theme.id === options.themeId))
     .filter(

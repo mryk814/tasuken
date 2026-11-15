@@ -1,5 +1,12 @@
 import type { BaseRecord } from "../types";
 import { taskWorkPeriods } from "../../../../../shared/contracts/task/public.ts";
+import {
+  agentWorkCardFromSession,
+  agentWorkCardHasContent,
+  agentWorkCardHeadline,
+  listAgentWorkCards,
+  type AgentWorkCard,
+} from "../../../../../shared/agentWorkCard.ts";
 import type { AgentSession, WorkspaceDomain } from "../domain-model/types";
 import {
   agentSessionHasContent,
@@ -20,8 +27,8 @@ export interface DebriefSessionEvidence {
   status: string;
   intent: string;
   outcome: string;
-  requests: Array<{ observedAt: string; text: string }>;
-  responses: Array<{ observedAt: string; text: string }>;
+  /** 変えた物の名前。 */
+  changed: string[];
   verification: string[];
   remainingWork: string[];
   strength: DebriefEvidenceStrength;
@@ -71,7 +78,7 @@ export function dailyReportDate(note: DebriefNote): string | null {
 export function buildDailyReportRequest(date: string): string {
   return [
     `${date} の日報をTasken MCPでまとめてください。`,
-    `tasken.get_activityにdate: "${date}"を指定して、この日のActivityを確認してください。Sessionの作業が含まれる場合はtasken.get_agent_session_contextで関連Sessionを確認してください。daily-reportコマンドの当日ではなく、ここで指定した日付を使ってください。Repositoryで絞らず、収集済みの一日の作業全体を扱い、raw logは再収集しないでください。`,
+    `tasken.get_activityにdate: "${date}"を指定して、この日のActivityを確認してください。AIの作業は、その応答のagent_work（要約・変えた物・確かめたこと・残り）にあります。daily-reportコマンドの当日ではなく、ここで指定した日付を使ってください。Repositoryで絞らず、収集済みの一日の作業全体を扱い、raw logは再収集しないでください。`,
     "取得したContextのwriting_guidanceに沿って、作業ごとの成果・記録された判断・未解決事項をまとめてください。回答や人間の判断を推測で埋めず、採用後に人間がNotesのMarkdownへ追記する問いとして残してください。",
     `草稿はtasken.propose_noteのnote_type: "report", report_date: "${date}"で提案してください。Theme未指定は個人業務です。正式保存はAgent Deskでの確認・採用に委ねてください。`,
   ].join("\n\n");
@@ -101,40 +108,27 @@ function localDate(value: string): string {
   return `${year}-${month}-${day}`;
 }
 
-function checkpoints(value: unknown): Array<{ observedAt: string; text: string }> {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((entry) => {
-    const candidate = record(entry);
-    if (!candidate) return [];
-    const observedAt = stringValue(candidate.observed_at);
-    const text = stringValue(candidate.text);
-    return observedAt && text ? [{ observedAt, text }] : [];
-  });
-}
-
-function evidenceFromSession(
-  session: AgentSession,
-  proposal?: BaseRecord,
-  sourceApp?: string,
+/** AI の作業のカード → 日誌の根拠。新しい記録も古い会話も、同じ読み方を通る（#751）。 */
+function evidenceFromCard(
+  card: AgentWorkCard,
+  options: { proposal?: BaseRecord; hasContent?: boolean } = {},
 ): DebriefSessionEvidence {
   return {
-    id: proposal ? `proposal:${proposal.id}` : `session:${session.id}`,
-    sessionId: session.id,
-    sourceSessionId: session.source_session_id || session.id,
-    clientKind: session.client_kind,
-    startedAt: session.started_at,
-    endedAt: session.ended_at || null,
-    status: session.status,
-    intent: session.intent.summary,
-    outcome:
-      session.outcome?.summary || (session.status === "active" ? "作業中です。" : "結果の記録なし"),
-    requests: checkpoints(session.request_events),
-    responses: checkpoints(session.response_checkpoints),
-    verification: session.outcome?.verification || [],
-    remainingWork: session.outcome?.remaining_work || [],
+    id: options.proposal ? `proposal:${options.proposal.id}` : `session:${card.id}`,
+    sessionId: card.id,
+    sourceSessionId: card.source_session_id || card.id,
+    clientKind: card.client_kind,
+    startedAt: card.started_at || card.ended_at,
+    endedAt: card.running ? null : card.ended_at,
+    status: card.running ? "active" : card.status,
+    intent: card.intent || agentWorkCardHeadline(card),
+    outcome: card.summary || (card.running ? "作業中です。" : "結果の記録なし"),
+    changed: card.changed,
+    verification: card.verified,
+    remainingWork: card.remaining,
     strength: "agent_reported",
-    hasContent: agentSessionHasContent(session, sourceApp),
-    proposal,
+    hasContent: options.hasContent ?? agentWorkCardHasContent(card),
+    proposal: options.proposal,
   };
 }
 
@@ -171,17 +165,37 @@ export function buildDailyDebriefEvidence(
   date: string,
 ): DebriefSessionEvidence[] {
   const hookSourceApps = agentSessionHookSourceApps(domain.ai_proposals);
-  const canonical = domain.agent_sessions
-    .filter((session) => localDate(session.started_at) === date)
-    .map((session) => evidenceFromSession(session, undefined, hookSourceApps.get(session.id)));
+  const sessionById = new Map((domain.agent_sessions || []).map((entry) => [entry.id, entry]));
+  const onDate = (card: AgentWorkCard) => localDate(card.started_at || card.ended_at) === date;
+  const canonical = listAgentWorkCards({
+    records: domain.agent_work_records,
+    sessions: domain.agent_sessions,
+    references: domain.references,
+    working_copies: domain.working_copies,
+  })
+    .filter(onDate)
+    .map((card) => {
+      const session = card.origin === "session" ? sessionById.get(card.id) : undefined;
+      return evidenceFromCard(card, {
+        hasContent: session
+          ? agentSessionHasContent(session, hookSourceApps.get(session.id))
+          : undefined,
+      });
+    });
   const canonicalSessionIds = new Set(canonical.map((entry) => entry.sessionId));
   const pending = domain.ai_proposals.flatMap((proposal) => {
     const base = proposal as BaseRecord;
     if (!isPassiveAgentSessionProposal(base)) return [];
-    return sessionsFromProposal(base)
-      .filter((session) => localDate(session.started_at) === date)
-      .filter((session) => !canonicalSessionIds.has(session.id))
-      .map((session) => evidenceFromSession(session, base, hookSourceApps.get(session.id)));
+    return sessionsFromProposal(base).flatMap((session) => {
+      const card = agentWorkCardFromSession(session);
+      if (!card || !onDate(card) || canonicalSessionIds.has(card.id)) return [];
+      return [
+        evidenceFromCard(card, {
+          proposal: base,
+          hasContent: agentSessionHasContent(session, hookSourceApps.get(session.id)),
+        }),
+      ];
+    });
   });
   const taskWork: DebriefSessionEvidence[] = taskWorkPeriods(
     domain.tasks as unknown as BaseRecord[],
@@ -212,8 +226,7 @@ export function buildDailyDebriefEvidence(
       reviewStatus: work.review_status,
       intent: work.title,
       outcome: work.summary,
-      requests: [],
-      responses: [],
+      changed: [],
       verification: work.verification,
       remainingWork: work.remaining_work,
       strength: "agent_reported",

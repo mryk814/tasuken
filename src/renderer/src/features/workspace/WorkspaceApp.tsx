@@ -771,9 +771,7 @@ export function WorkspaceApp() {
                 fullDomain,
                 projectActivitySessionLogEntries(
                   buildDailyAgentSessionContexts(
-                    buildAgentWorkProjection(fullDomain, {
-                      limit: Math.max(fullDomain.agent_sessions.length, 1),
-                    }),
+                    buildAgentWorkProjection(fullDomain, { limit: Number.MAX_SAFE_INTEGER }),
                     targetDate,
                     [],
                   ),

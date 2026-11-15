@@ -167,15 +167,21 @@ export function TaskenDebriefPanel({
                   </dd>
                 </>
               )}
-              <dt>Intent</dt>
+              <dt>依頼</dt>
               <dd>{entry.intent || "依頼内容の記録なし"}</dd>
-              <dt>Outcome</dt>
+              <dt>要約</dt>
               <dd>{entry.outcome}</dd>
+              {entry.changed.length > 0 && (
+                <>
+                  <dt>変えた物</dt>
+                  <dd>{entry.changed.join(" / ")}</dd>
+                </>
+              )}
               <dt>残り</dt>
               <dd>{entry.remainingWork.join(" / ") || "なし"}</dd>
               {entry.verification.length > 0 && (
                 <>
-                  <dt>記録された確認</dt>
+                  <dt>確かめたこと</dt>
                   <dd>{entry.verification.join(" / ")}</dd>
                 </>
               )}

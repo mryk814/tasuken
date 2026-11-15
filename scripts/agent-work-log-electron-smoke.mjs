@@ -148,11 +148,9 @@ try {
   await panel().scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(output, "after-desktop.png") });
   const detail = panel().getByRole("complementary", { name: "選択Sessionの詳細", exact: true });
-  await detail.getByText("成果の詳細", { exact: true }).click();
   await detail.getByText("合成デモ: weekly-view.tsx", { exact: true }).waitFor();
-  await detail.getByText("関連タスクと報告", { exact: true }).click();
   await detail.getByRole("button", { name: "Task: 合成デモ: 週表示を確認", exact: true }).waitFor();
-  await detail.getByText("変更したもの", { exact: true }).scrollIntoViewIfNeeded();
+  await detail.getByText("変えた物", { exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: path.join(output, "after-desktop-outcome.png") });
   await detail.getByRole("button", { name: "Task: 合成デモ: 週表示を確認", exact: true }).click();
   const taskHeading = page.getByText("タスク詳細", { exact: true });
@@ -198,7 +196,6 @@ try {
     (task) => task.id === "synthetic-calendar-task",
   );
   assert.equal(savedTask.state, "review");
-  await dailyDetail.getByText("成果の詳細", { exact: true }).click();
   await dailyDetail.getByText("合成デモ: weekly-view.tsx", { exact: true }).waitFor();
   const associationToast = page
     .getByRole("status")
@@ -238,9 +235,9 @@ try {
     .waitFor({ state: "detached" });
   await page.screenshot({ path: path.join(output, "after-narrow-timeline.png") });
   const unknown = panel().locator(".agent-log-list-entry").filter({ hasText: "OpenCode" });
-  assert.match(await unknown.innerText(), /終了未確認/);
-  assert.match(await unknown.innerText(), /最終観測/);
-  assert.doesNotMatch(await unknown.innerText(), /\(終了\)/);
+  // 終わりが分からない会話は「途中」。済みとは出さない。
+  assert.match(await unknown.innerText(), /途中/);
+  assert.doesNotMatch(await unknown.innerText(), /済み/);
   await panel().getByRole("button", { name: "次の期間", exact: true }).click();
   await panel().getByText("この期間のAI作業はありません。").waitFor();
   await page.screenshot({ path: path.join(output, "after-narrow-empty.png") });
