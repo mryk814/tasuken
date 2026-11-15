@@ -55,6 +55,7 @@ import { AiProposalAcceptanceService } from "./services/aiProposalAcceptanceServ
 import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import { runKnowledgeRetirementExportOnce } from "./services/knowledgeRetirementExport";
+import { runTranscriptionRetirementExportOnce } from "./services/transcriptionRetirementExport";
 import { runRetiredOutputCleanupOnce } from "./services/retiredOutputCleanup.mjs";
 import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBackup";
 import { applyPendingRestore, cancelStagedRestore } from "./services/workspaceRestore";
@@ -2180,6 +2181,20 @@ async function startDesktopApp(): Promise<void> {
       setTimeout(
         () =>
           void runKnowledgeRetirementExportOnce({
+            repository: exportRepository,
+            userDataDirectory: app.getPath("userData"),
+            syncRoot: app.isPackaged
+              ? String(exportRepository.readPreference("artifactDirectory") || "")
+              : null,
+            log: (level, message) => logMain(level, "retired-export", message),
+          }),
+        RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS,
+      ).unref?.();
+      // 文字起こしの履歴の表示を外す前の控え（#755 束4）。完了済みの文字起こしを 1 件ずつ書き出す。
+      // 置き場と印の扱いは上の Knowledge と同じ。
+      setTimeout(
+        () =>
+          void runTranscriptionRetirementExportOnce({
             repository: exportRepository,
             userDataDirectory: app.getPath("userData"),
             syncRoot: app.isPackaged

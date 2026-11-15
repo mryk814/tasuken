@@ -3,6 +3,7 @@
 > 録る側（マイク録音、画面・window・範囲の録画、切り出し、文字起こしの履歴、収録の画面、同梱の ffmpeg）は #755 束4 で外した。
 > 残っているのは、既存の音声・動画ファイルの取り込みの保存と復旧、前に録った音声・動画を添付から再生する所。
 > 種類（`capture_entry`・`artifact`）と、録った記録の `capture_method=microphone | screen_recording` はそのまま残る。
+> 完了済みの文字起こしの本文（`transcription_revisions` の `raw_text`）は記録に残るが、画面からは読めなくなった。起動の後に 1 件ずつ Markdown を `Exports/retired/transcriptions/`（userData と、配布版では同期ルート）へ書き出す（`transcriptionRetirementExport.ts`。置き場・印・上書きしない決まりは Knowledge の書き出しと同じ。削除した付箋・添付の物は書かない）。
 > 前の版が録りかけ・保存待ちで残した録音・録画は、起動して窓を出した後に `commitLeftoverRecordings` が添付として確定する（録りかけは chunk をつなぐ。画面録画の幅と高さは WebM・MP4 の見出しから読む）。確定した session は `committed` になる。確定できない物（chunk の欠け・hash の不一致・見出しが読めない・長さを持たない音声の取り込み・読み取りの失敗）は消さずに `userData/media-recovery/sessions` に残し、manifest に `leftoverKept`（code と時刻）を書いて、次の起動からは読み直さない。前の版の保存待ちの音声の取り込みは長さを manifest に持たないので、`duration_unknown` で残る（元のファイルは本人が選んだ場所にある）。ログへは数と code だけを出す。この起動で作られた session と、紐づけ先つきの動画の取り込み（添付の欄に保存待ちの画面がある）には触らない。
 > 音声ファイルの取り込みの入口は、添付の画面の見出しの「音声を取り込む」。普通の添付の追加は音声を断るので、こちらの専用の道（長さを測ってから保存）を通す。保存に失敗した取り込みは保存待ちを破棄する（元のファイルは選んだ場所に残る）。保存の途中（finalize の後）で落ちた物は破棄できないので、次の起動の復旧（`recoverPending`）が保存し直し、画面もそう伝える。
 

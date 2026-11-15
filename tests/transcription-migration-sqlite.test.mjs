@@ -123,3 +123,57 @@ test("schema v6 terminates unfinished embedded-provider work and drops its opera
     undefined,
   );
 });
+
+test("移行した前の版の DB から、完了済みの文字起こしだけを書き出し、印は DB に残る（#755 束4）", async (t) => {
+  const { build } = await import("esbuild");
+  const output = await build({
+    entryPoints: ["src/main/services/transcriptionRetirementExport.ts"],
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    write: false,
+    logLevel: "silent",
+  });
+  const { runTranscriptionRetirementExportOnce } = await import(
+    `data:text/javascript;base64,${Buffer.from(output.outputFiles[0].text).toString("base64")}`
+  );
+  const queued = revision("77777777-7777-4777-8777-777777777777", "queued");
+  const completed = revision("88888888-8888-4888-8888-888888888888", "completed");
+  const state = fixture([queued, completed]);
+  state.database.db
+    .prepare("UPDATE workspace_meta SET value = '5' WHERE key = 'schema_version'")
+    .run();
+  state.database.db.close();
+  const userData = path.join(state.root, "userData");
+  const exports = path.join(userData, "Exports", "retired", "transcriptions");
+
+  const first = new WorkspaceDatabase(state.databasePath);
+  const result = runTranscriptionRetirementExportOnce({
+    repository: first,
+    userDataDirectory: userData,
+    now: () => "2026-11-16T00:00:00.000Z",
+  });
+  assert.equal(result.state, "done");
+  assert.equal(result.documents, 1);
+  const files = fs.readdirSync(exports);
+  assert.equal(files.length, 1);
+  const markdown = fs.readFileSync(path.join(exports, files[0]), "utf8");
+  // 移行で終端した（本文の無い）文字起こしは出ず、完了した物の本文はそのまま出る。
+  assert.match(markdown, /## 本文\n\n保存済みの文字起こし\n$/u);
+  assert.match(markdown, /- Tasken の ID: 88888888-8888-4888-8888-888888888888/u);
+  assert.doesNotMatch(markdown, /77777777-7777/u);
+  first.db.close();
+
+  // 印は workspace_meta に残り、開き直した DB でも二度目は書き出さない。
+  const reopened = new WorkspaceDatabase(state.databasePath);
+  // 後片付けは、DB を閉じてから一時の場所を消す（hook は足した順に走る）。
+  t.after(() => {
+    reopened.db.close();
+    fs.rmSync(state.root, { recursive: true, force: true });
+  });
+  assert.equal(JSON.parse(reopened.readRetiredExportMark("transcriptions")).count, 1);
+  assert.deepEqual(
+    runTranscriptionRetirementExportOnce({ repository: reopened, userDataDirectory: userData }),
+    { state: "already_done" },
+  );
+});

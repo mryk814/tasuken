@@ -446,7 +446,11 @@ export function knowledgeExportSignature(source: KnowledgeExportSource): {
   return { count, latest };
 }
 
-function markMatches(raw: string | null, signature: { count: number; latest: string }): boolean {
+/** 済んだ印（{at, count, latest}）が、今の記録の件数と時刻に合うか。束4 の文字起こしの書き出しも使う。 */
+export function retiredExportMarkMatches(
+  raw: string | null,
+  signature: { count: number; latest: string },
+): boolean {
   if (!raw) return false;
   try {
     const mark = JSON.parse(raw) as { count?: unknown; latest?: unknown };
@@ -456,7 +460,7 @@ function markMatches(raw: string | null, signature: { count: number; latest: str
   }
 }
 
-type ExportFiles = Pick<typeof fs, "mkdirSync" | "readFileSync" | "writeFileSync">;
+export type ExportFiles = Pick<typeof fs, "mkdirSync" | "readFileSync" | "writeFileSync">;
 
 /**
  * 1 つの置き場へ書く。既にあるファイルは上書きしない。中身が同じなら何もせず、
@@ -464,7 +468,7 @@ type ExportFiles = Pick<typeof fs, "mkdirSync" | "readFileSync" | "writeFileSync
  */
 export function writeKnowledgeExportFiles(
   directory: string,
-  documents: readonly KnowledgeExportDocument[],
+  documents: readonly Pick<KnowledgeExportDocument, "baseName" | "markdown">[],
   files: ExportFiles = fs,
 ): { written: number; unchanged: number } {
   files.mkdirSync(directory, { recursive: true });
@@ -527,7 +531,7 @@ export function runKnowledgeRetirementExportOnce(input: {
   const { repository, log = () => {}, now = () => new Date().toISOString(), files = fs } = input;
   try {
     const signature = knowledgeExportSignature(repository);
-    if (markMatches(repository.readRetiredExportMark("knowledge"), signature))
+    if (retiredExportMarkMatches(repository.readRetiredExportMark("knowledge"), signature))
       return { state: "already_done" };
     const documents = buildKnowledgeExport(repository);
     if (documents.length === 0) return { state: "nothing" };
