@@ -271,10 +271,14 @@ class FixtureRepository {
 }
 
 /** 旧実装にない追加欄（assignment.agent_state）を除いて、互換部分だけを比べる。 */
+// 凍結した旧来の応答に無い、後から足した欄を外して比べる。
+// agent_state は作業の状態、agent_work は AI の作業のカード（#751。この fixture には AI の作業が無いので必ず空）。
 function withoutAgentState(result) {
   if (!result?.assignment) return result;
   const { agent_state: _agentState, ...assignment } = result.assignment;
-  return { ...result, assignment };
+  const { agent_work: agentWork, ...rest } = result;
+  if (agentWork !== undefined) assert.deepEqual(agentWork, []);
+  return { ...rest, assignment };
 }
 
 async function callMcp(
