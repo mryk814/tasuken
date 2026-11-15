@@ -225,6 +225,8 @@ class AndroidMobileTaskRepository(
     private val httpClient: MobileGatewayHttpClient? = null,
     private val themeNow: () -> Instant = Instant::now,
     private val processInstanceId: String = MOBILE_PROCESS_INSTANCE_ID,
+    /** 列に積んだ後に送り手を起こす。試験では止めて、送る時を試験が決める。 */
+    private val scheduleOutbox: () -> Unit = { MobileOutboxScheduler.enqueue(context) },
 ) : MobileGatewayRepository, MobileOfflineTaskRepository, MobileWorkLogRepository, MobileRecallRepository, MobileRelatedDocumentsRepository, MobileThemeContextRepository, MobileLocalSearchRepository {
     private val json = Json { ignoreUnknownKeys = false }
     private val dao = database.mobileDao()
@@ -234,6 +236,7 @@ class AndroidMobileTaskRepository(
     private val outbox = MobileOutbox(context.applicationContext, dao, store::deviceId)
     private val photoStore = MobileCapturePhotoStore(context.applicationContext)
     private val workLogOutbox = MobileWorkLogOutbox(dao, store::deviceId, { MobileOutboxScheduler.enqueue(context) })
+    private val routineOutbox = MobileRoutineOutbox(dao, store::deviceId, scheduleOutbox)
     private val recallReader = MobileRecallReader(dao) { path ->
         val configuration = store.configuration()
         val token = requireNotNull(store.readToken()) { "Desktopへの接続を確認してください。端末の記録を表示しています。" }
@@ -890,73 +893,101 @@ class AndroidMobileTaskRepository(
         }
     }
 
+    /**
+     * 続けることの1回記録。Desktopへ直接は送らず、端末の送信の列に先に書く（Task・Capture・作業記録と同じ）。
+     * 列に書けたら [MobileRoutineActionResult.Queued]。送るのは列の送り手で、つながらない間は残る。
+     * 接続の登録が切れている間（token が無い）も書いておき、つなぎ直したら送る。
+     */
     override suspend fun recordRoutine(action: MobileRoutineActionDto): MobileRoutineActionResult {
         val configuration = store.configuration()
-        if (configuration.origin.isBlank() || !configuration.paired) {
-            return MobileRoutineActionResult.Failed("Desktopへ接続すると記録できます。")
+        if (configuration.origin.isBlank() || dao.syncState()?.serverId == null) {
+            return MobileRoutineActionResult.Failed("Desktopへ一度接続すると記録できます。")
         }
-        if (MOBILE_CAPTURE_WRITE_SCOPE !in configuration.scopes) {
+        // 権限の無い記録は列に書いても必ず断られる。押した時に分かるようにする。
+        if (configuration.paired && MOBILE_CAPTURE_WRITE_SCOPE !in configuration.scopes) {
             return MobileRoutineActionResult.Failed(
                 "この権限では記録できません。Desktopで新しいコードを発行して再ペアリングしてください。",
             )
         }
-        val token = store.readToken()
-            ?: return MobileRoutineActionResult.Failed("Desktopへの接続をやり直してください。")
-        val serverId = dao.syncState()?.serverId
-            ?: return MobileRoutineActionResult.Failed("Taskを同期してから記録できます。")
-        val commandId = UUID.randomUUID().toString()
-        val envelope = MobileRoutineActionEnvelopeDto(
-            apiVersion = TASKEN_MOBILE_API_VERSION,
-            schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
-            requestId = UUID.randomUUID().toString(),
-            commandId = commandId,
-            idempotencyKey = commandId,
-            clientDeviceId = store.deviceId(),
-            issuedAt = Instant.now().toString(),
-            action = action,
-        )
-        val response = try {
-            gatewayRequest(
-                origin = configuration.origin,
-                path = "/v1/routine-actions",
-                method = "POST",
-                body = MobileRoutineContract.encode(envelope),
-                accessToken = token,
-            )
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            Log.w(MOBILE_GATEWAY_LOG_TAG, "Routine action could not reach the Desktop", error)
-            return MobileRoutineActionResult.Failed("Desktopへ接続できませんでした。接続してから記録してください。")
+        return try {
+            routineOutbox.record(action)
+            MobileRoutineActionResult.Queued
+        } catch (error: IllegalArgumentException) {
+            MobileRoutineActionResult.Failed(error.message ?: "記録できませんでした。")
         }
-        return when (response.status) {
-            200 -> {
-                val decoded = MobileRoutineContract.decodeResponse(response.body)
-                if (decoded.meta.serverId != serverId || decoded.data.commandId != commandId) {
-                    MobileRoutineActionResult.Failed("別のDesktopから応答がありました。接続先を確認してください。")
-                } else if (decoded.data.status == "no_change") {
-                    MobileRoutineActionResult.Saved("記録済みです。")
-                } else {
-                    MobileRoutineActionResult.Saved(
-                        decoded.data.nextDueOn?.let { "記録しました。次の目安は${it.substring(5).replace('-', '/')}です。" }
-                            ?: "記録しました。",
+    }
+
+    override fun observePendingRoutineRecords(): Flow<List<MobilePendingRoutineRecord>> =
+        combine(dao.observeRoutineRecords(), dao.observeSyncState()) { rows, syncState ->
+            rows.filter { it.serverId == syncState?.serverId }.mapNotNull { it.toPendingRoutineRecord() }
+        }.distinctUntilChanged()
+
+    override suspend fun retryRoutineRecord(commandId: String) = routineOutbox.retry(commandId)
+
+    override suspend fun discardRoutineRecord(commandId: String) = routineOutbox.discard(commandId)
+
+    /**
+     * 列から送る続けることの記録（/v1/routine-actions）。応答の読み方は /v1/commands と同じ：
+     * 断られた物は Rejected で列に残し、つながらない・相手が答えられない時は Retry で後で同じ commandId を送る。
+     */
+    private fun sendRoutineRecord(
+        origin: String,
+        accessToken: String,
+        expectedServerId: String,
+        envelopeJson: String,
+    ): MobileCommandSendResult {
+        var answered: GatewayHttpResponse? = null
+        return try {
+            val response = gatewayRequest(origin, "/v1/routine-actions", "POST", envelopeJson, accessToken)
+            answered = response
+            when {
+                response.status == 200 -> {
+                    val decoded = MobileRoutineContract.decodeResponse(response.body)
+                    if (decoded.meta.serverId != expectedServerId) {
+                        MobileCommandSendResult.Retry("PC の識別情報が送信前と一致しません。つなぎ直してください。")
+                    } else {
+                        // commandId が送った行と合うかは列の送り手が確かめる。
+                        MobileCommandSendResult.RoutineApplied(decoded.data.commandId)
+                    }
+                }
+                response.status == 401 -> {
+                    val confirmed = isConfirmedGatewayUnauthorized(response, expectedServerId)
+                    if (confirmed) store.clearTokenIfMatches(accessToken)
+                    MobileCommandSendResult.Retry(
+                        if (confirmed) "接続が失効しました。新しいコードでつなぎ直してください。" else "PC へ送れませんでした。",
                     )
                 }
+                response.status == 429 -> MobileCommandSendResult.Retry("PC へ送れませんでした。")
+                response.status == 408 || response.status >= 500 ->
+                    MobileCommandSendResult.Retry(
+                        "PC が操作を処理できませんでした（HTTP ${response.status}）。",
+                        serverReached = true,
+                    )
+                else -> {
+                    val error = runCatching { MobileTaskCommandContract.decodeError(response.body) }.getOrNull()
+                    if (error != null && error.meta.serverId != expectedServerId) {
+                        MobileCommandSendResult.Retry("PC の識別情報が送信前と一致しません。つなぎ直してください。")
+                    } else {
+                        val code = error?.error?.code ?: "http_${response.status}"
+                        MobileCommandSendResult.Rejected(
+                            code = code,
+                            message = when (code) {
+                                "not_found" -> "PC にこの続けることが見つかりませんでした（消したか止めた物かもしれません）。"
+                                "forbidden" -> "この権限では記録できません。新しいコードでつなぎ直してから送り直してください。"
+                                "capability_unavailable" -> "この PC は続けることの記録を受け取れません。PC の Tasken を新しくしてから送り直してください。"
+                                else -> error?.error?.message ?: "PC が記録を受け取りませんでした。"
+                            },
+                            retryable = error?.error?.retryable ?: false,
+                        )
+                    }
+                }
             }
-            401 -> {
-                if (isConfirmedGatewayUnauthorized(response, serverId)) store.clearTokenIfMatches(token)
-                MobileRoutineActionResult.Failed("Desktopへの接続をやり直してください。")
-            }
-            else -> {
-                val error = runCatching { MobileTaskCommandContract.decodeError(response.body) }.getOrNull()
-                MobileRoutineActionResult.Failed(
-                    when (error?.error?.code) {
-                        "capability_unavailable" -> "この接続先では記録できません。Desktopへ接続してください。"
-                        "not_found" -> "Desktopで見つかりませんでした。再読込してください。"
-                        "forbidden" -> "この権限では記録できません。Desktopで新しいコードを発行して再ペアリングしてください。"
-                        else -> error?.error?.message ?: "Desktopが受け付けませんでした。"
-                    },
-                )
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Routine record request failed", error)
+            if (answered?.let { namesServer(it.body, expectedServerId) } == true) {
+                MobileCommandSendResult.Retry("PC の応答を読み取れませんでした。", serverReached = true)
+            } else {
+                MobileCommandSendResult.Retry("PC につながりません。")
             }
         }
     }
@@ -1453,6 +1484,11 @@ class AndroidMobileTaskRepository(
         expectedServerId: String,
         envelopeJson: String,
     ): MobileCommandSendResult {
+        // 続けることの記録は command ではなく action を持ち、別の受け口へ送る。
+        val routineRecord = runCatching {
+            Json.parseToJsonElement(envelopeJson).jsonObject["action"]?.jsonObject?.get("name")?.jsonPrimitive?.content
+        }.getOrNull() == ROUTINE_RECORD_COMMAND
+        if (routineRecord) return sendRoutineRecord(origin, accessToken, expectedServerId, envelopeJson)
         var answered: GatewayHttpResponse? = null
         return try {
             val commandName = Json.parseToJsonElement(envelopeJson)

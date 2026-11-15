@@ -602,6 +602,29 @@ abstract class MobileLocalDao {
     @Query("UPDATE outbox_command SET state = 'pending', lastError = NULL WHERE commandId = :commandId")
     abstract suspend fun markWorkLogPending(commandId: String)
 
+    /** 続けることの記録（送信の列の RecordHabitEntry）。届いて消えるまで、断られた物も含めて残る。 */
+    @Query("SELECT * FROM outbox_command WHERE commandName = 'RecordHabitEntry' ORDER BY createdAt ASC, commandId ASC")
+    abstract fun observeRoutineRecords(): Flow<List<OutboxCommandEntity>>
+
+    @Query("SELECT * FROM outbox_command WHERE commandName = 'RecordHabitEntry' ORDER BY createdAt ASC, commandId ASC")
+    abstract suspend fun routineRecords(): List<OutboxCommandEntity>
+
+    /** 届いた記録だけを列から消す。送っている最中に別の送り手が触った行（試した回数が違う）は消さない。 */
+    @Query(
+        "DELETE FROM outbox_command WHERE commandId = :commandId AND commandName = 'RecordHabitEntry' " +
+            "AND serverId = :serverId AND state = 'sending' AND attemptCount = :attemptCount",
+    )
+    abstract suspend fun applyRoutineReceipt(commandId: String, serverId: String, attemptCount: Int): Int
+
+    @Query(
+        "UPDATE outbox_command SET state = 'pending', lastError = NULL " +
+            "WHERE commandId = :commandId AND commandName = 'RecordHabitEntry' AND state = 'rejected'",
+    )
+    abstract suspend fun retryRejectedRoutineRecord(commandId: String): Int
+
+    @Query("DELETE FROM outbox_command WHERE commandId = :commandId AND commandName = 'RecordHabitEntry' AND state = 'rejected'")
+    abstract suspend fun discardRejectedRoutineRecord(commandId: String): Int
+
     @Query("SELECT * FROM task_cache WHERE todayDate = :date ORDER BY updatedAt DESC, id ASC")
     @Transaction
     abstract fun observeTasks(date: String): Flow<List<TaskCacheWithConflict>>

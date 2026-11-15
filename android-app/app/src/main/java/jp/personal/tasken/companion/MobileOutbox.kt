@@ -167,6 +167,8 @@ sealed interface MobileCommandSendResult {
     data class Applied(val response: MobileTaskCommandResponseDto) : MobileCommandSendResult
     data class CaptureApplied(val response: MobileCaptureCommandResponseDto) : MobileCommandSendResult
     data class WorkLogApplied(val response: MobileWorkLogResponse) : MobileCommandSendResult
+    /** The confirmed Desktop saved the routine record (or already had the same one: no_change). */
+    data class RoutineApplied(val commandId: String) : MobileCommandSendResult
     data class Conflict(val response: MobileTaskCommandErrorResponseDto) : MobileCommandSendResult
     /**
      * The command stays in the outbox and is sent again later. serverReached is true when the confirmed
@@ -1086,6 +1088,14 @@ class MobileOutbox(
                         continue
                     }
                     if (!dao.applyWorkLogReceipt(command, record)) return stopped()
+                }
+                is MobileCommandSendResult.RoutineApplied -> {
+                    if (command.commandName != ROUTINE_RECORD_COMMAND || result.commandId != command.commandId) {
+                        dao.markRetry(command.commandId, structuredCommandError("invalid_command_receipt", "続けることの記録の送信結果が一致しません。記録は端末に残しています。", true))
+                        setAside()
+                        continue
+                    }
+                    if (dao.applyRoutineReceipt(command.commandId, serverId, command.attemptCount) != 1) return stopped()
                 }
                 is MobileCommandSendResult.Applied -> {
                     val response = result.response

@@ -82,6 +82,30 @@ class SyncSummaryTest {
         assertEquals(4, summary.unsent)
     }
 
+    /** 断られた続けることの記録は、名前と日と理由を添えて「受け取られなかった」に出す。待っている記録は waiting の数に入る。 */
+    @Test
+    fun refusedRoutineRecordsAreReturnedWithTheirReason() {
+        val records = listOf(
+            MobilePendingRoutineRecord("r1", "habit-read", "2026-11-16", 2, OutboxState.Rejected, "PC にこの続けることが見つかりませんでした。"),
+            MobilePendingRoutineRecord("r2", "habit-gone", "2026-11-15", 1, OutboxState.Rejected, null),
+            MobilePendingRoutineRecord("r3", "habit-read", "2026-11-16", 3, OutboxState.Pending, null),
+        )
+        val summary = syncSummary(
+            TodayUiState.Success(emptyList(), syncedAt),
+            pending = 1, tasks = emptyList(), captures = emptyList(), recoveredInputs = 0,
+            routineRecords = records, routineTitles = mapOf("habit-read" to "論文を読む"),
+        )
+        assertEquals(
+            listOf(
+                SyncReturned("論文を読むの1回（11/16）", "PC にこの続けることが見つかりませんでした。", routineCommandId = "r1"),
+                SyncReturned("続けることの1回（11/15）", "PC が受け取りませんでした", routineCommandId = "r2"),
+            ),
+            summary.returned,
+        )
+        assertEquals(1, summary.waiting)
+        assertEquals(3, summary.unsent)
+    }
+
     /** PC の版が古くて受け取れなかった入力は、捨てる・決めるではなく、本人が PC を新しくすれば送れる。 */
     @Test
     fun inputsRefusedByAnOldDesktopAreFixable() {

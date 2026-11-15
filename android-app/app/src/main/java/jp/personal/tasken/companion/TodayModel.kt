@@ -387,9 +387,17 @@ class TodayViewModel(
     private val mutableFeedMessages = MutableSharedFlow<String>(extraBufferCapacity = 8)
     /** 反応・返信が受け付けられなかった理由。一時的な通知として見せる。 */
     val feedMessages: SharedFlow<String> = mutableFeedMessages.asSharedFlow()
-    private val mutableRoutines = MutableStateFlow<MobileRoutinesDataDto?>(null)
-    /** 続けること（#454）。取れなかったときは前回の内容を残す。 */
-    val routines: StateFlow<MobileRoutinesDataDto?> = mutableRoutines.asStateFlow()
+    /** Desktopから読んだ続けること。取れなかったときは前回の内容を残す。 */
+    private val serverRoutines = MutableStateFlow<MobileRoutinesDataDto?>(null)
+    private val mutableRoutineRecords = MutableStateFlow<List<MobilePendingRoutineRecord>>(emptyList())
+    /** まだ届いていない（か、断られた）続けることの記録。同期の一覧に出す。 */
+    val routineRecords: StateFlow<List<MobilePendingRoutineRecord>> = mutableRoutineRecords.asStateFlow()
+    private val mutableRoutines = MutableStateFlow<TodayRoutines?>(null)
+    /** 続けること（#454）。Desktopの内容に、端末にだけある記録を重ねた物。 */
+    internal val routines: StateFlow<TodayRoutines?> = mutableRoutines.asStateFlow()
+    /** Habit の ID から名前。Todayの表示から外れた後も、同期の一覧で断られた記録の名前を出すために覚える。 */
+    private val mutableRoutineTitles = MutableStateFlow<Map<String, String>>(emptyMap())
+    val routineTitles: StateFlow<Map<String, String>> = mutableRoutineTitles.asStateFlow()
     private val mutableRoutineSavingId = MutableStateFlow<String?>(null)
     val routineSavingId: StateFlow<String?> = mutableRoutineSavingId.asStateFlow()
     private var workReceiptLoadJob: Job? = null
@@ -406,6 +414,7 @@ class TodayViewModel(
     private val loadMutex = Mutex()
 
     init {
+        (repository as? MobileGatewayRepository)?.let(::observeRoutineRecords)
         val offlineRepository = repository as? MobileOfflineTaskRepository
         if (offlineRepository != null) {
             observeCache(offlineRepository)
@@ -516,10 +525,39 @@ class TodayViewModel(
                 null
             }
             currentCoroutineContext().ensureActive()
-            if (read != null) mutableRoutines.value = read
+            if (read != null) {
+                serverRoutines.value = read
+                mutableRoutineTitles.value = mutableRoutineTitles.value + read.habits.associate { it.habitId to it.title }
+                projectRoutines()
+            }
         }
     }
 
+    // 読み直しと列の見張りが別々の IO スレッドから呼ぶので、重ねる元の二つを一度に読む。
+    @Synchronized
+    private fun projectRoutines() {
+        mutableRoutines.value = serverRoutines.value?.let { overlayPendingRoutines(it, mutableRoutineRecords.value) }
+    }
+
+    /**
+     * 列の記録を見張る。届いて列から消えた記録があれば、Desktopの数（今日N回・次の番号）を読み直す。
+     * 読み直すまでは、消えた分だけ数が戻って見えるが、届いた後の一往復の間だけ。
+     */
+    private fun observeRoutineRecords(gateway: MobileGatewayRepository) {
+        viewModelScope.launch(ioDispatcher) {
+            var waiting = emptySet<String>()
+            gateway.observePendingRoutineRecords().collect { records ->
+                mutableRoutineRecords.value = records
+                projectRoutines()
+                val present = records.mapTo(HashSet()) { it.commandId }
+                val delivered = waiting.any { it !in present }
+                waiting = records.filterNot { it.rejected }.mapTo(HashSet()) { it.commandId }
+                if (delivered) refreshRoutines(canConnect = true)
+            }
+        }
+    }
+
+    /** 押した Habit は、Todayに出ている形（端末の記録を重ねた後の次の番号）で受け取る。 */
     fun recordHabit(habit: MobileRoutineHabitDto) {
         val date = mutableRoutines.value?.date ?: return
         val action = try {
@@ -542,18 +580,31 @@ class TodayViewModel(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (_: Exception) {
-                    MobileRoutineActionResult.Failed("記録できませんでした。接続を確認してください。")
+                    MobileRoutineActionResult.Failed("記録を端末に書けませんでした。もう一度押してください。")
                 }
-                when (result) {
-                    is MobileRoutineActionResult.Saved -> {
-                        mutableFeedMessages.tryEmit(result.message)
-                        // Desktopの導出結果（今日N回・次の目安）に合わせ直す。
-                        gateway.fetchRoutines(action.performedOn)?.let { mutableRoutines.value = it }
-                    }
-                    is MobileRoutineActionResult.Failed -> mutableFeedMessages.tryEmit(result.message)
-                }
+                // 書けた記録は、列の見張り（observeRoutineRecords）から数と割印に出る。
+                if (result is MobileRoutineActionResult.Failed) mutableFeedMessages.tryEmit(result.message)
             } finally {
                 mutableRoutineSavingId.value = null
+            }
+        }
+    }
+
+    /** 断られた記録を送り直す（同じ commandId・同じ番号）。 */
+    fun retryRoutineRecord(commandId: String) = routineRecordAction { it.retryRoutineRecord(commandId) }
+
+    /** 断られた記録を消す。本人が選んだ時だけ。 */
+    fun discardRoutineRecord(commandId: String) = routineRecordAction { it.discardRoutineRecord(commandId) }
+
+    private fun routineRecordAction(block: suspend (MobileGatewayRepository) -> Unit) {
+        val gateway = repository as? MobileGatewayRepository ?: return
+        viewModelScope.launch(ioDispatcher) {
+            try {
+                block(gateway)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                mutableFeedMessages.tryEmit(error.message ?: "記録を変えられませんでした。")
             }
         }
     }
@@ -1480,9 +1531,15 @@ interface MobileGatewayRepository : MobileTaskRepository {
     suspend fun flushFeedActions(): List<String> = emptyList()
     /** 続けること（#454）。窓口を持たないDesktopや接続できないときはnull。 */
     suspend fun fetchRoutines(date: String): MobileRoutinesDataDto? = null
-    /** 続けることの記録。Desktopへ直接送り、送れなければ記録しない。 */
+    /** 続けることの記録。端末の送信の列に先に書き、つながったら送る。 */
     suspend fun recordRoutine(action: MobileRoutineActionDto): MobileRoutineActionResult =
         MobileRoutineActionResult.Failed("このDesktopでは記録できません。Desktopを更新してください。")
+    /** まだ届いていない（か、断られた）続けることの記録。Todayの数に重ね、同期の一覧に出す。 */
+    fun observePendingRoutineRecords(): Flow<List<MobilePendingRoutineRecord>> = kotlinx.coroutines.flow.flowOf(emptyList())
+    /** 断られた記録を同じ commandId のまま送り直す。 */
+    suspend fun retryRoutineRecord(commandId: String) = Unit
+    /** 断られた記録を、本人が選んで消す。 */
+    suspend fun discardRoutineRecord(commandId: String) = Unit
 }
 
 interface MobileOfflineTaskRepository {

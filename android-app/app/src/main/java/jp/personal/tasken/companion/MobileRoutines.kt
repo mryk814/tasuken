@@ -1,6 +1,7 @@
 package jp.personal.tasken.companion
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -106,6 +107,8 @@ object MobileRoutineContract {
 
     fun encode(envelope: MobileRoutineActionEnvelopeDto): String = json.encodeToString(envelope)
 
+    fun decodeEnvelope(body: String): MobileRoutineActionEnvelopeDto = json.decodeFromString(body)
+
     fun decodeResponse(body: String): MobileRoutineActionResponseDto = json.decodeFromString(body)
 
     /**
@@ -126,38 +129,39 @@ object MobileRoutineContract {
 
 /** 記録の結果。 */
 sealed interface MobileRoutineActionResult {
-    /** Desktopへ保存した（同じ回の再送で変化がなかった場合を含む）。 */
-    data class Saved(val message: String) : MobileRoutineActionResult
+    /** 端末の送信の列に書いた。届くまでは割印で見せ、つながったら送る。 */
+    data object Queued : MobileRoutineActionResult
 
-    /** 保存できなかった。理由を見せる。 */
+    /** 列に書けなかった（接続の登録が無い・権限が無い・上限）。理由を見せる。 */
     data class Failed(val message: String) : MobileRoutineActionResult
 }
 
 /**
  * Todayの「続けること」。1件もなければ何も出さない。
- * 記録はDesktopへ直接送る（接続できないときは記録しない）。
+ * 記録は端末の送信の列に先に書き、押した時点で数に足す。届くまでは行の右の端に割印、断られた記録があれば「戻」。
  */
 @Composable
 internal fun TodayRoutinesSection(
-    routines: MobileRoutinesDataDto,
+    routines: TodayRoutines,
     savingId: String?,
     onRecordHabit: (MobileRoutineHabitDto) -> Unit,
 ) {
     if (routines.isEmpty) return
     Column(Modifier.fillMaxWidth().padding(top = 8.dp).testTag("today-routines")) {
-        if (routines.habits.isNotEmpty()) {
-            Text("続けること", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 12.dp))
-            routines.habits.forEach { habit ->
-                RoutineRow(
-                    title = habit.title,
-                    detail = "${habit.scheduleLabel} · ${habit.todayLabel} · ${habit.weekLabel}",
-                    actionLabel = "1回記録",
-                    actionDescription = "${habit.title}を1回記録",
-                    enabled = savingId == null && habit.nextSequence != null,
-                    onAction = { onRecordHabit(habit) },
-                    tag = "routine-habit-${habit.habitId}",
-                )
-            }
+        Text("続けること", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(vertical = 12.dp))
+        routines.habits.forEach { item ->
+            val habit = item.habit
+            RoutineRow(
+                title = habit.title,
+                detail = "${habit.scheduleLabel} · ${habit.todayLabel} · ${habit.weekLabel}",
+                actionLabel = "1回記録",
+                actionDescription = "${habit.title}を1回記録",
+                enabled = savingId == null && habit.nextSequence != null,
+                unsent = item.unsent,
+                returned = item.returned > 0,
+                onAction = { onRecordHabit(habit) },
+                tag = "routine-habit-${habit.habitId}",
+            )
         }
     }
 }
@@ -169,26 +173,38 @@ private fun RoutineRow(
     actionLabel: String,
     actionDescription: String,
     enabled: Boolean,
+    unsent: Int,
+    returned: Boolean,
     onAction: () -> Unit,
     tag: String,
 ) {
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 4.dp).testTag(tag),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(
-                detail,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+    Box(Modifier.fillMaxWidth().testTag(tag)) {
+        Row(
+            // 割印を付ける行は、右に 20dp の余白を取り、字や押す所と重ねない（Todayの Task の行と同じ）。
+            Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(end = if (unsent > 0) 20.dp else 0.dp, top = 4.dp, bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (returned) OflModo(Modifier.testTag("$tag-returned"))
+            FilledTonalButton(
+                onClick = onAction,
+                enabled = enabled,
+                modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = actionDescription },
+            ) { Text(actionLabel) }
+        }
+        if (unsent > 0) {
+            OflWariEdge(
+                Modifier.align(Alignment.CenterEnd).testTag("$tag-unsent"),
+                description = "未送信 $unsent",
             )
         }
-        FilledTonalButton(
-            onClick = onAction,
-            enabled = enabled,
-            modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = actionDescription },
-        ) { Text(actionLabel) }
     }
 }

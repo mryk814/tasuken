@@ -42,6 +42,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -79,8 +80,28 @@ internal fun sectionIcon(section: AppSection): Int = when (section) {
     AppSection.Records -> R.drawable.ic_tabler_notebook
 }
 
-/** 受け取られなかった物の一つ。[taskId] があれば、その Task を開いて決める。無ければ入力の一覧を開く。 */
-internal data class SyncReturned(val title: String, val reason: String, val taskId: String? = null)
+/**
+ * 受け取られなかった物の一つ。[taskId] があれば、その Task を開いて決める。
+ * [routineCommandId] があれば続けることの記録で、開く先が無いので、その場で送り直すか消すかを選ぶ。
+ * どちらも無ければ入力の一覧を開く。
+ */
+internal data class SyncReturned(
+    val title: String,
+    val reason: String,
+    val taskId: String? = null,
+    val routineCommandId: String? = null,
+)
+
+/** 断られた続けることの記録を、同期の一覧の一行にする。名前が分からない時（Todayから外れた Habit）は「続けること」。 */
+internal fun MobilePendingRoutineRecord.toSyncReturned(titles: Map<String, String>): SyncReturned {
+    val day = runCatching { java.time.LocalDate.parse(performedOn) }.getOrNull()
+    val title = titles[habitId] ?: "続けること"
+    return SyncReturned(
+        title = if (day == null) "${title}の1回" else "${title}の1回（${day.monthValue}/${day.dayOfMonth}）",
+        reason = reason ?: "PC が受け取りませんでした",
+        routineCommandId = commandId,
+    )
+}
 
 /**
  * 同期の様子。未送信は、理由で三つに分ける（送信の列の state と 1 対 1）。
@@ -123,6 +144,8 @@ internal fun syncSummary(
     recoveredInputs: Int,
     retry: MobileSendRetry? = null,
     nextSendAt: Long? = null,
+    routineRecords: List<MobilePendingRoutineRecord> = emptyList(),
+    routineTitles: Map<String, String> = emptyMap(),
 ): SyncSummary {
     val needsRepair = uiState is TodayUiState.PairingRequired ||
         (uiState as? TodayUiState.Cached)?.recovery == TodayUiState.CachedRecovery.RePair
@@ -160,7 +183,9 @@ internal fun syncSummary(
         returned = (tasks + shown).distinctBy { it.id }.mapNotNull(MobileTask::toSyncReturned) +
             captures.filter { it.canRetry && !it.needsFix }.map {
                 SyncReturned(it.text.lineSequence().firstOrNull().orEmpty().take(40), "PC が受け取りませんでした")
-            },
+            } +
+            // 送る前と送っている記録は、ほかの命令と同じく pending の数（waiting）に入っている。
+            routineRecords.filter { it.rejected }.map { it.toSyncReturned(routineTitles) },
         unsentCaptures = captures.size,
         recoveredInputs = recoveredInputs,
     )
@@ -252,6 +277,8 @@ internal fun SyncStatusSheet(
     onOpenRecoveredInputs: () -> Unit,
     onDismiss: () -> Unit,
     onOpenReturned: (SyncReturned) -> Unit = {},
+    onRetryRoutine: (String) -> Unit = {},
+    onDiscardRoutine: (String) -> Unit = {},
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         SheetColumn(Modifier.testTag("sync-status-sheet")) {
@@ -347,10 +374,26 @@ internal fun SyncStatusSheet(
                             modifier = Modifier.padding(top = if (index == 0) 0.dp else 8.dp),
                         )
                         ReasonDetail(item.reason, strong = true)
-                        ToolButton(
-                            onClick = { if (item.taskId != null) onOpenReturned(item) else onOpenUnsentCaptures() },
-                            modifier = Modifier.testTag("sync-returned-open-$index"),
-                        ) { Text("開いて決める", fontWeight = FontWeight.Bold) }
+                        val routineCommandId = item.routineCommandId
+                        if (routineCommandId != null) {
+                            // 続けることの記録には開く先が無い。その場で、同じ記録を送り直すか、消すかを決める。
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                ToolButton(
+                                    onClick = { onRetryRoutine(routineCommandId) },
+                                    modifier = Modifier.testTag("sync-returned-retry-$index"),
+                                ) { Text("送り直す", fontWeight = FontWeight.Bold) }
+                                TextButton(
+                                    onClick = { onDiscardRoutine(routineCommandId) },
+                                    modifier = Modifier.padding(top = 6.dp).heightIn(min = 44.dp)
+                                        .testTag("sync-returned-discard-$index"),
+                                ) { Text("記録を消す") }
+                            }
+                        } else {
+                            ToolButton(
+                                onClick = { if (item.taskId != null) onOpenReturned(item) else onOpenUnsentCaptures() },
+                                modifier = Modifier.testTag("sync-returned-open-$index"),
+                            ) { Text("開いて決める", fontWeight = FontWeight.Bold) }
+                        }
                     }
                     if (summary.returned.size > 3) ReasonDetail("ほか ${summary.returned.size - 3}")
                 }

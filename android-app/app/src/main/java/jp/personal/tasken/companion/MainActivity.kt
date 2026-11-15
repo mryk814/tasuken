@@ -635,7 +635,13 @@ internal fun TodayApp(
     val sendRetry by todayViewModel.sendRetry.collectAsState()
     val nextSendFlow = remember(context) { MobileOutboxScheduler.observeNextRunAt(context) }
     val nextSendAt by nextSendFlow.collectAsState(initial = null)
-    val syncState = syncSummary(uiState, pendingCount, allTasks, pendingCaptures, recoveredInputs.size, sendRetry, nextSendAt)
+    val routineRecords by todayViewModel.routineRecords.collectAsState()
+    val routineTitles by todayViewModel.routineTitles.collectAsState()
+    val syncState = syncSummary(
+        uiState, pendingCount, allTasks, pendingCaptures, recoveredInputs.size, sendRetry, nextSendAt,
+        routineRecords = routineRecords,
+        routineTitles = routineTitles,
+    )
     val selectSection: (AppSection) -> Unit = { section ->
         paneState.selectSection(section)
         coroutineScope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.List) }
@@ -899,6 +905,8 @@ internal fun TodayApp(
             onOpenUnsentCaptures = { syncSheetOpen = false; pendingCapturesOpen = true },
             onOpenRecoveredInputs = { syncSheetOpen = false; recoveryOpen = true },
             onDismiss = { syncSheetOpen = false },
+            onRetryRoutine = todayViewModel::retryRoutineRecord,
+            onDiscardRoutine = todayViewModel::discardRoutineRecord,
             onOpenReturned = { item ->
                 syncSheetOpen = false
                 item.taskId?.let { taskId ->
@@ -1498,7 +1506,7 @@ internal fun TodayListPane(
     agentSessions: List<MobileAgentSessionDto> = emptyList(),
     agentSessionsUnavailable: Boolean = false,
     onRecordWorkLog: ((MobileTask) -> Unit)? = null,
-    routines: MobileRoutinesDataDto? = null,
+    routines: TodayRoutines? = null,
     routineSavingId: String? = null,
     onRecordHabit: (MobileRoutineHabitDto) -> Unit = {},
 ) {
@@ -2023,7 +2031,7 @@ internal fun TodayTaskList(
     agentSessionsUnavailable: Boolean = false,
     onAgentSessionRetry: () -> Unit = {},
     onRecordWorkLog: ((MobileTask) -> Unit)? = null,
-    routines: MobileRoutinesDataDto? = null,
+    routines: TodayRoutines? = null,
     routineSavingId: String? = null,
     onRecordHabit: (MobileRoutineHabitDto) -> Unit = {},
 ) {
