@@ -2310,6 +2310,7 @@ async function startDesktopApp(): Promise<void> {
     persistence: workspaceRepository,
     mcpPackageSmoke,
     onCoreCommandCommitted: (receipt) => notifyCommandApplied(receipt, -1),
+    onAgentWorkCommitted: () => notifyMainWindowRefresh(),
     onProposalCommitted: (proposals) =>
       notifyMainWindowRefresh({
         entities: proposals.map((proposal) => ({

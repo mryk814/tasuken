@@ -114,6 +114,12 @@ export function createTaskenCore(
   persistence: TaskenCorePersistence,
   options: {
     onProposalCommitted?: ConstructorParameters<typeof WorkspaceAiProposalWriteAdapter>[1];
+    /**
+     * 古い hooks の会話を畳んだ記録を書いた後に呼ぶ（画面の更新）。案の保存の後の知らせ
+     * （onProposalCommitted）と同じ道で渡す。ログからの拾い上げは、読み取り 1 回に 1 回だけ
+     * 自分で知らせるので、ここは通さない（1 件ごとに知らせると画面が全量を読み直し続ける）。
+     */
+    onAgentWorkCommitted?: () => void;
     noteProposalImagePort?: NoteProposalImagePort;
     captureImagePort?: CaptureImagePort;
   } = {},
@@ -190,9 +196,17 @@ export function createTaskenCore(
       new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),
     ),
     // 古い hooks が送ってくる終わった会話は、AI の作業 1 件に畳んで書く（#751）。
-    proposeAgentSession: new ProposeAgentSessionService((session) =>
-      recordAgentWork.foldSession(session),
-    ),
+    proposeAgentSession: new ProposeAgentSessionService((session) => {
+      const result = recordAgentWork.foldSession(session);
+      if (result.status === "recorded") {
+        try {
+          options.onAgentWorkCommitted?.();
+        } catch {
+          // 保存は済んでいる。画面への知らせの失敗で、hook への返事を誤りにしない。
+        }
+      }
+      return result;
+    }),
     proposeRepositoryTask: new ProposeRepositoryTaskService(
       new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),
     ),

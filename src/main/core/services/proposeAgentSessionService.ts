@@ -67,7 +67,6 @@ export class ProposeAgentSessionService {
         started_at: request.started_at,
         ended_at: request.ended_at,
         status: request.status,
-        observation: request.observation,
         response_checkpoints: request.response_checkpoints,
         intent: request.intent,
         outcome: request.outcome,

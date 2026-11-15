@@ -61,6 +61,8 @@ export interface TaskenDesktopCompositionOptions<
   mcpPackageSmoke?: McpPackageSmokeOptions;
   onProposalCommitted?: ConstructorParameters<typeof TaskenCoreRuntime>[3];
   onCoreCommandCommitted?: (receipt: ReturnType<ApplicationCommandService["execute"]>) => void;
+  /** 古い hooks の会話を畳んだ記録を書いた後の、画面の更新（#751）。 */
+  onAgentWorkCommitted?: () => void;
   workLogWriter?: ConstructorParameters<typeof TaskenCoreRuntime>[5];
   /** Androidからの反応・返信を保存する口（保存後のDesktop画面の更新も担う）。 */
   feedWriter?: NonNullable<ConstructorParameters<typeof TaskenCoreRuntime>[7]>["feedWriter"];
@@ -177,6 +179,7 @@ export class TaskenDesktopComposition<
       {
         feedWriter: options.feedWriter,
         routineWriter: options.routineWriter,
+        onAgentWorkCommitted: options.onAgentWorkCommitted,
         executeAiTaskStart: (command) => this.executeAiTaskStart(command),
       },
     );

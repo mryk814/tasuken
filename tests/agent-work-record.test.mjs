@@ -1502,3 +1502,163 @@ test("古い hooks の受け口: もう数えてある会話（消した物・�
   assert.equal(live(db).length, 0);
   assert.equal(db.list("agent_session").length, 1);
 });
+
+test("古い hooks の受け口: 終わりは最後の回答の時刻。client を閉じた時刻までの、動いていない続きを作らない", async (t) => {
+  const { db, client, composition } = await startDesktop(t);
+  // 最後の回答は 10:00。Codex を閉じたのは 18:00（hook の ended_at）。
+  const closedLate = (patch = {}) =>
+    fromOldHook({
+      source_session: "closed-late",
+      started_at: at("09:00"),
+      ended_at: at("18:00"),
+      response_checkpoints: [
+        { observed_at: at("09:30"), text: "途中の回答" },
+        { observed_at: at("10:00"), text: "最後の回答" },
+      ],
+      ...patch,
+    });
+  // ログからは、もう [09:00〜10:00] で拾ってある。
+  const picked = composition.pickUpAgentWork(
+    pickup({
+      client_kind: "codex",
+      source_session: "closed-late",
+      started_at: at("09:00"),
+      ended_at: at("10:00"),
+    }),
+  );
+  assert.equal(picked.status, "recorded");
+  await sendOldHook(client, closedLate());
+  assert.deepEqual(
+    db.list(TYPE, true).map((entry) => entry.id),
+    [picked.id],
+    "10:00〜18:00 の、動いていない 2 件目を作らない",
+  );
+
+  // 拾ってない会話を畳む時も、記録の終わりは最後の回答の時刻。
+  const folded = await sendOldHook(
+    client,
+    closedLate({ idempotency_key: "not-picked", source_session: "closed-late-2" }),
+  );
+  const saved = db.get(TYPE, folded.agent_session_id);
+  assert.deepEqual([saved.started_at, saved.ended_at], [at("09:00"), at("10:00")]);
+  // 後からログで拾っても、2 件にならない。
+  assert.equal(
+    composition.pickUpAgentWork(
+      pickup({
+        client_kind: "codex",
+        source_session: "closed-late-2",
+        started_at: at("09:00"),
+        ended_at: at("10:02"),
+      }),
+    ).status,
+    "covered",
+  );
+  // 回答の記録が無い会話は、ended_at を終わりにする。
+  const noAnswer = await sendOldHook(
+    client,
+    closedLate({
+      idempotency_key: "no-answer",
+      source_session: "no-answer",
+      response_checkpoints: [],
+      ended_at: at("11:00"),
+    }),
+  );
+  assert.equal(db.get(TYPE, noAnswer.agent_session_id).ended_at, at("11:00"));
+  assert.equal(db.list(TYPE, true).length, 3);
+});
+
+test("古い hooks の受け口: 記録に書けない形（長い会話の ID・場所の形の ID・始まりが後）は、断らずに直して書く", async (t) => {
+  const { db, client } = await startDesktop(t);
+  // 受け口は会話の ID を 500 字まで受けるが、記録は 200 字まで。断ると hook は控えを残して送り続ける。
+  const longId = `long-${"x".repeat(400)}`;
+  const first = await sendOldHook(
+    client,
+    fromOldHook({ idempotency_key: "long-1", source_session: longId }),
+  );
+  const saved = db.get(TYPE, first.agent_session_id);
+  assert.ok(saved.source_session_id.length <= 200);
+  assert.ok(saved.source_session_id.startsWith("long-xxx"));
+  // 同じ ID の送り直しは、縮めた後も同じ会話として見える（増えない）。別の ID は別の会話。
+  await sendOldHook(
+    client,
+    fromOldHook({ idempotency_key: "long-2", source_session: longId, ended_at: at("08:44") }),
+  );
+  assert.equal(db.list(TYPE, true).length, 1);
+  const other = await sendOldHook(
+    client,
+    fromOldHook({ idempotency_key: "long-3", source_session: `${longId}y` }),
+  );
+  assert.notEqual(db.get(TYPE, other.agent_session_id).source_session_id, saved.source_session_id);
+
+  // 場所の形の ID は、場所を残さずに畳む。
+  const local = await sendOldHook(
+    client,
+    fromOldHook({
+      idempotency_key: "local",
+      source_session: "C:/Users/someone/sessions/abc.jsonl",
+    }),
+  );
+  const localSaved = db.get(TYPE, local.agent_session_id);
+  assert.match(localSaved.source_session_id, /^session:[0-9a-f]{32}$/);
+  assert.doesNotMatch(JSON.stringify(localSaved), /someone/);
+
+  // 始まりが最後の動きより後（時計のずれ・壊れた控え）は、始まりを寄せる。
+  const reversed = await sendOldHook(
+    client,
+    fromOldHook({
+      idempotency_key: "reversed",
+      source_session: "reversed",
+      started_at: at("09:00"),
+      ended_at: at("08:40"),
+    }),
+  );
+  const reversedSaved = db.get(TYPE, reversed.agent_session_id);
+  assert.deepEqual([reversedSaved.started_at, reversedSaved.ended_at], [at("08:40"), at("08:40")]);
+  assert.equal(db.list(TYPE, true).length, 4);
+
+  // 拾い上げの書き手の名前は、ここからも名乗れない。
+  await rejectsWith(
+    sendOldHook(
+      client,
+      fromOldHook({
+        idempotency_key: "named",
+        source_session: "named",
+        caller: "Tasken log pickup",
+      }),
+    ),
+    "VALIDATION_FAILED",
+  );
+  assert.equal(db.list(TYPE, true).length, 4);
+});
+
+test("古い hooks の受け口: 畳んだ記録を書いた時だけ、画面へ知らせる", () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-agent-work-notify-"));
+  const db = new WorkspaceDatabase(path.join(userData, "research-desk.sqlite"));
+  try {
+    db.loadWorkspace();
+    let notified = 0;
+    const core = createTaskenCore(db, { onAgentWorkCommitted: () => notified++ });
+    core.proposeAgentSession.execute(fromOldHook());
+    assert.equal(notified, 1);
+    // もう数えてある会話（送り直し）と、開始だけの知らせは、何も書かないので知らせない。
+    core.proposeAgentSession.execute(fromOldHook({ idempotency_key: "again" }));
+    assert.equal(notified, 1);
+    // ログからの拾い上げは、ここでは知らせない（読み取り 1 回に 1 回、拾う側が知らせる）。
+    assert.equal(core.recordAgentWork.pickUp(pickup()).status, "recorded");
+    assert.equal(notified, 1);
+    // 知らせが失敗しても、保存と返事は変わらない。
+    const failing = createTaskenCore(db, {
+      onAgentWorkCommitted: () => {
+        throw new Error("window is gone");
+      },
+    });
+    const reply = failing.proposeAgentSession.execute(
+      fromOldHook({ idempotency_key: "third", source_session: "third" }),
+    );
+    assert.equal(reply.status, "duplicate");
+    assert.ok(db.get(TYPE, reply.agent_session_id));
+  } finally {
+    db.db.close();
+    fs.rmSync(userData, { recursive: true, force: true });
+  }
+});

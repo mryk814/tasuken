@@ -238,6 +238,8 @@ export class TaskenCoreRuntime {
       feedWriter?: FeedWriterPort;
       /** 続けることの記録の書き込み口（#454）。常時稼働nodeには渡さない。 */
       routineWriter?: RoutineWriterPort;
+      /** 古い hooks の会話を畳んだ記録を書いた後の、画面の更新（#751）。 */
+      onAgentWorkCommitted?: () => void;
     } = {},
   ) {
     this.persistence = persistence;
@@ -252,6 +254,7 @@ export class TaskenCoreRuntime {
     const restrictsProposals = proposalAccess === "proposals";
     const core = createTaskenCore(persistence, {
       onProposalCommitted,
+      onAgentWorkCommitted: options.onAgentWorkCommitted,
       noteProposalImagePort,
       captureImagePort: this.captureImagePort,
     });

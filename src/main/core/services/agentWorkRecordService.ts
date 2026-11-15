@@ -122,7 +122,6 @@ export interface AgentWorkSessionFoldRequest {
   started_at: string;
   ended_at: string;
   status: string;
-  observation?: { observed_until?: string };
   response_checkpoints?: Array<{ observed_at: string; text: string }>;
   intent: { summary: string };
   outcome: {
@@ -162,6 +161,20 @@ interface ObservedAgentWork {
     | "remaining"
     | "status"
   >;
+}
+
+/**
+ * 畳む会話の ID を、記録に書ける形にする。受け口は 500 字まで受けるが、記録は 200 字までで、
+ * 端末の場所の形を断る。断ると古い hook が控えを残して送り続けるので、同じ ID からは必ず同じ値に
+ * なる形（先頭 ＋ 全体のハッシュ）に縮める。同じ会話の送り直しは、縮めた後も同じ会話として見える。
+ */
+function foldableSourceSession(value: string): string {
+  const id = value.trim();
+  const local = isTerminalLocation(id);
+  if (!local && id.length <= AGENT_WORK_RECORD_LIMITS.sourceSession) return id;
+  const hash = createHash("sha256").update(id).digest("hex").slice(0, 32);
+  // 場所の形の ID は、場所を残さない（ハッシュだけ）。
+  return local ? `session:${hash}` : `${id.slice(0, 120)}:${hash}`;
 }
 
 function isPickupWriter(caller: string): boolean {
@@ -384,7 +397,11 @@ export class AgentWorkRecordService {
    * 断らずに落とす）。無い ID の結び付けも捨てる。
    */
   foldSession(input: AgentWorkSessionFoldRequest): AgentWorkPickupResult {
+    // 拾い上げの書き手の名前は、外から名乗らせない（record・retract と同じ）。
+    if (isPickupWriter(input.caller))
+      throw invalid("caller", "このcallerの名前は使えません（Taskenのログの拾い上げの名前です）。");
     const clientKind = normalizeAgentClientKind(input.client_kind);
+    const sourceSession = foldableSourceSession(input.source_session);
     const existing = this.port.runTransaction((transaction) => {
       const kept = (type: "theme" | "task" | "repository_context", ids: string[] = []) =>
         [...new Set(ids)]
@@ -398,17 +415,28 @@ export class AgentWorkRecordService {
       };
     });
     const safe = (value: unknown) => safeReceiptText(typeof value === "string" ? value : "");
+    // 最後の動き = 最後の回答の時刻。hook の ended_at は client を閉じた時刻で、最後の回答から
+    // 何時間も後になりうる。それを終わりにすると、ログからもう拾ってある会話に、動いていない
+    // 時間だけの「続き」が 2 件目としてできる。回答の記録が無い時だけ ended_at を使う。
+    const lastResponse = (input.response_checkpoints || [])
+      .map((entry) => time(entry.observed_at))
+      .filter(Number.isFinite)
+      .reduce((latest, at) => Math.max(latest, at), Number.NEGATIVE_INFINITY);
+    const lastActivity = Number.isFinite(lastResponse) ? lastResponse : time(input.ended_at);
+    const endedAt = new Date(lastActivity).toISOString();
+    // 始まりが最後の動きより後の会話（時計のずれ・壊れた控え）は、断らずに始まりを寄せる。
+    const startedAt = time(input.started_at) > lastActivity ? endedAt : input.started_at;
     const card = agentWorkCardFromSession(
       {
         id: input.session_id,
-        started_at: input.started_at,
-        ended_at: input.ended_at,
+        started_at: startedAt,
+        ended_at: endedAt,
         status: input.status,
         client_kind: clientKind,
         client_label: input.client_label,
         model_label: input.model_label,
-        source_session_id: input.source_session,
-        observation: input.observation,
+        source_session_id: sourceSession,
+        // 最後に見た時刻（observed_until）は渡さない。終わりは上で決めた最後の動き。
         response_checkpoints: (input.response_checkpoints || []).map((entry) => ({
           ...entry,
           text: safe(entry.text),
@@ -425,11 +453,11 @@ export class AgentWorkRecordService {
       },
       existing,
     );
-    if (!card?.started_at || !card.summary)
-      throw invalid("started_at", "畳める形の会話ではありません（始まりと結果が要ります）。");
+    // 受け口の形（始まりの時刻・結果の文が必須）を通った会話は、ここまでで必ず畳める。
+    if (!card?.started_at) throw invalid("started_at", "started_atを時刻として読めません。");
     return this.writeObserved({
       clientKind,
-      sourceSession: input.source_session,
+      sourceSession,
       startedAt: new Date(time(card.started_at)).toISOString(),
       endedAt: new Date(time(card.ended_at)).toISOString(),
       basis: "folded",
@@ -442,7 +470,7 @@ export class AgentWorkRecordService {
         task_ids: card.task_ids,
         repository_context_ids: card.repository_context_ids,
         intent: card.intent,
-        summary: card.summary,
+        summary: card.summary || "回答の記録がありません。",
         changed: card.changed,
         changed_more: card.changed_more,
         verified: card.verified,
