@@ -71,7 +71,9 @@ export function isGenericAudioArtifact(value: unknown): boolean {
 
 export function rejectGenericAudioArtifact(value: unknown, operation = "保存"): void {
   if (isGenericAudioArtifact(value)) {
-    throw new Error(`音声Artifactの${operation}はInboxの音声取り込みから実行してください。`);
+    throw new Error(
+      `音声Artifactの${operation}は添付の画面の「音声を取り込む」から実行してください。`,
+    );
   }
 }
 

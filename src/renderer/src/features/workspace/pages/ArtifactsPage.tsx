@@ -1,12 +1,15 @@
 import { useMemo, useState } from "react";
+import { IconVolume } from "@tabler/icons-react";
 
 import { workspaceApi } from "../../../services/workspaceApi";
 import { usePreference } from "../../../utils/usePreference";
+import { useUiStore } from "../../../stores/uiStore";
 import { defaultViewPreference } from "../../../../../shared/viewPreferenceRegistry.mjs";
 import { ArtifactCard, resolveArtifactSourceLabel, themeNameOf } from "../components/artifacts";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { ARTIFACT_SOURCE_TYPE_LABELS } from "../domain-model/labels";
 import { readRecentArtifactIds } from "../lib/artifactRecent";
+import { readAudioDurationMs } from "../lib/audioMetadata";
 import { requestFeedPostFocus } from "../lib/feedPosts";
 import type { ArtifactSourceType, PageProps } from "../types";
 
@@ -73,6 +76,8 @@ export function ArtifactsPage({
   navigate,
 }: PageProps) {
   const [query, setQuery] = useState("");
+  const activeThemeId = useUiStore((state) => state.activeThemeId);
+  const [audioImporting, setAudioImporting] = useState(false);
   const [recentTick, setRecentTick] = useState(0);
   const [prefs, setPrefs] = usePreference("artifacts.preferences");
   const updatePrefs = (patch: Partial<ArtifactsPrefs>) =>
@@ -146,9 +151,42 @@ export function ArtifactsPage({
       .then(() => setToast("Artifact 一覧をコピーしました。", "success"));
   }
 
+  /**
+   * 音声ファイルは普通の添付の追加では受けない（長さ・形式を確かめる専用の保存の道を通す）。
+   * 入口だった収録の画面を外した（#755 束4）ので、添付の一覧の見出しに置く。
+   * 保存に失敗したら保存待ちを残さず破棄する。元のファイルは選んだ場所に残っている。
+   */
+  async function importAudio() {
+    setAudioImporting(true);
+    let sessionId: string | null = null;
+    try {
+      const prepared = await workspaceApi.prepareAudioCapture(activeThemeId || null);
+      if (prepared.canceled) return;
+      sessionId = prepared.sessionId;
+      if (!prepared.canCommit || prepared.status !== "ready" || !prepared.mediaUrl)
+        throw new Error("この音声は安全に読み込めないため保存できません。");
+      const durationMs = prepared.durationMs ?? (await readAudioDurationMs(prepared.mediaUrl));
+      await workspaceApi.commitAudioCapture({ sessionId: prepared.sessionId, durationMs });
+      sessionId = null;
+      setToast(`音声「${prepared.filename}」を添付に保存しました。`, "success");
+    } catch (error) {
+      if (sessionId) await workspaceApi.cancelAudioCapture(sessionId).catch(() => false);
+      setToast(
+        `音声を取り込めませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    } finally {
+      setAudioImporting(false);
+    }
+  }
+
   return (
     <div className="page artifacts-page">
       <PageHeader route="artifacts">
+        <Button variant="secondary" onClick={() => void importAudio()} disabled={audioImporting}>
+          <IconVolume size={15} />
+          {audioImporting ? "取り込み中…" : "音声を取り込む"}
+        </Button>
         <Button variant="secondary" onClick={copyList} disabled={!artifacts.length}>
           一覧をコピー
         </Button>

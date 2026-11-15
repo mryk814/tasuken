@@ -91,3 +91,21 @@ test("Content Viewerはウィンドウを変えずアプリ内で大きく見ら
     /\.content-viewer-overlay:is\(\.is-expanded, \.is-video\) \.content-viewer-video video \{[\s\S]*?object-fit: contain;/,
   );
 });
+
+test("音声の取り込みは添付の画面の見出しから、専用の保存の道を通す（#755 束4）", () => {
+  const artifactsPage = readFileSync(
+    "src/renderer/src/features/workspace/pages/ArtifactsPage.tsx",
+    "utf8",
+  );
+  // 普通の添付の追加は音声を断るので、入口は専用の道（prepare → 長さを測る → commit）にする。
+  assert.match(artifactsPage, /<IconVolume size=\{15\} \/>[\s\S]*?"音声を取り込む"/);
+  assert.match(
+    artifactsPage,
+    /prepareAudioCapture\(activeThemeId \|\| null\)[\s\S]*?readAudioDurationMs\(prepared\.mediaUrl\)[\s\S]*?commitAudioCapture\(\{ sessionId: prepared\.sessionId, durationMs \}\)/,
+  );
+  // 失敗したら保存待ちを残さない（それを開く画面は無い）。
+  assert.match(
+    artifactsPage,
+    /if \(sessionId\) await workspaceApi\.cancelAudioCapture\(sessionId\)/,
+  );
+});

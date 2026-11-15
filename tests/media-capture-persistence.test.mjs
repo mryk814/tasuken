@@ -28,7 +28,7 @@ test("generic artifact save and link reject audio/video inferred from extension 
   ]) {
     assert.throws(
       () => boundary.normalizeMediaCapturePersistence(repository, "artifact", entity),
-      /Inboxの音声取り込み/,
+      /添付の画面の「音声を取り込む」/,
     );
   }
   assert.throws(

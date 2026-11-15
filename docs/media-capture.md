@@ -4,7 +4,7 @@
 > 残っているのは、既存の音声・動画ファイルの取り込みの保存と復旧、前に録った音声・動画を添付から再生する所。
 > 種類（`capture_entry`・`artifact`）と、録った記録の `capture_method=microphone | screen_recording` はそのまま残る。
 > 前の版が録りかけ・保存待ちで残した session は `userData/media-recovery/sessions` に置いたままで、自動では確定も削除もしない。
-> 音声ファイルの取り込みは、入口が収録の画面だけだったので、今は画面から呼べない（Main の口は残っている）。
+> 音声ファイルの取り込みの入口は、添付の画面の見出しの「音声を取り込む」。普通の添付の追加は音声を断るので、こちらの専用の道（長さを測ってから保存）を通す。保存に失敗した取り込みは保存待ちに残さず破棄する（元のファイルは選んだ場所に残る）。
 
 Issue #367 では、既存音声を Inbox の Voice Capture と managed Artifact へ取り込む。
 Issue #368 の Video Phase 0 では、既存動画を managed / linked Video Artifact として Task / Note / Capture / 実行中Focusから取り込む。
