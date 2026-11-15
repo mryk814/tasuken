@@ -19,7 +19,9 @@ async function importBundled(relativePath) {
   );
 }
 
-const savedViews = await importBundled("src/renderer/src/features/workspace/lib/savedTaskViews.ts");
+const savedViews = await importBundled(
+  "src/renderer/src/features/workspace/lib/taskViewFilters.ts",
+);
 
 test("board filters preserve Theme and schedule while ignoring saved list tabs, state and priority", () => {
   const states = ["todo", "doing", "review", "waiting", "done", "cancelled"];
@@ -154,17 +156,18 @@ test("saved task Theme filter keeps all sentinel separate from explicit Themeな
   );
 });
 
-test("saved task views ignore malformed filters and tolerate deleted themes", () => {
-  const view = savedViews.normalizeSavedTaskView({
-    id: "view-1",
-    title: "Missing theme",
-    view_type: "task",
-    filters: { tab: "open", themeId: "deleted-theme", schedule: "no-schedule", priority: "urgent" },
+// 保存した絞り込み（normalizeSavedTaskView・countTodoRowsForView）は #755 束6 で外した。
+// 崩れた条件と消えた Theme への備えは、画面の条件の正規化に残っているので、そちらで見る。
+test("task view filters ignore malformed values and tolerate deleted themes", () => {
+  const filters = savedViews.normalizeTaskViewFilters({
+    tab: "open",
+    themeId: "deleted-theme",
+    schedule: "no-schedule",
+    priority: "urgent",
   });
 
-  assert.equal(view.title, "Missing theme");
-  assert.equal(view.filters.priority, "");
-  assert.equal(savedViews.countTodoRowsForView(view, [row("personal")], "2026-07-05"), 0);
+  assert.equal(filters.priority, "");
+  assert.equal(savedViews.filterTodoRows([row("personal")], filters, "2026-07-05").length, 0);
 });
 
 test("ToDo page keeps table controls lightweight and removes saved view management", () => {

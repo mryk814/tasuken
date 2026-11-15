@@ -25,7 +25,7 @@ import {
   normalizeTaskViewFilters,
   type TaskViewFilters,
   type TaskViewTab,
-} from "../lib/savedTaskViews";
+} from "../lib/taskViewFilters";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { ReminderDueBanner, useReminderNow } from "../components/common";
 import { isReminderDue } from "../lib/reminders";

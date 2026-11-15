@@ -1,3 +1,7 @@
+/**
+ * やることの画面の絞り込み条件と、その当てはめ。条件を名前を付けて保存する機能（view_type が task の
+ * view）は #755 束6 で外し、保存済みの記録は起動時に Markdown へ書き出す（savedViewRetirementExport.ts）。
+ */
 import { addDays } from "./format";
 import { isTodayRow, scheduledDate } from "./todoRows.js";
 import type { Schedule, Task } from "../domain-model/types";
@@ -21,12 +25,6 @@ export interface TaskViewFilters {
   priority: TaskViewPriority;
   schedule: TaskViewSchedule;
   rangeSemantics: TaskViewRangeSemantics;
-}
-
-export interface SavedTaskView {
-  id: string;
-  title: string;
-  filters: TaskViewFilters;
 }
 
 const TASK_VIEW_TABS = new Set(["open", "today", "overdue", "no-schedule", "done"]);
@@ -87,19 +85,6 @@ export function normalizeTaskViewFilters(value: unknown): TaskViewFilters {
   };
 }
 
-export function normalizeSavedTaskView(record: Record<string, unknown>): SavedTaskView {
-  const filters = normalizeTaskViewFilters(record.filters);
-  return {
-    id: text(record.id),
-    title: text(record.title) || text(record.name) || "保存済みビュー",
-    filters,
-  };
-}
-
-export function isTaskSavedView(record: Record<string, unknown>): boolean {
-  return text(record.view_type) === "task" || text(record.scope) === "task";
-}
-
 export function filterTodoRows(
   rows: TodoRow[],
   filters: Partial<TaskViewFilters>,
@@ -132,11 +117,7 @@ export function filterTodoRows(
   });
 }
 
-export function countTodoRowsForView(view: SavedTaskView, rows: TodoRow[], today: string): number {
-  return filterTodoRows(rows, view.filters, today).length;
-}
-
-/** ボードの工程列は一覧のタブ・状態条件から独立させる。保存済みの一覧条件は変更しない。 */
+/** ボードの工程列は一覧のタブ・状態条件から独立させる。一覧の条件は変更しない。 */
 export function filterTaskBoardRows(
   rows: TodoRow[],
   filters: Partial<TaskViewFilters>,
