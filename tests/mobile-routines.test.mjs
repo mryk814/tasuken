@@ -345,3 +345,109 @@ test("存在しない・一時停止中・権限なし・他端末の名義・�
   assert.equal((await read(readOnly)).status, 200);
   assert.equal((await post(readOnly, valid)).status, 409);
 });
+
+function append(commandId, overrides = {}) {
+  return actionRequest(
+    {
+      name: "RecordHabitEntry",
+      habitId: "habit-read",
+      performedOn: today,
+      sequence: 2,
+      mode: "append",
+      ...overrides,
+    },
+    commandId,
+  );
+}
+
+test("今のAPKの「1回足す」は、圏外の間にPCが同じ日に記録していても1回増やし、同じcommandIdの送り直しでは増やさない", async () => {
+  const { adapter, repository } = gateway({ writable: true });
+  // 端末は圏外で 2 回目を記録した（Desktop の次の番号 2 を持っている）。その間に PC でも 2 回目を記録した。
+  repository.save("habit_entry", {
+    id: `habit-entry:habit-read:${today}:2`,
+    habit_id: "habit-read",
+    performed_on: today,
+    sequence: 2,
+    recorded_at: "2026-10-06T09:30:00.000Z",
+  });
+
+  const delivered = await post(adapter, append("command-offline"));
+  assert.equal(delivered.status, 200);
+  assert.equal(delivered.body.data.status, "applied");
+  const stored = repository.get("habit_entry", `habit-entry:habit-read:${today}:3`);
+  assert.equal(stored.source_command_id, "command-offline");
+  assert.equal(stored.recorded_at, "2026-10-06T10:00:00.000Z");
+  const after = (await read(adapter)).body.data.habits.find(
+    (habit) => habit.habitId === "habit-read",
+  );
+  assert.equal(after.todayCount, 3, "端末の 1 回が PC の 2 回目と重ならずに足される");
+  assert.equal(after.nextSequence, 4);
+
+  // 応答を失った送り直し（同じ commandId）は、同じ記録を返して増やさない。
+  const again = await post(adapter, append("command-offline"));
+  assert.equal(again.body.data.status, "no_change");
+  assert.equal(repository.list("habit_entry").length, 3);
+
+  // 同じ commandId で別の日を送ってきたら、取り違えとして断る。
+  const conflict = await post(adapter, append("command-offline", { performedOn: "2026-10-05" }));
+  assert.equal(conflict.status, 409);
+  assert.equal(conflict.body.error.code, "idempotency_conflict");
+  assert.equal(repository.list("habit_entry").length, 3);
+});
+
+test("「1回足す」は、実施日を直した記録や消した記録のIDを上書きせず、消した記録を送り直しで生き返らせない", async () => {
+  const { adapter, repository } = gateway({ writable: true });
+  // 2 回目は前の日へ直した（ID は元の日のまま）。3 回目は消した。
+  repository.save("habit_entry", {
+    id: `habit-entry:habit-read:${today}:2`,
+    habit_id: "habit-read",
+    performed_on: "2026-10-05",
+    sequence: 2,
+  });
+  repository.records.push({
+    type: "habit_entry",
+    id: `habit-entry:habit-read:${today}:3`,
+    habit_id: "habit-read",
+    performed_on: today,
+    sequence: 3,
+    deleted_at: "2026-10-06T09:40:00.000Z",
+  });
+
+  assert.equal((await post(adapter, append("command-a"))).body.data.status, "applied");
+  assert.equal(
+    repository.get("habit_entry", `habit-entry:habit-read:${today}:4`).source_command_id,
+    "command-a",
+  );
+  assert.equal(
+    repository.get("habit_entry", `habit-entry:habit-read:${today}:2`).performed_on,
+    "2026-10-05",
+  );
+
+  // 届いた記録を PC で消した後に、遅れた送り直しが届いても戻さない。
+  const sent = repository.get("habit_entry", `habit-entry:habit-read:${today}:4`);
+  sent.deleted_at = "2026-10-06T11:00:00.000Z";
+  assert.equal((await post(adapter, append("command-a"))).body.data.status, "no_change");
+  assert.ok(repository.get("habit_entry", `habit-entry:habit-read:${today}:4`, true).deleted_at);
+  // 残っているのは、元からの 1 回目と、前の日へ直した 2 回目だけ。
+  assert.equal(repository.list("habit_entry").length, 2);
+});
+
+test("古いAPKの形（modeなし）は今までどおり送られた回に保存し、commandIdを残さない", async () => {
+  const { adapter, repository } = gateway({ writable: true });
+  const result = await post(
+    adapter,
+    actionRequest({
+      name: "RecordHabitEntry",
+      habitId: "habit-read",
+      performedOn: today,
+      sequence: 2,
+    }),
+  );
+  assert.equal(result.body.data.status, "applied");
+  const stored = repository.get("habit_entry", `habit-entry:habit-read:${today}:2`);
+  assert.equal(Object.hasOwn(stored, "source_command_id"), false);
+  assert.equal(
+    mobileRoutineActionRequestSchema.safeParse(append("command-x", { mode: "replace" })).success,
+    false,
+  );
+});

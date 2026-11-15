@@ -183,10 +183,13 @@ export type MobileGatewayFeedActionResult =
 /** 続けることの読み出し（#454）。Desktopの「Today」と同じ範囲を返す。 */
 export type MobileGatewayRoutinesRead = MobileRoutinesResponse["data"];
 
-/** 続けることの記録の結果。同じ日の同じ回の再送は `no_change` で、増やさない。 */
+/**
+ * 続けることの記録の結果。送り直しは `no_change` で、増やさない（今のAPKは同じcommandId、古いAPKは同じ日の同じ回）。
+ * 同じcommandIdで別の日を送ってきた時は `idempotency_conflict`。
+ */
 export type MobileGatewayRoutineActionResult =
   | { ok: true; commandId: string; status: "applied" | "no_change" }
-  | { ok: false; code: "not_found" | "validation_failed" };
+  | { ok: false; code: "not_found" | "validation_failed" | "idempotency_conflict" };
 
 export interface MobileGatewayCorePort {
   getThemeContext?(

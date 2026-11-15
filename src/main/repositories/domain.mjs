@@ -816,6 +816,14 @@ export function validateEntity(type, input) {
       (typeof input.note !== "string" || input.note.length > 1000)
     )
       throw new Error("habit_entry.noteは1000文字以内で入力してください。");
+    // スマホが「1回足す」で送った記録の commandId（送り直しで増やさないための鍵）。任意で、無い記録もある。
+    if (
+      input.source_command_id != null &&
+      (typeof input.source_command_id !== "string" ||
+        !input.source_command_id.trim() ||
+        input.source_command_id.length > 200)
+    )
+      throw new Error("habit_entry.source_command_idは1〜200文字で入力してください。");
   }
   if (type === "feed_reaction") {
     // 読者の状態（ブックマーク・興味・非表示）。投稿の正本でも判断でもない（SNS型Feedの第2段階）。

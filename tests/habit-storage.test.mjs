@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
+import { SharedFolderSyncService } from "../src/main/services/sharedFolderSync.mjs";
 import {
   habitEntryId,
   habitProgress,
@@ -218,4 +219,65 @@ test("不正なHabitと実施記録は保存しない", async () => {
       }),
     );
   });
+});
+
+test("スマホの記録の source_command_id は、同期の差分・JSON往復・控えと復元で落ちず、知らない欄も止めない", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "tasken-habit-command-"));
+  const first = new WorkspaceDatabase(path.join(root, "first", "workspace.sqlite"));
+  const second = new WorkspaceDatabase(path.join(root, "second", "workspace.sqlite"));
+  let restored;
+  try {
+    first.loadWorkspace();
+    second.loadWorkspace();
+    first.save("habit", habit());
+    const sent = entry(first, "2026-09-20", {
+      source: "mobile",
+      source_command_id: "command-offline-1",
+    });
+    first.save("habit_entry", sent);
+    // 古い版の端末は source_command_id を知らない。知らない欄を持つ差分でも止まらずに残すこと
+    // （古い版と同じ、欄を検べない扱い）を、まだどの版も知らない欄で確かめる。
+    first.save("habit_entry", entry(first, "2026-09-20", { future_field: "kept" }));
+
+    // 型の決まり: 文字列で 1〜200 文字。知らない欄として素通りさせない。
+    for (const bad of [42, "", "   ", "x".repeat(201)])
+      assert.throws(
+        () => first.save("habit_entry", { ...entry(first, "2026-09-21"), source_command_id: bad }),
+        /source_command_id/u,
+      );
+
+    // 同期の差分（共有フォルダー）で、もう一台へ届く。
+    const shared = path.join(root, "shared");
+    const sync = (database, name, options) =>
+      new SharedFolderSyncService(
+        database,
+        () => {},
+        path.join(root, name, "attachments", "markdown-images"),
+        path.join(root, name, "attachments", "capture-images"),
+        options,
+      );
+    await sync(first, "first").configure(shared);
+    await sync(second, "second", { role: "replica" }).configure(shared);
+    assert.equal(second.get("habit_entry", sent.id)?.source_command_id, "command-offline-1");
+    assert.equal(
+      second.get("habit_entry", habitEntryId("habit-reading", "2026-09-20", 2))?.future_field,
+      "kept",
+    );
+
+    // Export/Import の直列化（JSON）で落ちない。
+    const revived = JSON.parse(JSON.stringify(second.list("habit_entry", true)));
+    assert.equal(revived.find((row) => row.id === sent.id).source_command_id, "command-offline-1");
+
+    // 控え（データベースの写し）から戻しても残る。
+    const copy = path.join(root, "backup.sqlite");
+    await second.backupTo(copy);
+    restored = new WorkspaceDatabase(copy);
+    restored.loadWorkspace();
+    assert.equal(restored.get("habit_entry", sent.id)?.source_command_id, "command-offline-1");
+  } finally {
+    restored?.db.close();
+    if (first.db.open) first.db.close();
+    if (second.db.open) second.db.close();
+    await rm(root, { recursive: true, force: true });
+  }
 });

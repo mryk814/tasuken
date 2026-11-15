@@ -71,6 +71,11 @@ data class MobileRoutineActionDto(
     val performedOn: String,
     val habitId: String? = null,
     val sequence: Int? = null,
+    /**
+     * `append` は「1回足す」。Desktop はその日の次の空いた回に入れ、commandId で送り直しを見分ける。
+     * 圏外の間に PC でも同じ日に記録していても、端末の 1 回が同じ回にぶつかって消えない。[sequence] は端末の数えで、置き場所は Desktop が決める。
+     */
+    val mode: String? = null,
 )
 
 @Serializable
@@ -95,6 +100,8 @@ data class MobileRoutineActionResponseDto(
     val data: MobileRoutineActionDataDto,
 )
 
+internal const val ROUTINE_RECORD_APPEND = "append"
+
 object MobileRoutineContract {
     private val json = Json {
         ignoreUnknownKeys = false
@@ -118,8 +125,8 @@ object MobileRoutineContract {
     fun decodeResponse(body: String): MobileRoutineActionResponseDto = json.decodeFromString(body)
 
     /**
-     * Habitの1回記録。履歴の修正や取消による欠番を含め、Desktopが導出した次の番号を使う。
-     * Desktopは同じ日・同じ回を同じIDで保存するので、応答を失った再送でも記録は増えない。
+     * Habitの1回記録（1回足す）。番号は端末の数え（Todayに重ねる時に使う）で、Desktopは次の空いた回に入れる。
+     * 送り直しは同じ commandId なので、応答を失った再送でも記録は増えない。
      */
     fun habitAction(habit: MobileRoutineHabitDto, date: String): MobileRoutineActionDto {
         val sequence = habit.nextSequence
@@ -129,6 +136,7 @@ object MobileRoutineContract {
             performedOn = date,
             habitId = habit.habitId,
             sequence = sequence,
+            mode = ROUTINE_RECORD_APPEND,
         )
     }
 }

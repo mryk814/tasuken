@@ -100,9 +100,44 @@ export function createMobileRoutinePort(
             const habit = persistence.get("habit", action.habitId, false);
             if (!habit || habit.deleted_at || text(habit.state) === "paused")
               return { ok: false, code: "not_found" };
-            const id = habitEntryId(action.habitId, action.performedOn, action.sequence);
-            // 同じ日の同じ回は同じID。応答を失った再送は記録を増やさない。
-            if (persistence.get("habit_entry", id, false))
+            let sequence = action.sequence;
+            if (action.mode === "append") {
+              // 「1回足す」（今のAPK）。同じ commandId で作った記録があれば、それが答え（送り直し）。
+              // 消した記録も探す: 消した後に届いた送り直しで、記録を生き返らせない。
+              const entries = persistence
+                .list("habit_entry", true)
+                .filter((entry) => text(entry.habit_id) === action.habitId);
+              const sent = entries.find((entry) => entry.source_command_id === input.commandId);
+              if (sent) {
+                return text(sent.performed_on) === action.performedOn
+                  ? { ok: true, commandId: input.commandId, status: "no_change" }
+                  : { ok: false, code: "idempotency_conflict" };
+              }
+              // その日の次の空いた回に入れる。PCが同じ日に記録していても、端末の1回を潰さない。
+              // 消した記録の回も数える（同じIDで上書きしない）。
+              sequence = nextEntrySequence(
+                entries.map((entry) => ({
+                  id: text(entry.id),
+                  performed_on: text(entry.performed_on),
+                  sequence: Number(entry.sequence),
+                })),
+                action.performedOn,
+              );
+              // 実施日を直した記録は元の日のIDのまま残るので、IDが空くまで回を進める。
+              while (
+                sequence <= 50 &&
+                persistence.get(
+                  "habit_entry",
+                  habitEntryId(action.habitId, action.performedOn, sequence),
+                  true,
+                )
+              )
+                sequence += 1;
+              if (sequence > 50) return { ok: false, code: "validation_failed" };
+            }
+            const id = habitEntryId(action.habitId, action.performedOn, sequence);
+            // 古いAPK（N回目にする）は、同じ日の同じ回は同じID。応答を失った再送は記録を増やさない。
+            if (action.mode !== "append" && persistence.get("habit_entry", id, false))
               return { ok: true, commandId: input.commandId, status: "no_change" };
             writer.saveMany([
               {
@@ -111,8 +146,9 @@ export function createMobileRoutinePort(
                   id,
                   habit_id: action.habitId,
                   performed_on: action.performedOn,
-                  sequence: action.sequence,
+                  sequence,
                   recorded_at: input.issuedAt,
+                  ...(action.mode === "append" ? { source_command_id: input.commandId } : {}),
                 },
               },
               { type: "habit", entity: { ...habit, last_performed_on: action.performedOn } },

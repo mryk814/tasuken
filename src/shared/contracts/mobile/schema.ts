@@ -1657,9 +1657,14 @@ export const mobileRoutinesResponseSchema = z
   .strict();
 
 /**
- * Habitの1回記録。Desktopと同じEntity（`habit_entry`）を
- * 決まったIDで保存するので、応答を失った再送は記録を増やさない。
- * Habitの `sequence` はDesktopが読み出しで導出した `nextSequence` を使う（今日の件数と欠番を分ける）。
+ * Habitの1回記録。Desktopと同じEntity（`habit_entry`）に保存する。
+ *
+ * `mode: "append"`（今のAPK）は「1回足す」。Desktopはその日の次の空いた回に入れ、commandIdを
+ * `source_command_id` として残す。同じcommandIdの送り直しは同じ記録を返し、増やさない。
+ * 圏外の間にPCでも同じ日に記録していても、端末の1回が黙って消えない。`sequence` は端末の数えで、置き場所には使わない。
+ *
+ * `mode` の無い形（古いAPK）は今までどおり「N回目にする」。決まったID（Habit・日・回）で保存し、
+ * 同じ回の再送は記録を増やさない。`sequence` はDesktopが読み出しで導出した `nextSequence`。
  */
 export const mobileRoutineActionSchema = z.discriminatedUnion("name", [
   z.strictObject({
@@ -1667,6 +1672,7 @@ export const mobileRoutineActionSchema = z.discriminatedUnion("name", [
     habitId: z.string().trim().min(1).max(120),
     performedOn: localDateSchema,
     sequence: z.number().int().min(1).max(50),
+    mode: z.literal("append").optional(),
   }),
 ]);
 

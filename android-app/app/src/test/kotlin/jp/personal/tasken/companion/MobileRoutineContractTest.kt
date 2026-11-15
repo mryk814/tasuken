@@ -59,7 +59,7 @@ class MobileRoutineContractTest {
 
         assertTrue(
             json.contains(
-                "\"action\":{\"name\":\"RecordHabitEntry\",\"performedOn\":\"2026-10-06\",\"habitId\":\"habit-read\",\"sequence\":3}",
+                "\"action\":{\"name\":\"RecordHabitEntry\",\"performedOn\":\"2026-10-06\",\"habitId\":\"habit-read\",\"sequence\":3,\"mode\":\"append\"}",
             ),
         )
         assertFalse(json.contains("maintenanceId"))
