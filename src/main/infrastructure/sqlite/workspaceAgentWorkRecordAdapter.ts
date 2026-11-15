@@ -14,6 +14,12 @@ export interface AgentWorkRecordWorkspacePersistence {
       get(type: string, id: string, includeDeleted?: boolean): Row | null;
       save(type: string, entity: Row, options?: unknown): Row;
       listAgentWorkRecordsForSession(clientKind: string, sourceSessionId: string): Row[];
+      listLegacyAgentSessionsForSession(clientKind: string, sourceSessionId: string): Row[];
+      listAgentWorkReportsForRepositories(
+        clientKind: string,
+        repositoryContextIds: readonly string[],
+        createdSince: string,
+      ): Row[];
       countAgentWorkRecordsWrittenSince(writtenBy: string, since: string): number;
     }) => T,
   ): T;
@@ -46,6 +52,17 @@ export class WorkspaceAgentWorkRecordAdapter implements AgentWorkRecordPort {
           repository.listAgentWorkRecordsForSession(
             clientKind,
             sourceSessionId,
+          ) as AgentWorkRecordRow[],
+        listLegacySessions: (clientKind, sourceSessionId) =>
+          repository.listLegacyAgentSessionsForSession(
+            clientKind,
+            sourceSessionId,
+          ) as AgentWorkRecordRow[],
+        listReportsForRepositories: (clientKind, repositoryContextIds, createdSince) =>
+          repository.listAgentWorkReportsForRepositories(
+            clientKind,
+            repositoryContextIds,
+            createdSince,
           ) as AgentWorkRecordRow[],
         countWrittenSince: (writtenBy, since) =>
           repository.countAgentWorkRecordsWrittenSince(writtenBy, since),

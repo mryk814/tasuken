@@ -321,6 +321,16 @@ export class TaskenCoreRuntime {
     });
   }
 
+  /**
+   * ログからの拾い上げ（#751）。Desktopの中からだけ呼ぶ。HTTPの受け口には出さない
+   * （根拠 log_pickup を、外のclientが名乗れないようにする）。
+   */
+  pickUpAgentWork(
+    request: Parameters<typeof this.agentWork.pickUp>[0],
+  ): ReturnType<typeof this.agentWork.pickUp> {
+    return this.agentWork.pickUp(request);
+  }
+
   /** 入口ごとの計測（#733）。Mobile Gatewayなど、同じプロセスの別の入口が記録に使う。 */
   get stats() {
     return this.host.stats;

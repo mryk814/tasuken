@@ -240,6 +240,11 @@ export class TaskenDesktopComposition<
     return aiTaskChanges;
   }
 
+  /** 登録した保存先のログから、静かになった会話を1件拾う（#751）。Desktopだけの入口。 */
+  pickUpAgentWork(request: Parameters<TaskenCoreRuntime["pickUpAgentWork"]>[0]) {
+    return this.coreRuntime.pickUpAgentWork(request);
+  }
+
   get taskCapability() {
     return this.coreRuntime.taskCapability;
   }

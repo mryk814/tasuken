@@ -1280,6 +1280,45 @@ export class WorkspaceDatabase {
       .map(parseRow);
   }
 
+  /**
+   * 同じAIの同じ会話の、古い会話（agent_session。消した物も含む）。ログからの拾い上げが、
+   * 古い形でもう入っている会話を拾い直さないために読む（#751）。移行で会話を畳んだ後に消す。
+   */
+  listLegacyAgentSessionsForSession(clientKind, sourceSessionId) {
+    return this.db
+      .prepare(
+        `SELECT * FROM entities
+         WHERE entity_type = 'agent_session'
+           AND json_extract(data_json, '$.client_kind') = ?
+           AND json_extract(data_json, '$.source_session_id') = ?`,
+      )
+      .all(String(clientKind), String(sourceSessionId))
+      .map(parseRow);
+  }
+
+  /**
+   * 同じAIが、そのリポジトリのどれかについて書いたAIの作業のうち、createdSince以降に書かれた物
+   * （消した物も含む）。拾い上げが、会話のIDが違う記録との時間の重なりを見るために読む（#751）。
+   */
+  listAgentWorkReportsForRepositories(clientKind, repositoryContextIds, createdSince) {
+    const ids = [...new Set((repositoryContextIds || []).map(String))];
+    if (!ids.length) return [];
+    return this.db
+      .prepare(
+        `SELECT * FROM entities
+         WHERE entity_type = 'agent_work_record'
+           AND created_at >= ?
+           AND json_extract(data_json, '$.client_kind') = ?
+           AND EXISTS (
+             SELECT 1 FROM json_each(data_json, '$.repository_context_ids')
+             WHERE value IN (${ids.map(() => "?").join(",")})
+           )
+         ORDER BY json_extract(data_json, '$.ended_at')`,
+      )
+      .all(String(createdSince), String(clientKind), ...ids)
+      .map(parseRow);
+  }
+
   /** 書き手がsince以降に書いたAIの作業の件数（消した物も含む）。1日の上限に使う。 */
   countAgentWorkRecordsWrittenSince(writtenBy, since) {
     return Number(
@@ -1468,6 +1507,10 @@ export class WorkspaceDatabase {
         get: (type, id, includeDeleted = false) => this.get(type, id, includeDeleted),
         listAgentWorkRecordsForSession: (clientKind, sourceSessionId) =>
           this.listAgentWorkRecordsForSession(clientKind, sourceSessionId),
+        listLegacyAgentSessionsForSession: (clientKind, sourceSessionId) =>
+          this.listLegacyAgentSessionsForSession(clientKind, sourceSessionId),
+        listAgentWorkReportsForRepositories: (clientKind, repositoryContextIds, createdSince) =>
+          this.listAgentWorkReportsForRepositories(clientKind, repositoryContextIds, createdSince),
         countAgentWorkRecordsWrittenSince: (writtenBy, since) =>
           this.countAgentWorkRecordsWrittenSince(writtenBy, since),
         save: (type, entity, options = {}) => this.saveWithinTransaction(type, entity, options),

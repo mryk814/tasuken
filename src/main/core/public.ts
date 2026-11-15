@@ -113,8 +113,11 @@ export {
   type AiItemCreationPort,
 } from "./services/aiItemCreationService.ts";
 export {
+  AGENT_WORK_PICKUP_WRITER,
   AgentWorkRecordService,
   planAgentWorkRange,
+  type AgentWorkPickupRequest,
+  type AgentWorkPickupResult,
   type AgentWorkRangePlan,
   type AgentWorkWriteBasis,
 } from "./services/agentWorkRecordService.ts";
