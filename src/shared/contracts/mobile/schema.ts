@@ -1701,6 +1701,21 @@ export const mobileRoutineActionResponseSchema = z
       .object({
         commandId: entityIdSchema,
         status: z.enum(["applied", "no_change"]),
+        /**
+         * 「1回足す」（mode: append）の受領だけに付ける、保存後のそのHabitの数（記録の日 `date` の数）。
+         * スマホは端末の写しをこの値で上書きし、+1 で数えない（読み直しや送り直しと重なっても二重にならない）。
+         * 古いAPKは知らない欄で受領を読めなくなる（ignoreUnknownKeys=false）ので、mode の無い要求には付けない。
+         */
+        habit: z
+          .object({
+            habitId: z.string().trim().min(1).max(120),
+            date: localDateSchema,
+            todayCount: z.number().int().min(0).max(50),
+            weekCount: z.number().int().min(0),
+            nextSequence: z.number().int().min(1).max(50).nullable(),
+          })
+          .strict()
+          .optional(),
       })
       .strict(),
   })

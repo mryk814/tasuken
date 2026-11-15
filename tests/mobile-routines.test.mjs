@@ -459,3 +459,42 @@ test("遅れて届いた前の日の記録で、Habitの最後に行った日を
   assert.equal(late.body.data.status, "applied");
   assert.equal(repository.get("habit", "habit-read").last_performed_on, today);
 });
+
+test("「1回足す」の受領は、保存後のそのHabitの数（記録の日の数）を返し、古いAPKの形には付けない", async () => {
+  const { adapter, repository } = gateway({ writable: true });
+  // PC が同じ日に 2 回目を記録済み。端末の 1 回は 3 回目に入る。
+  repository.save("habit_entry", {
+    id: `habit-entry:habit-read:${today}:2`,
+    habit_id: "habit-read",
+    performed_on: today,
+    sequence: 2,
+  });
+  const delivered = await post(adapter, append("command-counts"));
+  assert.equal(mobileRoutineActionResponseSchema.safeParse(delivered.body).success, true);
+  const counts = {
+    habitId: "habit-read",
+    date: today,
+    todayCount: 3,
+    weekCount: 3,
+    nextSequence: 4,
+  };
+  assert.deepEqual(delivered.body.data.habit, counts);
+
+  // 応答を失った送り直しも、同じ数を返す（端末は上書きするだけで +1 しない）。
+  const again = await post(adapter, append("command-counts"));
+  assert.equal(again.body.data.status, "no_change");
+  assert.deepEqual(again.body.data.habit, counts);
+
+  // 古いAPK（mode なし）は受領の知らない欄を読めないので、数を付けない。
+  const old = await post(
+    adapter,
+    actionRequest({
+      name: "RecordHabitEntry",
+      habitId: "habit-stretch",
+      performedOn: today,
+      sequence: 1,
+    }),
+  );
+  assert.equal(old.body.data.status, "applied");
+  assert.equal(Object.hasOwn(old.body.data, "habit"), false);
+});

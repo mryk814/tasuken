@@ -90,6 +90,22 @@ export function createMobileRoutinePort(
   persistence: RoutinePersistence,
   writer?: RoutineWriterPort,
 ): Pick<MobileGatewayCorePort, "readRoutines" | "executeRoutineAction"> {
+  /**
+   * 保存後のそのHabitの数を、記録の日 [date] の数として読む（読み出し readRoutines と同じ導出）。
+   * スマホは端末の写しをこの値で上書きするので、読み直しや送り直しと重なっても二重に数えない。
+   */
+  const countsAfter = (habitId: string, date: string) => {
+    const read = readRoutines(persistence, date).habits.find((habit) => habit.habitId === habitId);
+    return read
+      ? {
+          habitId,
+          date,
+          todayCount: read.todayCount,
+          weekCount: read.weekCount,
+          nextSequence: read.nextSequence,
+        }
+      : undefined;
+  };
   return {
     readRoutines: (date: string) => readRoutines(persistence, date),
     ...(writer
@@ -113,7 +129,12 @@ export function createMobileRoutinePort(
               const sent = entries.find((entry) => entry.source_command_id === input.commandId);
               if (sent) {
                 return text(sent.performed_on) === action.performedOn
-                  ? { ok: true, commandId: input.commandId, status: "no_change" }
+                  ? {
+                      ok: true,
+                      commandId: input.commandId,
+                      status: "no_change",
+                      habit: countsAfter(action.habitId, action.performedOn),
+                    }
                   : { ok: false, code: "idempotency_conflict" };
               }
               // その日の次の空いた回に入れる。PCが同じ日に記録していても、端末の1回を潰さない。
@@ -145,7 +166,15 @@ export function createMobileRoutinePort(
                 },
               },
             ]);
-            return { ok: true, commandId: input.commandId, status: "applied" };
+            return {
+              ok: true,
+              commandId: input.commandId,
+              status: "applied",
+              // 古いAPK（mode なし）は受領の知らない欄を読めないので、1回足すの時だけ数を返す。
+              ...(action.mode === "append"
+                ? { habit: countsAfter(action.habitId, action.performedOn) }
+                : {}),
+            };
           },
         }
       : {}),

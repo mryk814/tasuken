@@ -91,7 +91,40 @@ data class MobileRoutineActionEnvelopeDto(
 )
 
 @Serializable
-data class MobileRoutineActionDataDto(val commandId: String, val status: String, val nextDueOn: String? = null)
+data class MobileRoutineActionDataDto(
+    val commandId: String,
+    val status: String,
+    val nextDueOn: String? = null,
+    /** 「1回足す」の受領に付く、保存後のその Habit の数（[MobileRoutineCountsDto.date] の数）。古い Desktop は付けない。 */
+    val habit: MobileRoutineCountsDto? = null,
+)
+
+/** Desktop が受領で返す、保存後のその Habit の数。端末の写しはこの値で上書きし、+1 で数えない。 */
+@Serializable
+data class MobileRoutineCountsDto(
+    val habitId: String,
+    val date: String,
+    val todayCount: Int,
+    val weekCount: Int,
+    val nextSequence: Int? = null,
+)
+
+/**
+ * 端末の写しの 1 件。数（todayCount・weekCount・nextSequence）は [countsDate] の日の数として持つ。
+ * 写しは Desktop から読めた日の物でも、その後に届いた記録の受領で Habit ごとに新しい日の数へ進む。
+ * [uncounted] は、受領に数が無い古い Desktop に [uncountedDate] の日に届き、まだ数に入っていない記録の数。
+ */
+@Serializable
+data class MobileRoutineCopyHabit(
+    val habit: MobileRoutineHabitDto,
+    val countsDate: String,
+    val uncountedDate: String? = null,
+    val uncounted: Int = 0,
+)
+
+/** routine_cache の payloadJson の形（このブランチで足した表で、まだ配っていない）。 */
+@Serializable
+data class MobileRoutinesCopyPayload(val habits: List<MobileRoutineCopyHabit>)
 
 @Serializable
 data class MobileRoutineActionResponseDto(
@@ -118,9 +151,12 @@ object MobileRoutineContract {
     fun decodeEnvelope(body: String): MobileRoutineActionEnvelopeDto = json.decodeFromString(body)
 
     /** 端末の写し（routine_cache）に置く形。手入れは画面に出さないので、写しには持たない。 */
-    fun encodeCopy(data: MobileRoutinesDataDto): String = json.encodeToString(data.copy(maintenances = emptyList()))
+    fun encodeCopy(data: MobileRoutinesDataDto): String =
+        encodeCopy(MobileRoutinesCopyPayload(data.habits.map { MobileRoutineCopyHabit(it, countsDate = data.date) }))
 
-    fun decodeCopy(body: String): MobileRoutinesDataDto = json.decodeFromString(body)
+    fun encodeCopy(payload: MobileRoutinesCopyPayload): String = json.encodeToString(payload)
+
+    fun decodeCopy(body: String): MobileRoutinesCopyPayload = json.decodeFromString(body)
 
     fun decodeResponse(body: String): MobileRoutineActionResponseDto = json.decodeFromString(body)
 
@@ -142,7 +178,10 @@ object MobileRoutineContract {
 }
 
 /** 端末に置いた、続けることの写し。[fetchedAt] は Desktop が返した時刻（いつの写しか）。 */
-data class MobileRoutinesCopy(val routines: MobileRoutinesDataDto, val fetchedAt: String)
+data class MobileRoutinesCopy(val date: String, val habits: List<MobileRoutineCopyHabit>, val fetchedAt: String) {
+    /** 読めた日の一覧として見た形（数は Habit ごとの [MobileRoutineCopyHabit.countsDate] の数）。 */
+    val routines: MobileRoutinesDataDto get() = MobileRoutinesDataDto(date, habits.map { it.habit })
+}
 
 /** 記録の結果。 */
 sealed interface MobileRoutineActionResult {
@@ -184,8 +223,9 @@ internal fun TodayRoutinesSection(
             RoutineRow(
                 title = habit.title,
                 // 前の日の写しでは今日の数が分からないので、数の代わりに電波なしの絵を置く（つながると分かる）。
-                detail = if (routines.countsKnown) "${habit.scheduleLabel} · ${habit.todayLabel} · ${habit.weekLabel}" else habit.scheduleLabel,
-                countsUnknown = !routines.countsKnown,
+                detail = if (item.countsKnown) "${habit.scheduleLabel} · ${habit.todayLabel} · ${habit.weekLabel}" else habit.scheduleLabel,
+                countsUnknown = !item.countsKnown,
+                addedToday = item.unsent + item.uncounted,
                 actionLabel = "1回記録",
                 actionDescription = "${habit.title}を1回記録",
                 enabled = savingId == null && habit.nextSequence != null,
@@ -203,6 +243,8 @@ private fun RoutineRow(
     title: String,
     detail: String,
     countsUnknown: Boolean,
+    /** 数が分からない時に「+N」で見せる、今日押した記録（未送信と、古い Desktop に届いてまだ数に入っていない物）。 */
+    addedToday: Int,
     actionLabel: String,
     actionDescription: String,
     enabled: Boolean,
@@ -229,9 +271,9 @@ private fun RoutineRow(
                     if (countsUnknown) {
                         // 今日の数の場所に電波なしの絵。押した分だけ「+N」を添える（届くまでは割印も付く）。
                         OflNowave(Modifier.testTag("$tag-counts-unknown"), description = "今日の数はつながると分かります")
-                        if (unsent > 0) {
+                        if (addedToday > 0) {
                             Text(
-                                "+$unsent",
+                                "+$addedToday",
                                 style = MaterialTheme.typography.labelLarge.copy(fontFeatureSettings = "tnum"),
                                 fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.onSurface,

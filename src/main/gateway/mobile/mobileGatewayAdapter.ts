@@ -186,9 +186,21 @@ export type MobileGatewayRoutinesRead = MobileRoutinesResponse["data"];
 /**
  * 続けることの記録の結果。送り直しは `no_change` で、増やさない（今のAPKは同じcommandId、古いAPKは同じ日の同じ回）。
  * 同じcommandIdで別の日を送ってきた時は `idempotency_conflict`。
+ * `habit` は「1回足す」の時だけ付く、保存後のそのHabitの数（記録の日の数）。
  */
 export type MobileGatewayRoutineActionResult =
-  | { ok: true; commandId: string; status: "applied" | "no_change" }
+  | {
+      ok: true;
+      commandId: string;
+      status: "applied" | "no_change";
+      habit?: {
+        habitId: string;
+        date: string;
+        todayCount: number;
+        weekCount: number;
+        nextSequence: number | null;
+      };
+    }
   | { ok: false; code: "not_found" | "validation_failed" | "idempotency_conflict" };
 
 export interface MobileGatewayCorePort {
@@ -1505,6 +1517,7 @@ export class MobileGatewayAdapter {
             data: {
               commandId: result.commandId,
               status: result.status,
+              ...(result.habit ? { habit: result.habit } : {}),
             },
           }),
         );

@@ -168,7 +168,11 @@ sealed interface MobileCommandSendResult {
     data class CaptureApplied(val response: MobileCaptureCommandResponseDto) : MobileCommandSendResult
     data class WorkLogApplied(val response: MobileWorkLogResponse) : MobileCommandSendResult
     /** The confirmed Desktop saved the routine record (or already had the same one: no_change). */
-    data class RoutineApplied(val commandId: String) : MobileCommandSendResult
+    data class RoutineApplied(
+        val commandId: String,
+        /** The habit's counts after saving, for the device copy. Absent from an older Desktop. */
+        val counts: MobileRoutineCountsDto? = null,
+    ) : MobileCommandSendResult
     data class Conflict(val response: MobileTaskCommandErrorResponseDto) : MobileCommandSendResult
     /**
      * The command stays in the outbox and is sent again later. serverReached is true when the confirmed
@@ -1095,7 +1099,7 @@ class MobileOutbox(
                         setAside()
                         continue
                     }
-                    if (dao.completeRoutineRecord(command, serverId) != 1) return stopped()
+                    if (dao.completeRoutineRecord(command, serverId, result.counts) != 1) return stopped()
                 }
                 is MobileCommandSendResult.Applied -> {
                     val response = result.response

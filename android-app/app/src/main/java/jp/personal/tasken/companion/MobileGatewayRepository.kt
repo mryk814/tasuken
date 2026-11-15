@@ -935,7 +935,7 @@ class AndroidMobileTaskRepository(
     override suspend fun cachedRoutines(date: String): MobileRoutinesCopy? {
         val serverId = dao.syncState()?.serverId ?: return null
         val cache = dao.routineCache(serverId) ?: return null
-        return runCatching { MobileRoutinesCopy(MobileRoutineContract.decodeCopy(cache.payloadJson), cache.fetchedAt) }
+        return runCatching { MobileRoutinesCopy(cache.date, MobileRoutineContract.decodeCopy(cache.payloadJson).habits, cache.fetchedAt) }
             .onFailure { Log.w(MOBILE_GATEWAY_LOG_TAG, "Discarding an unreadable routines copy", it) }
             .getOrNull()
     }
@@ -974,7 +974,7 @@ class AndroidMobileTaskRepository(
                         MobileCommandSendResult.Retry("PC の識別情報が送信前と一致しません。つなぎ直してください。")
                     } else {
                         // commandId が送った行と合うかは列の送り手が確かめる。
-                        MobileCommandSendResult.RoutineApplied(decoded.data.commandId)
+                        MobileCommandSendResult.RoutineApplied(decoded.data.commandId, decoded.data.habit)
                     }
                 }
                 response.status == 401 -> {
@@ -999,9 +999,10 @@ class AndroidMobileTaskRepository(
                         MobileCommandSendResult.Rejected(
                             code = code,
                             message = when (code) {
-                                // 古い Desktop は「1回足す」（mode）を知らずに validation_failed を返し、
-                                // 受け口の無い版は not_found を返す。どちらも PC を新しくすれば届く。
-                                "not_found", "validation_failed" -> ROUTINE_UPDATE_PC_REQUIRED
+                                // not_found は、新しい Desktop でも止めた・消した続けることに返す。
+                                "not_found" -> "PC にこの続けることが見つかりませんでした（止めたか消した物かもしれません）。"
+                                // 古い Desktop は「1回足す」（mode）を知らずに validation_failed を返す。PC を新しくすれば届く。
+                                "validation_failed" -> ROUTINE_UPDATE_PC_REQUIRED
                                 "forbidden" -> "この権限では記録できません。新しいコードでつなぎ直してから送り直してください。"
                                 "capability_unavailable" -> "この PC は続けることの記録を受け取れません。PC の Tasken を新しくしてから送り直してください。"
                                 else -> error?.error?.message ?: "PC が記録を受け取りませんでした。"

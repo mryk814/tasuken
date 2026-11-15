@@ -391,8 +391,10 @@ class TodayViewModel(
     private val serverRoutines = MutableStateFlow<MobileRoutinesDataDto?>(null)
     /** 出している続けることが端末の写しの時、その時刻（Desktop から読めた時は null）。 */
     @Volatile private var routinesCopyAt: String? = null
-    /** 出している続けることが前の日の写しの時は false（今日の数は分からない）。 */
-    @Volatile private var routineCountsKnown: Boolean = true
+    /** 写しを出している時、今日の数が分かる（数の日が今日の）Habit。Desktop から読めた時は null（すべて分かる）。 */
+    @Volatile private var routineKnownHabits: Set<String>? = null
+    /** 古い Desktop に今日届き、写しの数にまだ入っていない記録の数（Habit ごと）。 */
+    @Volatile private var routineUncountedToday: Map<String, Int> = emptyMap()
     private val mutableRoutineDiscards = MutableSharedFlow<OutboxCommandEntity>(extraBufferCapacity = 8)
     /** 本人が消した、断られた続けることの記録。画面は「元に戻す」を添えて知らせる。 */
     val routineDiscards: SharedFlow<OutboxCommandEntity> = mutableRoutineDiscards.asSharedFlow()
@@ -536,11 +538,15 @@ class TodayViewModel(
             currentCoroutineContext().ensureActive()
             val copy = if (read == null) gateway.cachedRoutines(date) else null
             currentCoroutineContext().ensureActive()
-            // 前の日の写しは、名前と頻度だけを今日の一覧として使い、今日の数は出さない（記録は列にためられる）。
-            val staleCopy = copy != null && copy.routines.date != date
-            val shown = read ?: copy?.routines?.let { if (staleCopy) it.copy(date = date) else it }
+            // 写しは Habit ごとに数の日を持つ。数の日が今日の Habit だけ今日の数を出し、ほかは名前と頻度だけを使って
+            // 数を出さない（前の日の写し。記録は列にためられる）。古い Desktop に今日届いて数に入っていない分は「+N」に足す。
+            val shown = read ?: copy?.routines?.copy(date = date)
             routinesCopyAt = if (read == null) copy?.fetchedAt else null
-            routineCountsKnown = !staleCopy
+            routineKnownHabits = copy?.habits?.filter { it.countsDate == date }?.mapTo(HashSet()) { it.habit.habitId }
+            routineUncountedToday = copy?.habits
+                ?.filter { it.uncountedDate == date && it.uncounted > 0 }
+                ?.associate { it.habit.habitId to it.uncounted }
+                .orEmpty()
             serverRoutines.value = shown
             if (shown != null) {
                 mutableRoutineTitles.value = mutableRoutineTitles.value + shown.habits.associate { it.habitId to it.title }
@@ -553,7 +559,13 @@ class TodayViewModel(
     @Synchronized
     private fun projectRoutines() {
         mutableRoutines.value = serverRoutines.value?.let {
-            overlayPendingRoutines(it, mutableRoutineRecords.value, routinesCopyAt, routineCountsKnown)
+            overlayPendingRoutines(
+                it,
+                mutableRoutineRecords.value,
+                copyAt = routinesCopyAt,
+                knownHabits = routineKnownHabits,
+                uncountedToday = routineUncountedToday,
+            )
         }
     }
 

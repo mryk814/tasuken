@@ -81,4 +81,18 @@ class MobileRoutineContractTest {
 
         assertEquals("2026-11-05", response.data.nextDueOn)
     }
+
+    @Test
+    fun appendReceiptCarriesTheHabitCountsAndAnOldReceiptHasNone() {
+        val counted = MobileRoutineContract.decodeResponse(
+            """{"ok":true,"meta":$meta,"data":{"commandId":"command-1","status":"no_change",""" +
+                """"habit":{"habitId":"habit-read","date":"2026-10-06","todayCount":3,"weekCount":3,"nextSequence":null}}}""",
+        )
+        assertEquals(MobileRoutineCountsDto("habit-read", "2026-10-06", 3, 3, null), counted.data.habit)
+
+        val old = MobileRoutineContract.decodeResponse(
+            """{"ok":true,"meta":$meta,"data":{"commandId":"command-1","status":"applied"}}""",
+        )
+        assertEquals(null, old.data.habit)
+    }
 }
