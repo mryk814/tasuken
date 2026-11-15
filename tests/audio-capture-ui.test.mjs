@@ -26,7 +26,7 @@ test("InboxはMemoだけを主操作にし、録る入口を持たない（#383�
 
 test("ContentViewer audio exposes loading, error and successful playback metadata accessibly", () => {
   assert.match(viewer, /load\.status === "loading"/);
-  assert.match(viewer, /role="status">読み込み中/);
+  assert.match(viewer, /role="status">\s*読み込み中/);
   assert.match(viewer, /load\.status === "error"/);
   assert.match(viewer, /role="alert"/);
   assert.match(

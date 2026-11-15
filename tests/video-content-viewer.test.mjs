@@ -99,7 +99,7 @@ test("video viewer inspects by ID, keeps race cancellation, and gates external-o
   );
   assert.match(
     source,
-    /mediaAvailability === "available" \|\| load\.mediaAvailability === "unsupported_codec"/,
+    /mediaAvailability === "available" \|\|\s*load\.mediaAvailability === "unsupported_codec"/,
   );
   assert.doesNotMatch(
     source,
@@ -114,7 +114,7 @@ test("video viewer inspects by ID, keeps race cancellation, and gates external-o
   );
   assert.match(
     source,
-    /const result = await workspaceApi\.openMediaArtifactExternal\(artifact\.id\)[\s\S]*if \(!result\.ok\) setToast\(result\.error[^\n]+"danger"\)/,
+    /const result = await workspaceApi\.openMediaArtifactExternal\(artifact\.id\)[\s\S]*if \(!result\.ok\)\s*setToast\(result\.error[^\n]+"danger"\)/,
   );
   assert.match(source, /if \(load\.status === "error"\) return load\.artifact/);
   assert.doesNotMatch(source, /onClick=\{\(\) => \{ void workspaceApi\.openMediaArtifactExternal/);

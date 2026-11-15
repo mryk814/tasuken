@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Buffer } from "node:buffer";
-import { spawnSync } from "node:child_process";
 
 import { build } from "esbuild";
 
