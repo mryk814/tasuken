@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import crypto from "node:crypto";
+// 古い Agent Session hooks を外す・残っているかを見る（#751）。
+// hooks の受け取りは切ったので、入れる手順（install）はもう無い。各 PC で外し終えたら、この script も消す。
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,29 +9,8 @@ import { fileURLToPath } from "node:url";
 
 const TASKEN_HOOK_FILE = "tasken-agent-session-hook.mjs";
 const COPILOT_CONFIG_FILE = "tasken-agent-session.json";
-const SOURCE_HOOK_FILE = "agent-session-hook.mjs";
 const CODEX_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"];
 const COPILOT_EVENTS = ["sessionStart", "userPromptSubmitted", "agentStop", "sessionEnd"];
-const HOOK_TIMEOUT_SECONDS = 15;
-
-function quoteForBash(value) {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
-}
-
-function quoteForPowerShell(value) {
-  return `'${value.replaceAll("'", "''")}'`;
-}
-
-function commandFor(hookPath, client, eventName, options = {}) {
-  const normalized = hookPath.replaceAll("\\", "/");
-  const quotedPath =
-    options.shell === "powershell"
-      ? quoteForPowerShell(normalized)
-      : options.shell === "bash"
-        ? quoteForBash(normalized)
-        : `"${normalized}"`;
-  return `node ${quotedPath} --client ${client} --event ${eventName}${options.flush ? " --flush" : ""}`;
-}
 
 function handlerCommands(handler) {
   return [handler?.command, handler?.bash, handler?.powershell].filter(
@@ -73,43 +53,6 @@ function withoutCodexTaskenHandlers(config) {
   return next;
 }
 
-function withCodexTaskenHandlers(config, installedHookPath) {
-  const next = withoutCodexTaskenHandlers(config);
-  next.hooks.SessionStart = [
-    ...(next.hooks.SessionStart || []),
-    {
-      matcher: "startup|resume|clear|compact",
-      hooks: [
-        {
-          type: "command",
-          command: commandFor(installedHookPath, "codex", "SessionStart"),
-          timeout: HOOK_TIMEOUT_SECONDS,
-        },
-        {
-          type: "command",
-          command: commandFor(installedHookPath, "codex", "SessionStart", { flush: true }),
-          timeout: HOOK_TIMEOUT_SECONDS,
-        },
-      ],
-    },
-  ];
-  for (const eventName of CODEX_EVENTS.slice(1)) {
-    next.hooks[eventName] = [
-      ...(next.hooks[eventName] || []),
-      {
-        hooks: [
-          {
-            type: "command",
-            command: commandFor(installedHookPath, "codex", eventName),
-            timeout: HOOK_TIMEOUT_SECONDS,
-          },
-        ],
-      },
-    ];
-  }
-  return next;
-}
-
 function withoutCopilotTaskenHandlers(config) {
   const next = structuredClone(config);
   next.hooks ||= {};
@@ -118,35 +61,6 @@ function withoutCopilotTaskenHandlers(config) {
     const filtered = entries.filter((handler) => !isTaskenHandler(handler, "github_copilot"));
     if (filtered.length > 0) next.hooks[eventName] = filtered;
     else delete next.hooks[eventName];
-  }
-  return next;
-}
-
-function copilotHandler(installedHookPath, eventName, options = {}) {
-  return {
-    type: "command",
-    bash: commandFor(installedHookPath, "github_copilot", eventName, { ...options, shell: "bash" }),
-    powershell: commandFor(installedHookPath, "github_copilot", eventName, {
-      ...options,
-      shell: "powershell",
-    }),
-    timeoutSec: HOOK_TIMEOUT_SECONDS,
-  };
-}
-
-function withCopilotTaskenHandlers(config, installedHookPath) {
-  const next = withoutCopilotTaskenHandlers(config);
-  next.version = 1;
-  next.hooks.sessionStart = [
-    ...(next.hooks.sessionStart || []),
-    copilotHandler(installedHookPath, "sessionStart"),
-    copilotHandler(installedHookPath, "sessionStart", { flush: true }),
-  ];
-  for (const eventName of COPILOT_EVENTS.slice(1)) {
-    next.hooks[eventName] = [
-      ...(next.hooks[eventName] || []),
-      copilotHandler(installedHookPath, eventName),
-    ];
   }
   return next;
 }
@@ -226,30 +140,6 @@ async function removeOwnedConfig(configPath, currentText) {
   return { changed: true, backupPath, configRemoved: true };
 }
 
-async function copyHook(sourcePath, installedHookPath) {
-  await assertRegularOrMissing(sourcePath);
-  await assertRegularOrMissing(installedHookPath);
-  const bytes = await fs.readFile(sourcePath);
-  const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
-  const currentBytes = await fs.readFile(installedHookPath).catch((error) => {
-    if (error?.code === "ENOENT") return null;
-    throw error;
-  });
-  if (currentBytes?.equals(bytes)) return { sha256, hookChanged: false };
-  await fs.mkdir(path.dirname(installedHookPath), { recursive: true });
-  const temporaryPath = `${installedHookPath}.tasken-${process.pid}.tmp`;
-  await fs.writeFile(temporaryPath, bytes, { mode: 0o700 });
-  await fs.rename(temporaryPath, installedHookPath);
-  return { sha256, hookChanged: true };
-}
-
-function sourcePathFor(options = {}) {
-  const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
-  return path.resolve(
-    options.sourcePath || path.join(scriptDirectory, "..", "mcp-dist", SOURCE_HOOK_FILE),
-  );
-}
-
 function codexPathsFor(options = {}) {
   const codexHome = path.resolve(
     options.codexHome || process.env.CODEX_HOME || path.join(os.homedir(), ".codex"),
@@ -258,7 +148,6 @@ function codexPathsFor(options = {}) {
     codexHome,
     configPath: path.join(codexHome, "hooks.json"),
     installedHookPath: path.join(codexHome, "hooks", TASKEN_HOOK_FILE),
-    sourcePath: sourcePathFor(options),
   };
 }
 
@@ -271,24 +160,14 @@ function copilotPathsFor(options = {}) {
     copilotHome,
     configPath: path.join(hooksDirectory, COPILOT_CONFIG_FILE),
     installedHookPath: path.join(hooksDirectory, TASKEN_HOOK_FILE),
-    sourcePath: sourcePathFor(options),
   };
 }
 
-export async function installCodexAgentSessionHooks(options = {}) {
-  const paths = codexPathsFor(options);
-  const currentText = await fs.readFile(paths.configPath, "utf8").catch((error) => {
-    if (error?.code === "ENOENT") return null;
-    throw error;
-  });
-  const config = await readCodexConfig(paths.configPath);
-  const hook = await copyHook(paths.sourcePath, paths.installedHookPath);
-  const write = await writeConfig(
-    paths.configPath,
-    currentText,
-    withCodexTaskenHandlers(config, paths.installedHookPath),
-  );
-  return { status: "installed", client: "codex", ...paths, ...hook, ...write };
+/** absent = 外れている。present = hook の本体か、設定の中の呼び出しが残っている（uninstall で外す）。 */
+function hookStatus(hookInstalled, handlerCounts) {
+  return hookInstalled || Object.values(handlerCounts).some((count) => count > 0)
+    ? "present"
+    : "absent";
 }
 
 export async function uninstallCodexAgentSessionHooks(options = {}) {
@@ -329,33 +208,12 @@ export async function inspectCodexAgentSessionHooks(options = {}) {
       throw error;
     });
   return {
-    status:
-      hookInstalled &&
-      handlerCounts.SessionStart === 2 &&
-      CODEX_EVENTS.slice(1).every((eventName) => handlerCounts[eventName] === 1)
-        ? "installed"
-        : "incomplete",
+    status: hookStatus(hookInstalled, handlerCounts),
     client: "codex",
     ...paths,
     hookInstalled,
     handlerCounts,
   };
-}
-
-export async function installGitHubCopilotAgentSessionHooks(options = {}) {
-  const paths = copilotPathsFor(options);
-  const currentText = await fs.readFile(paths.configPath, "utf8").catch((error) => {
-    if (error?.code === "ENOENT") return null;
-    throw error;
-  });
-  const config = await readCopilotConfig(paths.configPath);
-  const hook = await copyHook(paths.sourcePath, paths.installedHookPath);
-  const write = await writeConfig(
-    paths.configPath,
-    currentText,
-    withCopilotTaskenHandlers(config, paths.installedHookPath),
-  );
-  return { status: "installed", client: "github_copilot", ...paths, ...hook, ...write };
 }
 
 export async function uninstallGitHubCopilotAgentSessionHooks(options = {}) {
@@ -398,12 +256,7 @@ export async function inspectGitHubCopilotAgentSessionHooks(options = {}) {
       throw error;
     });
   return {
-    status:
-      hookInstalled &&
-      handlerCounts.sessionStart === 2 &&
-      COPILOT_EVENTS.slice(1).every((eventName) => handlerCounts[eventName] === 1)
-        ? "installed"
-        : "incomplete",
+    status: hookStatus(hookInstalled, handlerCounts),
     client: "github_copilot",
     ...paths,
     hookInstalled,
@@ -422,13 +275,11 @@ async function main() {
   const clients = {
     codex: {
       options: optionValue("--codex-home") ? { codexHome: optionValue("--codex-home") } : {},
-      install: installCodexAgentSessionHooks,
       uninstall: uninstallCodexAgentSessionHooks,
       status: inspectCodexAgentSessionHooks,
     },
     github_copilot: {
       options: optionValue("--copilot-home") ? { copilotHome: optionValue("--copilot-home") } : {},
-      install: installGitHubCopilotAgentSessionHooks,
       uninstall: uninstallGitHubCopilotAgentSessionHooks,
       status: inspectGitHubCopilotAgentSessionHooks,
     },
@@ -438,7 +289,7 @@ async function main() {
   const operation = selected[action];
   if (!operation) {
     throw new Error(
-      "Usage: manage-agent-session-hooks.mjs <install|status|uninstall> " +
+      "Usage: manage-agent-session-hooks.mjs <status|uninstall> " +
         "[--client codex|github_copilot] [--codex-home PATH|--copilot-home PATH]",
     );
   }
