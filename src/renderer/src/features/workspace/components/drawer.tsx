@@ -5,14 +5,12 @@ import {
   IconCopyPlus,
   IconFileTypePdf,
   IconFolder,
-  IconMicrophone,
   IconPencil,
   IconTrash,
 } from "@tabler/icons-react";
 
 import { todayIso } from "../../../utils/dataFormat.js";
 import { workspaceApi } from "../../../services/workspaceApi";
-import { useUiStore } from "../../../stores/uiStore";
 import { noteExportSignature } from "../../../../../shared/fileExport";
 import { noteProjectId } from "../../../../../shared/themeRef.mjs";
 import { canonicalThemeId } from "../../../../../shared/themeRef.mjs";
@@ -1771,7 +1769,6 @@ function EditDrawer({
       : null;
   const taskChecklistEditorKey =
     type === "task" ? `${entityId}:${str(entity._focusChecklistItem)}` : "";
-  const requestInboxRecorder = useUiStore((state) => state.requestInboxRecorder);
   // Chat/Task/Note は常用が edit 直行なので、作業面として Artifact を同じドロワーに置く。
   const artifactSource = (() => {
     if (!entityId || !saveEntities || !removeEntity) return null;
@@ -1927,26 +1924,7 @@ function EditDrawer({
           )}
           {type === "waiting" && <WaitingFields entity={entity} data={data} />}
           {type === "plan_node" && <PlanNodeFields entity={entity} data={data} />}
-          {type === "capture_entry" && (
-            <>
-              {!entityId && (
-                <button
-                  className="secondary-button"
-                  type="button"
-                  onClick={() => {
-                    // 録音の入口はStudioへ移した（#383）。手数を増やさないよう導線は残す。
-                    close();
-                    navigate?.("studio");
-                    requestInboxRecorder();
-                  }}
-                >
-                  <IconMicrophone size={16} />
-                  マイクで録音
-                </button>
-              )}
-              <CaptureEntryFields entity={entity} />
-            </>
-          )}
+          {type === "capture_entry" && <CaptureEntryFields entity={entity} />}
           {type === "sketch" && (
             <>
               <Field label="タイトル">

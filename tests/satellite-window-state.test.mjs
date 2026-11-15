@@ -419,9 +419,9 @@ test("Notesのdebounce/manual/route flushはowner queueと終了registryを共�
   assert.match(notesPageSource, /ackNoteWindowFlush\(request\.requestId, pageOk && pendingOk\)/);
   assert.match(
     workspaceAppFlushSource,
-    /Promise\.all\(\[\s*pageFlush,\s*flushPendingNoteDraftSaves\(\),\s*flushPendingMediaRecordingFlushes\(\),?\s*\]\)/,
+    /Promise\.all\(\[\s*pageFlush,\s*flushPendingNoteDraftSaves\(\),?\s*\]\)/,
   );
-  assert.match(workspaceAppFlushSource, /respond\(pageOk && noteOk && mediaOk\)/);
+  assert.match(workspaceAppFlushSource, /respond\(pageOk && noteOk\)/);
   assert.match(noteWindowControllerSource, /flushAndClose/);
   assert.match(noteWindowControllerSource, /IPC\.noteWindowFlushAck/);
   assert.match(noteWindowControllerSource, /event\.preventDefault\(\)/);
@@ -748,56 +748,5 @@ test("付箋表示対象は同じMemoのproperties_jsonへ保存し、閉じて�
   assert.equal(
     memoPresentation.isStickyMemoTarget({ ...marked, deleted_at: "2026-08-08T00:00:00Z" }),
     false,
-  );
-});
-
-test("録画中インジケータは録画に写り込まず、操作を本体へ転送する（#383）", () => {
-  const indicator = readFileSync("src/main/recordingIndicatorController.ts", "utf8");
-  const panel = readFileSync(
-    "src/renderer/src/features/workspace/components/ScreenRecorderPanel.tsx",
-    "utf8",
-  );
-  const indicatorHtml = readFileSync("src/renderer/recording-indicator.html", "utf8");
-  const viteConfig = readFileSync("electron.vite.config.ts", "utf8");
-
-  // 本題。WDA_EXCLUDEFROMCAPTUREで自分自身を録画から外す。
-  assert.match(indicator, /win\.setContentProtection\(true\)/);
-  assert.match(indicator, /alwaysOnTop: true/);
-  // 表示に要らないものを別Windowへ渡さない。
-  assert.match(indicator, /keepMainWindowVisible: input\.keepMainWindowVisible === true/);
-  assert.doesNotMatch(indicator, /sourceToken|stored_path|sourceId/);
-  // 録画本体はRendererが持つので、操作は本体へ転送する。
-  assert.match(indicator, /main\.webContents\.send\(IPC\.recordingIndicatorCommand, value\)/);
-  assert.match(panel, /workspaceApi\.onRecordingIndicatorCommand\([\s\S]*?stopRecording\(\)/);
-  // 録画が終わったらnullで畳む。出しっぱなしにしない。
-  assert.match(panel, /applyRecordingIndicator\(visible \? \{[\s\S]*?\} : null\)/);
-  assert.match(indicator, /if \(!state\) \{\s*\n\s*close\(\);/);
-  assert.match(indicator, /transparent: true/);
-  assert.match(indicator, /backgroundColor: "#00000000"/);
-  assert.match(indicator, /height: value \? 12 : 64/);
-  assert.match(indicatorHtml, /api\.setRetracted\(nextRetracted\)/);
-  assert.match(
-    indicatorHtml,
-    /body\.is-retracted \.indicator-surface > \* \{\s*visibility: hidden;/,
-  );
-  assert.match(indicatorHtml, /addEventListener\("pointerenter", revealControls\)/);
-  assert.match(indicatorHtml, /addEventListener\("pointermove", revealControls\)/);
-  const regionSelectorHtml = readFileSync("src/renderer/region-selector.html", "utf8");
-  assert.match(
-    regionSelectorHtml,
-    /body:not\(\.is-indicator\) \{ background: rgb\(0 0 0 \/ 1%\) !important; \}/,
-  );
-  assert.match(indicator, /main\.minimize\(\)/);
-  assert.match(indicator, /if \(main\.isMinimized\(\)\) main\.restore\(\)/);
-  assert.match(
-    panel,
-    /keepMainWindowVisible: selectedSource\?\.kind === "window" && \/tasken\/i\.test\(selectedSource\.label\)/,
-  );
-  // 対象と経過を出す。
-  assert.match(indicatorHtml, /id="target"/);
-  assert.match(indicatorHtml, /id="elapsed"/);
-  assert.match(
-    viteConfig,
-    /recordingIndicator: resolve\(__dirname, "src\/renderer\/recording-indicator\.html"\)/,
   );
 });

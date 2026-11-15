@@ -219,53 +219,6 @@ export const workspaceApi = {
   cancelAudioCapture(sessionId: string) {
     return desktopApi().mediaCapture.cancelAudio({ sessionId });
   },
-  startMediaRecording(request: import("../../../shared/mediaCapture").MediaRecordingStartRequest) {
-    return desktopApi().mediaCapture.startRecording(request);
-  },
-  appendMediaRecording(
-    request: import("../../../shared/mediaCapture").MediaRecordingAppendRequest,
-  ) {
-    return desktopApi().mediaCapture.appendRecording(request);
-  },
-  pauseMediaRecording(sessionId: string) {
-    return desktopApi().mediaCapture.pauseRecording({ sessionId });
-  },
-  resumeMediaRecording(sessionId: string) {
-    return desktopApi().mediaCapture.resumeRecording({ sessionId });
-  },
-  stopMediaRecording(sessionId: string) {
-    return desktopApi().mediaCapture.stopRecording({ sessionId });
-  },
-  getScreenRecordingCapabilities() {
-    return desktopApi().screenRecording.capabilities();
-  },
-  listScreenRecordingSources() {
-    return desktopApi().screenRecording.listSources();
-  },
-  /** 録画中インジケータへ表示状態を送る。終了時はnullで畳む（#383）。 */
-  applyRecordingIndicator(
-    state: import("../../../shared/ipc/contracts").RecordingIndicatorState | null,
-  ) {
-    return desktopApi().screenRecording.applyIndicator(state);
-  },
-  onRecordingIndicatorCommand(
-    callback: (command: import("../../../shared/ipc/contracts").RecordingIndicatorCommand) => void,
-  ) {
-    return desktopApi().screenRecording.onIndicatorCommand(callback);
-  },
-  armScreenRecording(
-    request: import("../../../shared/screenRecording.mjs").ScreenRecordingArmRequest,
-  ) {
-    return desktopApi().screenRecording.arm(request);
-  },
-  selectScreenRecordingRegion(sourceToken: string) {
-    return desktopApi().screenRecording.selectRegion({ sourceToken });
-  },
-  applyScreenRecordingRegionIndicator(
-    region: import("../../../shared/screenRecording.mjs").ScreenRecordingRegionSelection | null,
-  ) {
-    return desktopApi().screenRecording.applyRegionIndicator(region);
-  },
   prepareVideoImport(request: import("../../../shared/mediaCapture").VideoImportPrepareRequest) {
     return desktopApi().mediaCapture.prepareVideo(request);
   },
@@ -283,15 +236,6 @@ export const workspaceApi = {
   },
   inspectMediaArtifact(artifactId: string) {
     return desktopApi().mediaCapture.inspectArtifact({ artifactId });
-  },
-  getVideoTrimSource(artifactId: string) {
-    return desktopApi().mediaCapture.getVideoTrimSource({ artifactId });
-  },
-  exportVideoTrim(request: import("../../../shared/mediaCapture").VideoTrimExportRequest) {
-    return desktopApi().mediaCapture.exportVideoTrim(request);
-  },
-  getBatchTranscriptionHistory(artifactId: string) {
-    return desktopApi().batchTranscription.history({ artifactId });
   },
   reload() {
     return desktopApi().app.reload();

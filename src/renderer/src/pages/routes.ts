@@ -10,7 +10,6 @@ import {
   IconSparkles,
   IconSun,
   IconTimeline,
-  IconMicrophone,
   IconWriting,
   type Icon,
 } from "@tabler/icons-react";
@@ -24,7 +23,6 @@ export type CanonicalRouteId =
   | "timeline"
   | "notes"
   | "sketch"
-  | "studio"
   | "chat-refs"
   | "artifacts"
   | "theme"
@@ -176,16 +174,6 @@ export const ROUTE_DEFINITIONS = {
     availability: "always",
     navigation: { group: "knowledge", order: 3 },
     aliases: [{ id: "sketch-editor", parent: "sketch", kind: "child" }],
-  },
-  studio: {
-    id: "studio",
-    label: "収録",
-    description:
-      "マイク録音と画面録画をここから始めます。録ったものは添付として残り、ノート等から参照できます。",
-    icon: IconMicrophone,
-    semanticRole: "view",
-    availability: "always",
-    navigation: { group: "knowledge", order: 4 },
   },
   "chat-refs": {
     id: "chat-refs",

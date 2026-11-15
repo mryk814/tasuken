@@ -113,14 +113,7 @@ test("durationはcompactな時刻へ整形する", () => {
   assert.equal(formatMediaDuration(undefined), "");
 });
 
-test("保存済みVoice Captureの媒体状態はStudioの棚から読める", () => {
+test("保存済みVoice Captureの媒体状態は表示用の名前を持つ", () => {
   assert.equal(TRANSCRIPTION_STATUS_LABELS.not_requested, "未文字起こし");
   assert.equal(MEDIA_AVAILABILITY_LABELS.available, "保存済み");
-  const recordings = readFileSync(
-    "src/renderer/src/features/workspace/components/RecordingsPanel.tsx",
-    "utf8",
-  );
-  assert.match(recordings, /formatMediaDuration\(artifact\?\.duration_ms\)/);
-  assert.match(recordings, /formatArtifactFileSize\(artifact\.file_size\)/);
-  assert.match(recordings, /MEDIA_AVAILABILITY_LABELS\[availability\]/);
 });

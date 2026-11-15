@@ -98,7 +98,6 @@ import type {
 } from "../../../../shared/applicationCommand";
 import { collectionKeyForEntityType } from "../../../../shared/entityRegistry.mjs";
 import { flushPendingNoteDraftSaves } from "./lib/noteDraftFlushRegistry";
-import { flushPendingMediaRecordingFlushes } from "./lib/mediaRecordingFlushRegistry";
 import { projectWorkspaceData } from "./lib/workspaceProjection";
 import {
   buildDerivedFromDocumentCompanion,
@@ -358,12 +357,8 @@ export function WorkspaceApp() {
         window.dispatchEvent(new CustomEvent("tasken:app-flush-requested", { detail }));
         // Notes routeがunmount済みでも、route cleanupが開始したsaveをここで待つ。
         const pageFlush = detail.flush || Promise.resolve(true);
-        void Promise.all([
-          pageFlush,
-          flushPendingNoteDraftSaves(),
-          flushPendingMediaRecordingFlushes(),
-        ])
-          .then(([pageOk, noteOk, mediaOk]) => respond(pageOk && noteOk && mediaOk))
+        void Promise.all([pageFlush, flushPendingNoteDraftSaves()])
+          .then(([pageOk, noteOk]) => respond(pageOk && noteOk))
           .catch(() => respond(false));
       }),
     [],

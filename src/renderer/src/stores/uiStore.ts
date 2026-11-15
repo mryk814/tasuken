@@ -16,12 +16,9 @@ interface UiState {
   activeThemeId: string;
   themeMode: "light" | "dark";
   activeGroups: string[];
-  inboxRecorderRequested: boolean;
   toast: string;
   toastTone: ToastTone;
   toastUndo: ToastUndo | null;
-  requestInboxRecorder(): void;
-  consumeInboxRecorderRequest(): void;
   setRoute(route: string): void;
   setActiveThemeId(id: string): void;
   setThemeMode(mode: "light" | "dark"): void;
@@ -34,7 +31,6 @@ export const useUiStore = create<UiState>((set) => ({
   activeThemeId: "",
   themeMode: "light",
   activeGroups: [],
-  inboxRecorderRequested: false,
   toast: "",
   toastTone: "info",
   toastUndo: null,
@@ -42,7 +38,5 @@ export const useUiStore = create<UiState>((set) => ({
   setActiveThemeId: (activeThemeId) => set({ activeThemeId }),
   setThemeMode: (themeMode) => set({ themeMode }),
   setActiveGroups: (activeGroups) => set({ activeGroups }),
-  requestInboxRecorder: () => set({ inboxRecorderRequested: true }),
-  consumeInboxRecorderRequest: () => set({ inboxRecorderRequested: false }),
   setToast: (toast, toastTone = "info", toastUndo = null) => set({ toast, toastTone, toastUndo }),
 }));

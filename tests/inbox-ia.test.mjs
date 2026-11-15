@@ -183,12 +183,4 @@ test("収録物はInboxの分類対象にせず、Studioの棚に並べる（#38
     selectors.buildInboxView(domain).entries.map((entry) => entry.id),
     ["c1"],
   );
-  // Studioは録れたものを並べる。アーカイブ済みは棚から外す。
-  assert.deepEqual(
-    selectors
-      .buildRecordingView(domain)
-      .entries.map((entry) => entry.id)
-      .sort(),
-    ["c2", "c3"],
-  );
 });

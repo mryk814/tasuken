@@ -90,10 +90,6 @@ test("video viewer inspects by ID, keeps race cancellation, and gates external-o
     "src/renderer/src/features/workspace/components/ContentViewer.tsx",
     "utf8",
   );
-  const editor = fs.readFileSync(
-    "src/renderer/src/features/workspace/components/VideoTrimEditor.tsx",
-    "utf8",
-  );
   const api = fs.readFileSync("src/renderer/src/services/workspaceApi.ts", "utf8");
   assert.match(source, /inspectMediaArtifact\(artifact\.id\)/);
   assert.match(api, /inspectArtifact\(\{ artifactId \}\)/);
@@ -109,7 +105,9 @@ test("video viewer inspects by ID, keeps race cancellation, and gates external-o
     source,
     /mediaAvailability === "missing" \|\| load\.mediaAvailability === "changed"/,
   );
-  assert.match(editor, /<video[\s\S]*controls[\s\S]*preload="metadata"/);
+  // 切り出しは外した（#755 束4）。動画はそのまま再生するだけ。
+  assert.match(source, /<video[\s\S]*controls[\s\S]*preload="metadata"/);
+  assert.doesNotMatch(source, /VideoTrimEditor|exportVideoTrim|BatchTranscriptionPanel/);
   assert.match(
     source,
     /src: `tasken-media:\/\/artifact\/\$\{encodeURIComponent\(artifact\.id\)\}`/,
@@ -120,37 +118,4 @@ test("video viewer inspects by ID, keeps race cancellation, and gates external-o
   );
   assert.match(source, /if \(load\.status === "error"\) return load\.artifact/);
   assert.doesNotMatch(source, /onClick=\{\(\) => \{ void workspaceApi\.openMediaArtifactExternal/);
-});
-
-test("managed video viewer has one combined trim bar and writes a derived artifact", () => {
-  const viewer = fs.readFileSync(
-    "src/renderer/src/features/workspace/components/ContentViewer.tsx",
-    "utf8",
-  );
-  const editor = fs.readFileSync(
-    "src/renderer/src/features/workspace/components/VideoTrimEditor.tsx",
-    "utf8",
-  );
-  const css = fs.readFileSync("src/renderer/src/styles/app.css", "utf8");
-  assert.match(
-    viewer,
-    /<VideoTrimEditor[\s\S]*?editable=\{load\.artifact\.storage_mode !== "linked"\}/,
-  );
-  assert.match(editor, /className="video-trim-track"/);
-  assert.match(editor, /aria-label="トリム開始"/);
-  assert.match(editor, /aria-label="トリム終了"/);
-  assert.match(editor, /onPointerDown=\{seekFromTrack\}/);
-  assert.match(editor, /onPlay=\{handlePlay\}/);
-  assert.match(editor, /onSeeking=\{handleSeeking\}/);
-  assert.match(editor, /範囲内をループ再生/);
-  assert.match(editor, /handleEnded[\s\S]*?currentTarget\.play\(\)/);
-  assert.match(editor, /createTrimPlan\(\{ source, startMs, endMs \}\)/);
-  assert.match(editor, /exportVideoTrim\(\{[\s\S]*?destinationArtifactId: crypto\.randomUUID\(\)/);
-  assert.match(editor, /元動画は変更していません/);
-  assert.doesNotMatch(editor, /開始 [−+]0\.1s|終了 [−+]0\.1s/);
-  assert.match(css, /\.video-trim-track/);
-  assert.match(
-    css,
-    /\.video-trim-selection[\s\S]*?left: var\(--trim-start\)[\s\S]*?right: calc\(100% - var\(--trim-end\)\)/,
-  );
 });

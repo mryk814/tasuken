@@ -43,7 +43,6 @@ const SketchLibraryPage = lazyNamedPage<PageProps>(
   "SketchLibraryPage",
 );
 const SketchPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("sketch-editor"), "SketchPage");
-const StudioPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("studio"), "StudioPage");
 const SettingsPage = lazyNamedPage<SettingsPageProps>(
   () => loadWorkspacePage("settings"),
   "SettingsPage",
@@ -80,9 +79,6 @@ export function WorkspacePageRouter({
       break;
     case "feed":
       page = <FeedPage {...common} />;
-      break;
-    case "studio":
-      page = <StudioPage {...common} />;
       break;
     case "chat-refs":
       page = <ChatRefsPage {...common} />;
