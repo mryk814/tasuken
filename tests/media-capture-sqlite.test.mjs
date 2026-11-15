@@ -63,6 +63,64 @@ function sha256Hex(bytes) {
  * 録る側は外した（#755 束4）ので、前の版が残した録画の session を manifest で置く。
  * 形は、前の版の startRecording → appendRecordingChunk → stopRecording が書いたものと同じ。
  */
+/** MediaRecorder の WebM と同じ並びの見出し（Segment > Tracks > TrackEntry > Video）だけを持つ動画。 */
+function webmWithDimensions(widthPx, heightPx, label = "frames") {
+  const uint16 = (value) => [(value >> 8) & 0xff, value & 0xff];
+  const video = [0xb0, 0x82, ...uint16(widthPx), 0xba, 0x82, ...uint16(heightPx)];
+  const trackEntry = [0xe0, 0x80 | video.length, ...video];
+  const tracks = [0xae, 0x80 | trackEntry.length, ...trackEntry];
+  return Buffer.concat([
+    Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x80]),
+    Buffer.from([0x18, 0x53, 0x80, 0x67, 0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
+    Buffer.from([0x16, 0x54, 0xae, 0x6b, 0x80 | tracks.length, ...tracks]),
+    Buffer.from(label),
+  ]);
+}
+
+/**
+ * 前の版が残した session を置く。形は前の版の録音・録画・音声の取り込みが書いた manifest と同じ。
+ * kind: microphone | screen_recording | audio_import。state: prepared | recording。
+ */
+function writeLeftoverSession(userDataPath, { kind, bytes, state = "prepared", chunkHash }) {
+  const sessionId = randomUUID();
+  const directory = path.join(userDataPath, "media-recovery", "sessions", sessionId);
+  fs.mkdirSync(directory, { recursive: true });
+  const recording = state === "recording";
+  const isVideo = kind === "screen_recording";
+  if (recording) fs.writeFileSync(path.join(directory, "chunk-00000000.part"), bytes);
+  else fs.writeFileSync(path.join(directory, "original.webm"), bytes);
+  const recordingFields =
+    kind === "audio_import"
+      ? {}
+      : {
+          recordingNextSequence: 1,
+          recordingChunkHashes: chunkHash || sha256Hex(bytes),
+          recordingStartedAt: "2026-08-09T00:00:00.000Z",
+          recordingElapsedMs: recording ? 0 : 1000,
+          ...(recording ? { recordingStateStartedAt: "2026-08-09T00:00:00.000Z" } : {}),
+        };
+  const manifest = {
+    schema: "tasken-media-session/v1",
+    sessionId,
+    state,
+    mediaKind: isVideo ? "video" : "audio",
+    filename: `${isVideo ? "screen-recording" : "voice-memo"}-20260809000000.webm`,
+    mimeType: isVideo ? "video/webm" : "audio/webm",
+    fileSize: bytes.length,
+    contentHash: `sha256:${recording ? sha256Hex(Buffer.alloc(0)) : sha256Hex(bytes)}`,
+    themeId: null,
+    ...(isVideo ? { storageMode: "managed" } : {}),
+    stagedFileName: "original.webm",
+    createdAt: "2026-08-09T00:00:00.000Z",
+    updatedAt: "2026-08-09T00:00:01.500Z",
+    ...(recording || kind === "audio_import" ? {} : { durationMs: 1000 }),
+    captureMethod: kind,
+    ...recordingFields,
+  };
+  fs.writeFileSync(path.join(directory, "session.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  return { sessionId, directory };
+}
+
 function writeScreenRecordingSession(userDataPath, bytes, state = "prepared") {
   const sessionId = randomUUID();
   const directory = path.join(userDataPath, "media-recovery", "sessions", sessionId);
@@ -721,7 +779,7 @@ test("前の版で録った音声と動画は、録る側を外した後も添�
   db.db.close();
 });
 
-test("前の版が録りかけで残した session は、起動の復旧で消さず、起動も止めない（#755 束4）", (t) => {
+test("前の版が録りかけで残した session は、復旧（recoverPending）では消さず、起動も止めない（#755 束4）", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-recording-leftover-"));
   const dbPath = path.join(root, "workspace.sqlite");
   const userDataPath = path.join(root, "user-data");
@@ -752,5 +810,157 @@ test("前の版が録りかけで残した session は、起動の復旧で消�
   assert.equal(pending.get(interrupted.sessionId)?.canCommit, false);
   assert.equal(pending.get(stopped.sessionId)?.status, "ready");
   assert.doesNotMatch(JSON.stringify([...pending.values()]), /media-recovery|original\.webm/);
+  db.db.close();
+});
+
+function leftoverMedia(root) {
+  const db = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
+  const commands = new ApplicationCommandService(db);
+  const media = new MediaCaptureService({
+    userDataPath: path.join(root, "user-data"),
+    repository: db,
+    commands: { executeMediaCapture: (command) => commands.executeMediaCapture(command) },
+    resolveManagedDirectory: () => ({ kind: "ok", directory: path.join(root, "managed") }),
+  });
+  return { db, media };
+}
+
+test("前の版が確定しないまま残した録音・録画は、起動のときに添付として一度だけ確定する（#755 束4）", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-leftover-commit-"));
+  const userDataPath = path.join(root, "user-data");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const stoppedVideo = writeLeftoverSession(userDataPath, {
+    kind: "screen_recording",
+    bytes: webmWithDimensions(1280, 720, "stopped"),
+  });
+  const stoppedVoice = writeLeftoverSession(userDataPath, {
+    kind: "microphone",
+    bytes: tinyWebm("stopped-voice"),
+  });
+  const interruptedVideo = writeLeftoverSession(userDataPath, {
+    kind: "screen_recording",
+    bytes: webmWithDimensions(640, 360, "interrupted"),
+    state: "recording",
+  });
+
+  const first = leftoverMedia(root);
+  assert.deepEqual(first.media.recoverPending(), { recovered: 0, pending: 0 });
+  assert.deepEqual(first.media.commitLeftoverRecordings(), { committed: 3, kept: [] });
+  const artifacts = first.db.list("artifact");
+  assert.equal(artifacts.length, 3);
+  const videos = artifacts
+    .filter((artifact) => artifact.media_kind === "video")
+    .map((artifact) => [artifact.capture_method, artifact.width_px, artifact.height_px])
+    .sort();
+  assert.deepEqual(videos, [
+    ["screen_recording", 1280, 720],
+    ["screen_recording", 640, 360],
+  ]);
+  const voice = artifacts.find((artifact) => artifact.media_kind === "audio");
+  assert.equal(voice.duration_ms, 1000);
+  // 紐づけ先の無い録音・録画は、前の版の「停止」と同じく CaptureEntry ごと Inbox 側へ入る。
+  const captures = first.db.list("capture_entry");
+  assert.equal(captures.length, 3);
+  assert.deepEqual(captures.map((capture) => capture.capture_method).sort(), [
+    "microphone",
+    "screen_recording",
+    "screen_recording",
+  ]);
+  // 録りかけは chunk をつないだ bytes がそのまま残り、録った時間は最後の chunk までになる。
+  const interrupted = artifacts.find((artifact) => artifact.width_px === 640);
+  assert.deepEqual(
+    fs.readFileSync(interrupted.stored_path),
+    webmWithDimensions(640, 360, "interrupted"),
+  );
+  assert.equal(interrupted.duration_ms, 1500);
+  assert.equal(fs.existsSync(path.join(interruptedVideo.directory, "chunk-00000000.part")), false);
+  for (const session of [stoppedVideo, stoppedVoice, interruptedVideo]) {
+    assert.equal(
+      JSON.parse(fs.readFileSync(path.join(session.directory, "session.json"), "utf8")).state,
+      "committed",
+    );
+  }
+  first.db.db.close();
+
+  // 二度目の起動では何もしない。
+  const second = leftoverMedia(root);
+  assert.deepEqual(second.media.recoverPending(), { recovered: 0, pending: 0 });
+  assert.deepEqual(second.media.commitLeftoverRecordings(), { committed: 0, kept: [] });
+  assert.equal(second.db.list("artifact").length, 3);
+  assert.equal(second.db.list("capture_entry").length, 3);
+  assert.equal(second.db.list("change_event").length, 3);
+  second.db.db.close();
+});
+
+test("確定できない録音・録画は消さずに残し、理由の code だけを返す（#755 束4）", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-leftover-keep-"));
+  const userDataPath = path.join(root, "user-data");
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  // 見出しに幅と高さが無い動画、chunk の hash が合わない録りかけ、長さの分からない音声の取り込み、壊れた manifest。
+  const noDimensions = writeLeftoverSession(userDataPath, {
+    kind: "screen_recording",
+    bytes: tinyWebm("no-dimensions"),
+  });
+  const brokenChunk = writeLeftoverSession(userDataPath, {
+    kind: "microphone",
+    bytes: tinyWebm("broken-chunk"),
+    state: "recording",
+    chunkHash: "0".repeat(64),
+  });
+  const unknownDuration = writeLeftoverSession(userDataPath, {
+    kind: "audio_import",
+    bytes: tinyWebm("imported"),
+  });
+  const corruptDirectory = path.join(userDataPath, "media-recovery", "sessions", randomUUID());
+  fs.mkdirSync(corruptDirectory, { recursive: true });
+  fs.writeFileSync(path.join(corruptDirectory, "session.json"), "{ not json");
+
+  const { db, media } = leftoverMedia(root);
+  const result = media.commitLeftoverRecordings();
+  assert.equal(result.committed, 0);
+  assert.deepEqual([...result.kept].sort(), [
+    "dimensions_unknown",
+    "duration_unknown",
+    "manifest_invalid",
+    "recording_incomplete",
+  ]);
+  // 返すのは code だけ。path も session ID も含めない。
+  assert.doesNotMatch(JSON.stringify(result), /media-recovery|[0-9a-f]{8}-[0-9a-f]{4}-/);
+  assert.equal(db.list("artifact").length, 0);
+  // 実ファイルと manifest は残す。
+  assert.equal(fs.existsSync(path.join(noDimensions.directory, "original.webm")), true);
+  assert.equal(fs.existsSync(path.join(brokenChunk.directory, "chunk-00000000.part")), true);
+  assert.equal(
+    JSON.parse(fs.readFileSync(path.join(brokenChunk.directory, "session.json"), "utf8")).state,
+    "recording",
+  );
+  assert.equal(fs.existsSync(path.join(unknownDuration.directory, "original.webm")), true);
+  assert.equal(fs.existsSync(path.join(corruptDirectory, "session.json")), true);
+  // もう一度流しても同じ物を同じ理由で残すだけで、増えも消えもしない。
+  assert.deepEqual([...media.commitLeftoverRecordings().kept].sort(), [...result.kept].sort());
+  assert.equal(db.list("artifact").length, 0);
+  db.db.close();
+});
+
+test("取り込みの保存待ちの動画（紐づけ先つき）には、起動の確定は触らない（#755 束4）", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-leftover-import-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const sourcePath = path.join(root, "clip.webm");
+  fs.writeFileSync(sourcePath, webmWithDimensions(320, 240, "import"));
+  const { db, media } = leftoverMedia(root);
+  db.save("task", { id: "task-owner", title: "Owner", state: "todo", project_id: null });
+  const prepared = media.prepareVideoFile(sourcePath, {
+    storageMode: "managed",
+    sourceType: "task",
+    sourceId: "task-owner",
+  });
+  assert.deepEqual(media.commitLeftoverRecordings(), { committed: 0, kept: [] });
+  assert.equal(db.list("artifact").length, 0);
+  assert.equal(
+    media.listPreparedVideo().find((entry) => entry.sessionId === prepared.sessionId)?.status,
+    "ready",
+  );
   db.db.close();
 });

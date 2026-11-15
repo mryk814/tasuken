@@ -1997,6 +1997,18 @@ async function startDesktopApp(): Promise<void> {
       `Media Capture recovery: recovered=${mediaRecovery.recovered}, pending=${mediaRecovery.pending}`,
     );
   }
+  // 前の版が確定しないまま残した録音・録画を、添付として確定する（#755 束4）。
+  // 録る側の画面は無いので、確定できない物は残して、数と理由の code だけを残す。
+  const leftoverRecordings = mediaCapture.commitLeftoverRecordings();
+  if (leftoverRecordings.committed || leftoverRecordings.kept.length) {
+    logMain(
+      "info",
+      "media-capture:leftover-recordings",
+      `committed=${leftoverRecordings.committed} kept=${leftoverRecordings.kept.length} codes=${[
+        ...new Set(leftoverRecordings.kept),
+      ].join(",")}`,
+    );
+  }
   if (smokeAudioSourcePath) mediaCapture.prepareFile(smokeAudioSourcePath, null);
   registerMediaProtocol(mediaCapture);
   sharedFolderSyncService = new SharedFolderSyncService(

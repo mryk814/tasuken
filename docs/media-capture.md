@@ -3,7 +3,7 @@
 > 録る側（マイク録音、画面・window・範囲の録画、切り出し、文字起こしの履歴、収録の画面、同梱の ffmpeg）は #755 束4 で外した。
 > 残っているのは、既存の音声・動画ファイルの取り込みの保存と復旧、前に録った音声・動画を添付から再生する所。
 > 種類（`capture_entry`・`artifact`）と、録った記録の `capture_method=microphone | screen_recording` はそのまま残る。
-> 前の版が録りかけ・保存待ちで残した session は `userData/media-recovery/sessions` に置いたままで、自動では確定も削除もしない。
+> 前の版が録りかけ・保存待ちで残した録音・録画と音声の取り込みは、起動のたびに `commitLeftoverRecordings` が添付として確定する（録りかけは chunk をつなぐ。画面録画の幅と高さは WebM・MP4 の見出しから読む）。確定した session は `committed` になり、次の起動では何もしない。確定できない物は `userData/media-recovery/sessions` に残し、ログへは数と理由の code だけを出す。紐づけ先つきの動画の取り込みは、添付の欄に保存待ちの画面があるので触らない。
 > 音声ファイルの取り込みの入口は、添付の画面の見出しの「音声を取り込む」。普通の添付の追加は音声を断るので、こちらの専用の道（長さを測ってから保存）を通す。保存に失敗した取り込みは保存待ちに残さず破棄する（元のファイルは選んだ場所に残る）。
 
 Issue #367 では、既存音声を Inbox の Voice Capture と managed Artifact へ取り込む。
@@ -73,7 +73,7 @@ session manifest、recovery root、availability、ID-based protocol、Range配�
 ## 復旧状態
 
 - `prepared`: 取り込みの確認待ち。preview・保存・破棄を利用者が選ぶ。missing/changedでもstrict manifestでpreparedを証明できる場合だけ破棄できる。
-- `recording` / `recording_paused`: 前の版が録りかけで残したsession。読むだけで、確定も削除もしない（chunkはsessionのフォルダーに残る）。
+- `recording` / `recording_paused`: 前の版が録りかけで残したsession。起動のときにchunkをつないで`prepared`にし、そのまま確定する。chunkが欠けた・hashが合わない物は確定も削除もせずに残す。
 - `finalizing` / `finalized`: managed rootが戻れば同一起動中も明示再試行できる。DB適用有無が曖昧なため破棄しない。
 - `manifest_invalid`: path非露出の診断行として表示するが、stateを証明できないため自動確定・破棄をしない。
 - `committed`:一覧へ出さず、Artifact IDから通常の再生経路へ解決する。

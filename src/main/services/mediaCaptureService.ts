@@ -28,6 +28,7 @@ import type { MediaAvailability } from "../../shared/mediaArtifact.mjs";
 import { resolveUniqueArtifactFileName, safeArtifactFileName } from "./artifactStorage.mjs";
 import type { Entity } from "../../shared/types/workspace";
 import { writeAtomicTextFile } from "./atomicText.mjs";
+import { readVideoDimensions } from "./videoContainerDimensions";
 import {
   buildThemeFolderManifest,
   THEME_FOLDER_MANIFEST,
@@ -42,6 +43,7 @@ const MAX_MANIFEST_BYTES = 1024 * 1024;
 const EXTERNAL_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000;
 // 録る側は外した（#755 束4）。この上限は、前の版が録りかけで残した
 // session manifest を読む時の検証にだけ使う。
+const MICROPHONE_CHUNK_MAX_BYTES = 1024 * 1024;
 const MICROPHONE_RECORDING_MAX_BYTES = 512 * 1024 * 1024;
 const MICROPHONE_RECORDING_MAX_CHUNKS = 16_000;
 const MICROPHONE_RECORDING_MAX_DURATION_MS = 4 * 60 * 60 * 1000;
@@ -520,6 +522,26 @@ function validDuration(value: unknown): number {
   }
   return numeric;
 }
+
+function recordingChunkFileName(sequence: number): string {
+  return `chunk-${String(sequence).padStart(8, "0")}.part`;
+}
+
+function elapsedSince(startedAt: string, now: string): number {
+  return Math.max(0, Date.parse(now) - Date.parse(startedAt));
+}
+
+/** 映像の幅と高さは見出しにある。MediaRecorder の出力なら先頭 1 MiB に収まる。 */
+const VIDEO_HEADER_READ_BYTES = 1024 * 1024;
+
+/** 前の版が残した録音・録画を確定できなかった理由。ログへはこの code だけを出す。 */
+export type LeftoverRecordingCode =
+  | "manifest_invalid"
+  | "recording_incomplete"
+  | "media_unavailable"
+  | "duration_unknown"
+  | "dimensions_unknown"
+  | "commit_failed";
 
 interface DirectoryIdentity {
   dev: string;
@@ -1917,6 +1939,128 @@ export class MediaCaptureService {
     return { recovered, pending };
   }
 
+  /**
+   * 前の版が録って、確定しないまま残した録音・画面録画を、添付として一度だけ確定する（#755 束4）。
+   *
+   * 録る側と「保存待ち」の画面を外したので、残った session は本人が開く所が無い。
+   * 決まり 4（記録がある機能は、最初の起動で自動に残す）に合わせ、起動のたびにここを通す。
+   * 確定した session は manifest が committed になるので、次の起動では何もしない。
+   * 確定できない物は消さずに残し、理由の code だけを返す（path や ID は返さない）。
+   * 取り込んだ動画（owner 付き）は添付の欄に保存待ちの画面が残っているので、ここでは触らない。
+   */
+  commitLeftoverRecordings(): { committed: number; kept: LeftoverRecordingCode[] } {
+    let committed = 0;
+    const kept: LeftoverRecordingCode[] = [];
+    for (const entry of fs.readdirSync(this.recoveryRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !SESSION_ID_PATTERN.test(entry.name)) continue;
+      const sessionDirectory = this.sessionDirectory(entry.name);
+      let manifest: AudioSessionManifest;
+      try {
+        manifest = this.readManifest(sessionDirectory);
+      } catch {
+        if (this.readManifestMediaKindLoose(sessionDirectory) === "video") continue;
+        kept.push("manifest_invalid");
+        continue;
+      }
+      const isRecordedVideo =
+        manifest.mediaKind === "video" && manifest.captureMethod === "screen_recording";
+      if (manifest.mediaKind !== "audio" && !isRecordedVideo) continue;
+      if (!["prepared", "recording", "recording_paused"].includes(manifest.state)) continue;
+      const code = this.commitLeftoverRecording(sessionDirectory, manifest);
+      if (code) kept.push(code);
+      else committed += 1;
+    }
+    return { committed, kept };
+  }
+
+  private commitLeftoverRecording(
+    sessionDirectory: string,
+    initial: AudioSessionManifest,
+  ): LeftoverRecordingCode | null {
+    let manifest = initial;
+    if (manifest.state === "recording" || manifest.state === "recording_paused") {
+      try {
+        manifest = this.finishInterruptedRecording(sessionDirectory, manifest);
+      } catch {
+        return "recording_incomplete";
+      }
+    }
+    const resolution = this.resolveSessionMedia(manifest.sessionId);
+    if (resolution.availability !== "available") return "media_unavailable";
+    let head: Buffer;
+    try {
+      head = Buffer.alloc(Math.min(resolution.fileSize, VIDEO_HEADER_READ_BYTES));
+      fs.readSync(resolution.fileDescriptor, head, 0, head.length, 0);
+    } finally {
+      fs.closeSync(resolution.fileDescriptor);
+    }
+    if (manifest.durationMs === undefined) return "duration_unknown";
+    try {
+      if (manifest.mediaKind === "audio") {
+        this.commit({ sessionId: manifest.sessionId, durationMs: manifest.durationMs });
+        return null;
+      }
+      const dimensions = readVideoDimensions(head, manifest.mimeType);
+      if (!dimensions) return "dimensions_unknown";
+      this.commitVideo({
+        sessionId: manifest.sessionId,
+        durationMs: manifest.durationMs,
+        ...dimensions,
+      });
+      return null;
+    } catch {
+      return "commit_failed";
+    }
+  }
+
+  /** 前の版の stopRecording と同じ手順で、録りかけの chunk をつないで prepared にする。 */
+  private finishInterruptedRecording(
+    sessionDirectory: string,
+    manifest: AudioSessionManifest,
+  ): AudioSessionManifest {
+    const sessionIdentity = captureDirectoryIdentity(sessionDirectory, "録音session");
+    // 最後に chunk を書いた時刻までを録音時間にする。前の版が落ちてからの時間は足さない。
+    const activeCutoff = manifest.updatedAt;
+    const durationMs = Math.min(
+      MICROPHONE_RECORDING_MAX_DURATION_MS,
+      (manifest.recordingElapsedMs || 0) +
+        (manifest.state === "recording" && manifest.recordingStateStartedAt
+          ? elapsedSince(manifest.recordingStateStartedAt, activeCutoff)
+          : 0),
+    );
+    const sequenceCount = manifest.recordingNextSequence || 0;
+    if (sequenceCount <= 0 || manifest.fileSize <= 0) throw new Error("録音データがありません。");
+    const stagedPath = path.resolve(sessionDirectory, manifest.stagedFileName);
+    assertWithin(sessionDirectory, stagedPath, "録音temporary file");
+    if (fs.existsSync(stagedPath)) {
+      const staged = fs.lstatSync(stagedPath);
+      if (staged.isSymbolicLink() || !staged.isFile())
+        throw new Error("録音temporary fileを安全に復旧できません。");
+      fs.rmSync(stagedPath, { force: true });
+    }
+    const contentHash = this.assembleRecordingChunks(
+      sessionDirectory,
+      stagedPath,
+      sequenceCount,
+      manifest.fileSize,
+      manifest.mimeType,
+      manifest.recordingChunkHashes || "",
+    );
+    assertDirectoryIdentity(sessionDirectory, sessionIdentity, "録音session");
+    const prepared: AudioSessionManifest = {
+      ...manifest,
+      state: "prepared",
+      contentHash,
+      durationMs: validDuration(durationMs),
+      recordingElapsedMs: durationMs,
+      recordingStateStartedAt: undefined,
+      updatedAt: this.now(),
+    };
+    // chunk は prepared を書いた後の readManifest が片付ける（cleanupRecordingChunks）。
+    this.writeManifest(sessionDirectory, prepared);
+    return this.readManifest(sessionDirectory);
+  }
+
   resolveSessionMedia(sessionIdValue: unknown): MediaFileResolution {
     try {
       const sessionDirectory = this.sessionDirectory(assertSessionId(sessionIdValue));
@@ -2672,6 +2816,104 @@ export class MediaCaptureService {
       canRetry: false,
       canDiscard: true,
     };
+  }
+
+  private assembleRecordingChunks(
+    sessionDirectory: string,
+    stagedPath: string,
+    sequenceCount: number,
+    expectedSize: number,
+    mimeType: string,
+    expectedChunkHashes: string,
+  ): string {
+    const hash = createHash("sha256");
+    let descriptor: number | null = null;
+    let written = 0;
+    let contentHash = "";
+    try {
+      const noFollow = "O_NOFOLLOW" in fs.constants ? Number(fs.constants.O_NOFOLLOW) : 0;
+      descriptor = fs.openSync(
+        stagedPath,
+        fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_EXCL | noFollow,
+        0o600,
+      );
+      for (let sequence = 0; sequence < sequenceCount; sequence += 1) {
+        const chunkPath = path.resolve(sessionDirectory, recordingChunkFileName(sequence));
+        assertWithin(sessionDirectory, chunkPath, "録音chunk");
+        let chunkDescriptor: number | null = null;
+        try {
+          chunkDescriptor = fs.openSync(chunkPath, fs.constants.O_RDONLY | noFollow);
+          const stat = fs.fstatSync(chunkDescriptor);
+          if (!stat.isFile() || stat.size <= 0 || stat.size > MICROPHONE_CHUNK_MAX_BYTES) {
+            throw new Error(
+              "録音chunkが欠落または変更されています。録音は破棄せず復旧待ちにしました。",
+            );
+          }
+          const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, stat.size));
+          const chunkHash = createHash("sha256");
+          let position = 0;
+          while (position < stat.size) {
+            const bytesRead = fs.readSync(
+              chunkDescriptor,
+              buffer,
+              0,
+              Math.min(buffer.length, stat.size - position),
+              position,
+            );
+            if (bytesRead <= 0)
+              throw new Error(
+                "録音chunkを最後まで読み取れません。録音は破棄せず復旧待ちにしました。",
+              );
+            let offset = 0;
+            while (offset < bytesRead)
+              offset += fs.writeSync(descriptor, buffer, offset, bytesRead - offset, null);
+            hash.update(buffer.subarray(0, bytesRead));
+            chunkHash.update(buffer.subarray(0, bytesRead));
+            position += bytesRead;
+            written += bytesRead;
+          }
+          const after = fs.lstatSync(chunkPath);
+          if (
+            after.isSymbolicLink() ||
+            !after.isFile() ||
+            String(after.dev) !== String(stat.dev) ||
+            String(after.ino) !== String(stat.ino)
+          ) {
+            throw new Error(
+              "録音chunkが確認中に差し替えられました。未検証bytesは使用せず復旧待ちにしました。",
+            );
+          }
+          const expectedChunkHash = expectedChunkHashes.slice(sequence * 64, (sequence + 1) * 64);
+          if (chunkHash.digest("hex") !== expectedChunkHash) {
+            throw new Error(
+              "録音chunkのhashが一致しません。未検証bytesは使用せず復旧待ちにしました。",
+            );
+          }
+        } finally {
+          if (chunkDescriptor !== null) fs.closeSync(chunkDescriptor);
+        }
+      }
+      fs.fsyncSync(descriptor);
+      if (written !== expectedSize) {
+        throw new Error("録音chunkの合計sizeが一致しません。録音は破棄せず復旧待ちにしました。");
+      }
+      if (!hasExpectedMediaSignature(descriptor, mimeType)) {
+        throw new Error(
+          "録音データをWebM音声として確認できません。マイクを確認して、もう一度録音してください。",
+        );
+      }
+      contentHash = `sha256:${hash.digest("hex")}`;
+    } catch (error) {
+      if (descriptor !== null) {
+        fs.closeSync(descriptor);
+        descriptor = null;
+      }
+      fs.rmSync(stagedPath, { force: true });
+      throw error;
+    } finally {
+      if (descriptor !== null) fs.closeSync(descriptor);
+    }
+    return contentHash;
   }
 
   private sessionDirectory(sessionId: string): string {
