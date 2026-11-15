@@ -33,6 +33,7 @@ import {
   performanceDiagnosticsEnabled,
   recordRendererPerformance,
 } from "../services/performanceDiagnostics";
+import { placeNewHabitEntry } from "../services/habitEntryPlacement.ts";
 import { assertRendererBootstrapContainsNoMedia } from "../mediaCapturePersistence";
 import {
   isViewPreferenceId,
@@ -488,11 +489,15 @@ export function registerIpc(
     }
     const entityType = requireEntityType(type);
     rejectTaskPersistence(entityType);
-    const normalizedEntity = preserveMainOnlyEventFields(
+    const preserved = preserveMainOnlyEventFields(
       repository,
       entityType,
       normalizeMediaCapturePersistence(repository, entityType, entity),
     );
+    const normalizedEntity =
+      entityType === "habit_entry" && preserved && typeof preserved === "object"
+        ? placeNewHabitEntry(repository, preserved as Record<string, unknown>)
+        : preserved;
     const saved = repository.save(
       entityType,
       normalizedEntity as Entity,
@@ -548,6 +553,9 @@ export function registerIpc(
         type,
         normalizeMediaCapturePersistence(repository, type, value.entity, "一括保存"),
       );
+      // 画面の続けることの記録（HabitPanel）。消した記録と同じ ID なら、次の空いた回へずらして作る。
+      if (type === "habit_entry" && value.entity && typeof value.entity === "object")
+        value.entity = placeNewHabitEntry(repository, value.entity as Record<string, unknown>);
     }
     const saved = repository.saveMany(
       operations.map((operation) =>

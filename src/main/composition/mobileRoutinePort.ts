@@ -4,8 +4,8 @@ import {
   habitScheduleLabel,
   laterPerformedOn,
   nextEntrySequence,
-  nextFreeEntrySequence,
 } from "../../shared/contracts/habit/progress.ts";
+import { freeHabitEntrySequence } from "../services/habitEntryPlacement.ts";
 import type { MobileRoutineActionRequest } from "../../shared/contracts/mobile/public.ts";
 import type {
   MobileGatewayCorePort,
@@ -117,16 +117,8 @@ export function createMobileRoutinePort(
                   : { ok: false, code: "idempotency_conflict" };
               }
               // その日の次の空いた回に入れる。PCが同じ日に記録していても、端末の1回を潰さない。
-              // 消した記録と、実施日を直した記録のIDも避ける（Desktopの画面と同じ決め方）。
-              sequence = nextFreeEntrySequence(
-                entries.map((entry) => ({
-                  id: text(entry.id),
-                  performed_on: text(entry.performed_on),
-                  sequence: Number(entry.sequence),
-                })),
-                action.habitId,
-                action.performedOn,
-              );
+              // 消した記録と、実施日を直した記録のIDも避ける（Desktopの画面の記録と同じ所で決める）。
+              sequence = freeHabitEntrySequence(persistence, action.habitId, action.performedOn);
               if (sequence > 50) return { ok: false, code: "validation_failed" };
             }
             const id = habitEntryId(action.habitId, action.performedOn, sequence);

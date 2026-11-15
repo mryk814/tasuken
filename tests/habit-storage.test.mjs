@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
+
+import { build } from "esbuild";
 
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 import { SharedFolderSyncService } from "../src/main/services/sharedFolderSync.mjs";
@@ -280,4 +284,125 @@ test("スマホの記録の source_command_id は、同期の差分・JSON往復
     if (second.db.open) second.db.close();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("画面（Renderer → IPC）から記録して消し、同じ日にまた記録すると、墓標を上書きせず次の回に入る", async (t) => {
+  // registerIpc を、electron の ipcMain だけを差し替えて組み立てる（agent-work-read.test.mjs と同じ組み方）。
+  const root = await mkdtemp(path.join(process.cwd(), ".habit-ipc-test-"));
+  const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
+  // DB を閉じてから消す（Windows では開いたままのファイルを消せない）。
+  t.after(async () => {
+    if (database.db.open) database.db.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const handlers = new Map();
+  globalThis.__habitIpcHandlers = handlers;
+  t.after(() => delete globalThis.__habitIpcHandlers);
+  const fakeElectron = path.join(root, "fake-electron.mjs");
+  fs.writeFileSync(
+    fakeElectron,
+    `const unavailable = () => { throw new Error("electron is not available in this test"); };
+export const ipcMain = { handle: (name, handler) => globalThis.__habitIpcHandlers.set(name, handler), on: () => {}, once: () => {}, removeHandler: () => {} };
+export const BrowserWindow = { getAllWindows: () => [], fromWebContents: () => null };
+export const dialog = new Proxy({}, { get: unavailable });
+export const app = new Proxy({}, { get: unavailable });
+export const clipboard = new Proxy({}, { get: unavailable });
+export const nativeImage = new Proxy({}, { get: unavailable });
+export const shell = new Proxy({}, { get: unavailable });
+export const ClipboardItem = unavailable;
+`,
+  );
+  await build({
+    stdin: {
+      contents: `
+      export { registerIpc } from "./src/main/ipc/registerIpc.ts";
+      export { IPC } from "./src/shared/ipc/contracts.ts";
+      export { WorkspaceService } from "./src/main/services/workspaceService.ts";
+    `,
+      resolveDir: process.cwd(),
+    },
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    packages: "external",
+    alias: { electron: fakeElectron },
+    outfile: path.join(root, "ipc.mjs"),
+    logLevel: "silent",
+  });
+  const ipc = await import(pathToFileURL(path.join(root, "ipc.mjs")));
+
+  database.loadWorkspace();
+  const service = new ipc.WorkspaceService(database, root, undefined, undefined, () => {
+    throw new Error("no images");
+  });
+  const unused = new Proxy(
+    {},
+    {
+      get: (_target, key) => () => {
+        throw new Error(`この試験では使わない相手が呼ばれた: ${String(key)}`);
+      },
+    },
+  );
+  ipc.registerIpc(
+    database,
+    service,
+    unused,
+    unused,
+    unused,
+    unused,
+    unused,
+    unused,
+    unused,
+    unused,
+    unused,
+    unused,
+    () => {},
+  );
+  const invoke = (name, ...args) => handlers.get(name)({ sender: { id: 1 } }, ...args);
+  database.save("habit", habit());
+
+  // 画面（HabitPanel.record）は、画面に届く生きている記録だけで回を決める。消した記録は届かない。
+  const screenRecord = () => {
+    const live = database.list("habit_entry").filter((row) => row.habit_id === "habit-reading");
+    const sequence = nextEntrySequence(live, "2026-09-20");
+    return [
+      {
+        action: "save",
+        type: "habit_entry",
+        entity: {
+          id: habitEntryId("habit-reading", "2026-09-20", sequence),
+          habit_id: "habit-reading",
+          performed_on: "2026-09-20",
+          sequence,
+          recorded_at: `2026-09-20T0${sequence}:00:00.000Z`,
+        },
+      },
+    ];
+  };
+  const first = invoke(ipc.IPC.entitySaveMany, screenRecord())[0];
+  assert.equal(first.id, habitEntryId("habit-reading", "2026-09-20", 1));
+  invoke(ipc.IPC.entityRemove, "habit_entry", first.id);
+  assert.ok(database.get("habit_entry", first.id, true).deleted_at);
+
+  const second = invoke(ipc.IPC.entitySaveMany, screenRecord())[0];
+  assert.equal(
+    second.id,
+    habitEntryId("habit-reading", "2026-09-20", 2),
+    "墓標の次の空いた回に入る",
+  );
+  assert.equal(second.sequence, 2);
+  const tombstone = database.get("habit_entry", first.id, true);
+  assert.ok(tombstone.deleted_at, "墓標は上書きされず、消したまま残る");
+  assert.equal(tombstone.recorded_at, "2026-09-20T01:00:00.000Z");
+
+  // 元に戻す（restore）の道は今のまま、同じ ID で戻る。
+  invoke(ipc.IPC.entityRestore, "habit_entry", first.id);
+  assert.equal(database.list("habit_entry").length, 2);
+
+  // 生きている記録の書き換え（実施日の修正）は、同じ ID のまま。
+  const corrected = invoke(ipc.IPC.entitySave, "habit_entry", {
+    ...database.get("habit_entry", second.id),
+    performed_on: "2026-09-19",
+  });
+  assert.equal(corrected.id, second.id);
 });

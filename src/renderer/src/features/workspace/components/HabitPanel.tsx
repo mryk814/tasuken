@@ -96,7 +96,8 @@ export function HabitPanel({
 
   const record = async (habit: BaseRecord, performedOn: string) => {
     // 実施日を直した記録は元の日の ID のまま残るので、その ID を同じ回の番号で上書きしない（スマホの受け口と同じ決め方）。
-    // 消した記録（墓標）は画面に届かない（projectWorkspaceData が除く）ので、ここでは避けられない。
+    // 消した記録（墓標）は画面に届かない（projectWorkspaceData が除く）ので、墓標の ID と重なった時は
+    // Main の保存の口（registerIpc の placeNewHabitEntry）が次の空いた回へずらして作る。
     const allEntries = entries.filter((entry) => entry.habit_id === String(habit.id));
     const sequence = nextFreeEntrySequence(allEntries as never, String(habit.id), performedOn);
     if (sequence > 50) {
