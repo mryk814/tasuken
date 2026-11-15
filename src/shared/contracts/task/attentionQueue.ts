@@ -205,7 +205,7 @@ export function buildAttentionQueue(input: {
       agentLabel: text(proposal.source_app) || text(proposal.source) || null,
       headline: proposalLabel(proposal),
       summary,
-      questionOrAction: "内容を確認して、採用するかどうかを決めてください。",
+      questionOrAction: "内容を確認して、採るか見送るかを決めてください。",
       createdAt: timeOf(proposal.received_at) ?? timeOf(proposal.created_at),
       updatedAt: timeOf(proposal.received_at) ?? timeOf(proposal.created_at),
       sourceType: "ai_proposal",
