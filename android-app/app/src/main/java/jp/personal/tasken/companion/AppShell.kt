@@ -522,7 +522,7 @@ private fun DueTimesRow(dueTimes: List<LocalTime>, onChange: (List<LocalTime>) -
     val context = LocalContext.current
     val times = dueTimes.ifEmpty { TaskNotificationPlan.DefaultDueTimes }
     fun pick(index: Int) {
-        val current = times.getOrNull(index) ?: LocalTime.of(if (times[0].hour < 15) 15 else 21, 0)
+        val current = times.getOrNull(index) ?: TaskNotificationPlan.suggestedSecondDueTime(times[0]) ?: return
         android.app.TimePickerDialog(
             context,
             { _, hour, minute ->
@@ -558,7 +558,7 @@ private fun DueTimesRow(dueTimes: List<LocalTime>, onChange: (List<LocalTime>) -
                 modifier = Modifier.heightIn(min = 44.dp).testTag("due-time-$index"),
             )
         }
-        if (times.size < TaskNotificationPlan.MaxDueTimes) {
+        if (times.size < TaskNotificationPlan.MaxDueTimes && TaskNotificationPlan.suggestedSecondDueTime(times[0]) != null) {
             AssistChip(
                 onClick = { pick(times.size) },
                 label = { Text("＋ 2 回目") },

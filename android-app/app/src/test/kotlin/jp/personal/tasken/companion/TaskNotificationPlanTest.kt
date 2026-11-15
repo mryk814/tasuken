@@ -230,4 +230,45 @@ class TaskNotificationPlanTest {
         assertEquals("11/19", TaskNotificationPlan.dueLabel(day.plusDays(3), day))
         assertEquals("2日超過", TaskNotificationPlan.dueLabel(day.minusDays(2), day))
     }
+
+    @Test
+    fun snoozingADueNoticeNeverOverwritesAFutureReminderTheUserSet() {
+        val now = at(16, 9, 5)
+        // 期限の通知の「後で」: 本人が付けた先の時刻（17:00）がある時は書かない。その時刻がそのまま鳴る。
+        assertFalse(TaskNotificationPlan.snoozeWritesReminder(TaskNoticeKind.Due, "2026-11-16T17:00", now, tokyo))
+        assertFalse(TaskNotificationPlan.snoozeWritesReminder(TaskNoticeKind.Due, "2026-11-20T00:00:00Z", now, tokyo))
+        // 時刻が無い・もう過ぎている・読めない時は書く。
+        assertTrue(TaskNotificationPlan.snoozeWritesReminder(TaskNoticeKind.Due, null, now, tokyo))
+        assertTrue(TaskNotificationPlan.snoozeWritesReminder(TaskNoticeKind.Due, "2026-11-16T09:00", now, tokyo))
+        assertTrue(TaskNotificationPlan.snoozeWritesReminder(TaskNoticeKind.Due, "2026-11-16T09:05", now, tokyo))
+        assertTrue(TaskNotificationPlan.snoozeWritesReminder(TaskNoticeKind.Due, "あした", now, tokyo))
+        // 時刻の通知の「後で」は、その時刻を先へ送るので、いつも書く。
+        assertTrue(TaskNotificationPlan.snoozeWritesReminder(TaskNoticeKind.Time, "2026-11-16T17:00", now, tokyo))
+        assertTrue(TaskNotificationPlan.snoozeWritesReminder(null, "2026-11-16T17:00", now, tokyo))
+    }
+
+    @Test
+    fun theSuggestedSecondTimeIsLaterThanTheFirst() {
+        assertEquals(LocalTime.of(15, 0), TaskNotificationPlan.suggestedSecondDueTime(LocalTime.of(9, 0)))
+        assertEquals(LocalTime.of(21, 0), TaskNotificationPlan.suggestedSecondDueTime(LocalTime.of(15, 0)))
+        assertEquals(LocalTime.of(23, 59), TaskNotificationPlan.suggestedSecondDueTime(LocalTime.of(21, 0)))
+        assertNull(TaskNotificationPlan.suggestedSecondDueTime(LocalTime.of(23, 59)))
+    }
+
+    @Test
+    fun anUnreadableReminderIsReadAsNoneWithoutRejectingTheWholeResponse() {
+        val meta = """{"apiVersion":1,"schemaVersion":$TASKEN_MOBILE_SCHEMA_VERSION,"serverId":"server-1","serverRevision":2,"generatedAt":"2026-11-16T00:00:00Z","truncated":false}"""
+        fun task(id: String, reminderAt: String) =
+            """{"id":"$id","version":1,"title":"題名","themeId":null,"state":"todo","workState":"not_delegated","todayDate":"2026-11-16","schedule":null,"updatedAt":"2026-11-16T00:00:00Z","reminderAt":$reminderAt}"""
+        // 時差 +19:00、小数秒 10 桁、無い日付。どれも欄だけ「時刻なし」にして、ほかの Task は読める。
+        val unreadable = listOf("\"2026-11-16T09:00:00+19:00\"", "\"2026-11-16T09:00:00.1234567890Z\"", "\"2026-02-30T09:00\"")
+        val tasks = unreadable.mapIndexed { index, value -> task("10000000-0000-4000-8000-00000000000$index", value) } +
+            task("10000000-0000-4000-8000-000000000009", "\"2026-11-16T09:00:00+09:00\"")
+        val bootstrap = MobileSyncContract.decodeBootstrap("""{"ok":true,"meta":$meta,"data":{"tasks":[${tasks.joinToString(",")}],"nextCursor":"c","hasMore":false}}""")
+        assertEquals(listOf(null, null, null, "2026-11-16T09:00:00+09:00"), bootstrap.data.tasks.map { readableReminderAt(it.reminderAt) })
+        val sync = MobileSyncContract.decodeSync("""{"ok":true,"meta":$meta,"data":{"changes":[{"kind":"upsert","task":${tasks[0]}}],"nextCursor":"c2","hasMore":false}}""")
+        assertNull(readableReminderAt(sync.data.changes.single().task?.reminderAt))
+        val today = MobileTodayContract.decodeSuccess("""{"ok":true,"meta":$meta,"data":{"date":"2026-11-16","items":[${tasks.joinToString(",")}],"nextCursor":null}}""")
+        assertEquals(4, today.data.items.size)
+    }
 }

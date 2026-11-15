@@ -202,6 +202,8 @@ class TaskNotificationDatabaseTest {
         assertEquals("2026-11-16T14:30", envelope.command.base.getValue("reminderAt").jsonPrimitive.content)
         assertNull(envelope.command.expectedScheduleVersion)
 
+        // Android は短い間に続く通知の更新を捨てる。人が押す間合い（1 秒より長い）を置いてから掛け直す。
+        Thread.sleep(1_200)
         // 掛け直すと、アラームは 1 時間後。その時刻にもう一度知らせる。
         assertEquals(emptyList<TaskNotice>(), sync(at(16, 14, 31)))
         assertEquals(at(16, 15, 30), alarms.last())
@@ -307,5 +309,39 @@ class TaskNotificationDatabaseTest {
         val clear = MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(dao.outbox(clearId)).envelopeJson)
         assertEquals(JsonNull, clear.command.changes.getValue("reminderAt"))
         assertNull(dao.task(timedId)?.reminderAt)
+    }
+
+    private suspend fun press(taskId: String, action: TaskNotificationAction, kind: TaskNoticeKind, now: LocalDateTime) =
+        TaskNotificationActions.handle(
+            context, dao, taskId, action, now, tokyo, kind,
+            complete = { outbox.enqueueComplete(it) },
+            snooze = { id, value -> outbox.enqueueUpdateReminderAt(id, value) },
+        )
+
+    @Test
+    fun snoozingADueNoticeLeavesTheUsersOwnLaterReminderAlone() = runBlocking {
+        // 期限が今日で、本人が 17:00 に時刻も付けている Task。
+        dao.upsertTask(task(dueId, "書類を出す", reminderAt = "2026-11-16T17:00", dueDate = "2026-11-16"))
+        sync(at(16, 9))
+        awaitShown(1)
+        assertTrue(press(dueId, TaskNotificationAction.SnoozeHour, TaskNoticeKind.Due, at(16, 9, 1)))
+        // 本人の時刻は書き替えず、送るものも作らない。通知は片付き、17:00 にそのまま鳴る。
+        assertEquals("2026-11-16T17:00", dao.task(dueId)?.reminderAt)
+        assertNull(dao.task(dueId)?.optimisticCommandId)
+        assertEquals(0, dao.outboxCount())
+        awaitShown(0)
+        sync(at(16, 9, 2))
+        assertEquals(at(16, 14, 30), alarms.last())
+        assertTrue(sync(at(16, 17)).any { it.key == "time:$dueId:2026-11-16T17:00" })
+
+        // 時刻がもう過ぎている Task の期限の通知なら、「後で」は時刻を書く。
+        dao.upsertTask(task(dueId, "書類を出す", reminderAt = "2026-11-16T08:00", dueDate = "2026-11-16"))
+        assertTrue(press(dueId, TaskNotificationAction.SnoozeTomorrow, TaskNoticeKind.Due, at(16, 17, 1)))
+        assertEquals("2026-11-17T09:00:00+09:00", dao.task(dueId)?.reminderAt)
+
+        // 時刻の通知の「後で」は、先の時刻があっても、その時刻を先へ送る。
+        dao.upsertTask(task(timedId, "電話する", reminderAt = "2026-11-16T18:00"))
+        assertTrue(press(timedId, TaskNotificationAction.SnoozeHour, TaskNoticeKind.Time, at(16, 17, 2)))
+        assertEquals("2026-11-16T18:02:00+09:00", dao.task(timedId)?.reminderAt)
     }
 }

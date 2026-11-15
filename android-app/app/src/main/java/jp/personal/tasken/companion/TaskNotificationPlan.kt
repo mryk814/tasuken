@@ -76,6 +76,23 @@ internal object TaskNotificationPlan {
         return times.ifEmpty { DefaultDueTimes }
     }
 
+    /**
+     * 「2 回目を足す」の最初の時刻。1 回目より後で、重ならない時刻（15:00、21:00、23:59 の順）。
+     * 1 回目が 23:59 で後ろが無い時は null（足せない）。
+     */
+    fun suggestedSecondDueTime(first: LocalTime): LocalTime? =
+        listOf(LocalTime.of(15, 0), LocalTime.of(21, 0), LocalTime.of(23, 59)).firstOrNull { it.isAfter(first) }
+
+    /**
+     * 期限の通知の「後で」で、Task の時刻を書いてよいか。本人が付けた、今より先の時刻がある時は書き替えない
+     * （その時刻がそのまま鳴る）。時刻の通知の「後で」は、その時刻を先へ送るので、いつも書く。
+     */
+    fun snoozeWritesReminder(kind: TaskNoticeKind?, reminderAt: String?, now: LocalDateTime, zone: ZoneId): Boolean {
+        if (kind != TaskNoticeKind.Due) return true
+        val current = parseReminderAt(reminderAt, zone) ?: return true
+        return !current.isAfter(now.truncatedTo(ChronoUnit.MINUTES))
+    }
+
     /** 日程の「期限の日」。終了日、無ければ開始日（一日だけの予定）。 */
     fun dueDate(startDate: String?, endDate: String?): LocalDate? =
         (endDate ?: startDate)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
@@ -156,6 +173,13 @@ internal object TaskNotificationPlan {
         else -> if (days < 0) "${-days}日超過" else "${due.monthValue}/${due.dayOfMonth}"
     }
 }
+
+/**
+ * 接続先から届いた reminderAt を、読める時だけ受ける。読めない値（先の版が広げた形・壊れた値）は、その欄だけ
+ * 「時刻なし」として扱い、応答全体は断らない（1 件の読めない時刻で、今日と同期が丸ごと止まらないように。
+ * Gateway が読めない値を null で返すのと同じ決まり）。
+ */
+internal fun readableReminderAt(value: String?): String? = value?.takeIf(::isMobileReminderAt)
 
 /** reminderAt の形（時差つきの ISO か、時差なしの YYYY-MM-DDTHH:mm）。null は「時刻なし」で有効。 */
 internal fun isMobileReminderAt(value: String?): Boolean =

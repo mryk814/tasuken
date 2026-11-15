@@ -1413,7 +1413,7 @@ class AndroidMobileTaskRepository(
         description = description,
         aiOriginJson = encodeMobileAiOrigin(aiOrigin),
         placeReminderJson = encodeMobilePlaceReminder(placeReminder),
-        reminderAt = reminderAt,
+        reminderAt = readableReminderAt(reminderAt),
         themeId = themeId,
         state = state,
         workState = workState,

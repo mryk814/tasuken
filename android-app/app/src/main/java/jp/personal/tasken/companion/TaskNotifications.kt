@@ -179,6 +179,11 @@ internal object TaskNotificationScheduler {
         }
         if (!canPost) return
         val text = summaryText(kinds.values.toList())
+        // 文が同じなら出し直さない。Android は短い間に続く通知の更新を捨てる（1 秒に 5 回ほどまで）ので、
+        // 要らない更新で、要る更新（件数が変わった時）が捨てられないようにする。捨てられても、次の同期で直る。
+        val shownText = manager.activeNotifications.firstOrNull { it.tag == SummaryTag }
+            ?.notification?.extras?.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+        if (shownText == text) return
         fun builder() = NotificationCompat.Builder(context, ChannelId)
             .setSmallIcon(R.drawable.ic_tasken_notification)
             .setContentTitle("Tasken")
@@ -257,9 +262,9 @@ internal object TaskNotificationScheduler {
                     putString(ExtraNoticeAt, notice.at.toString())
                 },
             )
-            .addAction(0, "完了", actionIntent(context, notice.taskId, TaskNotificationAction.Complete))
-            .addAction(0, "1 時間後", actionIntent(context, notice.taskId, TaskNotificationAction.SnoozeHour))
-            .addAction(0, "明日", actionIntent(context, notice.taskId, TaskNotificationAction.SnoozeTomorrow))
+            .addAction(0, "完了", actionIntent(context, notice, TaskNotificationAction.Complete))
+            .addAction(0, "1 時間後", actionIntent(context, notice, TaskNotificationAction.SnoozeHour))
+            .addAction(0, "明日", actionIntent(context, notice, TaskNotificationAction.SnoozeTomorrow))
             .build()
     }
 
@@ -357,15 +362,17 @@ internal object TaskNotificationScheduler {
         alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pendingIntent)
     }
 
-    private fun actionIntent(context: Context, taskId: String, action: TaskNotificationAction): PendingIntent =
+    private fun actionIntent(context: Context, notice: TaskNotice, action: TaskNotificationAction): PendingIntent =
         PendingIntent.getBroadcast(
             context,
             0,
             Intent(context, TaskNotificationActionReceiver::class.java)
                 // 押した通知と操作ごとに別の PendingIntent にする（extras だけでは同じものとして上書きされる）。
-                .setData(Uri.parse("tasken-notification://${action.name}/${Uri.encode(taskId)}"))
-                .putExtra(TaskNotificationActionReceiver.ExtraTaskId, taskId)
-                .putExtra(TaskNotificationActionReceiver.ExtraAction, action.name),
+                .setData(Uri.parse("tasken-notification://${action.name}/${Uri.encode(notice.taskId)}"))
+                .putExtra(TaskNotificationActionReceiver.ExtraTaskId, notice.taskId)
+                .putExtra(TaskNotificationActionReceiver.ExtraAction, action.name)
+                // 期限の通知か時刻の通知か。「後で」が Task の時刻を書いてよいかが、これで変わる。
+                .putExtra(TaskNotificationActionReceiver.ExtraKind, notice.kind.name),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
@@ -387,6 +394,7 @@ internal object TaskNotificationActions {
         action: TaskNotificationAction,
         now: LocalDateTime = LocalDateTime.now(),
         zone: ZoneId = ZoneId.systemDefault(),
+        kind: TaskNoticeKind? = null,
         complete: suspend (String) -> Unit = { AndroidMobileTaskRepository(context).enqueueCompleteTask(it) },
         snooze: suspend (String, String) -> Unit = { id, at -> AndroidMobileTaskRepository(context).enqueueUpdateTaskReminderAt(id, at) },
     ): Boolean {
@@ -399,15 +407,17 @@ internal object TaskNotificationActions {
         return try {
             when (action) {
                 TaskNotificationAction.Complete -> complete(taskId)
-                TaskNotificationAction.SnoozeHour, TaskNotificationAction.SnoozeTomorrow -> snooze(
-                    taskId,
-                    TaskNotificationPlan.snoozedReminderAt(
-                        if (action == TaskNotificationAction.SnoozeHour) SnoozeChoice.Hour else SnoozeChoice.Tomorrow,
-                        now,
-                        TaskNotificationSettings.dueTimes(context),
-                        zone,
-                    ),
-                )
+                // 期限の通知の「後で」は、本人が付けた先の時刻を上書きしない（通知を消すだけ。その時刻に鳴る）。
+                TaskNotificationAction.SnoozeHour, TaskNotificationAction.SnoozeTomorrow ->
+                    if (TaskNotificationPlan.snoozeWritesReminder(kind, task.reminderAt, now, zone)) snooze(
+                        taskId,
+                        TaskNotificationPlan.snoozedReminderAt(
+                            if (action == TaskNotificationAction.SnoozeHour) SnoozeChoice.Hour else SnoozeChoice.Tomorrow,
+                            now,
+                            TaskNotificationSettings.dueTimes(context),
+                            zone,
+                        ),
+                    )
             }
             TaskNotificationScheduler.cancel(context, taskId)
             true
@@ -430,7 +440,8 @@ class TaskNotificationActionReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
-                TaskNotificationActions.handle(app, MobileLocalDatabase.open(app).mobileDao(), taskId, action)
+                val kind = intent.getStringExtra(ExtraKind)?.let { runCatching { TaskNoticeKind.valueOf(it) }.getOrNull() }
+                TaskNotificationActions.handle(app, MobileLocalDatabase.open(app).mobileDao(), taskId, action, kind = kind)
                 TaskNotificationScheduler.syncOrLog(app)
                 TaskenTodayWidget.updateAllNow(app)
             } catch (error: Exception) {
@@ -444,6 +455,7 @@ class TaskNotificationActionReceiver : BroadcastReceiver() {
     companion object {
         const val ExtraTaskId = "taskId"
         const val ExtraAction = "action"
+        const val ExtraKind = "kind"
     }
 }
 
