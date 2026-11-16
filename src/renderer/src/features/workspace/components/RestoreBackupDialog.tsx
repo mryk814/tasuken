@@ -139,6 +139,8 @@ export function RestoreBackupDialog({ open, close }: { open: boolean; close(): v
             <span className="restore-backup-option-time">{dateTime(entry.createdAt)}</span>
             {entry.kind === "before-restore" ? (
               <span className="restore-backup-tag">戻す前の控え</span>
+            ) : entry.kind === "retirement" ? (
+              <span className="restore-backup-tag">待ちを写す前の控え</span>
             ) : null}
             <span className="restore-backup-option-size">{fileSize(entry.sizeBytes)}</span>
           </label>

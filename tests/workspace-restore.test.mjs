@@ -666,3 +666,24 @@ test("予定が壊れて正本も無い時の知らせに、いちばん新し�
   assert.match(halted.error, /restore-plan\.json を消して/);
   assert.ok(halted.error.includes(ws.userData));
 });
+
+// 待ちを Task に写す前の控え（#755 束7）も、戻す一覧に出す。自動の世代の入れ替えには入らない。
+test("待ちを写す前の控えは、戻す一覧に出て、ほかの控えと時刻の順に並ぶ", (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-restore-list-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  for (const name of [
+    "tasken-auto-20261116T010000000Z-aaaaaaaa.sqlite",
+    "tasken-retirement-20261116T020000000Z-bbbbbbbb.sqlite",
+    "tasken-before-restore-20261116T030000000Z-cccccccc.sqlite",
+    "tasken-other-20261116T040000000Z-dddddddd.sqlite",
+  ])
+    fs.writeFileSync(path.join(directory, name), "copy");
+  assert.deepEqual(
+    listBackups(directory).map((entry) => [entry.kind, entry.createdAt]),
+    [
+      ["before-restore", "2026-11-16T03:00:00.000Z"],
+      ["retirement", "2026-11-16T02:00:00.000Z"],
+      ["auto", "2026-11-16T01:00:00.000Z"],
+    ],
+  );
+});
