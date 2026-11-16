@@ -10,6 +10,8 @@ import {
 import type { TaskRepository } from "../ports/taskRepository.ts";
 import {
   assertHumanAcceptBeforeTaskCompletion,
+  isHumanTaskOperation,
+  settleTaskCompletion,
   assertTaskThemeExists,
   currentTaskWorkState,
   normalizeTaskForSave,
@@ -170,8 +172,9 @@ export class TaskCommandHandler {
         );
     }
 
-    const task = normalizeTaskForSave(inputTask, current || undefined);
-    if (task.state === "done") assertHumanAcceptBeforeTaskCompletion(task);
+    const normalized = normalizeTaskForSave(inputTask, current || undefined);
+    const task =
+      normalized.state === "done" ? settleTaskCompletion(normalized, command) : normalized;
     const requestedImages = (task as { images?: unknown }).images;
     if (requestedImages !== undefined) {
       try {
@@ -296,7 +299,8 @@ export class TaskCommandHandler {
         "キャンセル済みTaskはこのCommandで変更できません。",
         { id: taskId },
       );
-    if (completing) assertHumanAcceptBeforeTaskCompletion(current);
+    if (completing && !isHumanTaskOperation(command))
+      assertHumanAcceptBeforeTaskCompletion(current);
     const requestedTask = (command.payload as { task?: Entity }).task;
     if (requestedTask) {
       taskFromPayload({ task: requestedTask });
@@ -326,7 +330,10 @@ export class TaskCommandHandler {
             null,
         }
       : { ...current, ...(requestedTask || {}), id: taskId, state: "todo", completed_at: null };
-    const normalizedTask = normalizeTaskForSave(next, current);
+    const normalizedTask = normalizeTaskForSave(
+      completing ? settleTaskCompletion(next, command) : next,
+      current,
+    );
     taskDefinition.parseUpdate(normalizedTask);
     assertTaskThemeExists(this.repository, normalizedTask);
     const event = this.runtime.annotateEvent(

@@ -50,6 +50,7 @@ import {
   assertTaskThemeExists as assertThemeExists,
   createTaskModule,
   currentTaskWorkState as currentWorkState,
+  settleTaskCompletion,
   normalizeCanonicalTask,
   normalizeTaskForSave,
   projectTaskReadModel,
@@ -2968,18 +2969,18 @@ export class ApplicationCommandService {
         { id: inputTask.id },
       );
     }
-    assertHumanAcceptBeforeCompletion(current);
     const completedAt =
       typeof inputTask.completed_at === "string" && inputTask.completed_at.trim()
         ? inputTask.completed_at
         : command.issuedAt;
-    const completedTask = normalizeCanonicalEntity("task", {
-      ...current,
-      ...inputTask,
-      id: inputTask.id,
-      state: "done",
-      completed_at: completedAt,
-    });
+    // 本人の完了は、AIの担当でも受け入れとして通す（#755 束10a。settleTaskCompletion）。
+    const completedTask = normalizeCanonicalEntity(
+      "task",
+      settleTaskCompletion(
+        { ...current, ...inputTask, id: inputTask.id, state: "done", completed_at: completedAt },
+        command,
+      ),
+    );
     taskDefinition.parseUpdate(completedTask);
     assertThemeExists(this.repository, completedTask);
 
@@ -3183,14 +3184,20 @@ export class ApplicationCommandService {
           { id: taskId },
         );
       }
-      assertHumanAcceptBeforeCompletion(currentTask);
-      const task = normalizeCanonicalEntity("task", {
-        ...currentTask,
-        ...(payload.task || {}),
-        id: taskId,
-        state: "done",
-        completed_at: endedAt,
-      });
+      // 本人の完了は、AIの担当でも受け入れとして通す（#755 束10a。settleTaskCompletion）。
+      const task = normalizeCanonicalEntity(
+        "task",
+        settleTaskCompletion(
+          {
+            ...currentTask,
+            ...(payload.task || {}),
+            id: taskId,
+            state: "done",
+            completed_at: endedAt,
+          },
+          command,
+        ),
+      );
       taskDefinition.parseUpdate(task);
       assertThemeExists(this.repository, task);
       operations.push({ action: "save", type: "task", entity: task });

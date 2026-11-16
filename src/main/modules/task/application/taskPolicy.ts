@@ -42,6 +42,27 @@ export function assertHumanAcceptBeforeTaskCompletion(task: Entity): void {
   }
 }
 
+/** 本人の操作（人の画面・スマホ）か。MCPを通った要求は、本人を名乗っても本人の操作に数えない。 */
+export function isHumanTaskOperation(command: CommandEnvelope): boolean {
+  return command.actor.kind === "user" && command.source !== "mcp";
+}
+
+/**
+ * 完了にするTaskの委任の値を決める（#755 束10a）。
+ *
+ * 本人の操作による完了は、AIの担当かどうか・作業がどこまで進んだかに関わらず通す。AI Readyの切り替えと
+ * 「委任を解除」を画面から外したので、ここで断ると前の版で委任したTaskを本人が閉じられなくなる。
+ * 本人が完了したことを受け入れとして記録する（work_state=accepted）。保存の層（domain.mjs）は
+ * 「AI担当のdoneはacceptedだけ」を守り続けるので、前の版の端末が同期でこのTaskを受け取っても断らない。
+ * 受け入れの決まりが働くのは、AIが自分で完了にしようとする時（MCP・作業報告の流れ）だけ。
+ */
+export function settleTaskCompletion(task: Entity, command: CommandEnvelope): Entity {
+  if (task.intended_executor !== "ai_agent" || currentTaskWorkState(task) === "accepted")
+    return task;
+  if (!isHumanTaskOperation(command)) assertHumanAcceptBeforeTaskCompletion(task);
+  return { ...task, work_state: "accepted" };
+}
+
 export function taskFromPayload(payload: unknown): Entity {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new ApplicationCommandError("INVALID_PAYLOAD", "Task payloadが不正です。");

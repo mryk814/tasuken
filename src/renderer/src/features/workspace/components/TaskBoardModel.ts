@@ -15,15 +15,10 @@ export const BOARD_STATES: Task["state"][] = [
   "cancelled",
 ];
 
+// 本人の操作による完了は、AIの担当かどうかに関わらず通す（#755 束10a）。受け入れの決まりはMainが
+// AIの完了にだけ掛ける。
 export function boardKeyboardState(task: Task, direction: -1 | 1): Task["state"] | undefined {
-  const allowed = BOARD_STATES.filter(
-    (state) =>
-      state !== "done" ||
-      task.state === "done" ||
-      task.intended_executor !== "ai_agent" ||
-      task.work_state === "accepted",
-  );
-  return allowed[allowed.indexOf(task.state) + direction];
+  return BOARD_STATES[BOARD_STATES.indexOf(task.state) + direction];
 }
 
 export function boardDropBeforeId(
@@ -56,14 +51,6 @@ export function moveBoardTask(
 ): Task[] {
   const task = rows.find((row) => row.task.id === taskId)?.task;
   if (!task) throw new Error("移動するタスクが見つかりません。");
-  if (
-    state === "done" &&
-    task.state !== "done" &&
-    task.intended_executor === "ai_agent" &&
-    task.work_state !== "accepted"
-  ) {
-    throw new Error("AIの報告を採ってから完了にしてください。");
-  }
   if (beforeId === taskId) return [];
   const column = sortBoardRows(rows.filter((row) => row.task.state === state)).map(
     (row) => row.task,

@@ -734,32 +734,31 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
     },
   });
   const task = repo.get("task", "task-ai");
-  assert.throws(
-    () =>
-      service.execute(
-        envelope(
-          "EndFocusSession",
-          {
-            session: {
-              ...repo.get("note", "focus-session-ai"),
-              properties_json: {
-                document_role: "focus_session",
-                session_state: "ended",
-                task_id: "task-ai",
-              },
-            },
-            task: { ...task, state: "done" },
-            completeTask: true,
+  // 本人がFocusの終わりに完了するのは、AIの担当でも通す（#755 束10a）。完了を受け入れとして残す。
+  service.execute(
+    envelope(
+      "EndFocusSession",
+      {
+        session: {
+          ...repo.get("note", "focus-session-ai"),
+          properties_json: {
+            document_role: "focus_session",
+            session_state: "ended",
+            task_id: "task-ai",
           },
-          "focus-ai-complete",
-          [
-            { type: "note", id: "focus-session-ai", version: 1 },
-            { type: "task", id: "task-ai", version: task.version },
-          ],
-        ),
-      ),
-    /AIの報告だけではTaskを完了できません/,
+        },
+        task: { ...task, state: "done" },
+        completeTask: true,
+      },
+      "focus-ai-complete",
+      [
+        { type: "note", id: "focus-session-ai", version: 1 },
+        { type: "task", id: "task-ai", version: task.version },
+      ],
+    ),
   );
+  assert.equal(repo.get("task", "task-ai").state, "done");
+  assert.equal(repo.get("task", "task-ai").work_state, "accepted");
 
   repo.records.set("task:task-ai-proposal", {
     ...task,
@@ -883,12 +882,19 @@ test("AI report stays needs_human_review and cannot complete before human accept
       external_id: "42",
     },
   ]);
+  // MCPを通った完了は、本人を名乗っても受け入れ前には通さない。本人の画面からの完了は通す（#755 束10a。
+  // 下の「本人はAIに委任したTaskを…」の試験）。
   assert.throws(
     () =>
       service.execute(
-        envelope("CompleteTask", { taskId: "task-ai" }, "complete-too-early", [
-          { type: "task", id: "task-ai", version: 3 },
-        ]),
+        envelope(
+          "CompleteTask",
+          { taskId: "task-ai" },
+          "complete-too-early",
+          [{ type: "task", id: "task-ai", version: 3 }],
+          { kind: "user" },
+          "mcp",
+        ),
       ),
     /AIの報告だけではTaskを完了できません/,
   );
@@ -1472,4 +1478,71 @@ test("MCP blocker report appends a receipt, retains audit metadata, and moves wo
     ]),
   );
   assert.equal(repo.get("task", "task-ai").work_state, "in_progress");
+});
+
+// 本人の操作による完了は、AIの担当かどうかに関わらず常に通す（#755 束10a）。AI Readyの切り替えと
+// 「委任を解除」を外したので、前の版で委任したTaskを本人が完了できないと、どこからも閉じられない。
+// 受け入れ（work_state=accepted）が要るのは、AIが自分で完了にしようとする時だけ。
+test("本人はAIに委任したTaskをどの作業状態からでも完了・再開でき、AIは受け入れ前に完了できない (#755 束10a)", () => {
+  for (const workState of ["ready_for_agent", "in_progress", "needs_human_review", "blocked"]) {
+    const repo = repository();
+    const service = new ApplicationCommandService(repo);
+    const taskId = `task-${workState}`;
+    repo.save("task", {
+      id: taskId,
+      title: `AI ${workState}`,
+      state: "todo",
+      priority: "normal",
+      project_id: "theme-personal-default",
+      requester: "self",
+      intended_executor: "ai_agent",
+      work_state: workState,
+    });
+    const version = () => [{ type: "task", id: taskId, version: repo.get("task", taskId).version }];
+
+    // AIが自分で完了にしようとする時は、これまでどおり受け入れが要る。
+    assert.throws(
+      () =>
+        service.execute(
+          envelope(
+            "CompleteTask",
+            { taskId },
+            `ai-complete-${workState}`,
+            version(),
+            { kind: "ai_agent", id: "codex" },
+            "mcp",
+          ),
+        ),
+      /AIの報告だけではTaskを完了できません|直接変更・完了できません/,
+      workState,
+    );
+
+    // ToDoの行・ドロワーの「完了にする」（CompleteTask）。
+    service.execute(envelope("CompleteTask", { taskId }, `complete-${workState}`, version()));
+    let task = repo.get("task", taskId);
+    assert.equal(task.state, "done", workState);
+    // 本人の完了を受け入れとして記録する。保存の層の決まり（AI担当のdoneはacceptedだけ）も満たす。
+    assert.equal(task.work_state, "accepted", workState);
+    assert.equal(task.intended_executor, "ai_agent", workState);
+    assert.doesNotThrow(() => normalizeEntity("task", task), workState);
+
+    // 完了の後は再開もできる。
+    service.execute(envelope("ReopenTask", { taskId }, `reopen-${workState}`, version()));
+    assert.equal(repo.get("task", taskId).state, "todo", workState);
+
+    // カンバン・編集の欄からの完了も、状態の変わる保存は同じ CompleteTask になる（planTaskEdit）。
+    // 再開した後にもう一度完了でき、編集の保存（UpdateTask）も完了済みのまま通る。
+    service.execute(envelope("CompleteTask", { taskId }, `complete-again-${workState}`, version()));
+    service.execute(
+      envelope(
+        "UpdateTask",
+        { task: { ...repo.get("task", taskId), title: `AI ${workState} edited` } },
+        `edit-done-${workState}`,
+        version(),
+      ),
+    );
+    task = repo.get("task", taskId);
+    assert.equal(task.state, "done", workState);
+    assert.doesNotThrow(() => normalizeEntity("task", task), workState);
+  }
 });
