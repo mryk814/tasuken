@@ -196,7 +196,8 @@ export class TaskenDesktopComposition<
 
   /**
    * ローカルのAI（Claude Codeなど）の直接の書き込み（#703）。入口は常に公開し、使えるかは本人の設定
-   * （設定 → AI & Context）を要求のたびに読む。既定は無効。Core起動前に一度だけ呼ぶ。
+   * （設定 → AI & Context）を要求のたびに読む。新しい版の最初の起動で一度だけ有効になる（#755 束10a）。
+   * Core起動前に一度だけ呼ぶ。
    * 返すのは、本人がActivityからAIの変更を取り消す口にも使う、Taskの直接変更のservice。
    */
   enableAiWrites(options: {

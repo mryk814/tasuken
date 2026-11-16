@@ -103,7 +103,7 @@ export function SettingsPage({
   const [syncBusy, setSyncBusy] = useState(false);
   const [mcpInfo, setMcpInfo] = useState<McpBridgeInfo | null>(null);
   const [mcpBusy, setMcpBusy] = useState(false);
-  // ローカルのAI（Claude Codeなど）の直接の書き込み（#703）。既定は無効。
+  // ローカルのAI（Claude Codeなど）の直接の書き込み（#703）。新しい版の最初の起動で一度だけ有効になる（#755 束10a）。
   const [aiDirectWriteEnabled, setAiDirectWriteEnabled] = useState(false);
   const [aiDirectWriteBusy, setAiDirectWriteBusy] = useState(false);
   // 期限の日の知らせの時刻（#753）。この PC の設定で、スマホは自分の設定を持つ。

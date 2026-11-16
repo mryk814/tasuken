@@ -196,6 +196,9 @@ function normalizeImportedTask(input, previous, fallbackSource) {
   return normalizeTaskAssignment(input, previous);
 }
 
+/** 直接の書き込みを一度だけ有効にした印（#755 束10a。enableAiDirectWriteOnce）。端末ごとで同期しない。 */
+const AI_DIRECT_WRITE_DEFAULT_MARK = "ai_direct_write_default_v1";
+
 function retiredExportMarkKey(name) {
   if (!/^[a-z][a-z_]{0,40}$/.test(String(name))) throw new Error("切る前の控えの名前が不正です。");
   return `retired_export_${name}_v1`;
@@ -840,7 +843,8 @@ export class WorkspaceDatabase {
     if (key === "sharedSyncLastError") return this.ensureMeta("shared_sync_last_error", "");
     if (key === "automaticSnapshotBackupEnabled")
       return this.ensureMeta("automatic_snapshot_backup_enabled", "true") === "true";
-    // ローカルのAIに直接の書き込みを許すか（#703）。端末ごとの設定で、同期しない。既定は無効。
+    // ローカルのAIに直接の書き込みを許すか（#703）。端末ごとの設定で、同期しない。値が無い時は無効だが、
+    // Desktopは新しい版の最初の起動で一度だけ有効にする（enableAiDirectWriteOnce。#755 束10a）。
     if (key === "aiDirectWriteEnabled")
       return this.ensureMeta("ai_direct_write_enabled", "false") === "true";
     if (key === "automaticSnapshotBackupDirectory")
@@ -885,7 +889,7 @@ export class WorkspaceDatabase {
       }
     }
     if (key === "artifactDirectory") return readMeta("artifact_directory") ?? "";
-    // Coreが書き込みのたびに読む。既定（無効）を書き出さない。
+    // Coreが書き込みのたびに読む。値が無い時の無効を書き出さない（一度だけの有効化は enableAiDirectWriteOnce）。
     if (key === "aiDirectWriteEnabled") return readMeta("ai_direct_write_enabled") === "true";
     throw new Error(`未対応のread-only設定です: ${key}`);
   }
@@ -983,7 +987,7 @@ export class WorkspaceDatabase {
    * @returns {boolean} この呼び出しで有効にした時だけtrue（既に有効・済んでいる時はfalse）
    */
   enableAiDirectWriteOnce(at = new Date().toISOString()) {
-    const markKey = "ai_direct_write_default_v1";
+    const markKey = AI_DIRECT_WRITE_DEFAULT_MARK;
     const readMeta = (key) =>
       this.db.prepare("SELECT value FROM workspace_meta WHERE key = ?").get(key)?.value;
     const upsert = this.db.prepare(
@@ -997,6 +1001,20 @@ export class WorkspaceDatabase {
       return !enabledBefore;
     });
     return transaction.immediate();
+  }
+
+  /**
+   * 控えから戻す時に、戻した写しへ持ち越す一度だけの有効化の印と、今の設定の値（#755 束10a）。
+   * 更新より前の控えには印が無いので、持ち越さないと次の起動でまた有効になり、本人が無効にした
+   * 選択を消してしまう。印がまだ無ければ（この版で一度も起動していない）null。
+   * @returns {{ mark: string, enabled: boolean } | null}
+   */
+  readAiDirectWriteDefaultCarry() {
+    const readMeta = (key) =>
+      this.db.prepare("SELECT value FROM workspace_meta WHERE key = ?").get(key)?.value;
+    const mark = readMeta(AI_DIRECT_WRITE_DEFAULT_MARK);
+    if (mark === undefined) return null;
+    return { mark: String(mark), enabled: readMeta("ai_direct_write_enabled") === "true" };
   }
 
   setPreference(key, value) {
@@ -3054,9 +3072,14 @@ export function inspectWorkspaceBackup(filePath) {
  * - 壊れた写しを正本にしないよう、ページの整合を確かめる（quick_check）。
  * - 端末間同期を止める。控えは同期の通し番号ごと昔へ戻るので、写しの設定のまま起動して
  *   同期が走ると、公開済みの番号を別の中身で使い直しうる。同期の再開は本人が決める。
+ * - 今のDBが直接の書き込みを一度だけ有効にした後なら（aiDirectWriteCarry）、印の無い写しへ印と今の
+ *   設定の値を写す（#755 束10a）。写さないと、更新より前の控えから戻した次の起動でまた有効になり、
+ *   本人が無効にした選択が消える。写しに印があれば、写しの値を尊重して触らない。
  * migrateは走らせない（差し替えの後、正本として開く時に走る）。
+ * @param {string} filePath
+ * @param {{ mark: string, enabled: boolean } | null} [aiDirectWriteCarry]
  */
-export function prepareRestoredCopy(filePath) {
+export function prepareRestoredCopy(filePath, aiDirectWriteCarry = null) {
   const copy = new Database(filePath, { fileMustExist: true });
   try {
     copy.pragma("locking_mode = EXCLUSIVE");
@@ -3071,6 +3094,18 @@ export function prepareRestoredCopy(filePath) {
       copy
         .prepare("UPDATE workspace_meta SET value = 'false' WHERE key = 'shared_sync_enabled'")
         .run();
+    }
+    if (
+      aiDirectWriteCarry &&
+      !copy.prepare("SELECT 1 FROM workspace_meta WHERE key = ?").get(AI_DIRECT_WRITE_DEFAULT_MARK)
+    ) {
+      const upsert = copy.prepare(
+        "INSERT INTO workspace_meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      );
+      copy.transaction(() => {
+        upsert.run(AI_DIRECT_WRITE_DEFAULT_MARK, aiDirectWriteCarry.mark);
+        upsert.run("ai_direct_write_enabled", aiDirectWriteCarry.enabled ? "true" : "false");
+      })();
     }
     return {
       entityCount: copy.prepare("SELECT COUNT(*) AS count FROM entities").get().count,
