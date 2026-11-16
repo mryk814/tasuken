@@ -91,3 +91,31 @@ test("board order crosses Task DTO projections and accepts only optional nonnega
     assert.throws(() => validateEntity("task", task({ board_order })), /board_order/);
   }
 });
+
+// AIへの新しい委任の入口は外した（#755 束10a）。複製と繰り返しの次の回が、元のTaskの委任を写して
+// 新しい委任を作らない。元のTask（完了にした回）の委任の値はそのまま残す。
+test("duplicated and recurring copies do not create a new delegation to an AI", () => {
+  const delegated = task({
+    intended_executor: "ai_agent",
+    executor_identity: "Codex",
+    work_state: "in_progress",
+    work_attempt_id: "12c9a3df-084a-4314-8a80-de844b512fad",
+    handoff_instruction: "資料を直す",
+    repeat_rule: { frequency: "daily", interval: 1, next_from: "completed", weekdays: [] },
+  });
+  const copy = duplicateTask(delegated).task;
+  const [completed, next] = buildCompleteTaskOperations(delegated, undefined, {
+    now: "2026-11-16T12:00:00.000Z",
+  })
+    .filter((operation) => operation.type === "task")
+    .map((operation) => operation.entity);
+  for (const entity of [copy, next]) {
+    assert.equal(entity.intended_executor, "self");
+    assert.equal(entity.work_state, "not_delegated");
+    assert.equal(entity.executor_identity, null);
+    assert.equal(entity.work_attempt_id, null);
+    assert.equal(entity.handoff_instruction, null);
+  }
+  assert.equal(completed.intended_executor, "ai_agent");
+  assert.equal(completed.handoff_instruction, "資料を直す");
+});

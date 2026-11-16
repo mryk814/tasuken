@@ -102,9 +102,21 @@ export const aiTaskEditSchema = z
     intended_executor: z
       .enum(["self", "ai_agent"])
       .optional()
-      .describe("ai_agent = delegate to an AI; self = take it back."),
-    handoff_expected_result: z.string().max(2_000).nullable().optional(),
-    handoff_instruction: z.string().max(4_000).nullable().optional(),
+      .describe(
+        "self = take back a Task delegated earlier. New delegation (ai_agent) is refused: change the Task directly instead.",
+      ),
+    handoff_expected_result: z
+      .string()
+      .max(2_000)
+      .nullable()
+      .optional()
+      .describe("Only null (clear); delegation was removed."),
+    handoff_instruction: z
+      .string()
+      .max(4_000)
+      .nullable()
+      .optional()
+      .describe("Only null (clear); delegation was removed."),
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {

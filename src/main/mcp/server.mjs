@@ -1051,7 +1051,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.change_task",
     {
       description:
-        "Update, complete, reopen, delete or delegate one Task directly; recorded and undoable. Put the user's words in said (why alone may get ASK_USER). place_reminder: user-given coordinates only.",
+        "Update, complete, reopen or delete one Task directly; recorded and undoable. Put the user's words in said (why alone may get ASK_USER). place_reminder: user-given coordinates only.",
       inputSchema: aiTaskChangeRequestSchema,
       annotations: DESTRUCTIVE_WRITE_ANNOTATIONS,
     },

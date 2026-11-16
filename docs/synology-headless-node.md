@@ -163,7 +163,7 @@ sudo docker run --rm --network container:tasken-headless --user 1026:100 \
 
 ### 既存Taskの直接変更を許す（`--allow-ai-task-change`、#688）
 
-私用のWorkspaceのNASで、Museなどが本人の言葉を根拠に既存のTaskを直接変え（編集・完了・再開・削除・委任）、取り消せるようにします。規則はDesktopの`change_task`・`undo_change`と同じです。Noteの編集と採否は取り消せないので、Desktopだけに残しています。既定は無効です。
+私用のWorkspaceのNASで、Museなどが本人の言葉を根拠に既存のTaskを直接変え（編集・完了・再開・削除）、取り消せるようにします。規則はDesktopの`change_task`・`undo_change`と同じです。Noteの編集と採否は取り消せないので、Desktopだけに残しています。既定は無効です。
 
 1. **先にDesktopを、#715の入った版へ上げる。** 古いDesktopでも同期は止まりませんが、Activityに本人の言葉が出ず、画面から取り消せません。競合を本人が解決したときに版を上げるのもDesktopの側なので、古いままだと、解決の後にAIの取り消しが本人の選んだ中身を戻すことがあります。
 2. Coreを`create-only`にし、`TASKEN_CORE_AI_TASK_CHANGE=1`を足す。このrepoのcomposeでは`.env`へ書きます。本番（nas-pull）では、`docker-compose.json`の`tasken-headless`の`environment`へ書きます。`create-only`以外と一緒だと、Coreは`WRITE_MODE_CONFLICT`で起動しません。

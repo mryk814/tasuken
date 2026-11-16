@@ -269,18 +269,33 @@ test("AIが作って本人がまだ触っていないTaskは、本人の言葉�
   assert(db.get("task", other.entity.id, true).deleted_at);
 });
 
-test("委任して開始すると、作業中は直接いじれない。完了・再開・繰り返し・削除", async (t) => {
+test("前の版で委任して開始したTaskは、作業中は直接いじれない。完了・再開・繰り返し・削除", async (t) => {
   const { db, core } = await desktop(t);
   let task = humanTask(db, "task-delegate");
-  const delegated = await core.changeTask(
-    change(task, {
-      changes: { intended_executor: "ai_agent", handoff_instruction: "資料の誤字を探す" },
-      said: "これやっといて",
-    }),
+  // AIへの新しい委任と、委任の依頼文は断る（#755 束10a）。何も保存しない。
+  const before = db.get("task", task.id);
+  await refused(
+    core.changeTask(
+      change(task, { changes: { intended_executor: "ai_agent" }, said: "これやっといて" }),
+    ),
+    "DELEGATION_RETIRED",
   );
-  assert.equal(delegated.task.intended_executor, "ai_agent");
-  assert.equal(delegated.task.work_state, "ready_for_agent");
-  // MCPの開始（start_task_work）は #755 束10a で外した。前の版で開始済みのTaskとして置く。
+  await refused(
+    core.changeTask(
+      change(task, {
+        changes: { handoff_instruction: "資料の誤字を探す" },
+        said: "これやっといて",
+      }),
+    ),
+    "DELEGATION_RETIRED",
+  );
+  assert.deepEqual(db.get("task", task.id), before);
+  // MCPの開始（start_task_work）と委任の入口は外した。前の版で委任して開始済みのTaskとして置く。
+  db.save("task", {
+    ...db.get("task", task.id),
+    intended_executor: "ai_agent",
+    handoff_instruction: "資料の誤字を探す",
+  });
   db.save("task", {
     ...db.get("task", task.id),
     work_state: "in_progress",
@@ -762,4 +777,32 @@ test("場所のリマインダー（#727）: 本人の言葉で付け、取り�
     ),
   );
   assert.deepEqual(db.get("task", task.id).place_reminder, place);
+});
+
+// 新しい委任は断るが、前の版で委任したまま始まっていないTaskを自分に戻すのは受ける（#755 束10a）。
+// 委任の値は書き換えずに残しているので、AIが本人の言葉で戻せる道を閉じない。
+test("前の版で委任したTaskは、本人の言葉で自分に戻せる。委任し直しは断る", async (t) => {
+  const { db, core } = await desktop(t);
+  humanTask(db, "task-delegated-before");
+  db.save("task", { ...db.get("task", "task-delegated-before"), intended_executor: "ai_agent" });
+  let task = db.get("task", "task-delegated-before");
+  assert.equal(task.work_state, "ready_for_agent");
+  // 既に委任されているTaskへ同じ値を送るのは、新しい委任ではない。
+  const same = await core.changeTask(
+    change(task, { changes: { intended_executor: "ai_agent" }, said: "そのままでいい" }),
+  );
+  assert.equal(same.task.intended_executor, "ai_agent");
+  task = db.get("task", task.id);
+  const back = await core.changeTask(
+    change(task, { changes: { intended_executor: "self" }, said: "これは自分でやる" }),
+  );
+  assert.equal(back.task.intended_executor, "self");
+  assert.equal(back.task.work_state, "not_delegated");
+  task = db.get("task", task.id);
+  await refused(
+    core.changeTask(
+      change(task, { changes: { intended_executor: "ai_agent" }, said: "やっぱり任せる" }),
+    ),
+    "DELEGATION_RETIRED",
+  );
 });

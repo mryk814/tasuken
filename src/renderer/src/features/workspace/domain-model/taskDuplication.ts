@@ -5,6 +5,24 @@ export interface DuplicatedTaskBundle {
   schedule?: Schedule;
 }
 
+/**
+ * 複製・繰り返しの次の回は、AIへの委任を引き継がない（#755 束10a）。AIへの新しい委任の入口は外したので、
+ * 写しで委任を作らない。元のTaskの委任の値は書き換えない（委任の欄を書かなくするのは束10b）。
+ */
+export const UNDELEGATED_COPY = {
+  intended_executor: "self",
+  executor_identity: null,
+  work_state: "not_delegated",
+  work_attempt_id: null,
+  work_started_at: null,
+  work_reported_at: null,
+  work_review_note: null,
+  handoff_expected_result: null,
+  handoff_instruction: null,
+  handoff_context_ref: null,
+  handoff_requested_at: null,
+} as const satisfies Partial<Task>;
+
 function cloneRepeatRule(rule?: TaskRepeatRule | null): TaskRepeatRule | null {
   if (!rule) return null;
   return {
@@ -55,10 +73,7 @@ export function duplicateTask(
       repeat_rule: cloneRepeatRule(task.repeat_rule),
       repeat_series_id: null,
       repeat_parent_task_id: null,
-      work_state: task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated",
-      work_started_at: null,
-      work_reported_at: null,
-      work_review_note: null,
+      ...UNDELEGATED_COPY,
       checklist_items: duplicateChecklist(task.checklist_items),
       legacy_item_id: null,
     },
