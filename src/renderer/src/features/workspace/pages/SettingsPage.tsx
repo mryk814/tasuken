@@ -1326,8 +1326,7 @@ export function SettingsPage({
                 <IntegrationStatus label={mcpSummary.label} tone={mcpSummary.tone} />
               </div>
               <p className="field-help">
-                外部AIはTaskenを読み取り、変更は提案として送ります。AI
-                Readyにしたタスクの作業開始は、いつでも受け付けます。
+                外部AIはTaskenを読み取り、変更は提案として送ります。AIがTaskを直接動かせるのは、次の設定を有効にした時だけです。
               </p>
               <label className="toggle">
                 ローカルのAIに直接の書き込みを許す
@@ -1371,8 +1370,8 @@ export function SettingsPage({
                   <dd>
                     {mcpInfo?.coreWriteProfile === "full"
                       ? aiDirectWriteEnabled
-                        ? "提案・作業開始・直接の書き込みを受け付ける"
-                        : "提案と作業開始を受け付ける"
+                        ? "提案と直接の書き込みを受け付ける"
+                        : "提案だけを受け付ける"
                       : mcpInfo?.coreWriteProfile === "proposals"
                         ? "Text Proposal（近況の投稿・Note案・Task案・作業報告）のみ受け付ける"
                         : mcpInfo?.coreWriteProfile === "read-only"
