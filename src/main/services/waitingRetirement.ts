@@ -1,4 +1,5 @@
-import { derivedUuid } from "../repositories/derivedRecords.mjs";
+import { createHash } from "node:crypto";
+
 import { normalizeReminderDateTime } from "../../shared/taskNotifications";
 
 /**
@@ -44,6 +45,16 @@ export type WaitingConversionResult =
   | { state: "nothing" | "error" }
   | { state: "backup_failed"; pending: number }
   | { state: "done"; waitings: number; tasks: number; schedules: number; failed: number };
+
+/**
+ * 文字列の並びから決まる UUID（v5 の形）。値を変えると、写した Task と別の ID になり、
+ * 次の起動で同じ待ちをもう一度写してしまうので、形も入力も変えない。
+ */
+function derivedUuid(parts: string[]): string {
+  const hash = createHash("sha256").update(parts.join("\0")).digest("hex");
+  const value = `${hash.slice(0, 12)}5${hash.slice(13, 16)}8${hash.slice(17, 32)}`;
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20, 32)}`;
+}
 
 /** 待ちを写した Task の ID。どの端末でも同じ待ちからは同じ値になる。 */
 export function waitingTaskId(waitingId: string): string {
