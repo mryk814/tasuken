@@ -10,7 +10,7 @@ import { build } from "esbuild";
 
 async function loadRetirement() {
   const output = await build({
-    entryPoints: ["src/main/services/captureOrganizerKeyRetirement.ts"],
+    entryPoints: ["src/main/services/retiredKeyFiles.ts"],
     bundle: true,
     format: "esm",
     platform: "node",
@@ -30,7 +30,7 @@ function temporaryUserData(t) {
 const SECRET = "sk-secret-ciphertext-should-never-be-logged";
 
 test("消すのは鍵のファイル 2 つだけで、ほかの userData のファイルは残す。二度目は何もしない", async (t) => {
-  const { retireCaptureOrganizerKeys } = await loadRetirement();
+  const { retireKeyFiles: retireCaptureOrganizerKeys } = await loadRetirement();
   const root = temporaryUserData(t);
   fs.writeFileSync(
     path.join(root, "capture-organizer-settings.json"),
@@ -62,7 +62,7 @@ test("消すのは鍵のファイル 2 つだけで、ほかの userData のフ�
 });
 
 test("鍵の名前のフォルダーは消さず、消せない時も起動を止めず、中身やメッセージを返さない", async (t) => {
-  const { retireCaptureOrganizerKeys } = await loadRetirement();
+  const { retireKeyFiles: retireCaptureOrganizerKeys } = await loadRetirement();
   const root = temporaryUserData(t);
   fs.mkdirSync(path.join(root, "chatgpt-account.json"));
   fs.writeFileSync(path.join(root, "chatgpt-account.json", "inside.txt"), SECRET);
@@ -97,7 +97,7 @@ test("鍵の名前のフォルダーは消さず、消せない時も起動を�
 
 test("起動の時に片付けを呼び、ほかに鍵のファイルの名前を使う所が残っていない", () => {
   const index = fs.readFileSync("src/main/index.ts", "utf8");
-  assert.match(index, /retireCaptureOrganizerKeys\(app\.getPath\("userData"\)\)/);
+  assert.match(index, /retireKeyFiles\(app\.getPath\("userData"\)\)/);
   const names = /capture-organizer-settings\.json|chatgpt-account\.json/;
   const files = [];
   const walk = (directory) => {
@@ -110,7 +110,7 @@ test("起動の時に片付けを呼び、ほかに鍵のファイルの名前�
   walk("src");
   const users = files.filter(
     (filePath) =>
-      !filePath.endsWith(path.join("services", "captureOrganizerKeyRetirement.ts")) &&
+      !filePath.endsWith(path.join("services", "retiredKeyFiles.ts")) &&
       names.test(fs.readFileSync(filePath, "utf8")),
   );
   assert.deepEqual(users, []);
