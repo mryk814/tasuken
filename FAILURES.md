@@ -2,6 +2,15 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-16 待ちを Task に写す service が repositories の関数を読み、architecture-audit に止められた
+
+- しようとしたこと: #755 束7 で、写した記録の ID を元の ID から決める関数を `src/main/repositories/derivedRecords.mjs` に置き、repository（同期の版の ID）と service（`src/main/services/waitingRetirement.ts`。写した Task の ID）の両方から読んだ。
+- 起きたこと: 変えたモジュールを読む試験を流すと、`tests/architecture-audit.test.mjs` が `module.undeclared_dependency src/main/services/waitingRetirement.ts -> src/main/repositories/derivedRecords.mjs` を新しい指摘として止めた（新しい試験が WorkspaceDatabase を直に使う `compatibility.consumer_added` も一緒に）。
+- 原因: `architecture/modules.json` で、services（main.application）は repositories（main.infrastructure）に依存できない。
+- 直し方: 同じ形の ID の関数を service の中に持ち、それぞれの層で閉じた。試験は `architecture/compatibility-baseline.json` の利用者に足した。
+- 再発防止: 記録だけ（architecture-audit が機械的に止めるので、新しい service を足したら `tests/architecture-audit.test.mjs` を一緒に流す）。
+- 同じ作業で分かったこと: Windows では、試験の `t.after` で一時フォルダーを消す処理を DB を閉じる処理より先に登録すると、開いたままの SQLite を消せずに `EPERM` で落ちる（`t.after` は登録した順に走る）。閉じてから消す 1 つの後始末にまとめた（`tests/waiting-retirement.test.mjs` の `tempRoot`）。
+
 ## 2026-11-16 v0.1.92 の Release が、Release の時だけ流れる日誌の smoke で落ちた
 
 - しようとしたこと: #751 PR 2（AI の作業を同じカードで読む）などを入れた main（`npm run ci` 通過）に v0.1.92 のタグを付けて Release する。
