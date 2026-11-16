@@ -160,6 +160,7 @@ export class SharedFolderSyncService {
     this.attachmentStats = { published: 0, received: 0 };
     this.waitingFor = null;
     this.waitingImage = null;
+    this.unconvertedWaitings = null;
     this.healStats = { republished: 0 };
     this.lastReportedError = null;
     this.checkedWorkspaceId = null;
@@ -286,7 +287,16 @@ export class SharedFolderSyncService {
       waitingFor: this.waitingFor,
       waitingImage: this.waitingImage,
       lastAutoRepublished: this.healStats.republished,
+      unconvertedWaitings: this.unconvertedWaitings,
     };
+  }
+
+  /**
+   * まだ Task に写していない待ちの数と理由（#755 束7）。写す処理（Main の起動）が置き、設定の
+   * 同期の欄が読む。写せたら null。同期の状態の口に足すだけで、ここでは数えない。
+   */
+  reportUnconvertedWaitings(value) {
+    this.unconvertedWaitings = value && value.count > 0 ? value : null;
   }
 
   async syncNow() {

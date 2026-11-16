@@ -19,7 +19,11 @@ import { normalizeDueNotificationTimes } from "../../shared/taskNotifications.ts
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { migratePublishedFeedNotes } from "./feedPostMigration.mjs";
 import { assertSyncPacket, isRetiredSyncPacket } from "./syncPacketContract.mjs";
-import { derivedRootMetaKey, derivedRootRevisionId } from "./derivedRecords.mjs";
+import {
+  derivedRootMetaKey,
+  derivedRootRevisionId,
+  isDerivedRootPacket,
+} from "./derivedRecords.mjs";
 import { normalizeAgentWorkRecord } from "../../shared/contracts/task/public.ts";
 import {
   isPersonalDefaultTheme,
@@ -2477,8 +2481,6 @@ export class WorkspaceDatabase {
       entity,
       createdAt: timestamp,
       ...(relayRevisionId ? { relay: true } : {}),
-      // 写した記録の最初の版の印（#755 束7）。古い版の受け手は知らない欄として読み飛ばす。
-      ...(fixedRevisionId ? { derivedRoot: true } : {}),
     };
     this.db
       .prepare(
@@ -2848,11 +2850,15 @@ export class WorkspaceDatabase {
         return { status: "duplicate", entity: this.get(type, id, true) };
       const local = this.get(type, id, true);
       // 写した記録の最初の版（#755 束7。待ち → Task）。別の端末も同じ記録を独立に写すので、
-      // 手元の記録がこれと同じ最初の版から生まれていれば（版の ID は中身から決まる）、手元の版は
-      // この版から続いている。版が進んだ後に届いても競合にしない。最初の版が違う（中身の違う写し）
-      // なら、下のふつうの判定で競合として登録し、本人が選ぶ。
-      const derivedRoot = packet.derivedRoot === true && incomingParents.length === 0;
-      if (local && derivedRoot && this.derivedRoot(type, id) === revisionId)
+      // 手元の記録がこれと同じ最初の版から生まれていれば（版の ID は中身から決まり、端末ごとの
+      // 控えに残してある）、手元の版はこの版から続いている。版が進んだ後に届いても競合にしない。
+      // 最初の版が違う（中身の違う写し）なら、下のふつうの判定で競合として登録し、本人が選ぶ。
+      if (
+        local &&
+        incomingParents.length === 0 &&
+        revisionId &&
+        this.derivedRoot(type, id) === revisionId
+      )
         return { status: "duplicate", entity: local };
       const canApply = !local || !currentHead || incomingParents.includes(currentHead);
       // 中継は欠けた記録の補充用。手元が別系統へ進んでいれば上書きも競合登録もしない。
@@ -2874,7 +2880,11 @@ export class WorkspaceDatabase {
           allowReceiptRevision: type === "work_receipt",
         });
         this.setSyncHead(type, id, revisionId);
-        if (derivedRoot) this.rememberDerivedRoot(type, id, revisionId);
+        // 届いた版が写した記録の最初の版なら（版の ID が中身のハッシュと一致する）、控えに残す。
+        // 差分の印には頼らない。写した端末のフォルダーが消えて別の端末が中継した差分にも印は無く、
+        // 控えが無いと、後から届く同じ中身の最初の版を競合にしてしまう。
+        if (isDerivedRootPacket(type, packet.entity, revisionId))
+          this.rememberDerivedRoot(type, id, revisionId);
         this.db
           .prepare("DELETE FROM sync_conflicts WHERE entity_type = ? AND entity_id = ?")
           .run(type, id);

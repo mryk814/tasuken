@@ -58,6 +58,20 @@ export type WaitingConversionResult =
   | { state: "done"; waitings: number; tasks: number; schedules: number; failed: number };
 
 /**
+ * 設定の同期の欄に出す「写していない待ち」（#755 束7）。写せていない時だけ数と理由を返し、
+ * 写せた・写す物が無い時は null（何も出さない）。
+ */
+export function unconvertedWaitingsFrom(
+  result: WaitingConversionResult,
+): { count: number; reason: "sync_behind" | "backup_failed" | "write_failed" } | null {
+  if (result.state === "not_caught_up") return { count: result.pending, reason: "sync_behind" };
+  if (result.state === "backup_failed") return { count: result.pending, reason: "backup_failed" };
+  if (result.state === "done" && result.failed > 0)
+    return { count: result.failed, reason: "write_failed" };
+  return null;
+}
+
+/**
  * 文字列の並びから決まる UUID（v5 の形）。値を変えると、写した Task と別の ID になり、
  * 次の起動で同じ待ちをもう一度写してしまうので、形も入力も変えない。
  */

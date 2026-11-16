@@ -41,6 +41,23 @@ export function derivedRootRevisionId(type, entity) {
   return uuidFromHash(hash);
 }
 
+/** 写した記録になりうる種類（待ち → Task とその期限と関係）。ほかの種類はハッシュを計算しない。 */
+const DERIVED_RECORD_TYPES = new Set(["task", "schedule", "reference"]);
+
+/**
+ * 届いた差分が、写した記録の最初の版か。版の ID が、その中身から決まる最初の版の ID と一致する物。
+ * 乱数の版の ID とは一致しないので、差分の印や親の有無（中継の差分は親を持ちうる）に頼らずに分かる。
+ */
+export function isDerivedRootPacket(type, entity, revisionId) {
+  return (
+    DERIVED_RECORD_TYPES.has(type) &&
+    Boolean(entity) &&
+    typeof entity === "object" &&
+    Boolean(revisionId) &&
+    derivedRootRevisionId(type, entity) === revisionId
+  );
+}
+
 /** 端末ごとの控え（workspace_meta）に、その記録の最初の版の ID を持つ時のキー。同期には載せない。 */
 export function derivedRootMetaKey(type, id) {
   return `derived_root_v1:${type}:${id}`;

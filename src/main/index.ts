@@ -53,7 +53,7 @@ import { WorkspaceService } from "./services/workspaceService";
 import { AiProposalAcceptanceService } from "./services/aiProposalAcceptanceService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import { runRetiredExportsOnce } from "./services/retiredExports";
-import { runWaitingConversionOnce } from "./services/waitingRetirement";
+import { runWaitingConversionOnce, unconvertedWaitingsFrom } from "./services/waitingRetirement";
 import { runRetiredOutputCleanupOnce } from "./services/retiredOutputCleanup.mjs";
 import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBackup";
 import { applyPendingRestore, cancelStagedRestore } from "./services/workspaceRestore";
@@ -2188,6 +2188,8 @@ async function startDesktopApp(): Promise<void> {
           isCaughtUp: async () => (exportSync ? exportSync.caughtUpForDerivedWrites() : true),
           log: (level, message) => logMain(level, "retired-waiting", message),
         });
+        // 写していない待ちが残る時は、設定の同期の欄に数と理由を出す（黙って画面から消さない）。
+        exportSync?.reportUnconvertedWaitings(unconvertedWaitingsFrom(result));
         runRetiredExportsOnce({
           repository: exportRepository,
           userDataDirectory: app.getPath("userData"),
