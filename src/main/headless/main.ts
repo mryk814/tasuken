@@ -70,6 +70,9 @@ export function parseTaskenHeadlessCoreArgs(
       "db-path": { type: "string" },
       "sync-directory": { type: "string" },
       "write-mode": { type: "string" },
+      // AI Readyの開始（#755 束10aで外した）。前の配備の起動引数に残っていても起動を断らないよう、
+      // 名前だけ受けて使わない（HTTPのclient設定のallowStartと同じ扱い）。
+      "allow-ai-task-start": { type: "boolean" },
       "allow-ai-task-change": { type: "boolean" },
       "mobile-gateway": { type: "boolean" },
       "mobile-gateway-port": { type: "string" },

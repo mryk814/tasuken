@@ -1345,7 +1345,18 @@ test("Headless Core CLI requires valid explicit arguments", () => {
       parseTaskenHeadlessCoreArgs(["--write-mode=read-only"], { TASKEN_CORE_AI_TASK_START: "1" }),
     false,
   );
-  assert.throws(() => parseTaskenHeadlessCoreArgs(["--allow-ai-task-start"]));
+});
+
+// 前の配備の起動引数に --allow-ai-task-start が残っていても、NAS の Core は起動で落ちない（#755 束10a）。
+test("Headless Core CLI accepts and ignores a leftover --allow-ai-task-start", () => {
+  const parsed = parseTaskenHeadlessCoreArgs(
+    ["--write-mode=create-only", "--allow-ai-task-start"],
+    {},
+  );
+  assert.equal(parsed.writeMode, "create-only");
+  assert.equal("allowAiTaskStart" in parsed, false);
+  // 読み取りだけの配備と一緒でも断らない（前は read-only との併用を起動で断っていた）。
+  assert.equal(parseTaskenHeadlessCoreArgs(["--allow-ai-task-start"], {}).writeMode, "read-only");
 });
 
 test("replicaは同期の鮮度を source_status で返し、MCPの結果にsourceを添える。syncDirectoryなしでは出さない", async (t) => {
