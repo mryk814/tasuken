@@ -8,18 +8,10 @@ const registerIpc = fs.readFileSync("src/main/ipc/registerIpc.ts", "utf8");
 const preload = fs.readFileSync("src/preload/index.ts", "utf8");
 const workspaceApi = fs.readFileSync("src/renderer/src/services/workspaceApi.ts", "utf8");
 
-test("Context Preview IPCはtyped requestだけをMainへ渡す (#296)", () => {
-  assert.match(contracts, /aiContextPreview: "ai-context:preview"/);
-  assert.match(
-    contracts,
-    /interface AiContextPreviewRequest\s*{\s*channel: AiContextPreviewChannel;\s*scope: AiContextPreviewScope;/s,
-  );
-  assert.doesNotMatch(
-    contracts.match(/interface AiContextPreviewRequest[\s\S]*?\n}/)?.[0] || "",
-    /path|content|query|relation/,
-  );
-  assert.match(registerIpc, /service\.getAiContextPreview\(request\)/);
-  assert.match(preload, /ipcRenderer\.invoke\(IPC\.aiContextPreview, request\)/);
+test("Context PreviewのIPCとData Healthの口が残っていない（#755 束8・束10a）", () => {
+  // Context Previewを使っていたのはTaskの「AIへの依頼」の欄だけで、束10aでその欄ごと外した。
+  for (const source of [contracts, registerIpc, preload, workspaceApi])
+    assert.doesNotMatch(source, /aiContextPreview|AiContextPreview|ai-context:preview/);
   // Data Health（棚卸しの画面の診断）は外した（#755 束8）。IPC・preload・画面の口が残っていない。
   for (const source of [contracts, registerIpc, preload, workspaceApi])
     assert.doesNotMatch(source, /dataHealth|DataHealth|data-health/);

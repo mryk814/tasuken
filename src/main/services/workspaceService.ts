@@ -64,8 +64,6 @@ import type {
   FilePreviewReadResult,
   WebArtifactPreviewResult,
   McpBridgeInfo,
-  AiContextPreviewRequest,
-  AiContextPreviewResult,
 } from "../../shared/ipc/contracts";
 import { createMcpBridgeInfo } from "../../shared/ipc/contracts";
 import { coreWriteProfile } from "../../shared/contracts/core/public.mjs";
@@ -98,7 +96,6 @@ import { referenceTargetEntityTypes } from "../../shared/entityRegistry.mjs";
 import { normalizeReferenceAssertion } from "../../shared/relationAssertion.mjs";
 import { reconcileStableLinkAssertions } from "../../shared/stableLinks.mjs";
 import { changeEventsForCommand } from "../../shared/activityEvent.mjs";
-import { previewTaskCoding } from "../../shared/aiContextPreview.mjs";
 import { formatRecordCountsMarkdown, type RecordCountRow } from "./recordCounts.mjs";
 import {
   CONVERSATION_CONTEXT_PUBLICATION_SCHEMA,
@@ -304,15 +301,6 @@ function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function safeContextPreviewError(value: unknown): string {
-  const source = objectValue(value);
-  const code = typeof source.code === "string" ? source.code : "";
-  if (code === "not_found") return "対象が見つかりません。IDを確認してください。";
-  if (code === "unsupported_schema")
-    return "保存形式を解釈できません。Taskenを更新してからもう一度お試しください。";
-  return "Context Previewを作成できませんでした。もう一度お試しください。";
 }
 
 function parsedRecord(value: unknown): Record<string, unknown> {
@@ -714,7 +702,6 @@ export class WorkspaceService {
   private readonly conversationContextRecoveryDirectory: string;
   private readonly proposalMarkdownImages: ProposalMarkdownImageStore;
   private readonly taskenCoreClient?: {
-    getTaskContext(request: { task_id: string }): Promise<unknown>;
     inspect(): Promise<{ api_version: string; capabilities: string[] }>;
   };
   constructor(
@@ -722,7 +709,6 @@ export class WorkspaceService {
     private readonly userDataPath: string,
     private readonly now: () => string = () => new Date().toISOString(),
     taskenCoreClient?: {
-      getTaskContext(request: { task_id: string }): Promise<unknown>;
       inspect(): Promise<{ api_version: string; capabilities: string[] }>;
     },
     proposalMarkdownImageDecoder: ProposalMarkdownImageDecoder = createNativeImageDecoder(
@@ -1095,43 +1081,6 @@ export class WorkspaceService {
 
   private writeAtomicText(filePath: string, content: string, operationId: string): string | null {
     return writeAtomicTextFile(filePath, content, operationId);
-  }
-
-  /**
-   * Taskを任せる前に、MCPがそのTaskについて渡すContextを確かめる（Handoffの欄が使う）。
-   * Theme画面の「渡す内容の確認」とAI Packの経路は#755 束2で外した。
-   */
-  async getAiContextPreview(requestValue: unknown): Promise<AiContextPreviewResult> {
-    const request = objectValue(requestValue) as Partial<AiContextPreviewRequest>;
-    const scopeValue = objectValue(request.scope);
-    const scopeId = typeof scopeValue.id === "string" ? scopeValue.id.trim() : "";
-    if (scopeValue.type !== "task" || !scopeId || request.channel !== "mcp") {
-      throw new Error("Context Previewの対象または種類が不正です。画面を開き直してください。");
-    }
-    const requestedScope = { type: "task", id: scopeId } as const;
-    try {
-      if (!this.taskenCoreClient) throw new Error("Tasken Core clientが構成されていません。");
-      const response = await this.taskenCoreClient.getTaskContext({ task_id: scopeId });
-      const preview = previewTaskCoding(response);
-      return {
-        state: preview.counts.included ? "ready" : "empty",
-        requestedScope,
-        effectiveScope: requestedScope,
-        producer: "mcp_task_context",
-        preview,
-        includedInEffectiveScope: preview.included.some((entry) => entry.ref.id === scopeId),
-      };
-    } catch (error) {
-      return {
-        state: "error",
-        requestedScope,
-        effectiveScope: requestedScope,
-        producer: "mcp_task_context",
-        preview: null,
-        includedInEffectiveScope: null,
-        error: safeContextPreviewError(error),
-      };
-    }
   }
 
   private resolveThemeFolder(theme: Record<string, unknown>) {

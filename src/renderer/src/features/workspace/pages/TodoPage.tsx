@@ -6,11 +6,9 @@ import {
   IconBellRinging,
   IconClock,
   IconCopyPlus,
-  IconLoader2,
   IconPlus,
 } from "@tabler/icons-react";
 
-import { AI_ICON } from "../../../pages/semanticIcons";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { todayIso } from "../../../utils/dataFormat.js";
 import { usePreference } from "../../../utils/usePreference";
@@ -369,21 +367,6 @@ export function TodoPage({
     }
   }
 
-  async function toggleAiReady(task: Task) {
-    const workState =
-      task.work_state ||
-      (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
-    const aiReady = task.intended_executor === "ai_agent" && workState === "ready_for_agent";
-    await saveEntities(
-      buildSaveTaskOperations({
-        ...task,
-        intended_executor: aiReady ? "self" : "ai_agent",
-        work_state: aiReady ? "not_delegated" : "ready_for_agent",
-      }),
-      aiReady ? "AI Readyを解除しました。" : "AI Readyにしました。",
-    );
-  }
-
   async function toggleChecklistItem(task: Task, itemId: string) {
     const nextItems = (task.checklist_items || []).map((item) =>
       item.id === itemId
@@ -478,9 +461,6 @@ export function TodoPage({
       (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
     const requiresHumanAcceptance =
       task.intended_executor === "ai_agent" && workState !== "accepted";
-    const aiReady = task.intended_executor === "ai_agent" && workState === "ready_for_agent";
-    const aiWorking = task.intended_executor === "ai_agent" && workState === "in_progress";
-    const canToggleAiReady = !done && ["not_delegated", "ready_for_agent"].includes(workState);
     const due = scheduledDate(schedule);
     const completionDate = task.completed_at ? task.completed_at.slice(0, 10) : "";
     const urgency =
@@ -541,18 +521,6 @@ export function TodoPage({
           )}
         </button>
         <div className="row-title-wrap">
-          <button
-            className={`priority-flag-button ${aiReady ? "is-active" : ""}${aiWorking ? " is-working" : ""}`}
-            disabled={!canToggleAiReady}
-            onClick={(event) => {
-              event.stopPropagation();
-              void toggleAiReady(task);
-            }}
-            aria-label={aiWorking ? "AIが作業中" : aiReady ? "AI Readyを解除" : "AI Readyにする"}
-            title={aiWorking ? "AIが作業中" : aiReady ? "AI Readyを解除" : "AI Readyにする"}
-          >
-            {aiWorking ? <IconLoader2 size={16} /> : <AI_ICON size={16} />}
-          </button>
           <button
             className={`today-plan-button ${selectedToday ? "is-active" : ""}`}
             onClick={(event) => {

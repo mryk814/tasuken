@@ -341,14 +341,6 @@ export {
   type ConfirmationKind,
 } from "./attentionQueue.ts";
 export {
-  HANDOFF_DELEGATE_LABELS,
-  describeHandoffContextChange,
-  handoffContextRef,
-  handoffDelegateSchema,
-  isSameHandoffContextRef,
-  type HandoffDelegate,
-} from "./handoff.ts";
-export {
   taskWorkEntry,
   taskWorkReportTime,
   taskWorkReportsCoveredBy,

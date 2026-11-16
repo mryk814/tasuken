@@ -15,7 +15,6 @@ import { queueMcpProposal, validateMcpProposalEnvelope } from "./fixtures/legacy
 import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
 import { taskWorkInboxGroups } from "../src/shared/contracts/task/public.ts";
 import { buildActivityEvent } from "../src/shared/activityEvent.mjs";
-import { previewTaskCoding } from "../src/shared/aiContextPreview.mjs";
 
 const workspaceRepositoryModule = "../src/main/repositories/" + "workspaceRepository.mjs";
 const { WorkspaceDatabase } = await import(workspaceRepositoryModule);
@@ -282,15 +281,6 @@ test("get_task_context returns bounded related summaries, safe locators, reposit
           entry.reason === "max_items_per_type",
       ),
     );
-    const preview = previewTaskCoding(result);
-    assert.deepEqual(
-      preview.included.map((entry) => entry.ref),
-      result.context_selection.included.map((entry) => entry.ref),
-    );
-    assert.deepEqual(
-      preview.excluded.map((entry) => ({ ref: entry.ref, reason: entry.reason })),
-      result.context_selection.excluded.map((entry) => ({ ref: entry.ref, reason: entry.reason })),
-    );
     assert.equal(JSON.stringify(result).includes("C:/private"), false);
     assert.equal(JSON.stringify(result).includes("token=secret"), false);
     assert.equal(result.truncated, true);
@@ -321,10 +311,6 @@ test("Task context budgets AI metadata, rejects private source roots, and keeps 
     assert.equal(bounded.truncation.text.used, 1_000);
     assert.equal(bounded.context_selection.estimated_characters, 1_000);
     assert.doesNotMatch(serialized, /C:\\\\Users|alice:secret|secret\.md/);
-    assert.doesNotMatch(
-      JSON.stringify(previewTaskCoding(bounded)),
-      /C:\\\\Users|alice:secret|secret\.md/,
-    );
 
     const repositoryOnly = context.toolGetTaskContext({
       task_id: "task-1",
@@ -340,10 +326,6 @@ test("Task context budgets AI metadata, rejects private source roots, and keeps 
       repositoryOnly.context_selection.excluded.some(
         (entry) => entry.ref.id === "note-1" && entry.reason === "include_not_requested",
       ),
-    );
-    assert.deepEqual(
-      previewTaskCoding(repositoryOnly).included.map((entry) => entry.ref),
-      repositoryOnly.context_selection.included.map((entry) => entry.ref),
     );
   } finally {
     context.close();

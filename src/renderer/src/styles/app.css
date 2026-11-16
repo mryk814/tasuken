@@ -3559,11 +3559,6 @@ textarea:hover {
   order: 6;
 }
 
-.ai-context-preview-state {
-  padding: var(--space-3) var(--pad-card);
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
 .report-summary-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 120px 140px;
@@ -8977,7 +8972,6 @@ kbd {
 .row-title:hover {
   color: var(--color-accent-strong);
 }
-.priority-flag-button,
 .today-plan-button,
 .todo-copy-button,
 .todo-focus-button,
@@ -8993,7 +8987,6 @@ kbd {
   background: transparent;
   color: var(--color-text-tertiary);
 }
-.priority-flag-button:hover,
 .today-plan-button:hover,
 .todo-copy-button:hover,
 .todo-focus-button:hover,
@@ -9002,35 +8995,10 @@ kbd {
   background: var(--color-surface-muted);
   color: var(--color-accent-strong);
 }
-.priority-flag-button.is-active,
 .today-plan-button.is-active {
   color: var(--color-accent-strong);
   background: var(--color-accent-subtle-bg);
   border-color: var(--color-accent-subtle-bd);
-}
-/* AI が作業中の印は、すぐ下の「作業中」のチップ（.todo-ai-state-chip.is-in_progress）と同じ藍にする。
-   進行中の色（status-active）は Task の状態の色で、同じ事実が二色に分かれて見えるため。 */
-.priority-flag-button.is-working {
-  color: var(--action-ai-fg);
-  background: var(--action-ai-bg);
-  border-color: var(--action-ai-bd);
-  cursor: default;
-  opacity: 1;
-}
-.priority-flag-button.is-working svg {
-  display: block;
-  transform-origin: 50% 50%;
-  transform-box: fill-box;
-  animation: spin calc(var(--duration-base) * 5) linear infinite;
-}
-/* AI作業中の回転は装飾ではなく「作業中」という状態そのものの表示のため、
-   reduced-motion時も等速回転を維持する（design-guide §6eの状態可視性を優先。
-   小面積の等速回転のみで、点滅や振幅の大きな動きは使わない）。 */
-@media (prefers-reduced-motion: reduce) {
-  .priority-flag-button.is-working svg {
-    animation-duration: calc(var(--duration-base) * 5) !important;
-    animation-iteration-count: infinite !important;
-  }
 }
 .theme-inline {
   display: inline-flex;
@@ -15475,130 +15443,6 @@ kbd {
   min-width: 0;
   font: inherit;
   font-size: var(--text-base);
-}
-
-/* --- Task詳細: AIへ任せる（Handoff #598） --- */
-.task-handoff {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4) 0;
-  border-top: 1px solid var(--color-border-subtle);
-}
-
-.task-handoff .section-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
-.task-handoff .section-heading h4 {
-  margin: 0;
-  font-size: var(--text-lg);
-  font-weight: var(--weight-medium);
-}
-
-.task-handoff-state {
-  padding: 1px 8px;
-  border-radius: var(--radius-pill);
-  font-size: var(--text-xs);
-  color: var(--color-status-idle-fg);
-  background: var(--color-status-idle-bg);
-  border: 1px solid var(--color-status-idle-bd);
-}
-
-.task-handoff-state.is-working {
-  color: var(--action-ai-fg);
-  background: var(--action-ai-bg);
-  border-color: var(--action-ai-bd);
-}
-
-.task-handoff-fields {
-  display: grid;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.task-handoff-fields label {
-  display: grid;
-  gap: 4px;
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  min-width: 0;
-}
-
-.task-handoff-fields select,
-.task-handoff-fields textarea {
-  width: 100%;
-  min-width: 0;
-  font: inherit;
-  font-size: var(--text-base);
-  resize: vertical;
-}
-
-.task-handoff-preview {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-3);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--color-surface-subtle);
-}
-
-.task-handoff-preview-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
-.task-handoff-preview p {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-}
-
-.task-handoff-preview-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: var(--text-xs);
-  color: var(--color-text-secondary);
-}
-
-.task-handoff-preview-list li {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.task-handoff-preview-list em {
-  font-style: normal;
-  color: var(--color-text-tertiary);
-}
-
-.task-handoff-warning {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--color-warning-strong);
-}
-
-.task-handoff-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.task-handoff-note {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
 }
 
 /* --- Today「AIから届いたこと」（計画フェーズ5） --- */
