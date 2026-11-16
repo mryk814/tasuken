@@ -19,6 +19,7 @@ import { normalizeDueNotificationTimes } from "../../shared/taskNotifications.ts
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { migratePublishedFeedNotes } from "./feedPostMigration.mjs";
 import { assertSyncPacket, isRetiredSyncPacket } from "./syncPacketContract.mjs";
+import { derivedRootRevisionId, isDerivedRootRevision } from "./derivedRecords.mjs";
 import { normalizeAgentWorkRecord } from "../../shared/contracts/task/public.ts";
 import {
   isPersonalDefaultTheme,
@@ -2449,9 +2450,11 @@ export class WorkspaceDatabase {
       .run(type, String(id), revisionId);
   }
 
-  enqueueSyncEntity(type, entity, parentRevisionIds, relayRevisionId = "") {
+  enqueueSyncEntity(type, entity, parentRevisionIds, relayRevisionId = "", fixedRevisionId = "") {
     if (!entity) return null;
-    const changeId = uuid();
+    // 写した記録の最初の版（writeDerivedRecords）は、change ID も版の ID と同じ値にする。
+    // 自端末の差分は revisionId = change_id という前提（enqueueOrphanSyncRelays）を崩さないため。
+    const changeId = fixedRevisionId || uuid();
     const sequence = this.nextSyncSequence();
     const currentHead = this.syncHead(type, entity.id);
     const parents = Array.isArray(parentRevisionIds)
@@ -2485,6 +2488,33 @@ export class WorkspaceDatabase {
       .run(changeId, sequence, JSON.stringify(packet), timestamp);
     if (!relayRevisionId) this.setSyncHead(type, entity.id, changeId);
     return packet;
+  }
+
+  /**
+   * 切った機能の記録を、別の種類へ写した記録として書く（#755 束7。待ち → Task と、その期限）。
+   * records は { type, entity, operationAt } の並び。entity の中身と operationAt（更新の時刻）は
+   * 元の記録だけから決まる値にし、どの端末で写しても同じ中身にする。
+   *
+   * - 同じ ID の記録が、消した物（墓標）も含めて既にあれば書かない。写すのは一度だけで、
+   *   本人が消した写しを作り直さない。
+   * - 差分の版の ID は種類と ID から決める（derivedRecords.mjs）。2 台が独立に写しても、
+   *   同期では同じ版として 1 件に収まる。
+   * - 全部を 1 つの transaction で書き、どれかが書けなければ何も書かない。書いた件数を返す。
+   */
+  writeDerivedRecords(records) {
+    return this.db.transaction(() => {
+      let written = 0;
+      for (const { type, entity, operationAt } of records) {
+        if (!entity?.id || this.get(type, entity.id, true)) continue;
+        const saved = this.saveWithinTransaction(type, entity, {
+          skipSync: true,
+          __canonicalOperationAt: operationAt,
+        });
+        this.enqueueSyncEntity(type, saved, [], "", derivedRootRevisionId(type, saved.id));
+        written += 1;
+      }
+      return written;
+    })();
   }
 
   /**
@@ -2795,6 +2825,10 @@ export class WorkspaceDatabase {
       if (currentHead === revisionId)
         return { status: "duplicate", entity: this.get(type, id, true) };
       const local = this.get(type, id, true);
+      // 写した記録の最初の版（#755 束7。待ち → Task）。別の端末も同じ記録を独立に写すので、
+      // 手元にあれば手元の版はこの版から続いている。版が進んだ後に届いても競合にしない。
+      if (local && isDerivedRootRevision(type, id, revisionId, incomingParents))
+        return { status: "duplicate", entity: local };
       const canApply = !local || !currentHead || incomingParents.includes(currentHead);
       // 中継は欠けた記録の補充用。手元が別系統へ進んでいれば上書きも競合登録もしない。
       if (!canApply && packet.relay === true) return { status: "duplicate", entity: local };

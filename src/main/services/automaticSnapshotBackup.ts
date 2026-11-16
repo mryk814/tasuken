@@ -47,7 +47,8 @@ interface AutomaticSnapshotBackupOptions extends AutomaticSnapshotBackupConfig {
   log?: (level: "info" | "warn" | "error", message: string, error?: unknown) => void;
 }
 
-export type AutomaticSnapshotTrigger = "startup" | "manual";
+/** retirement は、切った機能の記録を写す前の控え（#755 束7）。自動バックアップを止めていても取る。 */
+export type AutomaticSnapshotTrigger = "startup" | "manual" | "retirement";
 
 function boundedGenerations(value: unknown): number {
   const number = Number(value);
