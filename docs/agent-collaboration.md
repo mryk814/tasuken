@@ -51,7 +51,6 @@ projection の利用箇所は、nav badge（`shell.tsx`）、Feedの右レール
 | ---------- | ---------- | ------------------------------------------------------ | --------------------------------------------- |
 | Today      | `today`    | `TodayPage.tsx`                                        | Core daily                                    |
 | ToDo       | `todo`     | `TodoPage.tsx`（alias `todo-done`）                    | Core daily                                    |
-| Waiting    | `waiting`  | `WaitingPage.tsx`                                      | Sidebar非表示、Todayから                      |
 | Inbox      | `inbox`    | `InboxPage.tsx`（alias `micro-memos`）                 | Core daily                                    |
 | Agent Desk | `ai-io`    | Feedの「対応待ち」＋右レール（alias `proposal-inbox`） | **ナビ項目なし。旧URLの受け皿としてのみ残す** |
 | Timeline   | `timeline` | `TimelinePage.tsx`                                     | Supporting                                    |
