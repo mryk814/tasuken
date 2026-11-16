@@ -7,6 +7,7 @@ import type {
   AutomaticSnapshotBackupStatus,
   McpBridgeInfo,
   SharedSyncStatus,
+  UnconvertedWaitings,
   WorkspaceRestoreOutcome,
 } from "../../../../../shared/ipc/contracts";
 import type {
@@ -31,6 +32,15 @@ import {
   DIRECT_SHORTCUT_DEFINITIONS,
   formatShortcutLabel,
 } from "../../../../../shared/globalShortcuts";
+
+// 待ちを Task に写せていない理由（#755 束7）。直し方が分かる一言にする。
+const UNCONVERTED_WAITING_REASONS: Record<UnconvertedWaitings["reason"], string> = {
+  sync_behind:
+    "ほかの端末の変更を取り込み終えていないので、Task に写すのを待っています。同期が追いつくと写ります。",
+  backup_failed:
+    "写す前の控えを作れなかったので、Task に写していません。控えの保存先を確かめてください。",
+  write_failed: "Task に写せなかった待ちがあります。次の起動でやり直します。",
+};
 
 interface SettingsPageProps extends PageProps {
   themeMode: "light" | "dark";
@@ -1105,6 +1115,13 @@ export function SettingsPage({
                 <p className="field-help">
                   画像 {syncStatus.waitingImage.fileName.slice(0, 8)}…
                   の到着を待っています。OneDriveの同期完了後に「今すぐ同期」を実行してください。
+                </p>
+              )}
+              {/* 待ちを Task に写せていない時だけ（#755 束7）。待ちの画面は外したので、ここで知らせる。 */}
+              {syncStatus?.unconvertedWaitings && (
+                <p className="field-help">
+                  写していない待ち {syncStatus.unconvertedWaitings.count} 件：
+                  {UNCONVERTED_WAITING_REASONS[syncStatus.unconvertedWaitings.reason]}
                 </p>
               )}
               {syncStatus && syncStatus.lastAutoRepublished > 0 && (

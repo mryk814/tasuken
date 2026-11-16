@@ -33,6 +33,7 @@ const {
   waitingScheduleId,
   waitingReferenceId,
   waitingReminderAt,
+  unconvertedWaitingsFrom,
 } = await loadModule("src/main/services/waitingRetirement.ts");
 const { runWaitingRetirementExportOnce } = await loadModule(
   "src/main/services/waitingRetirementExport.ts",
@@ -611,12 +612,8 @@ test("写して消した後、追いつきを確かめる端末は写さない�
   const { shared, devices } = createDevices(t, 3);
   const [first, second, old] = devices;
   first.database.save("waiting", waiting("w1"));
-  // old は束 7 より前の版の受け手（写した記録の最初の版の印を知らない）。
-  const apply = old.database.applySyncPacket.bind(old.database);
-  old.database.applySyncPacket = (packet) => {
-    const { derivedRoot: _derivedRoot, ...previousShape } = packet;
-    return apply(previousShape);
-  };
+  // old は束 7 より前の版の受け手（写した記録の最初の版の控えを持たず、読み飛ばさない）。
+  old.database.derivedRoot = () => "";
   for (const device of devices) await device.sync.configure(shared);
   const taskId = waitingTaskId("w1");
   await runWaitingConversionOnce({
@@ -697,4 +694,81 @@ test("確認の時刻は Task のリマインダーが受ける形にそろえ�
   assert.equal(odd.reminder_at, null);
   assert.match(odd.description, /確認の時刻: 来週の月曜/u);
   assert.equal(odd.source_record_id, "source-1");
+});
+
+test("写した端末のフォルダーが消えて中継で届いた写しも、同じ中身の最初の版が後から届けば競合にしない", async (t) => {
+  const { shared, devices } = createDevices(t, 4);
+  const [first, second, relay, fresh] = devices;
+  first.database.save("waiting", waiting("w1"));
+  for (const device of [first, second, relay]) await device.sync.configure(shared);
+  const taskId = waitingTaskId("w1");
+
+  // first が写し、relay が受け取る。second はまだ同期していない（後で同じ中身を独立に写す）。
+  await runWaitingConversionOnce({ repository: first.database, backup: backupSpy().backup });
+  await first.sync.syncNow();
+  await relay.sync.syncNow();
+  // first の端末フォルダーが消える。relay が first の記録を中継し、新しい端末 fresh はそれで受け取る。
+  fs.rmSync(path.join(shared, "devices", first.database.deviceId), { recursive: true });
+  await relay.sync.syncNow();
+  await fresh.sync.configure(shared);
+  assert.ok(fresh.database.get("task", taskId));
+  // fresh で直す。
+  fresh.database.save("task", { ...fresh.database.get("task", taskId), title: "fresh で直した" });
+  await fresh.sync.syncNow();
+
+  // second が同じ中身を独立に写して公開しても、fresh は競合にせず、直しを失わない。
+  await runWaitingConversionOnce({ repository: second.database, backup: backupSpy().backup });
+  await syncAll([second, relay, fresh]);
+  for (const { database } of [second, relay, fresh]) {
+    assert.equal(database.syncConflictCount(), 0);
+    assert.equal(database.get("task", taskId).title, "fresh で直した");
+  }
+});
+
+test("写していない待ちがある時だけ、同期の状態に数と理由を出す", async (t) => {
+  const { shared, devices } = createDevices(t, 2);
+  const [first, second] = devices;
+  seed(first.database);
+  await first.sync.configure(shared);
+  await second.sync.configure(shared);
+  assert.equal(second.sync.status().unconvertedWaitings, null);
+
+  // 追いついていない時は、待っている数と「同期」の理由。
+  await runWaitingConversionOnce({ repository: first.database, backup: backupSpy().backup });
+  await first.sync.syncNow();
+  const release = holdNewerPackets(
+    shared,
+    first.database.deviceId,
+    second.database.syncCursor(first.database.deviceId),
+  );
+  const behind = await runWaitingConversionOnce({
+    repository: second.database,
+    backup: backupSpy().backup,
+    isCaughtUp: () => second.sync.caughtUpForDerivedWrites(),
+  });
+  second.sync.reportUnconvertedWaitings(unconvertedWaitingsFrom(behind));
+  assert.deepEqual(second.sync.status().unconvertedWaitings, { count: 3, reason: "sync_behind" });
+
+  // 追いつけば、写す物が無くなり、出さない。
+  release();
+  const after = await runWaitingConversionOnce({
+    repository: second.database,
+    backup: backupSpy().backup,
+    isCaughtUp: () => second.sync.caughtUpForDerivedWrites(),
+  });
+  second.sync.reportUnconvertedWaitings(unconvertedWaitingsFrom(after));
+  assert.equal(second.sync.status().unconvertedWaitings, null);
+
+  assert.deepEqual(unconvertedWaitingsFrom({ state: "backup_failed", pending: 2 }), {
+    count: 2,
+    reason: "backup_failed",
+  });
+  assert.deepEqual(
+    unconvertedWaitingsFrom({ state: "done", waitings: 1, tasks: 1, schedules: 0, failed: 1 }),
+    { count: 1, reason: "write_failed" },
+  );
+  assert.equal(
+    unconvertedWaitingsFrom({ state: "done", waitings: 1, tasks: 1, schedules: 0, failed: 0 }),
+    null,
+  );
 });

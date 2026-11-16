@@ -473,6 +473,17 @@ export interface SharedSyncStatus {
   waitingFor: { deviceId: string; sequence: number } | null;
   waitingImage: { deviceId: string; fileName: string } | null;
   lastAutoRepublished: number;
+  /**
+   * まだ Task に写していない待ち（#755 束7）。写せていない時だけ数と理由を持ち、無ければ null。
+   * sync_behind: 同期がほかの端末に追いついていない。backup_failed: 写す前の控えを作れなかった。
+   * write_failed: 書けなかった（次の起動でやり直す）。
+   */
+  unconvertedWaitings: UnconvertedWaitings | null;
+}
+
+export interface UnconvertedWaitings {
+  count: number;
+  reason: "sync_behind" | "backup_failed" | "write_failed";
 }
 
 export interface SharedSyncRepublishResult {
@@ -501,8 +512,11 @@ export interface WorkspaceBackupEntry {
   fileName: string;
   createdAt: string;
   sizeBytes: number;
-  /** auto: 自動または「控えを今すぐ作る」。before-restore: 戻す前に自動で作った控え。 */
-  kind: "auto" | "before-restore";
+  /**
+   * auto: 自動または「控えを今すぐ作る」。before-restore: 戻す前に自動で作った控え。
+   * retirement: 切った機能の記録（待ち）を Task に写す前に作った控え（#755 束7）。
+   */
+  kind: "auto" | "before-restore" | "retirement";
 }
 
 export interface WorkspaceBackupList {
