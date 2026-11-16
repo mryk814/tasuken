@@ -3,8 +3,15 @@ import { useMemo, useState } from "react";
 import { IconChevronDown, IconChevronRight, IconRoute } from "@tabler/icons-react";
 
 import { buildEntityLineage } from "../../../../../shared/conversationLineage.mjs";
-import { collectionKeyForEntityType, type RegistryEntityType } from "../../../../../shared/entityRegistry.mjs";
-import { buildStableLinkContext, type LegacyStableLinkResolution, type StableLinkRelationItem } from "../../../../../shared/stableLinks.mjs";
+import {
+  collectionKeyForEntityType,
+  type RegistryEntityType,
+} from "../../../../../shared/entityRegistry.mjs";
+import {
+  buildStableLinkContext,
+  type LegacyStableLinkResolution,
+  type StableLinkRelationItem,
+} from "../../../../../shared/stableLinks.mjs";
 import type { BaseRecord, OpenContentViewer, OpenDrawer, WorkspaceData } from "../types";
 import { findSchedule } from "./drawerEntityFields";
 
@@ -64,7 +71,9 @@ function relationLabel(predicate: string): string {
 function formatTimestamp(value: string): string {
   if (!value) return "";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
 }
 
 function findRecord(data: WorkspaceData, type: string, id: string): BaseRecord | null {
@@ -99,13 +108,29 @@ export function LineagePanel({
     [data, maxDepth, seed.id, seed.type],
   );
   const linkContext = useMemo(
-    () => buildStableLinkContext(data as unknown as Record<string, unknown>, seed as { type: RegistryEntityType; id: string }, { maxItems: 24 }),
+    () =>
+      buildStableLinkContext(
+        data as unknown as Record<string, unknown>,
+        seed as { type: RegistryEntityType; id: string },
+        { maxItems: 24 },
+      ),
     [data, seed.id, seed.type],
   );
-  const otherReferences = lineage.references.filter((item: ReferenceItem) => item.relation.predicate !== "links_to");
-  const linkCount = linkContext.outbound.length + linkContext.backlinks.length + linkContext.broken.length
-    + linkContext.migration_candidates.length + linkContext.ambiguous.length + linkContext.unresolved.length;
-  const hasRelations = lineage.ancestors.length > 0 || lineage.descendants.length > 0 || otherReferences.length > 0 || linkCount > 0;
+  const otherReferences = lineage.references.filter(
+    (item: ReferenceItem) => item.relation.predicate !== "links_to",
+  );
+  const linkCount =
+    linkContext.outbound.length +
+    linkContext.backlinks.length +
+    linkContext.broken.length +
+    linkContext.migration_candidates.length +
+    linkContext.ambiguous.length +
+    linkContext.unresolved.length;
+  const hasRelations =
+    lineage.ancestors.length > 0 ||
+    lineage.descendants.length > 0 ||
+    otherReferences.length > 0 ||
+    linkCount > 0;
   if (!conversation && !hasRelations) return null;
 
   function openItem(item: { ref: { type: string; id: string } }) {
@@ -114,12 +139,42 @@ export function LineagePanel({
       return;
     }
     const record = findRecord(data, item.ref.type, item.ref.id);
-    if (!record || !openDrawer || !["capture_entry", "note", "plan_node", "project", "resource", "sketch", "task", "waiting"].includes(item.ref.type)) return;
-    const entity = item.ref.type === "task" || item.ref.type === "waiting" || item.ref.type === "plan_node"
-      ? { ...record, _schedule: findSchedule(data, item.ref.type as "task" | "waiting" | "plan_node", item.ref.id) }
-      : record;
+    if (
+      !record ||
+      !openDrawer ||
+      ![
+        "capture_entry",
+        "note",
+        "plan_node",
+        "project",
+        "resource",
+        "sketch",
+        "task",
+        "waiting",
+      ].includes(item.ref.type)
+    )
+      return;
+    const entity =
+      item.ref.type === "task" || item.ref.type === "waiting" || item.ref.type === "plan_node"
+        ? {
+            ...record,
+            _schedule: findSchedule(
+              data,
+              item.ref.type as "task" | "waiting" | "plan_node",
+              item.ref.id,
+            ),
+          }
+        : record;
     openDrawer({
-      type: (item.ref.type === "project" ? "theme" : item.ref.type) as "capture_entry" | "note" | "plan_node" | "resource" | "sketch" | "task" | "theme" | "waiting",
+      type: (item.ref.type === "project" ? "theme" : item.ref.type) as
+        | "capture_entry"
+        | "note"
+        | "plan_node"
+        | "resource"
+        | "sketch"
+        | "task"
+        | "theme"
+        | "waiting",
       entity,
     });
   }
@@ -134,16 +189,25 @@ export function LineagePanel({
   ].join(" · ");
 
   function itemRow(item: LineageItem) {
-    const canOpen = Boolean(openContentViewer && item.ref.type === "artifact") || Boolean(openDrawer && findRecord(data, item.ref.type, item.ref.id));
-    const pathLabel = [lineage.seed.title || entityLabel({ ref: seed, is_conversation: conversation })]
+    const canOpen =
+      Boolean(openContentViewer && item.ref.type === "artifact") ||
+      Boolean(openDrawer && findRecord(data, item.ref.type, item.ref.id));
+    const pathLabel = [
+      lineage.seed.title || entityLabel({ ref: seed, is_conversation: conversation }),
+    ]
       .concat(item.trail.flatMap((step) => [relationLabel(step.relation.predicate), step.title]))
       .join(" → ");
     return (
-      <li key={`${item.ref.type}:${item.ref.id}`} className={`lineage-row lineage-depth-${item.depth}`}>
+      <li
+        key={`${item.ref.type}:${item.ref.id}`}
+        className={`lineage-row lineage-depth-${item.depth}`}
+      >
         <button type="button" disabled={!canOpen} onClick={() => openItem(item)}>
           <span className="lineage-node-kind">{entityLabel(item)}</span>
           <strong>{item.title}</strong>
-          <span className="lineage-relation">{relationLabel(item.relation.predicate)} · {item.relation.reason}</span>
+          <span className="lineage-relation">
+            {relationLabel(item.relation.predicate)} · {item.relation.reason}
+          </span>
           {item.relation.created_at && <time>{formatTimestamp(item.relation.created_at)}</time>}
           <span className="lineage-path">{pathLabel}</span>
         </button>
@@ -152,18 +216,22 @@ export function LineagePanel({
   }
 
   function stableLinkRow(item: StableLinkRelationItem) {
-    const canOpen = item.kind === "resolved" && (
-      Boolean(openContentViewer && item.ref.type === "artifact")
-      || Boolean(openDrawer && findRecord(data, item.ref.type, item.ref.id))
-    );
+    const canOpen =
+      item.kind === "resolved" &&
+      (Boolean(openContentViewer && item.ref.type === "artifact") ||
+        Boolean(openDrawer && findRecord(data, item.ref.type, item.ref.id)));
     const rawAlias = typeof item.metadata.raw_alias === "string" ? item.metadata.raw_alias : "";
     return (
       <li key={`${item.direction}:${item.assertion_id}`} className="lineage-row">
         <button type="button" disabled={!canOpen} onClick={() => canOpen && openItem(item)}>
-          <span className="lineage-node-kind">{item.kind === "broken" ? "リンク切れ" : entityLabel(item)}</span>
+          <span className="lineage-node-kind">
+            {item.kind === "broken" ? "リンク切れ" : entityLabel(item)}
+          </span>
           <strong>{rawAlias || item.title}</strong>
           <span className="lineage-relation">
-            {item.kind === "broken" ? `${item.ref.type}:${item.ref.id} は見つかりません` : `${entityLabel(item)} · ${item.title}`}
+            {item.kind === "broken"
+              ? `${item.ref.type}:${item.ref.id} は見つかりません`
+              : `${entityLabel(item)} · ${item.title}`}
           </span>
         </button>
       </li>
@@ -171,7 +239,12 @@ export function LineagePanel({
   }
 
   function legacyLinkRow(item: LegacyStableLinkResolution) {
-    const status = item.kind === "migration_candidate" ? "移行候補" : item.kind === "ambiguous" ? "同名が複数" : "未解決";
+    const status =
+      item.kind === "migration_candidate"
+        ? "移行候補"
+        : item.kind === "ambiguous"
+          ? "同名が複数"
+          : "未解決";
     const candidate = item.candidates.length === 1 ? item.candidates[0] : null;
     return (
       <li key={`${item.kind}:${item.source_span.start}:${item.raw}`} className="lineage-row">
@@ -179,7 +252,11 @@ export function LineagePanel({
           <span className="lineage-node-kind">{status}</span>
           <strong>{item.alias}</strong>
           <span className="lineage-relation">
-            {candidate ? `${candidate.type}:${candidate.id} へ移行できます` : item.kind === "ambiguous" ? `${item.candidates.length}件の候補があります` : "一致する項目がありません"}
+            {candidate
+              ? `${candidate.type}:${candidate.id} へ移行できます`
+              : item.kind === "ambiguous"
+                ? `${item.candidates.length}件の候補があります`
+                : "一致する項目がありません"}
           </span>
         </button>
       </li>
@@ -187,7 +264,10 @@ export function LineagePanel({
   }
 
   return (
-    <section className="lineage-panel" aria-label={conversation ? "この会話から生まれたもの" : "生成経路"}>
+    <section
+      className="lineage-panel"
+      aria-label={conversation ? "この会話から生まれたもの" : "生成経路"}
+    >
       <button
         type="button"
         className="lineage-summary"
@@ -197,7 +277,13 @@ export function LineagePanel({
         <IconRoute size={16} />
         <span>
           <strong>{conversation ? "この会話から生まれたもの" : "来歴・リンク"}</strong>
-          <small>{conversation ? `${summaryText} · Link ${linkCount}` : hasRelations ? `来歴 ${lineage.ancestors.length + lineage.descendants.length} · Link ${linkCount}` : "来歴・リンクはありません"}</small>
+          <small>
+            {conversation
+              ? `${summaryText} · Link ${linkCount}`
+              : hasRelations
+                ? `来歴 ${lineage.ancestors.length + lineage.descendants.length} · Link ${linkCount}`
+                : "来歴・リンクはありません"}
+          </small>
         </span>
         {expanded ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}
       </button>
@@ -205,8 +291,20 @@ export function LineagePanel({
       {expanded && (
         <div className="lineage-body">
           <div className="segmented lineage-depth-switch" aria-label="系譜の深さ">
-            <button type="button" className={maxDepth === 1 ? "is-active" : ""} onClick={() => setMaxDepth(1)}>直接</button>
-            <button type="button" className={maxDepth === 2 ? "is-active" : ""} onClick={() => setMaxDepth(2)}>2段階</button>
+            <button
+              type="button"
+              className={maxDepth === 1 ? "is-active" : ""}
+              onClick={() => setMaxDepth(1)}
+            >
+              直接
+            </button>
+            <button
+              type="button"
+              className={maxDepth === 2 ? "is-active" : ""}
+              onClick={() => setMaxDepth(2)}
+            >
+              2段階
+            </button>
           </div>
           {lineage.ancestors.length > 0 && (
             <div className="lineage-group">
@@ -225,11 +323,16 @@ export function LineagePanel({
               <h4>参照（派生ではありません）</h4>
               <ul>
                 {otherReferences.map((item: ReferenceItem) => (
-                  <li key={`${item.ref.type}:${item.ref.id}:${item.relation.predicate}`} className="lineage-row">
+                  <li
+                    key={`${item.ref.type}:${item.ref.id}:${item.relation.predicate}`}
+                    className="lineage-row"
+                  >
                     <button type="button" onClick={() => openItem(item)}>
                       <span className="lineage-node-kind">{entityLabel(item)}</span>
                       <strong>{item.title}</strong>
-                      <span className="lineage-relation">{relationLabel(item.relation.predicate)} · {item.relation.reason}</span>
+                      <span className="lineage-relation">
+                        {relationLabel(item.relation.predicate)} · {item.relation.reason}
+                      </span>
                     </button>
                   </li>
                 ))}
@@ -266,8 +369,14 @@ export function LineagePanel({
               <ul>{[...linkContext.ambiguous, ...linkContext.unresolved].map(legacyLinkRow)}</ul>
             </div>
           )}
-          {!hasRelations && <p className="lineage-empty">この会話から生まれた項目はまだありません。</p>}
-          {(lineage.truncated || linkContext.truncated) && <p className="lineage-limit">区分ごとに24件まで表示しています。深さを「直接」にすると起点の近くへ絞れます。</p>}
+          {!hasRelations && (
+            <p className="lineage-empty">この会話から生まれた項目はまだありません。</p>
+          )}
+          {(lineage.truncated || linkContext.truncated) && (
+            <p className="lineage-limit">
+              区分ごとに24件まで表示しています。深さを「直接」にすると起点の近くへ絞れます。
+            </p>
+          )}
         </div>
       )}
     </section>

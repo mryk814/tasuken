@@ -43,8 +43,11 @@ function isOpenTask(task: Task): boolean {
 }
 
 function byDateThenTitle(a: DailyPlanningRow, b: DailyPlanningRow): number {
-  return String(scheduledDate(a.schedule) || "9999-12-31").localeCompare(String(scheduledDate(b.schedule) || "9999-12-31"))
-    || a.task.title.localeCompare(b.task.title, "ja");
+  return (
+    String(scheduledDate(a.schedule) || "9999-12-31").localeCompare(
+      String(scheduledDate(b.schedule) || "9999-12-31"),
+    ) || a.task.title.localeCompare(b.task.title, "ja")
+  );
 }
 function touchesToday(schedule: Schedule | undefined, today: string): boolean {
   if (!schedule) return false;
@@ -53,12 +56,19 @@ function touchesToday(schedule: Schedule | undefined, today: string): boolean {
   return Boolean(start && end && start <= today && today <= end);
 }
 
-function isOngoingPeriodThisWeek(schedule: Schedule | undefined, today: string, weekEnd: string): boolean {
+function isOngoingPeriodThisWeek(
+  schedule: Schedule | undefined,
+  today: string,
+  weekEnd: string,
+): boolean {
   if (!schedule?.start_date || !schedule.end_date) return false;
   return schedule.start_date < today && today < schedule.end_date && schedule.end_date <= weekEnd;
 }
 
-export function buildDailyPlanningCandidates(rows: DailyPlanningRow[], today: string): DailyPlanningCandidates {
+export function buildDailyPlanningCandidates(
+  rows: DailyPlanningRow[],
+  today: string,
+): DailyPlanningCandidates {
   const openRows = rows.filter((row) => isOpenTask(row.task) && row.task.today_date !== today);
   const weekEnd = addDays(today, 7);
   return {
@@ -71,12 +81,22 @@ export function buildDailyPlanningCandidates(rows: DailyPlanningRow[], today: st
     thisWeek: openRows
       .filter((row) => {
         const date = scheduledDate(row.schedule);
-        return Boolean(date && date > today && date <= weekEnd && (!touchesToday(row.schedule, today) || isOngoingPeriodThisWeek(row.schedule, today, weekEnd)));
+        return Boolean(
+          date &&
+          date > today &&
+          date <= weekEnd &&
+          (!touchesToday(row.schedule, today) ||
+            isOngoingPeriodThisWeek(row.schedule, today, weekEnd)),
+        );
       })
       .sort(byDateThenTitle),
     someday: openRows
       .filter((row) => !scheduledDate(row.schedule))
-      .sort((a, b) => Number(b.task.priority === "high") - Number(a.task.priority === "high") || a.task.title.localeCompare(b.task.title, "ja")),
+      .sort(
+        (a, b) =>
+          Number(b.task.priority === "high") - Number(a.task.priority === "high") ||
+          a.task.title.localeCompare(b.task.title, "ja"),
+      ),
   };
 }
 
