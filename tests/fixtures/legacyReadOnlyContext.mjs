@@ -547,57 +547,6 @@ export class ReadOnlyTaskenContext {
     };
   }
 
-  toolListAgentReadyTasks(args = {}) {
-    const limit = clampLimit(args.limit);
-    const candidates = this.list("task", Boolean(args.include_archived))
-      .filter((task) => task.intended_executor === "ai_agent")
-      .filter((task) => (task.work_state || "ready_for_agent") === "ready_for_agent")
-      .filter((task) => task.state !== "done" && task.state !== "cancelled")
-      .filter((task) => !args.theme_id || task.project_id === args.theme_id);
-    const filtered = this.filterForAi("task", candidates);
-    return {
-      tasks: filtered.records.slice(0, limit),
-      limit,
-      read_only: true,
-    };
-  }
-
-  toolGetTaskAssignment(args = {}) {
-    const taskId = text(args.task_id || args.id);
-    const task = this.list("task", Boolean(args.include_archived)).find(
-      (candidate) => candidate.id === taskId,
-    );
-    if (!task) return { task: null, receipts: [], task_id: taskId, read_only: true };
-    const filtered = this.filterForAi("task", [task]);
-    if (!filtered.records.length) {
-      return { task: null, receipts: [], task_id: taskId, read_only: true };
-    }
-    const receipts = this.list("work_receipt", Boolean(args.include_archived))
-      .filter((receipt) => receipt.task_id === taskId)
-      .slice(0, clampLimit(args.limit, 50));
-    const theme = this.themeById(task.project_id || task.theme_id);
-    const repositoryResolution = resolveTaskRepositoryContexts({
-      task,
-      theme,
-      contexts: this.visibleRepositoryContexts(Boolean(args.include_archived)),
-    });
-    return {
-      task: filtered.records[0],
-      receipts,
-      repository_contexts: repositoryResolution.contexts.map(publicRepositoryContext),
-      repository_context_resolution: {
-        mode: repositoryResolution.mode,
-        context_ids: repositoryResolution.contextIds,
-        missing_context_ids: repositoryResolution.missingContextIds,
-        missing_context_reasons: repositoryResolution.missingContextReasons,
-        subdirectory: repositoryResolution.subdirectory,
-        branch_hint: repositoryResolution.branchHint,
-      },
-      task_id: taskId,
-      read_only: true,
-    };
-  }
-
   toolGetTaskContext(args = {}) {
     const taskId = text(args.task_id || args.taskId || args.id).trim();
     const include = normalizeTaskContextInclude(args.include);

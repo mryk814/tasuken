@@ -315,13 +315,6 @@ test("Wave 4 named HTTP and pure MCP paths expose both capabilities without a na
         failure.status === 400 &&
         failure.details.issues[0].path[0] === "limit",
     );
-    await assert.rejects(
-      client.listAgentReadyTasks({ limit: 0 }),
-      (failure) =>
-        failure instanceof TaskenCoreClientError &&
-        failure.code === "VALIDATION_FAILED" &&
-        failure.details.issues[0].path[0] === "limit",
-    );
   } finally {
     await host.stop();
     fs.rmSync(root, { recursive: true, force: true });
@@ -453,7 +446,7 @@ test("normal Node Wave 4 MCP registrations are Core-only", () => {
   const source = fs.readFileSync("src/main/mcp/server.mjs", "utf8");
   const slice = source.slice(
     source.search(/server\.registerTool\(\s*"tasken\.search_items"/),
-    source.search(/server\.registerTool\(\s*"tasken\.list_agent_ready_tasks"/),
+    source.search(/server\.registerTool\(\s*"tasken\.get_task_context"/),
   );
   assert.match(slice, /coreClient\.searchItems/);
   assert.match(slice, /coreClient\.listOpenItems/);

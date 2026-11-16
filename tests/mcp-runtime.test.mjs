@@ -169,20 +169,22 @@ test("doctor accepts a read-only or proposals deployment as ready", async () => 
   assert.equal(partial.checks.at(-1).code, "MCP_CORE_CAPABILITIES_MISSING");
 });
 
-test("doctor requires the limited start capability that Desktop always publishes", async () => {
-  const { TASKEN_CORE_TASK_START_WORK_CAPABILITY } =
+// 開始の限定capability（task.start_work）は#755 束10aで外した。Desktopが必ず公開する書き込みの
+// うち、残っているAgent Sessionの提案が欠けた時に不足として報告することを確かめる。
+test("doctor requires the agent session proposal capability that Desktop always publishes", async () => {
+  const { TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY } =
     await import("../src/shared/contracts/core/public.mjs");
   const report = await buildReport({
     inspect: async () => ({
       api_version: "1",
       capabilities: TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.filter(
-        (capability) => capability !== TASKEN_CORE_TASK_START_WORK_CAPABILITY,
+        (capability) => capability !== TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
       ),
     }),
   });
   assert.equal(report.ok, false);
   assert.deepEqual(report.checks.at(-1).missing_capabilities, [
-    TASKEN_CORE_TASK_START_WORK_CAPABILITY,
+    TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   ]);
 });
 
@@ -195,12 +197,12 @@ test("doctor exercises stdio and a read, without exposing Task content or writin
     const code = `
       import { createTaskenMcpServer } from ${JSON.stringify(serverUrl)};
       import { StdioServerTransport } from ${JSON.stringify(transportUrl)};
-      const coreClient = { listAgentReadyTasks: async () => ({
-        tasks: [{ id: "doctor-fixture", intended_executor: "ai_agent", state: "todo", ai: {
+      const coreClient = { listOpenItems: async () => ({
+        items: [{ id: "doctor-fixture", title: "PRIVATE_TASK_CONTENT", kind: "task", ai: {
           id: "doctor-fixture", type: "task", title: "PRIVATE_TASK_CONTENT", summary: "PRIVATE_TASK_CONTENT",
-          theme_id: null, updated_at: null,
-        }}],
-        limit: 1, read_only: true,
+        }, locator: { entity_type: "task", entity_id: "doctor-fixture" } }],
+        limit: 1, read_only: true, next_tools: [],
+        result_meta: { contract_version: 1, returned_count: 1, matched_visible_count: 1, truncated: false },
       }) };
       const server = createTaskenMcpServer({ coreClient, env: { TASKEN_MCP_READ_ONLY: ${JSON.stringify(readOnly ? "1" : "0")} } });
       await server.connect(new StdioServerTransport());
@@ -210,7 +212,7 @@ test("doctor exercises stdio and a read, without exposing Task content or writin
       args: ["--input-type=module", "-e", code],
     });
     assert.equal(report.status, "ok");
-    assert.equal(report.task_work_available, !readOnly);
+    assert.equal(report.write_available, !readOnly);
     assert.ok(report.prompt_names.includes("daily-report"));
     assert.ok(report.resource_templates.includes("tasken://themes/{themeId}/intent"));
     assert.doesNotMatch(JSON.stringify(report), /PRIVATE_TASK_CONTENT/);
@@ -225,7 +227,7 @@ test("doctor rejects a malformed read even when MCP returns no isError", async (
   const code = `
     import { createTaskenMcpServer } from ${JSON.stringify(serverUrl)};
     import { StdioServerTransport } from ${JSON.stringify(transportUrl)};
-    const server = createTaskenMcpServer({ coreClient: { listAgentReadyTasks: async () => ({ items: [] }) } });
+    const server = createTaskenMcpServer({ coreClient: { listOpenItems: async () => ({ items: [] }) } });
     await server.connect(new StdioServerTransport());
   `;
   const report = await inspectBridge({

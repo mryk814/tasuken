@@ -6,10 +6,7 @@ import { parseArgs } from "node:util";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import {
-  listAgentReadyTasksResponseSchema,
-  listOpenItemsResponseSchema,
-} from "../src/shared/contracts/task/public.ts";
+import { listOpenItemsResponseSchema } from "../src/shared/contracts/task/public.ts";
 
 import {
   TASKEN_MCP_REQUIRED_CORE_CAPABILITIES,
@@ -73,20 +70,13 @@ export async function buildReport(coreClient = new TaskenCoreClient()) {
                 status: "ok",
                 code: "MCP_CORE_WRITE_PROPOSALS_ONLY",
                 message:
-                  "このCoreはテキストのFeed投稿・Note案・Task案・Task作業報告だけを受け付けます。直接開始は公開していません。",
+                  "このCoreはテキストのFeed投稿・Note案・Task案・Task作業報告だけを受け付けます。",
               }
-            : ["start-only", "proposals-and-start", "create-and-start"].includes(profile)
-              ? {
-                  status: "ok",
-                  code: "MCP_CORE_LIMITED_START_READY",
-                  message:
-                    "人がAI ReadyにしたTaskだけを開始できる専用権限を確認しました。汎用Task変更権限は含みません。",
-                }
-              : {
-                  status: "ok",
-                  code: "MCP_CORE_CAPABILITIES_READY",
-                  message: `MCPに必要な ${TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.length} capabilitiesを確認しました。`,
-                },
+            : {
+                status: "ok",
+                code: "MCP_CORE_CAPABILITIES_READY",
+                message: `MCPに必要な ${TASKEN_MCP_REQUIRED_CORE_CAPABILITIES.length} capabilitiesを確認しました。`,
+              },
     ];
     return {
       schema_version: 2,
@@ -162,9 +152,10 @@ export async function inspectBridge({
     const tools = await client.listTools({}, requestOptions);
     const prompts = await client.listPrompts({}, requestOptions);
     const resources = await client.listResourceTemplates({}, requestOptions);
-    const hasAgentReady = tools.tools.some((tool) => tool.name === "tasken.list_agent_ready_tasks");
     const hasOpenItems = tools.tools.some((tool) => tool.name === "tasken.list_open_items");
-    if (!hasAgentReady && !hasOpenItems) {
+    // 書き込みの入口が一覧にあるか（読み取り専用の接続では出ない）。report_workは書き込みのある接続に必ず出る。
+    const writeAvailable = tools.tools.some((tool) => tool.name === "tasken.report_work");
+    if (!hasOpenItems) {
       return {
         status: "ok",
         code: "MCP_STDIO_READY",
@@ -174,23 +165,15 @@ export async function inspectBridge({
         read_checked: false,
         prompt_names: prompts.prompts.map((prompt) => prompt.name),
         resource_templates: resources.resourceTemplates.map((resource) => resource.uriTemplate),
-        task_work_available: tools.tools.some((tool) => tool.name === "tasken.start_task_work"),
+        write_available: writeAvailable,
       };
     }
     const read = await client.callTool(
-      {
-        name: hasAgentReady ? "tasken.list_agent_ready_tasks" : "tasken.list_open_items",
-        arguments: { limit: 1 },
-      },
+      { name: "tasken.list_open_items", arguments: { limit: 1 } },
       undefined,
       requestOptions,
     );
-    if (
-      read.isError ||
-      !(hasAgentReady ? listAgentReadyTasksResponseSchema : listOpenItemsResponseSchema).safeParse(
-        read.structuredContent,
-      ).success
-    ) {
+    if (read.isError || !listOpenItemsResponseSchema.safeParse(read.structuredContent).success) {
       return {
         ...check,
         code: "MCP_READ_FAILED",
@@ -206,7 +189,7 @@ export async function inspectBridge({
       tool_count: tools.tools.length,
       prompt_names: prompts.prompts.map((prompt) => prompt.name),
       resource_templates: resources.resourceTemplates.map((resource) => resource.uriTemplate),
-      task_work_available: tools.tools.some((tool) => tool.name === "tasken.start_task_work"),
+      write_available: writeAvailable,
     };
   } catch {
     // Return only the public diagnostic above, not credential-bearing errors.

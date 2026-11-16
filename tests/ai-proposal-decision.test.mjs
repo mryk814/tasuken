@@ -53,16 +53,7 @@ async function desktop(t) {
   });
   const commands = new ApplicationCommandService(db);
   const isEnabled = () => db.readPreference("aiDirectWriteEnabled") === true;
-  const runtime = new TaskenCoreRuntime(
-    dir,
-    db,
-    (command) => commands.execute(command),
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    { executeAiTaskStart: (command) => commands.executeAiTaskStart(command, "any") },
-  );
+  const runtime = new TaskenCoreRuntime(dir, db, (command) => commands.execute(command));
   runtime.enableAiItemCreation(createAiItemCreationPort(commands, workspace), {
     isEnabled,
     scope: "any",
@@ -108,17 +99,16 @@ async function reportedTask(db, core, action = "report_done") {
     intended_executor: "ai_agent",
     work_state: "ready_for_agent",
   });
-  const started = await core.startAiTaskWork({
-    task_id: "task-report",
-    expected_version: db.get("task", "task-report").version,
-    idempotency_key: "start-report",
-    caller: "Claude Code",
-    started_at: new Date().toISOString(),
+  // MCPの開始（start_task_work）は #755 束10a で外した。前の版で開始済みのTaskとして置く。
+  const started = db.save("task", {
+    ...db.get("task", "task-report"),
+    work_state: "in_progress",
+    work_started_at: new Date().toISOString(),
     work_attempt_id: "6a1b8d2e-3c4f-4a5b-8c6d-7e8f9a0b1c2d",
   });
   const report = await core.proposeTaskWork({
     task_id: "task-report",
-    expected_version: started.value.task.version,
+    expected_version: started.version,
     idempotency_key: "report-done",
     caller: "Claude Code",
     executor_kind: "ai_agent",

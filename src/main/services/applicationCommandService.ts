@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID } from "../../shared/themeRef.mjs";
+import { canonicalThemeId } from "../../shared/themeRef.mjs";
 import { rejectGenericAudioArtifact, rejectGenericVideoArtifact } from "../mediaCapturePersistence";
 import {
   entityDefinition,
@@ -26,8 +26,6 @@ import {
   selectLatestWorkReceipt,
   taskWorkReportsCoveredBy,
   taskCreationProvenanceSchema,
-  aiTaskStartRequestSchema,
-  taskAgentState,
 } from "../../shared/contracts/task/public.ts";
 import type {
   CanonicalNoteAiCompanion,
@@ -76,11 +74,6 @@ interface Repository {
 }
 
 const now = () => new Date().toISOString();
-function aiTaskStartAttemptEventId(taskId: string, attemptId: string): string {
-  return `ai-task-start-${createHash("sha256")
-    .update(JSON.stringify([taskId, attemptId.toLowerCase()]))
-    .digest("hex")}`;
-}
 const taskDefinition = entityDefinition("task");
 const referenceDefinition = entityDefinition("reference");
 const workReceiptDefinition = entityDefinition("work_receipt");
@@ -1060,9 +1053,6 @@ function taskCommandRuntime(repository: Repository): TaskCommandRuntime {
   };
 }
 
-/** AI開始の範囲。`personal`はNAS replica、`any`はDesktop。 */
-export type AiTaskStartScope = "personal" | "any";
-
 export class ApplicationCommandService {
   /**
    * 本人の言葉を根拠に、AI（MCP）が取り次ぐProposalの採否（#703 段3）。このinstanceの中だけ、
@@ -1165,7 +1155,6 @@ export class ApplicationCommandService {
         command,
         undefined,
         false,
-        false,
         true,
       );
       for (const event of changeEventsForCommand(transaction, command.commandId)) {
@@ -1257,54 +1246,6 @@ export class ApplicationCommandService {
       transaction.save("change_event", creationEvent);
       return receipt;
     });
-  }
-
-  /**
-   * Start only: the Core route cannot assign, edit or take over a Task.
-   * `personal`（NAS replica）は本人の個人業務のTaskだけ、`any`（Desktop）はThemeと依頼者を問わない。
-   * どちらも、人がAI Readyにした未着手のTaskだけを開始できる。
-   */
-  executeAiTaskStart(input: unknown, scope: AiTaskStartScope = "personal"): CommandReceipt {
-    const command = parseCommandEnvelope(input);
-    const payload = command.payload as unknown as Record<string, unknown>;
-    const expected = command.expectedVersions || [];
-    const request = aiTaskStartRequestSchema.safeParse({
-      task_id: payload.taskId,
-      expected_version: expected[0]?.version,
-      idempotency_key: command.commandId,
-      caller: command.actor.id,
-      started_at: payload.startedAt,
-      work_attempt_id: payload.workAttemptId,
-      ...(payload.sourceSession ? { source_session: payload.sourceSession } : {}),
-    });
-    if (
-      command.name !== "StartTaskWork" ||
-      command.actor.kind !== "ai_agent" ||
-      command.source !== "mcp" ||
-      command.issuedAt !== payload.startedAt ||
-      payload.executorKind !== "ai_agent" ||
-      payload.executorIdentity !== command.actor.id ||
-      expected.length !== 1 ||
-      expected[0]?.type !== "task" ||
-      expected[0]?.id !== payload.taskId ||
-      Object.keys(payload).some(
-        (key) =>
-          ![
-            "taskId",
-            "executorKind",
-            "executorIdentity",
-            "startedAt",
-            "sourceSession",
-            "workAttemptId",
-          ].includes(key),
-      ) ||
-      !request.success
-    ) {
-      throw new ApplicationCommandError("INVALID_ENVELOPE", "AI開始専用の範囲外です。");
-    }
-    return this.repository.runTransaction((transaction) =>
-      new ApplicationCommandService(transaction).executeParsed(command, undefined, false, scope),
-    );
   }
 
   executeTaskDelegation(
@@ -1522,50 +1463,10 @@ export class ApplicationCommandService {
     command: CommandEnvelope,
     taskWorkContext?: { startReadyTask?: boolean; exactReceiptId?: string },
     aiTaskCreation = false,
-    aiTaskStart: AiTaskStartScope | false = false,
     aiDirectChange = false,
   ): CommandReceipt {
     const previous = readIdempotent(this.repository, command);
     if (previous) return previous;
-    if (aiTaskStart) {
-      const taskId = asTaskId(command.payload);
-      const task = this.repository.get("task", taskId, true);
-      if (!task) throw new ApplicationCommandError("NOT_FOUND", "開始対象のTaskがありません。");
-      if (
-        aiTaskStart === "personal" &&
-        (task.project_id !== PERSONAL_DEFAULT_THEME_ID || (task.requester || "self") !== "self")
-      ) {
-        throw new ApplicationCommandError(
-          "INVALID_TRANSITION",
-          "本人の個人業務で、人がAI Readyにした未着手のTaskだけ開始できます。",
-          { id: taskId },
-        );
-      }
-      if (!taskAgentState(task).runnable) {
-        throw new ApplicationCommandError(
-          "INVALID_TRANSITION",
-          "人がAI Readyにした未着手のTaskだけ開始できます。作業中・報告済みのTaskは取り直せません。",
-          { id: taskId },
-        );
-      }
-      const attemptId = String((command.payload as { workAttemptId: string }).workAttemptId);
-      if (this.repository.get("change_event", aiTaskStartAttemptEventId(taskId, attemptId), true)) {
-        throw new ApplicationCommandError(
-          "INVALID_TRANSITION",
-          "開始済みのwork_attempt_idは再利用できません。再委任には新しいUUIDを使ってください。",
-        );
-      }
-      // The start response uses the typed Task read model. Reject legacy data
-      // that cannot be read back before committing any work-state change.
-      try {
-        projectTaskReadModel(task, null);
-      } catch {
-        throw new ApplicationCommandError(
-          "INVALID_PAYLOAD",
-          "Taskの読み戻し契約を確認できません。",
-        );
-      }
-    }
     if (
       command.actor.kind === "ai_agent" &&
       !aiAgentCommands.has(command.name) &&
@@ -1602,7 +1503,7 @@ export class ApplicationCommandService {
       return this.applyAiProposal(command);
     }
     if (command.name === "ApplyTaskWorkProposal") return this.applyTaskWorkProposal(command);
-    if (command.name === "StartTaskWork") return this.startTaskWork(command, Boolean(aiTaskStart));
+    if (command.name === "StartTaskWork") return this.startTaskWork(command);
     if (command.name === "AppendWorkReceipt")
       return this.appendWorkReceipt(command, "continue", taskWorkContext?.startReadyTask === true);
     if (command.name === "ReportTaskDone")
@@ -1996,7 +1897,7 @@ export class ApplicationCommandService {
     );
   }
 
-  private startTaskWork(command: CommandEnvelope, limitedStart = false): CommandReceipt {
+  private startTaskWork(command: CommandEnvelope): CommandReceipt {
     const payload = command.payload as {
       taskId: string;
       executorKind?: string;
@@ -2102,11 +2003,6 @@ export class ApplicationCommandService {
       command,
       commandEvent(command, "task", taskId, "updated", current, task, "task_work_recorded"),
     );
-    if (limitedStart) {
-      // Use the canonical start event as the durable attempt marker; no extra
-      // ledger, schema, or write is needed. Replays are checked before this guard.
-      event.id = aiTaskStartAttemptEventId(taskId, String(payload.workAttemptId));
-    }
     event.occurred_at = task.work_started_at;
     const proposal = payload.sourceSession
       ? mcpTaskWorkProposal(this.repository, taskId, payload.sourceSession, ["start"])
@@ -2118,7 +2014,6 @@ export class ApplicationCommandService {
       ...((event.metadata as Record<string, unknown>) || {}),
       include_in_activity: true,
       work_action: "started",
-      ...(limitedStart ? { limited_task_start: true, work_attempt_id: payload.workAttemptId } : {}),
       ...(proposal ? mcpProposalAudit(proposal) : {}),
       ...(repositoryContext ? { repository_context: repositoryContext } : {}),
     };

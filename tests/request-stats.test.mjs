@@ -414,7 +414,7 @@ async function startCore(t, options = {}) {
   const userDataPath = temporaryDirectory(t);
   const host = new TaskenCoreHost({
     userDataPath,
-    listAgentReadyTasks: { execute: () => ({ tasks: [] }) },
+    searchItems: { execute: () => ({ items: [] }) },
     ...options,
   });
   const { origin, discoveryPath } = await host.start();

@@ -79,7 +79,7 @@ async function desktopCapabilities(root) {
   }
 }
 
-/** いちばん広く許したNAS replica（新規作成・開始・直接変更・同期）が公開するcapability。 */
+/** いちばん広く許したNAS replica（新規作成・直接変更・同期）が公開するcapability。開始は #755 束10a で外した。 */
 async function widestReplicaCapabilities(root) {
   const shared = path.join(root, "shared");
   const hostUserData = path.join(root, "host");
@@ -98,7 +98,6 @@ async function widestReplicaCapabilities(root) {
       userDataPath: path.join(root, "replica"),
       syncDirectory: shared,
       writeMode: "create-only",
-      allowAiTaskStart: true,
       allowAiTaskChange: true,
       env: {},
     });

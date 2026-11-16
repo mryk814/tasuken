@@ -145,15 +145,6 @@ export {
 } from "./capability.ts";
 
 export {
-  agentReadyTaskSchema,
-  listAgentReadyTasksRequestSchema,
-  listAgentReadyTasksResponseSchema,
-  type AgentReadyTask,
-  type ListAgentReadyTasksRequest,
-  type ListAgentReadyTasksResponse,
-} from "./agentReadyTasks.ts";
-
-export {
   agentWorkCardSchema,
   findThemesForRepositoryResponseSchema,
   findTasksForRepositoryResponseSchema,
@@ -162,8 +153,6 @@ export {
   getAgentSessionContextRequestSchema,
   getAgentSessionContextClientResponseSchema,
   getAgentSessionContextResponseSchema,
-  getTaskAssignmentRequestSchema,
-  getTaskAssignmentResponseSchema,
   repositoryLookupRequestSchema,
   resolveRepositoryContextResponseSchema,
   type FindThemesForRepositoryResponse,
@@ -172,8 +161,6 @@ export {
   type GetRepositoryContextResponse,
   type GetAgentSessionContextRequest,
   type GetAgentSessionContextResponse,
-  type GetTaskAssignmentRequest,
-  type GetTaskAssignmentResponse,
   type RepositoryLookupRequest,
   type ResolveRepositoryContextResponse,
 } from "./agentWorkspaceQueries.ts";
@@ -406,7 +393,6 @@ export {
   type TaskenMarkdownSourceRange,
 } from "./taskenMarkdownAst.ts";
 export { taskAgentState, type TaskAgentState } from "./agentReadiness.ts";
-export { aiTaskStartRequestSchema, type AiTaskStartRequest } from "./aiTaskStart.ts";
 export {
   AGENT_WORK_BASES,
   AGENT_WORK_RECORD_LIMITS,

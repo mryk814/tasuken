@@ -1,7 +1,6 @@
 import {
   AiItemCreationService,
   AiTaskChangeService,
-  AiTaskStartService,
   type AiItemCreationPort,
 } from "../core/public.ts";
 import {
@@ -72,7 +71,6 @@ import {
   ApplicationCommandError,
   type ApplicationCommandPayload,
 } from "../../shared/applicationCommand.ts";
-import { TASK_CONTRACT_SCHEMA_VERSION } from "../../shared/contracts/task/public.ts";
 
 type CorePersistence = AgentReadyTaskWorkspacePersistence &
   AgentWorkspacePersistence &
@@ -178,36 +176,6 @@ function prepareCommandImages(
   };
 }
 
-/**
- * AI開始の限定の入口。`executeAiTaskStart`はApplicationCommandServiceの開始専用経路
- * （Desktopは`any`、NAS replicaは`personal`）を渡す。
- */
-export function createAiTaskStartProvider(
-  persistence: WorkspaceTaskPersistence & { workspaceId: string },
-  executeAiTaskStart: ExecuteApplicationCommand,
-): AiTaskStartService {
-  const aiTaskStart = new TaskCapabilityService(persistence, executeAiTaskStart);
-  return new AiTaskStartService(persistence.workspaceId, {
-    execute: (command) => {
-      const result = aiTaskStart.executeCommand(command, { immutableRequest: true });
-      if (!result.ok) return result;
-      // A replay is an acknowledgement, not permission to restore an old
-      // assignment. Return the current Task even after review or deletion.
-      const readback = aiTaskStart.executeQuery({
-        schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
-        query_id: command.command_id,
-        name: "GetTask",
-        parameters: { task_id: command.payload.task_id, include_deleted: true },
-      });
-      if (!readback.ok) return readback;
-      if (readback.value.name !== "GetTask" || !readback.value.task) {
-        throw new Error("開始済みTaskの正本を読み戻せません。");
-      }
-      return { ...result, value: { ...result.value, task: readback.value.task } };
-    },
-  });
-}
-
 export class TaskenCoreRuntime {
   private readonly host: TaskenCoreHost;
   private readonly persistence: CorePersistence;
@@ -233,7 +201,6 @@ export class TaskenCoreRuntime {
     private readonly captureImagePort?: CaptureImagePort,
     options: {
       proposalAccess?: CoreProposalAccess;
-      executeAiTaskStart?: ExecuteApplicationCommand;
       /** Feedへの反応・返信の書き込み口。常時稼働nodeには渡さない。 */
       feedWriter?: FeedWriterPort;
       /** 続けることの記録の書き込み口（#454）。常時稼働nodeには渡さない。 */
@@ -264,20 +231,15 @@ export class TaskenCoreRuntime {
     this.taskCapability = new TaskCapabilityService(persistence, executeApplicationCommand);
     this.host = new TaskenCoreHost({
       userDataPath,
-      ...(options.executeAiTaskStart
-        ? { startAiTaskWork: createAiTaskStartProvider(persistence, options.executeAiTaskStart) }
-        : {}),
       taskQuery: { execute: this.taskCapability.executeQuery.bind(this.taskCapability) },
       // 汎用のTask変更（task.command）はloopbackに出さない。actorを呼び出し側が書くため、
       // tokenを読めるAIが本人を名乗れてしまう。AIの書き込みは、Coreがactorを固定し記録を残す
-      // 限定の入口（開始・新規作成・直接編集）だけを通す。AndroidはMobile Gatewayのin-process経路を使う。
-      listAgentReadyTasks: core.listAgentReadyTasks,
+      // 限定の入口（新規作成・直接編集）だけを通す。AndroidはMobile Gatewayのin-process経路を使う。
       resolveRepositoryContext: core.resolveRepositoryContext,
       findTasksForRepository: core.findTasksForRepository,
       findThemesForRepository: core.findThemesForRepository,
       getRepositoryContext: core.getRepositoryContext,
       getAgentSessionContext: core.getAgentSessionContext,
-      getTaskAssignment: core.getTaskAssignment,
       getTaskContext: core.getTaskContext,
       searchItems: core.searchItems,
       listOpenItems: core.listOpenItems,

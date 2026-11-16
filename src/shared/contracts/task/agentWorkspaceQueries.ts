@@ -19,14 +19,6 @@ export const repositoryLookupRequestSchema = z
   })
   .strict();
 
-export const getTaskAssignmentRequestSchema = z
-  .object({
-    task_id: z.string().trim().min(1).max(200),
-    limit: z.number().int().positive().max(100).optional(),
-    include_archived: z.boolean().optional(),
-  })
-  .strict();
-
 export const getRepositoryContextRequestSchema = z
   .object({
     repository_context_id: z.string().trim().min(1).max(200),
@@ -315,13 +307,6 @@ export const getAgentSessionContextResponseSchema = z
   })
   .strict();
 
-export const getTaskAssignmentResponseSchema = z.looseObject({
-  task: z.looseObject({ id: z.string() }).nullable(),
-  receipts: z.array(z.looseObject({ id: z.string() })),
-  task_id: z.string(),
-  read_only: z.literal(true),
-});
-
 export type RepositoryLookupRequest = z.output<typeof repositoryLookupRequestSchema>;
 export type ResolveRepositoryContextResponse = z.output<
   typeof resolveRepositoryContextResponseSchema
@@ -334,5 +319,3 @@ export type GetRepositoryContextRequest = z.output<typeof getRepositoryContextRe
 export type GetRepositoryContextResponse = z.output<typeof getRepositoryContextResponseSchema>;
 export type GetAgentSessionContextRequest = z.output<typeof getAgentSessionContextRequestSchema>;
 export type GetAgentSessionContextResponse = z.output<typeof getAgentSessionContextResponseSchema>;
-export type GetTaskAssignmentRequest = z.output<typeof getTaskAssignmentRequestSchema>;
-export type GetTaskAssignmentResponse = z.output<typeof getTaskAssignmentResponseSchema>;

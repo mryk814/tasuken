@@ -12,8 +12,6 @@ import {
   type AiTaskChangeRequest,
   type AiTaskChangeResponse,
   aiItemCreationRequestSchema,
-  aiTaskStartRequestSchema,
-  type AiTaskStartRequest,
   type AiItemCreationRequest,
   type AiItemCreationResponse,
   getSourceStatusRequestSchema,
@@ -70,12 +68,8 @@ import type {
   GetFeedContextResponse,
   ExportAiContextRequest,
   ExportAiContextResponse,
-  GetTaskAssignmentRequest,
-  GetTaskAssignmentResponse,
   GetTaskContextRequest,
   GetTaskContextResponse,
-  ListAgentReadyTasksRequest,
-  ListAgentReadyTasksResponse,
   ListOpenItemsRequest,
   ListOpenItemsResponse,
   RepositoryLookupRequest,
@@ -94,11 +88,9 @@ import type {
   ProposalStatusResponse,
   ListProposalsRequest,
   ListProposalsResponse,
-  TaskCommandResponse,
   TaskQueryResponse,
 } from "../../../shared/contracts/task/public.ts";
 import {
-  getTaskAssignmentRequestSchema,
   getActivityEntriesRequestSchema,
   getRepositoryContextRequestSchema,
   getAgentSessionContextRequestSchema,
@@ -118,7 +110,6 @@ import {
   getFeedContextRequestSchema,
   exportAiContextRequestSchema,
   getTaskContextRequestSchema,
-  listAgentReadyTasksRequestSchema,
   listOpenItemsRequestSchema,
   repositoryLookupRequestSchema,
   searchItemsRequestSchema,
@@ -139,7 +130,6 @@ import {
   TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY,
-  TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
   TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY,
   TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY,
@@ -166,12 +156,10 @@ import {
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
-  TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
   TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
-  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
   taskenCorePublicError,
 } from "../../../shared/contracts/core/public.mjs";
@@ -196,10 +184,6 @@ const STATS_RECORD_PATH = "/v1/stats/record";
 const STATS_DEFAULT_DAYS = 7;
 const STATS_MAX_DAYS = 366;
 
-export interface ListAgentReadyTasksProvider {
-  execute(request: ListAgentReadyTasksRequest): ListAgentReadyTasksResponse;
-}
-
 interface QueryProvider<Request, Response> {
   execute(request: Request): Response;
 }
@@ -212,9 +196,7 @@ export interface TaskenCoreHostOptions {
   decideProposal?: QueryProvider<AiProposalDecisionRequest, AiProposalDecisionResponse>;
   editNote?: QueryProvider<AiNoteEditRequest, AiNoteEditResponse>;
   getSourceStatus?: QueryProvider<GetSourceStatusRequest, GetSourceStatusResponse>;
-  startAiTaskWork?: QueryProvider<AiTaskStartRequest, TaskCommandResponse>;
   taskQuery?: QueryProvider<unknown, TaskQueryResponse>;
-  listAgentReadyTasks: ListAgentReadyTasksProvider;
   resolveRepositoryContext?: QueryProvider<
     RepositoryLookupRequest,
     ResolveRepositoryContextResponse
@@ -226,7 +208,6 @@ export interface TaskenCoreHostOptions {
     GetAgentSessionContextRequest,
     GetAgentSessionContextResponse
   >;
-  getTaskAssignment?: QueryProvider<GetTaskAssignmentRequest, GetTaskAssignmentResponse>;
   getTaskContext?: QueryProvider<GetTaskContextRequest, GetTaskContextResponse>;
   searchItems?: QueryProvider<SearchItemsRequest, SearchItemsResponse>;
   listOpenItems?: QueryProvider<ListOpenItemsRequest, ListOpenItemsResponse>;
@@ -382,25 +363,11 @@ const ROUTES: readonly RouteDefinition[] = [
     schema: aiChangeUndoRequestSchema,
   },
   {
-    path: "/v1/commands/start-ai-task-work",
-    kind: "command",
-    provider: "startAiTaskWork",
-    capability: TASKEN_CORE_TASK_START_WORK_CAPABILITY,
-    schema: aiTaskStartRequestSchema,
-  },
-  {
     path: "/v1/task/query",
     kind: "query",
     provider: "taskQuery",
     capability: TASKEN_CORE_TASK_QUERY_CAPABILITY,
     schema: taskQuerySchema,
-  },
-  {
-    path: "/v1/queries/list-agent-ready-tasks",
-    kind: "query",
-    provider: "listAgentReadyTasks",
-    capability: TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
-    schema: listAgentReadyTasksRequestSchema,
   },
   {
     path: "/v1/queries/resolve-repository-context",
@@ -436,13 +403,6 @@ const ROUTES: readonly RouteDefinition[] = [
     provider: "getAgentSessionContext",
     capability: TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY,
     schema: getAgentSessionContextRequestSchema,
-  },
-  {
-    path: "/v1/queries/get-task-assignment",
-    kind: "query",
-    provider: "getTaskAssignment",
-    capability: TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
-    schema: getTaskAssignmentRequestSchema,
   },
   {
     path: "/v1/queries/get-task-context",

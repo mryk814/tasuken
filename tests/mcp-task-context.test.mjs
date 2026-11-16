@@ -542,19 +542,15 @@ test("task blocker workflow is callable over MCP and queues a reviewable append-
     for (const name of ["tasken.report_work"]) {
       assert.equal(names.has(name), true);
     }
-    // このCoreはtask.commandを公開しないため、直接開始は一覧に出さず理由を報告する。
+    // 開始（start_task_work）は#755 束10aで外した。一覧にも、使えない道具の報告にも出ない。
     assert.equal(names.has("tasken.start_task_work"), false);
     const capabilities = await client.callTool({ name: "tasken.get_capabilities", arguments: {} });
     assert.equal(capabilities.isError, undefined, JSON.stringify(capabilities));
-    assert.deepEqual(
-      capabilities.structuredContent.unavailable_tools.find(
+    assert.equal(
+      capabilities.structuredContent.unavailable_tools.some(
         (tool) => tool.name === "tasken.start_task_work",
       ),
-      {
-        name: "tasken.start_task_work",
-        reason: "missing_capability:task.start_work",
-        listed: false,
-      },
+      false,
     );
     assert.equal(capabilities.structuredContent.writes.task_work_report, true);
     const result = await client.callTool({

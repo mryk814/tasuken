@@ -102,7 +102,7 @@ export const aiTaskEditSchema = z
     intended_executor: z
       .enum(["self", "ai_agent"])
       .optional()
-      .describe("ai_agent = AI Ready (delegate); self = take it back."),
+      .describe("ai_agent = delegate to an AI; self = take it back."),
     handoff_expected_result: z.string().max(2_000).nullable().optional(),
     handoff_instruction: z.string().max(4_000).nullable().optional(),
   })

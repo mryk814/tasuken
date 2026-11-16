@@ -15,8 +15,6 @@ import {
   findTasksForRepositoryResponseSchema,
   getRepositoryContextRequestSchema,
   getRepositoryContextResponseSchema,
-  getTaskAssignmentRequestSchema,
-  getTaskAssignmentResponseSchema,
   repositoryLookupRequestSchema,
   resolveRepositoryContextResponseSchema,
   type FindThemesForRepositoryResponse,
@@ -25,12 +23,9 @@ import {
   type FindTasksForRepositoryResponse,
   type GetRepositoryContextRequest,
   type GetRepositoryContextResponse,
-  type GetTaskAssignmentRequest,
-  type GetTaskAssignmentResponse,
   type RepositoryLookupRequest,
   type ResolveRepositoryContextResponse,
   normalizeAgentClientKind,
-  taskAgentState,
 } from "../../../shared/contracts/task/public.ts";
 import { publicWorkingCopy } from "../../../shared/agentSession.mjs";
 import {
@@ -321,51 +316,6 @@ export class AgentWorkspaceQueryService {
       agent_work: work,
       task_work: safeReceiptValue(taskWork),
       previous_handoff: previousHandoff,
-      read_only: true,
-    });
-  }
-
-  getTaskAssignment(input: GetTaskAssignmentRequest): GetTaskAssignmentResponse {
-    const request = getTaskAssignmentRequestSchema.parse(input);
-    const includeArchived = Boolean(request.include_archived);
-    const task = this.readPort
-      .listTasks(includeArchived)
-      .find((candidate) => candidate.id === request.task_id);
-    if (!task)
-      return getTaskAssignmentResponseSchema.parse({
-        task: null,
-        receipts: [],
-        task_id: request.task_id,
-        read_only: true,
-      });
-    const themes = this.readPort.listThemes(true);
-    const filtered = this.projection.project([task]);
-    const theme = themes.find(
-      (candidate) => candidate.id === String(task.project_id || task.theme_id || ""),
-    );
-    const resolution = taskRepositoryResolution({
-      task,
-      theme,
-      contexts: this.repositoryContexts(includeArchived),
-    });
-    const limit = request.limit ?? 50;
-    return getTaskAssignmentResponseSchema.parse({
-      task: filtered.records[0],
-      agent_state: taskAgentState(task),
-      receipts: this.readPort
-        .listWorkReceipts(includeArchived)
-        .filter((receipt) => receipt.task_id === request.task_id)
-        .slice(0, limit),
-      repository_contexts: resolution.contexts.map(publicRepositoryContext),
-      repository_context_resolution: {
-        mode: resolution.mode,
-        context_ids: resolution.contextIds,
-        missing_context_ids: resolution.missingContextIds,
-        missing_context_reasons: resolution.missingContextReasons,
-        subdirectory: resolution.subdirectory,
-        branch_hint: resolution.branchHint,
-      },
-      task_id: request.task_id,
       read_only: true,
     });
   }

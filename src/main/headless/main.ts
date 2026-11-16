@@ -17,7 +17,6 @@ export interface TaskenHeadlessCoreArgs {
   databasePath?: string;
   syncDirectory?: string;
   writeMode: TaskenHeadlessWriteMode;
-  allowAiTaskStart?: boolean;
   allowAiTaskChange?: boolean;
   mobileGateway?: boolean;
   mobileGatewayPort?: number;
@@ -34,7 +33,7 @@ export class TaskenHeadlessCoreUsageError extends Error {
 const HELP = `Tasken CoreをGUIなしで起動します。
 
 Usage:
-  node core-dist/headless.mjs [--user-data-dir=<path>] [--db-path=<path>] [--sync-directory=<path>] [--write-mode=<mode>] [--allow-ai-task-start]
+  node core-dist/headless.mjs [--user-data-dir=<path>] [--db-path=<path>] [--sync-directory=<path>] [--write-mode=<mode>]
 
 Options:
   --user-data-dir    CoreのuserData（discovery fileの保存先）。省略時はTASKEN_USER_DATA_DIR、
@@ -46,10 +45,6 @@ Options:
                      省略時はTASKEN_CORE_WRITE_MODE。proposalsではテキストのFeed投稿・
                      Note案・Task案・Task作業報告だけを受け付け、Core自身が許可範囲を強制する。
                      create-onlyでは上記に本人用Task/Note新規作成だけを追加する。
-                     この指定だけでは直接開始（start_task_work）は公開しない。
-  --allow-ai-task-start  本人の個人業務のAI Ready Taskだけ開始を直接記録する。既定は無効。
-                     TASKEN_CORE_AI_TASK_START=1でも明示できる。read-onlyとの併用は拒否する。
-                     汎用task.command、編集・削除・完了・採用・自動委任は公開しない。
   --allow-ai-task-change  AIが本人の言葉を根拠に既存Taskを直接変え（編集・完了・再開・削除・委任）、
                      取り消せるようにする（Desktopのchange_task・undo_changeと同じ規則）。既定は無効。
                      TASKEN_CORE_AI_TASK_CHANGE=1でも明示できる。create-onlyと一緒にだけ使える。
@@ -75,7 +70,6 @@ export function parseTaskenHeadlessCoreArgs(
       "db-path": { type: "string" },
       "sync-directory": { type: "string" },
       "write-mode": { type: "string" },
-      "allow-ai-task-start": { type: "boolean" },
       "allow-ai-task-change": { type: "boolean" },
       "mobile-gateway": { type: "boolean" },
       "mobile-gateway-port": { type: "string" },
@@ -132,9 +126,6 @@ export function parseTaskenHeadlessCoreArgs(
       ? { mobileGateway: true }
       : {}),
     ...(mobileGatewayPort === undefined ? {} : { mobileGatewayPort }),
-    ...(values["allow-ai-task-start"] || env.TASKEN_CORE_AI_TASK_START === "1"
-      ? { allowAiTaskStart: true }
-      : {}),
     ...(values["allow-ai-task-change"] || env.TASKEN_CORE_AI_TASK_CHANGE === "1"
       ? { allowAiTaskChange: true }
       : {}),
@@ -178,7 +169,6 @@ async function run(): Promise<void> {
       ...(args.databasePath ? { databasePath: args.databasePath } : {}),
       ...(args.syncDirectory ? { syncDirectory: args.syncDirectory } : {}),
       writeMode: args.writeMode,
-      ...(args.allowAiTaskStart ? { allowAiTaskStart: true } : {}),
       ...(args.allowAiTaskChange ? { allowAiTaskChange: true } : {}),
       ...(args.mobileGateway ? { mobileGateway: true } : {}),
       ...(args.mobileGatewayPort === undefined

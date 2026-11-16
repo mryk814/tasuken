@@ -273,16 +273,7 @@ test("Desktop: 直接の書き込みは設定をその場で読み、Theme・期
   });
   const commands = new ApplicationCommandService(db);
   // Desktopと同じ配線: 入口は常に公開し、使えるかは本人の設定を要求のたびに読む。
-  const runtime = new TaskenCoreRuntime(
-    dir,
-    db,
-    (command) => commands.execute(command),
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    { executeAiTaskStart: (command) => commands.executeAiTaskStart(command, "any") },
-  );
+  const runtime = new TaskenCoreRuntime(dir, db, (command) => commands.execute(command));
   runtime.enableAiItemCreation(createAiItemCreationPort(commands, workspace), {
     isEnabled: () => db.readPreference("aiDirectWriteEnabled") === true,
     scope: "any",

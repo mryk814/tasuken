@@ -556,7 +556,7 @@ test("migrated Wave 3 tool fails closed and named capability is required", async
       api_version: "1",
       origin: "http://127.0.0.1:65535",
       token: Buffer.alloc(32, 7).toString("base64url"),
-      capabilities: ["list_agent_ready_tasks"],
+      capabilities: ["search_items"],
     }),
     { mode: 0o600 },
   );

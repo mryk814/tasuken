@@ -200,13 +200,14 @@ test("MCP Wave 2 is exact across legacy, in-process, HTTP, and MCP", async () =>
     const client = new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") });
     const discovery = JSON.parse(fs.readFileSync(path.join(root, "tasken-core.json"), "utf8"));
     for (const capability of [
-      "list_agent_ready_tasks",
       "resolve_repository_context",
       "find_tasks_for_repository",
-      "get_task_assignment",
       "get_task_context",
     ])
       assert.ok(discovery.capabilities.includes(capability), capability);
+    // AI Readyの一覧と割り当ての読み取りは外した（#755 束10a）。
+    for (const capability of ["list_agent_ready_tasks", "get_task_assignment"])
+      assert.equal(discovery.capabilities.includes(capability), false, capability);
     const cases = [
       [
         "tasken.resolve_repository_context",
@@ -216,15 +217,6 @@ test("MCP Wave 2 is exact across legacy, in-process, HTTP, and MCP", async () =>
           remote_url: "git@github.com:mryk814/tasuken.git",
           git_root: "/private/tasuken",
           cwd: "/private/tasuken/packages/core",
-        },
-      ],
-      [
-        "tasken.get_task_assignment",
-        "toolGetTaskAssignment",
-        "getTaskAssignment",
-        {
-          task_id: "task-visible",
-          limit: 1,
         },
       ],
     ];
@@ -253,16 +245,6 @@ test("MCP Wave 2 is exact across legacy, in-process, HTTP, and MCP", async () =>
         legacy.toolFindTasksForRepository(request),
       );
     }
-    for (const request of [
-      { task_id: "missing" },
-      { task_id: "task-hidden" },
-      { task_id: "task-visible", limit: 100, include_archived: true },
-    ]) {
-      assert.deepEqual(
-        withoutAgentState(core.getTaskAssignment.execute(request)),
-        legacy.toolGetTaskAssignment(request),
-      );
-    }
   } finally {
     legacy.close();
     await host.stop();
@@ -278,14 +260,8 @@ test("migrated Wave 2 tools fail closed without constructing the legacy DB conte
     findTasksForRepository: async () => {
       throw new Error("CORE_UNAVAILABLE_SENTINEL");
     },
-    getTaskAssignment: async () => {
-      throw new Error("CORE_UNAVAILABLE_SENTINEL");
-    },
   };
-  for (const [name, args] of [
-    ["tasken.resolve_repository_context", {}],
-    ["tasken.get_task_assignment", { task_id: "task-visible" }],
-  ]) {
+  for (const [name, args] of [["tasken.resolve_repository_context", {}]]) {
     const result = await callMcp(coreClient, name, args);
     assert.equal(result.isError, true);
     assert.match(JSON.stringify(result.content), /CORE_UNAVAILABLE_SENTINEL/);
@@ -302,10 +278,10 @@ test("each Core client operation requires its named discovery capability before 
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-capability-wave2-"));
   const discoveryPath = path.join(root, "tasken-core.json");
   const operations = [
-    ["listAgentReadyTasks", "list_agent_ready_tasks", {}],
+    ["listOpenItems", "list_open_items", {}],
     ["resolveRepositoryContext", "resolve_repository_context", {}],
     ["findTasksForRepository", "find_tasks_for_repository", {}],
-    ["getTaskAssignment", "get_task_assignment", { task_id: "task-visible" }],
+    ["getTaskContext", "get_task_context", { task_id: "task-visible" }],
   ];
   const allCapabilities = operations.map(([, capability]) => capability);
   try {

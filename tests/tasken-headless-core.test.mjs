@@ -9,7 +9,6 @@ import { pathToFileURL } from "node:url";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { build } from "esbuild";
 
 import { markdownSignature } from "../src/shared/canonicalMarkdown.mjs";
@@ -18,7 +17,6 @@ import {
   TaskenCoreClient,
   TaskenCoreClientError,
 } from "../src/main/mcp/taskenCoreClient.mjs";
-import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
 import { TASKEN_CORE_WRITE_CAPABILITIES } from "../src/shared/contracts/core/public.mjs";
 import { issueCoreClientToken } from "../src/main/infrastructure/http/coreClientTokens.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
@@ -158,7 +156,8 @@ test("Headless Core serves MCP reads without Electron and stops cleanly", async 
     client = await connectMcp(userDataPath);
     const listed = await client.listTools();
     // 書き込みを公開しないCoreでは、bridgeがwrite可能でも使えない書き込みtoolを並べない。
-    assert.equal(listed.tools.length, 16);
+    // 読み取りは16から14（list_agent_ready_tasks・get_task_assignmentを#755 束10aで外した）。
+    assert.equal(listed.tools.length, 14);
     assert.equal(
       listed.tools.some((tool) => /(propose|report|append|start|answer)_/u.test(tool.name)),
       false,
@@ -817,7 +816,6 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
       task_work_report: true,
       // AIの作業の記録（#751）は、案を受ける配備で書ける。
       agent_work_record: true,
-      task_start: false,
     });
     assert.deepEqual(capabilities.structuredContent.unavailable_tools, [
       { name: "tasken.create_task", reason: "missing_capability:create_ai_item", listed: false },
@@ -831,11 +829,6 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
       },
       { name: "tasken.edit_note", reason: "missing_capability:ai_direct_write", listed: false },
       { name: "tasken.undo_change", reason: "missing_capability:task.ai_change", listed: false },
-      {
-        name: "tasken.start_task_work",
-        reason: "missing_capability:task.start_work",
-        listed: false,
-      },
     ]);
 
     // 拒否: bridgeを経由しない要求も、許可範囲外の種類はCore自身がWRITE_NOT_ALLOWEDで止める。
@@ -936,33 +929,6 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
       ]);
       assert.equal(refused.structuredContent.error.details.task_work_allowed, true);
     }
-
-    // 拒否: 起動時にCoreを読めず直接開始が一覧に残った場合も、配備の境界として案内する。
-    const unfiltered = createTaskenMcpServer({ coreClient });
-    const unfilteredClient = new Client({ name: "tasken-headless-unfiltered", version: "1.0.0" });
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    await unfiltered.connect(serverTransport);
-    await unfilteredClient.connect(clientTransport);
-    const unavailable = await unfilteredClient.callTool({
-      name: "tasken.start_task_work",
-      arguments: {
-        idempotency_key: "restricted-start",
-        caller: "gate test",
-        task_id: "task-headless",
-        expected_version: 1,
-        started_at: "2026-09-21T00:00:00.000Z",
-        work_attempt_id: "12c9a3df-084a-4314-8a80-de844b512fad",
-      },
-    });
-    assert.equal(unavailable.isError, true);
-    assert.equal(unavailable.structuredContent.error.code, "CAPABILITY_UNAVAILABLE");
-    // 版の不一致ではなく配備の境界なので、「更新してください」だけを案内しない。
-    assert.match(
-      String(unavailable.structuredContent.error.next_action),
-      /開始専用権限を公開していません/u,
-    );
-    await unfilteredClient.close();
-    await unfiltered.close();
   } finally {
     await client?.close().catch(() => {});
     await stopAndInspect(handle, userDataPath, (database) => {
@@ -1109,7 +1075,6 @@ async function writeGateFixture(t) {
       userDataPath: replicaUserData,
       syncDirectory: shared,
       writeMode: "create-only",
-      allowAiTaskStart: true,
       env: {},
       syncShapeFlags,
       ...extra,
@@ -1137,16 +1102,6 @@ const gateCreateRequest = (key) => ({
   idempotency_key: key,
   reason: "書き込みの門の試験",
 });
-
-const gateStartRequest = {
-  task_id: "task-headless",
-  expected_version: 1,
-  idempotency_key: "gate-start",
-  caller: "gate-test",
-  started_at: "2026-11-08T00:00:00.000Z",
-  work_attempt_id: "12c9a3df-084a-4314-8a80-de844b512fad",
-  source_session: "gate-session",
-};
 
 const gateChangeRequest = (key, title) => ({
   task_id: "task-headless",
@@ -1183,7 +1138,6 @@ test("replicaは、取り込めないDesktopがいる間は書き込みを断る
     const blocked = { code: "DESKTOP_BEHIND", status: 409 };
     assert.deepEqual(await gateOutcome(() => core.createAiItem(gateCreateRequest("a"))), blocked);
     assert.deepEqual(await gateOutcome(() => core.proposeContent({})), blocked);
-    assert.deepEqual(await gateOutcome(() => core.startAiTaskWork(gateStartRequest)), blocked);
     const searched = await core.searchItems({ query: "Headless context" });
     assert.ok(
       searched.items.some((item) => item.id === "task-headless"),
@@ -1208,13 +1162,17 @@ test("replicaは、取り込めないDesktopがいる間は書き込みを断る
   }
 });
 
-test("replicaは取り込みが遅れている間、既存Taskを書き換える開始・直接変更・取り消しを断る。新規作成は通す", async (t) => {
+// 開始（start-ai-task-work）は#755 束10aで外した。残る既存Taskの書き換えは直接変更と取り消し。
+test("replicaは取り込みが遅れている間、既存Taskを書き換える直接変更・取り消しを断る。新規作成は通す", async (t) => {
   const f = await writeGateFixture(t);
   const handle = await f.startReplica([f.mark(f.hostShape, false)], { allowAiTaskChange: true });
   try {
     const core = new TaskenCoreClient({ userDataPath: f.replicaUserData });
     assert.notDeepEqual(
-      await gateOutcome(() => core.startAiTaskWork(gateStartRequest)),
+      // 版が合わない要求は門を通った後でCONFLICTになり、何も書かない。
+      await gateOutcome(() =>
+        core.changeTask({ ...gateChangeRequest("in-sync", "書かない"), expected_version: 999 }),
+      ),
       { code: "REPLICA_BEHIND", status: 409 },
       "取り込めている間は断らない",
     );
@@ -1231,11 +1189,7 @@ test("replicaは取り込みが遅れている間、既存Taskを書き換える
     fs.unlinkSync(path.join(directory, packets.at(-2)));
     await assert.rejects(() => handle.syncNow(), /を待っています/u);
 
-    assert.deepEqual(await gateOutcome(() => core.startAiTaskWork(gateStartRequest)), {
-      code: "REPLICA_BEHIND",
-      status: 409,
-    });
-    // 手元の版との照合は遅れていても通ってしまうので、直接変更と取り消しも入口で断る。
+    // 手元の版との照合は遅れていても通ってしまうので、直接変更と取り消しは入口で断る。
     assert.deepEqual(
       await gateOutcome(() => core.changeTask(gateChangeRequest("late", "遅れて直す"))),
       {
@@ -1385,6 +1339,13 @@ test("Headless Core CLI requires valid explicit arguments", () => {
   assert.throws(() => parseTaskenHeadlessCoreArgs(["--user-data-dir="]));
   assert.throws(() => parseTaskenHeadlessCoreArgs(["--sync-directory="]));
   assert.throws(() => parseTaskenHeadlessCoreArgs(["--unknown"]));
+  // AI Readyの開始は外した（#755 束10a）。前の配備に残る環境変数は読まず、起動も断らない。
+  assert.equal(
+    "allowAiTaskStart" in
+      parseTaskenHeadlessCoreArgs(["--write-mode=read-only"], { TASKEN_CORE_AI_TASK_START: "1" }),
+    false,
+  );
+  assert.throws(() => parseTaskenHeadlessCoreArgs(["--allow-ai-task-start"]));
 });
 
 test("replicaは同期の鮮度を source_status で返し、MCPの結果にsourceを添える。syncDirectoryなしでは出さない", async (t) => {

@@ -13,7 +13,6 @@ import { StdioClientTransport } from "/app/node_modules/@modelcontextprotocol/sd
 //   上と同じコマンドへ `-e TASKEN_MCP_READ_ONLY=0` を足す。tunnelと同じ見え方を確認できる。
 const READ_ONLY = (process.env.TASKEN_MCP_READ_ONLY ?? "1") !== "0";
 const WRITE_TOOL_NAMES = new Set([
-  "tasken.start_task_work",
   "tasken.report_work",
   "tasken.propose_note",
   "tasken.propose_note_edit",
