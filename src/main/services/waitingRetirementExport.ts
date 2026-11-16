@@ -135,16 +135,31 @@ export function buildWaitingExport(source: WaitingExportSource): WaitingExportDo
     const owner = text(schedule.owner_id);
     schedules.set(owner, [...(schedules.get(owner) || []), when]);
   }
+  // 実際に写してある物（消した写しを含む）だけを「写した」と書く。同期が追いつかない・控えが
+  // 取れない起動では写さないので、写す前に書き出すこともある（写した後の起動で書き出し直す）。
+  const convertedTaskId = (waitingId: string) =>
+    waitingId && tasks.has(waitingTaskId(waitingId)) ? waitingTaskId(waitingId) : "";
+  const converted = waitings.filter((waiting) => convertedTaskId(text(waiting.id))).length;
+  const conversionNote =
+    converted === waitings.length
+      ? "待ちはそれぞれ、状態が「待ち」などの Task に写してあります（「写した Task の ID」）。"
+      : converted === 0
+        ? "この時点では、まだ Task に写していません（同期が追いつき、写す前の控えが取れた起動で写ります）。"
+        : `${converted} 件は Task に写してあります（「写した Task の ID」のある物）。残りは、同期が追いつき、写す前の控えが取れた起動で写ります。`;
   const lines = [
     `# ${EXPORT_BASE_NAME}`,
     "",
-    "Tasken の待ちの控えです（#755 で待ちを Task に含めた版が書き出しました）。待ちはそれぞれ、状態が「待ち」などの Task に写してあります。",
+    `Tasken の待ちの控えです（#755 で待ちを Task に含めた版が書き出しました）。${conversionNote}`,
     "",
     `- 件数: ${waitings.length} 件`,
   ];
   for (const waiting of waitings) {
     const id = text(waiting.id);
     const state = text(waiting.state);
+    const taskId = convertedTaskId(id);
+    const taskLabel = taskId
+      ? `${taskId}${isLive(tasks.get(taskId) || {}) ? "" : "（写した後に消した）"}`
+      : "";
     const facts: [string, string][] = [
       ["状態", STATE_LABELS[state] || state],
       ["待っている相手", oneLine(text(waiting.waiting_for))],
@@ -163,8 +178,9 @@ export function buildWaitingExport(source: WaitingExportSource): WaitingExportDo
       ["関係する Task", labelFor(tasks, waiting.task_id, "Task", (entry) => text(entry.title))],
       ["作った日", dateText(waiting.created_at)],
       ["更新した日", dateText(waiting.updated_at)],
+      ["元の記録（source_record）の ID", text(waiting.source_record_id)],
       ["Tasken の ID", id],
-      ["写した Task の ID", id ? waitingTaskId(id) : ""],
+      ["写した Task の ID", taskLabel],
     ];
     lines.push(
       "",
@@ -185,23 +201,42 @@ export function buildWaitingExport(source: WaitingExportSource): WaitingExportDo
 }
 
 /**
- * 書き出しの元の状態。削除していない待ちの件数と、削除した物も含めたいちばん新しい
- * 更新・作成・削除の時刻。どちらかが変われば書き出し直す（古い版の端末から後で届いた待ちも残る）。
+ * 書き出しの元の状態。削除していない待ちの件数、削除した物も含めたいちばん新しい
+ * 更新・作成・削除の時刻、Task に写してある待ちの数。どれかが変われば書き出し直す
+ * （古い版の端末から後で届いた待ちも、後の起動で写した事も残る）。
  */
 export function waitingExportSignature(source: WaitingExportSource): {
   count: number;
   latest: string;
+  converted: number;
 } {
   let count = 0;
+  let converted = 0;
   let latest = "";
+  const tasks = nameLookup(source, ["task"]);
   for (const entry of source.list("waiting", true)) {
-    if (isLive(entry)) count += 1;
+    if (isLive(entry)) {
+      count += 1;
+      if (tasks.has(waitingTaskId(text(entry.id)))) converted += 1;
+    }
     for (const field of ["updated_at", "created_at", "deleted_at"]) {
       const value = text(entry[field]);
       if (value > latest) latest = value;
     }
   }
-  return { count, latest };
+  return { count, latest, converted };
+}
+
+function exportMarkMatches(
+  raw: string | null,
+  signature: ReturnType<typeof waitingExportSignature>,
+): boolean {
+  if (!retiredExportMarkMatches(raw, signature) || !raw) return false;
+  try {
+    return (JSON.parse(raw) as { converted?: unknown }).converted === signature.converted;
+  } catch {
+    return false;
+  }
 }
 
 /** 置き場（userData と、設定してある時の同期ルート）の Exports/retired/waitings。 */
@@ -228,7 +263,7 @@ export function runWaitingRetirementExportOnce(input: {
   const { repository, log = () => {}, now = () => new Date().toISOString(), files = fs } = input;
   try {
     const signature = waitingExportSignature(repository);
-    if (retiredExportMarkMatches(repository.readRetiredExportMark("waitings"), signature))
+    if (exportMarkMatches(repository.readRetiredExportMark("waitings"), signature))
       return { state: "already_done" };
     const documents = buildWaitingExport(repository);
     if (documents.length === 0) return { state: "nothing" };

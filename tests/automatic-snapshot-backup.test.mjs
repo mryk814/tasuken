@@ -262,3 +262,23 @@ test("終了の後は、起動30秒後のタイマーが来ても写しを作ら
   assert.equal(status.backupCount, 0);
   assert.equal(fs.existsSync(directory), false);
 });
+
+// 待ちを Task に写す前の控え（#755 束7）。自動の控えと別の名前で、世代の入れ替えで消えない。
+test("写す前の控えは別の名前で作り、自動の控えの世代の入れ替えでも、止めていても消えない", async (t) => {
+  const { service, directory } = fixture(t, { generations: 1 });
+  service.configure({ enabled: false, directory: "", generations: 1 });
+  const copy = await service.createRetirementCopy();
+  assert.match(path.basename(copy), /^tasken-retirement-\d{8}T\d{9}Z-[0-9a-f]{8}\.sqlite$/u);
+  assert.equal(titleIn(copy, "note-1"), "守る対象");
+  // 自動の控えを何度作っても（1 世代だけ残す設定）、写す前の控えは残り、一覧にも数えない。
+  service.configure({ enabled: true, directory: "", generations: 1 });
+  await service.run("startup");
+  await service.run("manual");
+  const status = await service.run("manual");
+  assert.equal(status.backupCount, 1);
+  assert.ok(fs.existsSync(copy));
+  assert.equal(
+    fs.readdirSync(directory).filter((name) => name.startsWith("tasken-retirement-")).length,
+    1,
+  );
+});

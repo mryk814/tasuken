@@ -26,8 +26,14 @@ async function loadModule(entry) {
   );
 }
 
-const { runWaitingConversionOnce, planWaitingConversion, waitingTaskId, waitingScheduleId } =
-  await loadModule("src/main/services/waitingRetirement.ts");
+const {
+  runWaitingConversionOnce,
+  planWaitingConversion,
+  waitingTaskId,
+  waitingScheduleId,
+  waitingReferenceId,
+  waitingReminderAt,
+} = await loadModule("src/main/services/waitingRetirement.ts");
 const { runWaitingRetirementExportOnce } = await loadModule(
   "src/main/services/waitingRetirementExport.ts",
 );
@@ -105,13 +111,14 @@ function seed(database) {
   );
 }
 
+// 控えの口は、作った控えの場所を返す（作れなければ null）。
 function backupSpy(result = true) {
   const calls = [];
   return {
     calls,
     backup: async () => {
       calls.push("backup");
-      return result;
+      return result ? path.join(os.tmpdir(), `tasken-retirement-spy-${calls.length}.sqlite`) : null;
     },
   };
 }
@@ -132,6 +139,8 @@ test("待ちを 1 件ずつ Task に写し、日程は Task の期限として�
   const repository = {
     list: (...args) => database.list(...args),
     get: (...args) => database.get(...args),
+    readRetiredExportMark: (name) => database.readRetiredExportMark(name),
+    markRetiredExportDone: (name, value) => database.markRetiredExportDone(name, value),
     writeDerivedRecords: (records) => {
       writes.push(spy.calls.length);
       return database.writeDerivedRecords(records);
@@ -153,7 +162,13 @@ test("待ちを 1 件ずつ Task に写し、日程は Task の期限として�
     "条件Bの分\n\n待っている相手: 分析チーム\n次にすること: 届いたらグラフにする",
   );
   assert.equal(task.project_id, "theme-1");
-  assert.equal(task.parent_task_id, "task-parent");
+  // 関係する Task は親子にせず、記録どうしの関係で結ぶ（元の Task も「待ち」の時に二重にしない）。
+  assert.equal(task.parent_task_id ?? null, null);
+  const reference = database.get("reference", waitingReferenceId("waiting-1"));
+  assert.deepEqual(
+    [reference.subject, reference.predicate, reference.object],
+    [{ type: "task", id: task.id }, "related_to", { type: "task", id: "task-parent" }],
+  );
   assert.equal(task.reminder_at, "2026-11-20T10:00");
   assert.equal(task.source, "waiting");
   assert.equal(task.created_at, "2026-10-01T09:00:00.000Z");
@@ -285,7 +300,8 @@ test("消した Theme と Task は指さずに写す", async (t) => {
   });
   assert.equal(result.state, "done");
   assert.equal(result.failed, 0);
-  assert.equal(database.get("task", waitingTaskId("waiting-1")).parent_task_id, null);
+  assert.ok(database.get("task", waitingTaskId("waiting-1")));
+  assert.equal(database.get("reference", waitingReferenceId("waiting-1"), true), null);
   assert.equal(database.get("task", waitingTaskId("waiting-orphan")).project_id, null);
 });
 
@@ -424,21 +440,33 @@ test("待ちを 1 つの Markdown にして userData と同期ルートへ書き
     markdown,
     /## 試料の測定結果\n\n- 状態: 待ち\n- 待っている相手: 分析チーム\n- 次にすること: 届いたらグラフにする\n- 確認の時刻: 2026-11-20T10:00\n- 日程: 2026-11-25\n- Theme: 材料の評価（theme-1）\n- 関係する Task: 条件Bの評価（task-parent）\n/u,
   );
-  assert.match(markdown, new RegExp(`- 写した Task の ID: ${waitingTaskId("waiting-1")}`, "u"));
+  // まだ写していない時は「写した」と書かない（同期が追いつかない・控えが取れない起動）。
+  assert.match(markdown, /まだ Task に写していません/u);
+  assert.doesNotMatch(markdown, /写した Task の ID|写してあります/u);
   // 待ち、受領、中止の順。
   assert.ok(markdown.indexOf("## 試料の測定結果") < markdown.indexOf("## 見積もり"));
   assert.ok(markdown.indexOf("## 見積もり") < markdown.indexOf("## 取りやめた依頼"));
   // 書き出した時刻は中身に入れない。
   assert.doesNotMatch(markdown, /2030-01-02/u);
 
-  // 変わっていなければ書き直さない。待ちが届けば書き出し直す（前のファイルは上書きしない）。
+  // 変わっていなければ書き直さない。写した後と、待ちが届いた後は書き出し直す（前のファイルは
+  // 上書きしない）。
   assert.deepEqual(run(), { state: "already_done" });
+  await runWaitingConversionOnce({ repository: database, backup: backupSpy().backup });
+  assert.equal(run().state, "done");
+  const converted = fs.readFileSync(path.join(exports, "待ち (2).md"), "utf8");
+  assert.match(converted, /待ちはそれぞれ、状態が「待ち」などの Task に写してあります/u);
+  assert.match(converted, new RegExp(`- 写した Task の ID: ${waitingTaskId("waiting-1")}\n`, "u"));
   database.save(
     "waiting",
     waiting("waiting-late", { title: "後から届いた待ち", updated_at: "2026-11-17" }),
   );
   assert.equal(run().state, "done");
-  assert.deepEqual(fs.readdirSync(exports).sort(), ["待ち (2).md", "待ち.md"]);
+  assert.match(
+    fs.readFileSync(path.join(exports, "待ち (3).md"), "utf8"),
+    /3 件は Task に写してあります/u,
+  );
+  assert.deepEqual(fs.readdirSync(exports).sort(), ["待ち (2).md", "待ち (3).md", "待ち.md"]);
 });
 
 const { createTaskenCore } = await loadModule("src/main/infrastructure/sqlite/public.ts");
@@ -473,4 +501,200 @@ test("AI の読み取りは元の待ちを出さず、写した Task を出す�
     theme.open_items.some((item) => item.entity_type === "waiting"),
     false,
   );
+});
+
+// レビューで見つかった場面（#755 束7）。
+
+test("中身の違う写しは、黙って片方を残さず競合として出し、本人が選べば両方そろう", async (t) => {
+  const { shared, devices } = createDevices(t, 2);
+  const [first, second] = devices;
+  first.database.save("waiting", waiting("w1", { title: "測定" }));
+  await first.sync.configure(shared);
+  await second.sync.configure(shared);
+  // first で（前の版のまま）待ちを受領に直し、second がそれを受け取る前に、それぞれ写す。
+  first.database.save("waiting", {
+    ...first.database.get("waiting", "w1"),
+    state: "received",
+    title: "測定（届いた）",
+  });
+  await runWaitingConversionOnce({ repository: second.database, backup: backupSpy().backup });
+  await runWaitingConversionOnce({ repository: first.database, backup: backupSpy().backup });
+  await syncAll(devices);
+
+  const taskId = waitingTaskId("w1");
+  assert.equal(first.database.get("task", taskId).state, "done");
+  assert.equal(second.database.get("task", taskId).state, "waiting");
+  for (const { database } of devices) {
+    const conflicts = database.listSyncConflicts();
+    assert.deepEqual(
+      conflicts.map((conflict) => [conflict.entityType, conflict.entityId]),
+      [["task", taskId]],
+    );
+  }
+  const [conflict] = second.database.listSyncConflicts();
+  second.sync.resolveConflict(conflict.id, "incoming");
+  await syncAll(devices);
+  for (const { database } of devices) {
+    assert.equal(database.syncConflictCount(), 0);
+    assert.equal(database.get("task", taskId).state, "done");
+    assert.equal(database.get("task", taskId).title, "測定（届いた）");
+  }
+});
+
+function holdNewerPackets(shared, deviceId, afterSequence) {
+  const directory = path.join(shared, "devices", deviceId);
+  const held = [];
+  for (const name of fs.readdirSync(directory)) {
+    if (!/^\d{12}-.+\.json$/u.test(name) || Number(name.slice(0, 12)) <= afterSequence) continue;
+    fs.renameSync(path.join(directory, name), path.join(directory, `${name}.held`));
+    held.push(name);
+  }
+  return () => {
+    for (const name of held)
+      fs.renameSync(path.join(directory, `${name}.held`), path.join(directory, name));
+  };
+}
+
+test("同期がほかの端末に追いついていない端末は写さず、追いついた後に先の写しが届けば写さない", async (t) => {
+  const { shared, devices } = createDevices(t, 2);
+  const [first, second] = devices;
+  seed(first.database);
+  await first.sync.configure(shared);
+  await second.sync.configure(shared);
+  const caughtUp = (device) => () => device.sync.caughtUpForDerivedWrites();
+
+  // first が写して公開する。second にはその差分がまだ運ばれていない（共有フォルダの同期の遅れ）。
+  const firstResult = await runWaitingConversionOnce({
+    repository: first.database,
+    backup: backupSpy().backup,
+    isCaughtUp: caughtUp(first),
+  });
+  assert.equal(firstResult.state, "done");
+  await first.sync.syncNow();
+  const release = holdNewerPackets(
+    shared,
+    first.database.deviceId,
+    second.database.syncCursor(first.database.deviceId),
+  );
+  const behind = backupSpy();
+  assert.deepEqual(
+    await runWaitingConversionOnce({
+      repository: second.database,
+      backup: behind.backup,
+      isCaughtUp: caughtUp(second),
+    }),
+    { state: "not_caught_up", pending: 3 },
+  );
+  assert.deepEqual(behind.calls, []);
+  assert.equal(second.database.get("task", waitingTaskId("waiting-1"), true), null);
+
+  // 差分が届いた後は、first の写しを受け取り、自分では写さない。
+  release();
+  const after = backupSpy();
+  assert.deepEqual(
+    await runWaitingConversionOnce({
+      repository: second.database,
+      backup: after.backup,
+      isCaughtUp: caughtUp(second),
+    }),
+    { state: "nothing" },
+  );
+  assert.deepEqual(after.calls, []);
+  const task = second.database.get("task", waitingTaskId("waiting-1"));
+  assert.equal(task.device_id, first.database.deviceId);
+  assert.equal(second.database.syncPendingCount(), 0);
+  await syncAll(devices);
+  for (const { database } of devices) assert.equal(database.syncConflictCount(), 0);
+});
+
+test("写して消した後、追いつきを確かめる端末は写さないので、古い版の受け手にも競合が出ない", async (t) => {
+  const { shared, devices } = createDevices(t, 3);
+  const [first, second, old] = devices;
+  first.database.save("waiting", waiting("w1"));
+  // old は束 7 より前の版の受け手（写した記録の最初の版の印を知らない）。
+  const apply = old.database.applySyncPacket.bind(old.database);
+  old.database.applySyncPacket = (packet) => {
+    const { derivedRoot: _derivedRoot, ...previousShape } = packet;
+    return apply(previousShape);
+  };
+  for (const device of devices) await device.sync.configure(shared);
+  const taskId = waitingTaskId("w1");
+  await runWaitingConversionOnce({
+    repository: first.database,
+    backup: backupSpy().backup,
+    isCaughtUp: () => first.sync.caughtUpForDerivedWrites(),
+  });
+  first.database.remove("task", taskId);
+  await first.sync.syncNow();
+  assert.deepEqual(
+    await runWaitingConversionOnce({
+      repository: second.database,
+      backup: backupSpy().backup,
+      isCaughtUp: () => second.sync.caughtUpForDerivedWrites(),
+    }),
+    { state: "nothing" },
+  );
+  await syncAll(devices);
+  for (const { database } of devices) {
+    assert.equal(database.syncConflictCount(), 0);
+    assert.ok(database.get("task", taskId, true).deleted_at);
+  }
+});
+
+test("写せない待ちが残っても、同じ組で控えが残っていれば、起動のたびに控えを取り直さない", async (t) => {
+  const root = tempRoot(t);
+  const database = openDatabase(t, root);
+  seed(database);
+  const backupPath = path.join(root, "tasken-retirement-test.sqlite");
+  const calls = [];
+  const backup = async () => {
+    calls.push("backup");
+    fs.writeFileSync(backupPath, "copy");
+    return backupPath;
+  };
+  const failing = {
+    list: (...args) => database.list(...args),
+    get: (...args) => database.get(...args),
+    readRetiredExportMark: (name) => database.readRetiredExportMark(name),
+    markRetiredExportDone: (name, value) => database.markRetiredExportDone(name, value),
+    writeDerivedRecords: () => {
+      throw Object.assign(new Error("書けない"), { code: "TEST_FAIL" });
+    },
+  };
+  assert.equal((await runWaitingConversionOnce({ repository: failing, backup })).failed, 3);
+  assert.equal((await runWaitingConversionOnce({ repository: failing, backup })).failed, 3);
+  assert.deepEqual(calls, ["backup"]);
+  // 控えが消えていれば取り直す。写していない組が変われば取り直す。
+  fs.rmSync(backupPath);
+  await runWaitingConversionOnce({ repository: failing, backup });
+  assert.deepEqual(calls, ["backup", "backup"]);
+  database.save("waiting", waiting("waiting-late"));
+  await runWaitingConversionOnce({ repository: failing, backup });
+  assert.deepEqual(calls, ["backup", "backup", "backup"]);
+  // 写せば終わる。
+  await runWaitingConversionOnce({ repository: database, backup });
+  assert.ok(database.get("task", waitingTaskId("waiting-late")));
+});
+
+test("確認の時刻は Task のリマインダーが受ける形にそろえ、そろえられない値は説明に残す", async (t) => {
+  assert.equal(waitingReminderAt("2026-11-20 9:00"), "2026-11-20T09:00");
+  assert.equal(waitingReminderAt("2026-11-20T09:00:30"), "2026-11-20T09:00");
+  assert.equal(waitingReminderAt("2026-11-20T00:30:00.000Z"), "2026-11-20T00:30:00.000Z");
+  assert.equal(waitingReminderAt("2026-11-20 00:30Z"), "2026-11-20T00:30:00Z");
+  assert.equal(waitingReminderAt("来週の月曜"), null);
+  assert.equal(waitingReminderAt(""), null);
+
+  const database = openDatabase(t, tempRoot(t));
+  database.save("source_record", { id: "source-1", source_title: "依頼のメール" });
+  database.save("waiting", waiting("w-space", { check_reminder_at: "2026-11-20 9:00" }));
+  database.save(
+    "waiting",
+    waiting("w-odd", { check_reminder_at: "来週の月曜", source_record_id: "source-1" }),
+  );
+  await runWaitingConversionOnce({ repository: database, backup: backupSpy().backup });
+  assert.equal(database.get("task", waitingTaskId("w-space")).reminder_at, "2026-11-20T09:00");
+  const odd = database.get("task", waitingTaskId("w-odd"));
+  assert.equal(odd.reminder_at, null);
+  assert.match(odd.description, /確認の時刻: 来週の月曜/u);
+  assert.equal(odd.source_record_id, "source-1");
 });

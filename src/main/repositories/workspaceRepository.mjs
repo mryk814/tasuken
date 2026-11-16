@@ -19,7 +19,7 @@ import { normalizeDueNotificationTimes } from "../../shared/taskNotifications.ts
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { migratePublishedFeedNotes } from "./feedPostMigration.mjs";
 import { assertSyncPacket, isRetiredSyncPacket } from "./syncPacketContract.mjs";
-import { derivedRootRevisionId, isDerivedRootRevision } from "./derivedRecords.mjs";
+import { derivedRootMetaKey, derivedRootRevisionId } from "./derivedRecords.mjs";
 import { normalizeAgentWorkRecord } from "../../shared/contracts/task/public.ts";
 import {
   isPersonalDefaultTheme,
@@ -2477,6 +2477,8 @@ export class WorkspaceDatabase {
       entity,
       createdAt: timestamp,
       ...(relayRevisionId ? { relay: true } : {}),
+      // 写した記録の最初の版の印（#755 束7）。古い版の受け手は知らない欄として読み飛ばす。
+      ...(fixedRevisionId ? { derivedRoot: true } : {}),
     };
     this.db
       .prepare(
@@ -2497,8 +2499,9 @@ export class WorkspaceDatabase {
    *
    * - 同じ ID の記録が、消した物（墓標）も含めて既にあれば書かない。写すのは一度だけで、
    *   本人が消した写しを作り直さない。
-   * - 差分の版の ID は種類と ID から決める（derivedRecords.mjs）。2 台が独立に写しても、
-   *   同期では同じ版として 1 件に収まる。
+   * - 差分の版の ID は種類・ID・中身から決める（derivedRecords.mjs）。2 台が同じ中身を独立に
+   *   写しても、同期では同じ版として 1 件に収まる。中身が違えば競合になる。
+   * - 最初の版の ID は端末ごとの控え（workspace_meta）にも残し、後から届いた最初の版と比べる。
    * - 全部を 1 つの transaction で書き、どれかが書けなければ何も書かない。書いた件数を返す。
    */
   writeDerivedRecords(records) {
@@ -2510,11 +2513,30 @@ export class WorkspaceDatabase {
           skipSync: true,
           __canonicalOperationAt: operationAt,
         });
-        this.enqueueSyncEntity(type, saved, [], "", derivedRootRevisionId(type, saved.id));
+        const revisionId = derivedRootRevisionId(type, saved);
+        this.rememberDerivedRoot(type, saved.id, revisionId);
+        this.enqueueSyncEntity(type, saved, [], "", revisionId);
         written += 1;
       }
       return written;
     })();
+  }
+
+  /** その記録を作った写しの最初の版の ID（端末ごとの控え）。写した記録でなければ空文字。 */
+  derivedRoot(type, id) {
+    return (
+      this.db
+        .prepare("SELECT value FROM workspace_meta WHERE key = ?")
+        .get(derivedRootMetaKey(type, String(id)))?.value || ""
+    );
+  }
+
+  rememberDerivedRoot(type, id, revisionId) {
+    this.db
+      .prepare(
+        "INSERT INTO workspace_meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+      )
+      .run(derivedRootMetaKey(type, String(id)), revisionId);
   }
 
   /**
@@ -2826,8 +2848,11 @@ export class WorkspaceDatabase {
         return { status: "duplicate", entity: this.get(type, id, true) };
       const local = this.get(type, id, true);
       // 写した記録の最初の版（#755 束7。待ち → Task）。別の端末も同じ記録を独立に写すので、
-      // 手元にあれば手元の版はこの版から続いている。版が進んだ後に届いても競合にしない。
-      if (local && isDerivedRootRevision(type, id, revisionId, incomingParents))
+      // 手元の記録がこれと同じ最初の版から生まれていれば（版の ID は中身から決まる）、手元の版は
+      // この版から続いている。版が進んだ後に届いても競合にしない。最初の版が違う（中身の違う写し）
+      // なら、下のふつうの判定で競合として登録し、本人が選ぶ。
+      const derivedRoot = packet.derivedRoot === true && incomingParents.length === 0;
+      if (local && derivedRoot && this.derivedRoot(type, id) === revisionId)
         return { status: "duplicate", entity: local };
       const canApply = !local || !currentHead || incomingParents.includes(currentHead);
       // 中継は欠けた記録の補充用。手元が別系統へ進んでいれば上書きも競合登録もしない。
@@ -2849,6 +2874,7 @@ export class WorkspaceDatabase {
           allowReceiptRevision: type === "work_receipt",
         });
         this.setSyncHead(type, id, revisionId);
+        if (derivedRoot) this.rememberDerivedRoot(type, id, revisionId);
         this.db
           .prepare("DELETE FROM sync_conflicts WHERE entity_type = ? AND entity_id = ?")
           .run(type, id);
