@@ -38,8 +38,10 @@ const SET_ASIDE_PREFIX = "research-desk.before-restore-";
 const SET_ASIDE_ORDER = ["-wal", "-shm", ""] as const;
 /** 戻す前の控え。自動バックアップの世代（tasken-auto-*）とは別の名前にして、入れ替えで消さない。 */
 const PRE_RESTORE_PREFIX = "tasken-before-restore-";
+// retirement は、切った機能の記録を写す前の控え（#755 束7。automaticSnapshotBackup.ts）。
+// 戻す一覧には出すが、自動の世代の入れ替えには入れない（名前が tasken-auto- と違う）。
 const BACKUP_FILE_PATTERN =
-  /^tasken-(auto|before-restore)-(\d{8})T(\d{2})(\d{2})(\d{2})(\d{3})Z-[0-9a-f]{8}\.sqlite$/;
+  /^tasken-(auto|before-restore|retirement)-(\d{8})T(\d{2})(\d{2})(\d{2})(\d{3})Z-[0-9a-f]{8}\.sqlite$/;
 
 export interface RestoreSourceInfo {
   entityCount: number;
@@ -189,7 +191,7 @@ export interface BackupListEntry {
   filePath: string;
   createdAt: string;
   sizeBytes: number;
-  kind: "auto" | "before-restore";
+  kind: "auto" | "before-restore" | "retirement";
 }
 
 /** 保存先にある控えを新しい順に並べる（自動の世代と、戻す前の控え）。 */
@@ -206,7 +208,7 @@ export function listBackups(directory: string): BackupListEntry[] {
           filePath,
           createdAt: backupCreatedAt(filePath),
           sizeBytes: fs.statSync(filePath).size,
-          kind: match[1] === "auto" ? ("auto" as const) : ("before-restore" as const),
+          kind: match[1] as BackupListEntry["kind"],
         },
       ];
     })
