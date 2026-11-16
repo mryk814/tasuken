@@ -43,7 +43,6 @@ Issue #595 の成果物。`docs/agent-collaboration.md`（#594）が決めた用
 | `work_receipt`（人の返答）                                                                             | `receipt_kind` / `reply_choice_id` / `reply_note`    | `"ai_report"` / `"human_reply"`（#597） | 省略時は従来のAI報告として読む                 |
 | `Task`                                                                                                 | `work_attempt_id`                                    | UUID?                                   | 現在参照している作業単位                       |
 | `StartTaskWork`（application command）                                                                 | `workAttemptId`                                      | UUID?                                   | 指定すると新しい作業単位を開始する             |
-| MCP `tasken.start_task_work`                                                                           | `work_attempt_id`                                    | UUID?                                   | 同上                                           |
 | MCP `tasken.report_work(status=progress)` / `report_work(status=done)` / `report_work(status=blocked)` | `work_attempt_id` / `report_sequence`                | 同上                                    | 報告の帰属と順番                               |
 | MCP `tasken.report_work(status=blocked)`                                                               | `request_id`                                         | UUID?                                   | 質問のID                                       |
 
