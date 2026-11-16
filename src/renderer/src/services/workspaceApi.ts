@@ -30,7 +30,6 @@ import type {
   ImageClipboardRequest,
   SlideTimelineExportRequest,
 } from "../../../shared/slideTimelineExport";
-import type { CalendarConnectRequest, CalendarDisconnectRequest } from "../../../shared/calendar";
 import { buildBootstrapWorkspace } from "../data/workspace.js";
 
 function desktopApi() {
@@ -361,17 +360,5 @@ export const workspaceApi = {
   },
   exportMermaidPptx(request: MermaidPowerPointPptxExportRequest) {
     return desktopApi().exports.mermaidPptx(request);
-  },
-  calendarStatus() {
-    return desktopApi().calendar.getStatus();
-  },
-  calendarConnect(request: CalendarConnectRequest) {
-    return desktopApi().calendar.connect(request);
-  },
-  calendarDisconnect(request: CalendarDisconnectRequest) {
-    return desktopApi().calendar.disconnect(request);
-  },
-  calendarEvents(date: string) {
-    return desktopApi().calendar.getEvents(date);
   },
 };

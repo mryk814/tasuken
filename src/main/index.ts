@@ -6,7 +6,6 @@ import {
   Menu,
   net,
   dialog,
-  safeStorage,
   session as electronSession,
   shell,
 } from "electron";
@@ -52,7 +51,6 @@ import {
 } from "./repositories/workspaceRepository.mjs";
 import { WorkspaceService } from "./services/workspaceService";
 import { AiProposalAcceptanceService } from "./services/aiProposalAcceptanceService";
-import { CalendarService } from "./services/calendarService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import { runRetiredExportsOnce } from "./services/retiredExports";
 import { runRetiredOutputCleanupOnce } from "./services/retiredOutputCleanup.mjs";
@@ -2063,9 +2061,6 @@ async function startDesktopApp(): Promise<void> {
     automaticSnapshotBackup,
     workspaceRestore,
     sharedFolderSyncService,
-    new CalendarService(app.getPath("userData"), safeStorage, fetch, (url) =>
-      shell.openExternal(url),
-    ),
     applicationCommands,
     composition.taskCapability,
     mediaCapture,

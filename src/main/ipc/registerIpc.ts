@@ -6,7 +6,6 @@ import type { WorkspaceService } from "../services/workspaceService";
 import type { AutomaticSnapshotBackupService } from "../services/automaticSnapshotBackup";
 import type { WorkspaceRestoreController } from "../services/workspaceRestoreController";
 import type { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
-import type { CalendarService } from "../services/calendarService";
 import type { ApplicationCommandService } from "../services/applicationCommandService";
 import { AiProposalAcceptanceService } from "../services/aiProposalAcceptanceService";
 import type { MediaCaptureService } from "../services/mediaCaptureService";
@@ -197,7 +196,6 @@ export function registerIpc(
   automaticSnapshotBackup: AutomaticSnapshotBackupService,
   workspaceRestore: WorkspaceRestoreController,
   sharedSync: SharedFolderSyncService,
-  calendar: CalendarService,
   applicationCommands: ApplicationCommandService,
   taskCapability: TaskCapabilityService,
   mediaCapture: MediaCaptureService,
@@ -650,10 +648,4 @@ export function registerIpc(
   );
   ipcMain.handle(IPC.mermaidSvgExport, (_event, request) => service.exportMermaidSvg(request));
   ipcMain.handle(IPC.mermaidPptxExport, (_event, request) => service.exportMermaidPptx(request));
-  ipcMain.handle(IPC.calendarStatus, () => calendar.getStatus());
-  ipcMain.handle(IPC.calendarConnect, (_event, request) => calendar.connect(request));
-  ipcMain.handle(IPC.calendarDisconnect, (_event, request) => calendar.disconnect(request));
-  ipcMain.handle(IPC.calendarEvents, (_event, date) =>
-    calendar.getEvents(requireText(date, "取得する日付")),
-  );
 }

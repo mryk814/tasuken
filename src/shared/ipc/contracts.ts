@@ -47,12 +47,6 @@ import type {
   SlideTimelineExportRequest,
   SlideTimelineExportResult,
 } from "../slideTimelineExport";
-import type {
-  CalendarConnectRequest,
-  CalendarConnectionStatus,
-  CalendarDisconnectRequest,
-  CalendarEventsResult,
-} from "../calendar";
 import type { WebArtifactExecutionPolicy } from "../webArtifact.mjs";
 import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
 import type { AiContextPreview } from "../aiContextPreview.mjs";
@@ -189,10 +183,6 @@ export const IPC = {
   slideTimelineExport: "slide-timeline:export",
   mermaidSvgExport: "mermaid:svg-export",
   mermaidPptxExport: "mermaid:pptx-export",
-  calendarStatus: "calendar:status",
-  calendarConnect: "calendar:connect",
-  calendarDisconnect: "calendar:disconnect",
-  calendarEvents: "calendar:events",
   applicationCommand: "application:command",
   applicationCommandBatch: "application:command-batch",
   conversationContextPreview: "conversation-context:preview",
@@ -795,12 +785,6 @@ export interface ResearchDeskApi {
     mermaidPptx(
       request: MermaidPowerPointPptxExportRequest,
     ): Promise<MermaidPowerPointPptxExportResult>;
-  };
-  calendar: {
-    getStatus(): Promise<CalendarConnectionStatus>;
-    connect(request: CalendarConnectRequest): Promise<CalendarConnectionStatus>;
-    disconnect(request: CalendarDisconnectRequest): Promise<CalendarConnectionStatus>;
-    getEvents(date: string): Promise<CalendarEventsResult>;
   };
 }
 

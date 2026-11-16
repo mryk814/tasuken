@@ -353,7 +353,6 @@ export const ClipboardItem = unavailable;
     unused,
     unused,
     unused,
-    unused,
     () => {},
   );
   const invoke = (name, ...args) => handlers.get(name)({ sender: { id: 1 } }, ...args);
