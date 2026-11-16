@@ -177,6 +177,31 @@ test("start_task_work, list_agent_ready_tasks and get_task_assignment are gone a
   assert.deepEqual(core.calls, []);
 });
 
+// 応答の next_tools や AI への説明が、外した道具を勧めていない（#755 束10a。activity の next_tools に
+// get_task_assignment が残っていた）。保存済みの Proposal を読むための tool 識別子（proposeTaskWorkService の
+// TOOL_BY_ACTION）は、勧める文ではないので対象外。
+test("no next_tools locator or AI-facing guide recommends the removed AI Ready tools", async () => {
+  const { readdirSync, readFileSync, statSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const removed = /tasken\.(start_task_work|list_agent_ready_tasks|get_task_assignment)/;
+  const files = [];
+  const walk = (directory) => {
+    for (const entry of readdirSync(directory)) {
+      const full = join(directory, entry);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.(ts|tsx|mjs)$/.test(entry)) files.push(full);
+    }
+  };
+  walk("src");
+  for (const file of files) {
+    const source = readFileSync(file, "utf8");
+    for (const match of source.matchAll(/tool:\s*"(tasken\.[a-z_]+)"/g))
+      assert.doesNotMatch(match[1], removed, `${file} recommends ${match[1]}`);
+  }
+  // 手引きはMCPの内部なので、importせず文として読む（architectureの境界）。
+  assert.doesNotMatch(readFileSync("src/main/mcp/guides.mjs", "utf8"), removed);
+});
+
 test("Theme intent ResourceTemplate is listed and reads a bounded human intent projection", async () => {
   const core = fakeCoreClient();
   await withMcp(core, async (client) => {
