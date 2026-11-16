@@ -973,6 +973,32 @@ export class WorkspaceDatabase {
       .run(retiredExportMarkKey(name), String(at));
   }
 
+  /**
+   * 「ローカルのAIに直接の書き込みを許す」（aiDirectWriteEnabled）を、この版を最初に開いた時に
+   * 一度だけ有効にする（#755 束10a）。AI Readyと開始の道具を外したので、AIがTaskを動かす道は
+   * 直接の書き込みだけになった。本人の答えは「更新で勝手に設定が変わるとよい」。
+   * 済んだ印（ai_direct_write_default_v1）を残すので、後で本人が無効にしても二度と戻さない。
+   * 端末ごとの設定で同期しない。Desktopの起動だけが呼ぶ（NAS replicaは配備ごとの明示の設定で決める）。
+   * @param {string} at 済んだ時刻
+   * @returns {boolean} この呼び出しで有効にした時だけtrue（既に有効・済んでいる時はfalse）
+   */
+  enableAiDirectWriteOnce(at = new Date().toISOString()) {
+    const markKey = "ai_direct_write_default_v1";
+    const readMeta = (key) =>
+      this.db.prepare("SELECT value FROM workspace_meta WHERE key = ?").get(key)?.value;
+    const upsert = this.db.prepare(
+      "INSERT INTO workspace_meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    );
+    const transaction = this.db.transaction(() => {
+      if (readMeta(markKey) !== undefined) return false;
+      const enabledBefore = readMeta("ai_direct_write_enabled") === "true";
+      if (!enabledBefore) upsert.run("ai_direct_write_enabled", "true");
+      upsert.run(markKey, String(at));
+      return !enabledBefore;
+    });
+    return transaction.immediate();
+  }
+
   setPreference(key, value) {
     if (key === "themeMode") {
       if (!["light", "dark"].includes(value)) throw new Error("カラーモードの値が不正です。");

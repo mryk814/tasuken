@@ -1040,3 +1040,47 @@ test("retired export mark survives restart and keeps the schema version", () => 
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+// AIがTaskを動かす道は直接の書き込みだけになった（#755 束10a）。この版を最初に開いた時に一度だけ
+// 「ローカルのAIに直接の書き込みを許す」を有効にし、後で本人が無効にしたら戻さない。
+test("直接の書き込みの設定は、最初の起動で一度だけ有効になり、二度目は触らない (#755 束10a)", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-ai-direct-write-once-"));
+  const databasePath = path.join(root, "workspace.sqlite");
+  let database = new WorkspaceDatabase(databasePath);
+  try {
+    const schemaVersion = database.getMeta().schemaVersion;
+    assert.equal(database.readPreference("aiDirectWriteEnabled"), false);
+    // 最初の起動: 有効になる。
+    assert.equal(database.enableAiDirectWriteOnce("2026-11-16T00:00:00.000Z"), true);
+    assert.equal(database.readPreference("aiDirectWriteEnabled"), true);
+    assert.equal(database.getPreference("aiDirectWriteEnabled"), true);
+
+    // 本人が後で無効にした。再起動しても、二度目の起動では戻さない。
+    database.setPreference("aiDirectWriteEnabled", false);
+    database.db.close();
+    database = new WorkspaceDatabase(databasePath);
+    assert.equal(database.enableAiDirectWriteOnce("2026-11-17T00:00:00.000Z"), false);
+    assert.equal(database.readPreference("aiDirectWriteEnabled"), false);
+    assert.equal(database.getMeta().schemaVersion, schemaVersion);
+  } finally {
+    database.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("直接の書き込みが既に有効なら、最初の起動でも値を変えず、済んだ印だけを残す (#755 束10a)", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-ai-direct-write-already-"));
+  const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite"));
+  try {
+    database.setPreference("aiDirectWriteEnabled", true);
+    assert.equal(database.enableAiDirectWriteOnce(), false);
+    assert.equal(database.readPreference("aiDirectWriteEnabled"), true);
+    // 済んだ印が残るので、後で本人が無効にしても次の起動で戻らない。
+    database.setPreference("aiDirectWriteEnabled", false);
+    assert.equal(database.enableAiDirectWriteOnce(), false);
+    assert.equal(database.readPreference("aiDirectWriteEnabled"), false);
+  } finally {
+    database.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

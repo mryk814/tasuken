@@ -1923,6 +1923,10 @@ async function startDesktopApp(): Promise<void> {
   workspaceRepository = new WorkspaceDatabase(
     path.join(app.getPath("userData"), "research-desk.sqlite"),
   );
+  // AIがTaskを動かす道は直接の書き込みだけになった（#755 束10a）。この版の最初の起動で一度だけ
+  // 設定を有効にする。Coreは要求のたびに設定を読むので、Coreの起動より前でなくてもよいが、先に済ませる。
+  if (workspaceRepository.enableAiDirectWriteOnce())
+    logMain("info", "ai-direct-write", "enabled once on upgrade (#755 bundle 10a)");
   const composition = (desktopComposition = new TaskenDesktopComposition({
     workLogWriter: createMobileWorkLogWriter(
       {
