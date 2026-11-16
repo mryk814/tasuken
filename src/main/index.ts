@@ -2009,7 +2009,9 @@ async function startDesktopApp(): Promise<void> {
       backupTo: (filePath, shouldAbort) => backupDatabase.backupTo(filePath, shouldAbort),
     },
     inspect: (filePath) => inspectWorkspaceBackup(filePath),
-    prepare: (filePath) => prepareRestoredCopy(filePath),
+    // 一度だけの有効化の印と今の値を、戻す写しへ持ち越す（#755 束10a）。
+    prepare: (filePath) =>
+      prepareRestoredCopy(filePath, backupDatabase.readAiDirectWriteDefaultCarry()),
     chooseFile: async (defaultDirectory) => {
       const result = await dialog.showOpenDialog({
         title: "戻す控えを選ぶ",

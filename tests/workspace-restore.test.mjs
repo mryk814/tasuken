@@ -687,3 +687,41 @@ test("待ちを写す前の控えは、戻す一覧に出て、ほかの控え�
     ],
   );
 });
+
+// 直接の書き込みは新しい版の最初の起動で一度だけ有効になる（#755 束10a）。本人が無効にした後に、
+// 更新より前の控え（一度だけの印が無い）から戻しても、次の起動でまた有効にならない。
+test("更新より前の控えから戻しても、本人が無効にした直接の書き込みは無効のまま", async (t) => {
+  const ws = workspace(t);
+  seed(ws);
+  const backupPath = await ws.backup(); // 更新より前の控え（印が無い）
+  // 更新した版の最初の起動で有効になり、本人が後で無効にした。
+  assert.equal(ws.state.repository.enableAiDirectWriteOnce(), true);
+  ws.state.repository.setPreference("aiDirectWriteEnabled", false);
+
+  const plan = await stageRestore({
+    userDataPath: ws.userData,
+    sourcePath: backupPath,
+    backupDirectory: ws.backups,
+    database: {
+      entityCount: () => ws.state.repository.entityCount(),
+      userEntityCount: () => ws.state.repository.userEntityCount(),
+      workspaceId: () => ws.state.repository.workspaceId,
+      backupTo: (filePath, shouldAbort) => ws.state.repository.backupTo(filePath, shouldAbort),
+      inspectBackup: (filePath) => inspectWorkspaceBackup(filePath),
+    },
+    inspect: inspectWorkspaceBackup,
+    // index.ts と同じ: 今のDBの印と値を、戻す写しへ持ち越す。
+    prepare: (filePath) =>
+      prepareRestoredCopy(filePath, ws.state.repository.readAiDirectWriteDefaultCarry()),
+    now: ws.now,
+  });
+  assert.ok(plan);
+  ws.quit();
+  assert.equal(ws.apply().status, "restored");
+  const restored = ws.open();
+  // 次の起動（index.ts が DB を開いた直後に呼ぶ）でも、有効に戻さない。
+  assert.equal(restored.enableAiDirectWriteOnce(), false);
+  assert.equal(restored.readPreference("aiDirectWriteEnabled"), false);
+  // 戻した中身は控えた時のまま。
+  assert.ok(ids(restored, "note").includes("note-1"));
+});
