@@ -17,9 +17,7 @@ import {
   AI_DIRECT_WRITE_PREFERENCE,
   copyMcpBridgeConfig,
 } from "../../../../../shared/ipc/contracts";
-import type { CalendarConnectionStatus, CalendarProvider } from "../../../../../shared/calendar";
 import type { PageProps, Theme } from "../types";
-import { todayIso as todayIsoDate } from "../domain-model/scheduleSemantics";
 import { entityTitle } from "../lib/domain";
 import { Button, IntegrationStatus, PageHeader } from "../components/common";
 import { StampLine, UnsentRow } from "../components/OfflineMarks";
@@ -42,14 +40,12 @@ interface SettingsPageProps extends PageProps {
   allThemes: Theme[];
 }
 
-type SettingsSectionId =
-  "general" | "appearance" | "storage" | "integrations" | "mobile" | "ai-mcp" | "advanced";
+type SettingsSectionId = "general" | "appearance" | "storage" | "mobile" | "ai-mcp" | "advanced";
 
 const SETTINGS_SECTIONS: Array<{ id: SettingsSectionId; label: string; description: string }> = [
   { id: "general", label: "General", description: "基本の使い方" },
   { id: "appearance", label: "Appearance", description: "表示と編集" },
   { id: "storage", label: "Storage & Files", description: "保存と同期" },
-  { id: "integrations", label: "Integrations", description: "外部サービス" },
   { id: "mobile", label: "Mobile", description: "Android接続" },
   { id: "ai-mcp", label: "AI & Context", description: "外部Agent連携" },
   { id: "advanced", label: "Advanced", description: "更新と復元" },
@@ -104,9 +100,6 @@ export function SettingsPage({
   const [dueNotificationTimes, setDueNotificationTimes] = useState<string[]>([
     ...DEFAULT_DUE_NOTIFICATION_TIMES,
   ]);
-  const [calendarStatus, setCalendarStatus] = useState<CalendarConnectionStatus | null>(null);
-  const [calendarBusy, setCalendarBusy] = useState(false);
-  const [calendarRefreshNote, setCalendarRefreshNote] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<SettingsSectionId>(() =>
     settingsSectionFromHash(window.location.hash),
   );
@@ -299,13 +292,6 @@ export function SettingsPage({
     setAutomaticBackupState("success");
     setAutomaticBackupError("");
   }
-
-  useEffect(() => {
-    workspaceApi
-      .calendarStatus()
-      .then(setCalendarStatus)
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     workspaceApi
@@ -603,71 +589,6 @@ export function SettingsPage({
     setToast("MCPクライアント設定をコピーしました。", "success");
   }
 
-  async function connectCalendar(provider: CalendarProvider) {
-    setCalendarBusy(true);
-    try {
-      const status = await workspaceApi.calendarConnect({ provider });
-      setCalendarStatus(status);
-      setToast("カレンダーを接続しました。", "success");
-    } catch (error) {
-      setToast(
-        `カレンダーの接続に失敗しました。${error instanceof Error ? error.message : String(error)}`,
-        "danger",
-      );
-    } finally {
-      setCalendarBusy(false);
-    }
-  }
-
-  /**
-   * 接続中のカレンダーを取り直す（#273）。今日の予定を読み、最終取得を更新する。
-   * 失敗しても接続は切らず、原因をこの領域へ残す（期限切れと未設定を混同しない）。
-   */
-  async function refreshCalendar() {
-    if (calendarBusy) return;
-    setCalendarBusy(true);
-    setCalendarRefreshNote(null);
-    try {
-      const result = await workspaceApi.calendarEvents(todayIsoDate());
-      const status = await workspaceApi.calendarStatus().catch(() => calendarStatus);
-      if (status) setCalendarStatus(status);
-      if (result.error && !result.stale) {
-        setCalendarRefreshNote(`更新できませんでした。${result.error}`);
-      } else if (result.stale) {
-        setCalendarRefreshNote(
-          `前回取得分を表示しています。${result.error ? ` ${result.error}` : ""}`,
-        );
-      } else {
-        setCalendarRefreshNote(`予定を${result.events.length}件取得しました。`);
-      }
-    } catch (error) {
-      setCalendarRefreshNote(
-        `更新できませんでした。${error instanceof Error ? error.message : String(error)}`,
-      );
-    } finally {
-      setCalendarBusy(false);
-    }
-  }
-
-  async function disconnectCalendar() {
-    const provider = calendarStatus?.provider;
-    if (!provider) return;
-    setCalendarBusy(true);
-    try {
-      const status = await workspaceApi.calendarDisconnect({ provider });
-      setCalendarStatus(status);
-      setCalendarRefreshNote(null);
-      setToast("カレンダーの接続を解除しました。", "info");
-    } catch (error) {
-      setToast(
-        `カレンダーの切断に失敗しました。${error instanceof Error ? error.message : String(error)}`,
-        "danger",
-      );
-    } finally {
-      setCalendarBusy(false);
-    }
-  }
-
   const updateStatusLabel = updateInfo
     ? updateInfo.status === "available"
       ? `Tasken ${updateInfo.latestVersion} が公開されています。`
@@ -687,11 +608,6 @@ export function SettingsPage({
           : syncStatus
             ? { label: "未設定", tone: "neutral" as const }
             : { label: "確認中", tone: "loading" as const };
-  const calendarSummary = calendarStatus
-    ? calendarStatus.connected
-      ? { label: "接続済み", tone: "normal" as const, detail: calendarStatus.accountName }
-      : { label: "未接続", tone: "neutral" as const }
-    : { label: "確認中", tone: "loading" as const };
   const mcpSummary = mcpInfo
     ? mcpInfo.coreStatus === "unavailable"
       ? { label: "Core接続エラー", tone: "error" as const }
@@ -730,20 +646,6 @@ export function SettingsPage({
             <span>Storage</span>
             <strong>
               <IntegrationStatus label={storageStatus.label} tone={storageStatus.tone} />
-            </strong>
-          </button>
-          <button
-            type="button"
-            className="settings-summary-item"
-            onClick={() => selectSection("integrations")}
-          >
-            <span>Calendar</span>
-            <strong>
-              <IntegrationStatus
-                label={calendarSummary.label}
-                tone={calendarSummary.tone}
-                detail={calendarSummary.detail}
-              />
             </strong>
           </button>
           <button
@@ -1494,81 +1396,6 @@ export function SettingsPage({
                   {mcpBusy ? "確認中" : "状態を再確認"}
                 </Button>
               </div>
-            </section>
-            <section
-              className="panel settings-form calendar-settings-panel"
-              hidden={activeSection !== "integrations"}
-            >
-              <div className="settings-section-heading">
-                <h2>カレンダー連携</h2>
-                <IntegrationStatus
-                  label={calendarSummary.label}
-                  tone={calendarSummary.tone}
-                  detail={calendarSummary.detail}
-                />
-              </div>
-              <p className="field-help">
-                Outlook / Microsoft 365 または Google
-                カレンダーを読み取り専用で表示します。メールや連絡先にはアクセスしません。
-              </p>
-              {calendarStatus?.connected ? (
-                <>
-                  <dl className="settings-meta-list">
-                    <div>
-                      <dt>種類</dt>
-                      <dd>{calendarStatus.provider === "google" ? "Google" : "Microsoft"}</dd>
-                    </div>
-                    <div>
-                      <dt>アカウント</dt>
-                      <dd>{calendarStatus.accountName}</dd>
-                    </div>
-                    <div>
-                      <dt>最終取得</dt>
-                      <dd>
-                        {calendarStatus.lastFetchedAt
-                          ? new Date(calendarStatus.lastFetchedAt).toLocaleString("ja-JP", {
-                              dateStyle: "short",
-                              timeStyle: "short",
-                            })
-                          : "未取得"}
-                      </dd>
-                    </div>
-                  </dl>
-                  <div className="settings-action-row">
-                    <Button variant="secondary" disabled={calendarBusy} onClick={refreshCalendar}>
-                      {calendarBusy ? "更新中…" : "更新"}
-                    </Button>
-                  </div>
-                  {calendarRefreshNote ? (
-                    <p className="field-help" role="status">
-                      {calendarRefreshNote}
-                    </p>
-                  ) : null}
-                  <div className="settings-danger-zone">
-                    <h3>Danger Zone</h3>
-                    <Button variant="danger" disabled={calendarBusy} onClick={disconnectCalendar}>
-                      {calendarBusy ? "処理中" : "接続を解除"}
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <div className="settings-action-row">
-                  <Button
-                    variant="primary"
-                    disabled={calendarBusy}
-                    onClick={() => connectCalendar("microsoft")}
-                  >
-                    {calendarBusy ? "接続中…" : "Microsoftアカウントで接続"}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    disabled={calendarBusy}
-                    onClick={() => connectCalendar("google")}
-                  >
-                    {calendarBusy ? "接続中…" : "Googleアカウントで接続"}
-                  </Button>
-                </div>
-              )}
             </section>
             <section
               className="panel settings-form update-panel"

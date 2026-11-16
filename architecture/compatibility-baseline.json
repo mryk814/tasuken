@@ -186,7 +186,6 @@
         "tests/knowledge-health.test.mjs",
         "tests/mcp-feed-post.test.mjs",
         "tests/task-handoff.test.mjs",
-        "tests/today-calendar-state.test.mjs",
         "tests/todo-sort.test.mjs"
       ]
     },
