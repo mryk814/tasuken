@@ -66,13 +66,7 @@ import { AiContextFields, AiContextSummary } from "./aiContext";
 import { ArtifactSection } from "./artifacts";
 import { ConversationPreview } from "./ConversationPreview";
 import { LineagePanel } from "./LineagePanel";
-import {
-  CaptureEntryFields,
-  findSchedule,
-  PlanNodeFields,
-  TaskFields,
-  WaitingFields,
-} from "./drawerEntityFields";
+import { CaptureEntryFields, findSchedule, PlanNodeFields, TaskFields } from "./drawerEntityFields";
 import { MarkdownPreview } from "./MarkdownPreview";
 import {
   DrawerHeader,
@@ -94,7 +88,6 @@ import { ThemeIntentFields } from "./ThemeIntentFields";
 import {
   TASK_STATE_LABELS,
   EXTERNAL_REFERENCE_KIND_LABELS,
-  WAITING_STATE_LABELS,
   PLAN_NODE_TYPE_LABELS,
   PLAN_NODE_STATE_LABELS,
   CAPTURE_ENTRY_STATE_LABELS,
@@ -102,7 +95,6 @@ import {
 import {
   buildSaveTaskOperations,
   buildSaveScheduleOperations,
-  buildSaveWaitingOperations,
   buildSavePlanNodeOperations,
 } from "../domain-model/persistence";
 import { duplicateTask } from "../domain-model/taskDuplication";
@@ -118,7 +110,6 @@ import type {
   Schedule,
   Task,
   WorkReceipt,
-  Waiting,
 } from "../domain-model/types";
 import { normalizeReminderDateTime } from "../lib/reminders";
 import { listTaskSections, normalizeTaskSectionId } from "../lib/taskSections";
@@ -1474,95 +1465,6 @@ export function EntityDrawer({
       </aside>
     );
   }
-  if (type === "waiting") {
-    const waiting = entity as unknown as Waiting;
-    const schedule = findSchedule(data, "waiting", waiting.id, entity._schedule);
-    const themeName =
-      (data.themes || []).find((t) => t.id === waiting.project_id)?.name || "個人業務";
-    return (
-      <aside className="drawer">
-        <DrawerHeader title="待ち詳細" close={close} />
-        <div className="drawer-content">
-          <div className="badge-row">
-            <StatusBadge value={waiting.state} label={WAITING_STATE_LABELS[waiting.state]} />
-          </div>
-          <h2>{waiting.title}</h2>
-          <dl>
-            <dt>相手</dt>
-            <dd>{waiting.waiting_for}</dd>
-            <dt>Theme</dt>
-            <dd>{themeName}</dd>
-            <dt>期限</dt>
-            <dd>{formatDate(schedule?.end_date)}</dd>
-          </dl>
-          {waiting.description && <p>{waiting.description}</p>}
-          <LineagePanel
-            data={data}
-            seed={{ type: "waiting", id: waiting.id }}
-            openDrawer={(next) => close(next)}
-            openContentViewer={openContentViewer}
-          />
-          <AiContextSummary type="waiting" entity={entity} />
-          <div className="drawer-actions">
-            <button
-              className="secondary-button"
-              onClick={() =>
-                close({ type: "waiting", mode: "edit", entity: { ...entity, _schedule: schedule } })
-              }
-            >
-              <IconPencil size={16} />
-              編集する
-            </button>
-            {waiting.state === "waiting" ? (
-              <>
-                <button
-                  className="primary-button"
-                  onClick={async () => {
-                    await saveEntities(
-                      buildSaveWaitingOperations({ ...waiting, state: "received" }),
-                      "受領しました。",
-                    );
-                    close();
-                  }}
-                >
-                  受領する
-                </button>
-                <button
-                  className="secondary-button"
-                  onClick={async () => {
-                    await saveEntities(
-                      buildSaveWaitingOperations({ ...waiting, state: "cancelled" }),
-                      "中止しました。",
-                    );
-                    close();
-                  }}
-                >
-                  中止する
-                </button>
-              </>
-            ) : (
-              <button
-                className="secondary-button"
-                onClick={async () => {
-                  await saveEntities(
-                    buildSaveWaitingOperations({ ...waiting, state: "waiting" }),
-                    "待ちに戻しました。",
-                  );
-                  close();
-                }}
-              >
-                待ちに戻す
-              </button>
-            )}
-            <button className="danger-button" onClick={() => removeEntity("waiting", entity)}>
-              <IconTrash size={16} />
-              削除する
-            </button>
-          </div>
-        </div>
-      </aside>
-    );
-  }
   if (type === "plan_node") {
     const planNode = entity as unknown as PlanNode;
     const schedule = findSchedule(data, "plan_node", planNode.id, entity._schedule);
@@ -1729,7 +1631,6 @@ function EditDrawer({
     resource: "リソース",
     status_update: "現在地",
     task: "タスク",
-    waiting: "待ち",
     plan_node: "計画ノード",
     capture_entry: "キャプチャ",
     sketch: "手書き",
@@ -1909,7 +1810,6 @@ function EditDrawer({
               onChecklistDraftChange={markChecklistDraftChange}
             />
           )}
-          {type === "waiting" && <WaitingFields entity={entity} data={data} />}
           {type === "plan_node" && <PlanNodeFields entity={entity} data={data} />}
           {type === "capture_entry" && <CaptureEntryFields entity={entity} />}
           {type === "sketch" && (

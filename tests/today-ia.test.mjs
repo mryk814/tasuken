@@ -93,13 +93,11 @@ test("Today removes duplicate risk and current-location sections from the main p
   assert.match(todayPageSource, /<h2>今日の候補棚<\/h2>/);
 });
 
-test("Today shows a lightweight waiting list beside nearby milestones", () => {
+// 待ちの一覧は外した。待ちは Task の「待ち」の状態に含め、やることの画面で見る（#755 束7）。
+test("Today shows nearby milestones without a separate waiting list", () => {
   assert.match(todayPageSource, /today-lower-grid/);
   assert.match(todayPageSource, /近いマイルストーン/);
-  assert.match(todayPageSource, /WaitingListRows/);
-  assert.match(todayPageSource, /today-waiting-row/);
-  assert.match(todayPageSource, /openWaitings/);
-  assert.match(todayPageSource, /overdueWaitingCount/);
+  assert.doesNotMatch(todayPageSource, /WaitingListRows|today-waiting-row|openWaitings/);
 });
 
 test("Today and related lists share overdue urgency styling", () => {

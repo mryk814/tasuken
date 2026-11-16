@@ -51,7 +51,6 @@ const ThemePage = lazyNamedPage<PageProps>(() => loadWorkspacePage("theme"), "Th
 const ThemesPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("themes"), "ThemesPage");
 const TimelinePage = lazyNamedPage<PageProps>(() => loadWorkspacePage("timeline"), "TimelinePage");
 const TodoPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("todo"), "TodoPage");
-const WaitingPage = lazyNamedPage<PageProps>(() => loadWorkspacePage("waiting"), "WaitingPage");
 
 export function WorkspacePageRouter({
   route,
@@ -106,9 +105,6 @@ export function WorkspacePageRouter({
       break;
     case "sketch-editor":
       page = <SketchPage {...common} />;
-      break;
-    case "waiting":
-      page = <WaitingPage {...common} />;
       break;
     case "debrief":
       page = <DebriefPage {...common} />;

@@ -17,9 +17,8 @@ import {
   buildSavePlanNodeOperations,
   buildSaveScheduleOperations,
   buildSaveTaskOperations,
-  buildSaveWaitingOperations,
 } from "../domain-model/persistence";
-import type { PlanNode, Schedule, ScheduleOwnerType, Task, Waiting } from "../domain-model/types";
+import type { PlanNode, Schedule, ScheduleOwnerType, Task } from "../domain-model/types";
 import { validateArtifactProposal, validateSafeSvg } from "../../../../../shared/proposalMedia.mjs";
 import { stableProposalEntityId } from "../../../../../shared/proposalAcceptance.mjs";
 import { markdownSignature } from "../../../../../shared/canonicalMarkdown.mjs";
@@ -397,15 +396,22 @@ export function buildCandidateOperations(
       const entityId = str(base.id) || uuid();
       const themeId = candidate.theme?.id || str(base.theme_id) || null;
       if (kind === "waiting") {
-        const waiting: Waiting = {
+        // 待ちは Task の「待ち」の状態に含めた（#755 束7）。待っている相手は説明の後ろに書く
+        // （起動の後に今ある待ちを Task に写す時と同じ形。waitingRetirement.ts）。
+        const description = str(entry.description) || str(base.description);
+        const waitingFor = str(entry.waiting_for);
+        const task: Task = {
           id: entityId,
           project_id: themeId,
           title: str(entry.title) || "無題",
-          description: str(entry.description) || str(base.description) || null,
-          waiting_for: str(entry.waiting_for) || "未設定",
+          description:
+            [description, waitingFor ? `待っている相手: ${waitingFor}` : ""]
+              .filter(Boolean)
+              .join("\n\n") || null,
           state: "waiting",
+          priority: str(entry.priority) === "high" || entry.priority === true ? "high" : "normal",
         };
-        operations.push(...buildSaveWaitingOperations(waiting, { source: "import" }));
+        operations.push(...buildSaveTaskOperations(task, { source: "import" }));
       } else if (kind === "milestone" || kind === "period") {
         const planNode: PlanNode = {
           id: entityId,
@@ -432,11 +438,7 @@ export function buildCandidateOperations(
       const endDate = str(entry.planned_end) || null;
       if (startDate || endDate) {
         const ownerType: ScheduleOwnerType =
-          kind === "waiting"
-            ? "waiting"
-            : kind === "milestone" || kind === "period"
-              ? "plan_node"
-              : "task";
+          kind === "milestone" || kind === "period" ? "plan_node" : "task";
         const schedule: Schedule = {
           id: uuid(),
           owner_type: ownerType,
@@ -1374,7 +1376,7 @@ export function proposalHeadline(proposal: BaseRecord): string {
 
 function proposalTypeLabel(proposal: BaseRecord): string {
   const labels: Record<string, string> = {
-    items: "Task / Waiting",
+    items: "Task",
     notes: "Note",
     links: "Link",
     knowledge_nodes: "Knowledge",

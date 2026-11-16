@@ -10,7 +10,6 @@ const pageLoaders: Record<string, () => Promise<unknown>> = {
   notes: () => import("./pages/NotesPage"),
   sketch: () => import("./pages/SketchLibraryPage"),
   "sketch-editor": () => import("./pages/SketchPage"),
-  waiting: () => import("./pages/WaitingPage"),
   debrief: () => import("./pages/DebriefPage"),
   settings: () => import("./pages/SettingsPage"),
 };

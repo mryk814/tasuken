@@ -32,8 +32,9 @@ export function ThemesPage({
           const doneTasks = v2.tasks.filter(
             (t) => t.project_id === theme.id && t.state === "done",
           ).length;
-          const openWaitings = v2.waitings.filter(
-            (w) => w.project_id === theme.id && w.state === "waiting",
+          // 待ちは Task の「待ち」の状態に含めた（#755 束7）。未完了の数にも入っている。
+          const openWaitings = v2.tasks.filter(
+            (t) => t.project_id === theme.id && t.state === "waiting",
           ).length;
           const openPlanNodes = v2.plan_nodes.filter(
             (p) => p.project_id === theme.id && p.state !== "done" && p.state !== "cancelled",
@@ -47,7 +48,6 @@ export function ThemesPage({
           const latest = (data.status_updates || [])
             .filter((entry) => entry.theme_id === theme.id)
             .sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
-          const childCount = openTasks + openPlanNodes + openWaitings;
           return (
             <article
               className={`panel theme-card ${activeThemeId === theme.id ? "selected" : ""}`}

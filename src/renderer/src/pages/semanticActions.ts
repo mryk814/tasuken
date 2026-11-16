@@ -87,13 +87,6 @@ export const ACTION_DEFINITIONS = {
     role: "primary",
     availability: "always",
   },
-  waitingAdd: {
-    id: "waitingAdd",
-    label: "待ちを追加",
-    icon: IconPlus,
-    role: "primary",
-    availability: "always",
-  },
   notesCreate: {
     id: "notesCreate",
     label: "Noteを追加",

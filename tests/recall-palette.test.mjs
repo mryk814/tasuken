@@ -134,14 +134,15 @@ function fixture() {
   return { data, domain, themes };
 }
 
-test("Recall Paletteは本文・待ち・記録・ChatをWorkspace横断検索する", () => {
+test("Recall Paletteは本文・記録・ChatをWorkspace横断検索する", () => {
   const entries = prepareCommandEntries(buildRecallPaletteEntries(fixture()));
   const cases = [
     ["オリオン濃度", "task:t1"],
     ["シリウス検量線", "task:t1"],
     ["アルデバラン閾値", "plan:p1"],
     ["アウローラ条件", "note:n1"],
-    ["旋光度アルファ", "waiting:w1"],
+    // 待ちは、開く画面を外して Task に写したので候補に出さない（#755 束7）。記録は残っている。
+    ["旋光度アルファ", undefined],
     ["ベテルギウス", "capture:c1"],
     ["疎行列ゼータ", "chat:r1"],
     ["ケフェウス本文", "resource:r2"],
@@ -151,7 +152,7 @@ test("Recall Paletteは本文・待ち・記録・ChatをWorkspace横断検索�
   for (const [query, expected] of cases) {
     assert.deepEqual(
       filterCommandEntries(entries, query).map((entry) => entry.id),
-      [expected],
+      expected ? [expected] : [],
       query,
     );
   }
@@ -174,13 +175,7 @@ test("Recall Paletteは全Theme投影と既存画面へのtargetを返す", () =
     entityType: "note",
     entityId: "n1",
   });
-  assert.deepEqual(byId.get("waiting:w1").target, {
-    kind: "drawer",
-    route: "waiting",
-    entityType: "waiting",
-    entityId: "w1",
-    mode: "edit",
-  });
+  assert.equal(byId.has("waiting:w1"), false);
   assert.deepEqual(byId.get("capture:c1").target, {
     kind: "drawer",
     route: "inbox",

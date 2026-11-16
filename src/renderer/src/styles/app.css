@@ -1387,31 +1387,13 @@ textarea:hover {
 .today-period-grid .today-focus-panel {
   margin-bottom: 0;
 }
+/* 待ちの一覧を外したので、近いマイルストーンだけの 1 列（#755 束7）。 */
 .today-lower-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: var(--space-2);
   margin-bottom: var(--space-2);
-}
-.today-waiting-panel .section-heading h2 {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.today-waiting-overdue-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.25rem;
-  height: 1.25rem;
-  padding: 0 var(--space-1);
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-danger-bd);
-  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-danger-bg));
-  color: var(--color-danger-strong);
-  font: var(--text-xs) var(--font-mono);
-  font-variant-numeric: tabular-nums;
 }
 
 .daily-work-panel,
@@ -2413,91 +2395,6 @@ textarea:hover {
   .agent-handoff-line > div::after {
     display: none;
   }
-}
-.today-waiting-list {
-  display: grid;
-}
-.today-waiting-row {
-  min-height: 40px;
-  display: grid;
-  grid-template-columns: 4px 22px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  padding: var(--space-1) var(--pad-card);
-  border: 0;
-  border-bottom: 1px solid var(--color-border-subtle);
-  border-radius: 0;
-  background: var(--color-surface);
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--duration-fast) var(--ease);
-}
-.today-waiting-row:last-child {
-  border-bottom: 0;
-}
-.today-waiting-row:hover {
-  background: var(--color-surface-muted);
-}
-.today-waiting-row.is-due-today {
-  background: color-mix(in srgb, var(--color-warning-bg) 50%, var(--color-surface));
-}
-.today-waiting-row.is-due-today:hover {
-  background: var(--color-warning-bg);
-}
-.today-waiting-row.is-overdue {
-  background: color-mix(in srgb, var(--color-danger-bg) 50%, var(--color-surface));
-  box-shadow: inset 3px 0 0 var(--color-danger);
-}
-.today-waiting-row.is-overdue:hover {
-  background: var(--color-danger-bg);
-}
-.today-waiting-theme-bar {
-  align-self: stretch;
-  min-height: 24px;
-  border-radius: var(--radius-pill);
-  background: var(--chip-color, var(--color-border-strong));
-}
-.today-waiting-main {
-  min-width: 0;
-  display: grid;
-  gap: 1px;
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.today-waiting-main strong,
-.today-waiting-main span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.today-waiting-main strong {
-  color: var(--color-text);
-  font-size: var(--text-sm);
-}
-.today-waiting-main span {
-  color: var(--color-text-secondary);
-  font-size: var(--text-xs);
-}
-.today-waiting-row time {
-  color: var(--color-text-tertiary);
-  font: var(--text-xs) var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.today-waiting-row time.is-due-today {
-  color: var(--color-warning-strong);
-  font-weight: var(--weight-medium);
-}
-.today-waiting-row time.is-overdue {
-  color: var(--color-danger-strong);
-  font-weight: var(--weight-medium);
 }
 .today-task-list,
 .today-update-list {
@@ -8757,8 +8654,7 @@ kbd {
   font: var(--text-xs) var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
-.todo-table .table-row,
-.waiting-table .table-row {
+.todo-table .table-row {
   content-visibility: auto;
   contain-intrinsic-block-size: auto 38px;
   background: linear-gradient(
@@ -8767,8 +8663,7 @@ kbd {
     var(--color-surface) 46%
   );
 }
-.todo-table .table-row:hover,
-.waiting-table .table-row:hover {
+.todo-table .table-row:hover {
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--chip-color, var(--color-surface)) 16%, var(--color-surface)) 0%,
@@ -8776,8 +8671,7 @@ kbd {
   );
 }
 /* 密な一覧では期限切れが並ぶと面全体が警告色に染まる。行は淡い面に留め、左バーと日付の色で知らせる。 */
-.todo-table .table-row.is-due-today,
-.waiting-table .table-row.is-due-today {
+.todo-table .table-row.is-due-today {
   background: linear-gradient(
     90deg,
     color-mix(
@@ -8789,16 +8683,14 @@ kbd {
     color-mix(in srgb, var(--color-warning-bg) 50%, var(--color-surface)) 42%
   );
 }
-.todo-table .table-row.is-due-today:hover,
-.waiting-table .table-row.is-due-today:hover {
+.todo-table .table-row.is-due-today:hover {
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--chip-color, var(--color-warning-bg)) 16%, var(--color-warning-bg)) 0%,
     var(--color-warning-bg) 42%
   );
 }
-.todo-table .table-row.is-overdue,
-.waiting-table .table-row.is-overdue {
+.todo-table .table-row.is-overdue {
   background: linear-gradient(
     90deg,
     color-mix(
@@ -8811,21 +8703,18 @@ kbd {
   );
   box-shadow: inset 3px 0 0 var(--color-danger);
 }
-.todo-table .table-row.is-overdue:hover,
-.waiting-table .table-row.is-overdue:hover {
+.todo-table .table-row.is-overdue:hover {
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--chip-color, var(--color-danger-bg)) 16%, var(--color-danger-bg)) 0%,
     var(--color-danger-bg) 42%
   );
 }
-.todo-table .table-row .num.is-due-today,
-.waiting-table .table-row .num.is-due-today {
+.todo-table .table-row .num.is-due-today {
   color: var(--color-warning-strong);
   font-weight: var(--weight-medium);
 }
-.todo-table .table-row .num.is-overdue,
-.waiting-table .table-row .num.is-overdue {
+.todo-table .table-row .num.is-overdue {
   color: var(--color-danger-strong);
   font-weight: var(--weight-medium);
 }
@@ -9062,39 +8951,6 @@ kbd {
 }
 .danger-text {
   color: var(--color-danger);
-}
-.waiting-table .table-head,
-.waiting-table .table-row {
-  grid-template-columns: 8px 24px minmax(200px, 1fr) 120px 112px 130px 100px;
-}
-.waiting-table .table-row.is-cancelled {
-  border-left: 3px solid var(--color-danger);
-  background: linear-gradient(90deg, var(--color-danger-bg) 0%, var(--color-surface) 48%);
-}
-.waiting-table .table-row.is-cancelled:hover {
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--color-danger-bg) 78%, var(--color-danger)) 0%,
-    var(--color-surface-muted) 48%
-  );
-}
-.waiting-table .table-row.is-cancelled .todo-theme-bar {
-  background: var(--color-danger);
-}
-.waiting-state-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  min-width: 0;
-}
-.waiting-cancel-button {
-  color: var(--color-danger-strong);
-  background: var(--color-danger-bg);
-  border-color: var(--color-danger-bd);
-}
-.waiting-cancel-button:hover {
-  background: color-mix(in srgb, var(--color-danger-bg) 72%, var(--color-danger));
-  border-color: var(--color-danger);
 }
 .todo-theme-bar {
   width: 7px;
@@ -11570,9 +11426,6 @@ kbd {
     grid-template-columns: repeat(3, 1fr);
   }
   .today-period-grid {
-    grid-template-columns: 1fr;
-  }
-  .today-lower-grid {
     grid-template-columns: 1fr;
   }
   .task-shelf-board {

@@ -7,7 +7,6 @@ import { buildGlance, recordDate } from "../lib/glance";
 import { formatDate, str } from "../lib/format";
 import { compactNotesBodyPreview } from "../lib/notes";
 import { EmptyState, StatusBadge } from "./common";
-import { WAITING_STATE_LABELS } from "../domain-model/labels";
 
 interface ContextPaneProps {
   data: WorkspaceData;
@@ -27,7 +26,7 @@ export function ContextPane({
   navigate,
 }: ContextPaneProps) {
   const isTodayRoute = route === "today";
-  const { today, overdue, waitingRows, recentUpdates, notes, chatResources } = buildGlance({
+  const { today, overdue, recentUpdates, notes, chatResources } = buildGlance({
     data,
     domain: v2,
     activeTheme,
@@ -49,20 +48,12 @@ export function ContextPane({
             </button>
           </div>
           {/* 0件のメトリクスは面を占領しない。中身があるときだけ数える（design-guide §5）。 */}
-          {(overdue.length > 0 || waitingRows.length > 0) && (
+          {!isTodayRoute && overdue.length > 0 && (
             <div className="context-metrics">
-              {!isTodayRoute && overdue.length > 0 && (
-                <button onClick={() => navigate("todo")}>
-                  <span>期限切れ</span>
-                  <strong>{overdue.length}</strong>
-                </button>
-              )}
-              {waitingRows.length > 0 && (
-                <button onClick={() => navigate("waiting")}>
-                  <span>待ち</span>
-                  <strong>{waitingRows.length}</strong>
-                </button>
-              )}
+              <button onClick={() => navigate("todo")}>
+                <span>期限切れ</span>
+                <strong>{overdue.length}</strong>
+              </button>
             </div>
           )}
           {!isTodayRoute &&
@@ -146,38 +137,6 @@ export function ContextPane({
             )}
           </div>
         </section>
-
-        {waitingRows.length > 0 && (
-          <section className="context-section">
-            <div className="context-section-heading">
-              <h2>待ちの手触り</h2>
-              <button className="text-button compact" onClick={() => navigate("waiting")}>
-                一覧
-              </button>
-            </div>
-            {waitingRows.map((w) => (
-              <button
-                className="context-row"
-                key={w.id}
-                onClick={() =>
-                  openDrawer({
-                    type: "waiting",
-                    entity: { ...w, _schedule: schedulesMap.get(`waiting:${w.id}`) } as Record<
-                      string,
-                      unknown
-                    >,
-                  })
-                }
-              >
-                <StatusBadge value={w.state} label={WAITING_STATE_LABELS[w.state]} />
-                <span>
-                  <strong>{w.title}</strong>
-                  <small>{w.next_action || w.description || "次の確認を決める"}</small>
-                </span>
-              </button>
-            ))}
-          </section>
-        )}
 
         <section className="context-section">
           <div className="context-section-heading">

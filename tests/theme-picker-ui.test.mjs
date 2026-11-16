@@ -153,7 +153,6 @@ test("major creation and filter surfaces use the shared picker contract", () => 
   for (const path of [
     "src/renderer/src/features/workspace/pages/TodayPage.tsx",
     "src/renderer/src/features/workspace/pages/TodoPage.tsx",
-    "src/renderer/src/features/workspace/pages/WaitingPage.tsx",
   ]) {
     const source = readFileSync(path, "utf8");
     assert.match(source, /PERSONAL_DEFAULT_THEME_ID/);

@@ -11,7 +11,6 @@ test("RouteDefinition is the only route label/icon/navigation registry", () => {
   const routeIds = [
     "today",
     "todo",
-    "waiting",
     "inbox",
     "timeline",
     "notes",

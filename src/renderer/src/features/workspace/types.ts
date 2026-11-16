@@ -331,7 +331,6 @@ export type DrawerEntityType =
   | "resource"
   | "status_update"
   | "task"
-  | "waiting"
   | "plan_node"
   | "capture_entry"
   | "sketch";

@@ -9,7 +9,6 @@ import type {
   Resource,
   Schedule,
   Task,
-  Waiting,
 } from "./types";
 import { buildActivityEvent } from "../../../../../shared/activityEvent.mjs";
 
@@ -134,26 +133,6 @@ export function buildSaveTaskOperations(task: Task, context: SaveContext = {}): 
       context,
       undefined,
       task,
-    ),
-  ];
-}
-
-export function buildSaveWaitingOperations(
-  waiting: Waiting,
-  context: SaveContext = {},
-): SaveOperation[] {
-  return [
-    saveOperation("waiting", waiting as unknown as Entity, {
-      source: context.source || "manual",
-      reason: context.reason || undefined,
-    }),
-    buildChangeEventOperation(
-      "waiting",
-      waiting.id,
-      waiting.state === "received" ? "completed" : "updated",
-      context,
-      undefined,
-      waiting,
     ),
   ];
 }
@@ -293,14 +272,6 @@ export async function saveTask(
   context?: SaveContext,
 ): Promise<Entity[]> {
   return saveEntities(buildSaveTaskOperations(task, context), "Taskを保存しました。");
-}
-
-export async function saveWaiting(
-  saveEntities: (operations: SaveOperation[], message?: string) => Promise<Entity[]>,
-  waiting: Waiting,
-  context?: SaveContext,
-): Promise<Entity[]> {
-  return saveEntities(buildSaveWaitingOperations(waiting, context), "待ちを保存しました。");
 }
 
 export async function savePlanNode(

@@ -9,7 +9,6 @@ const componentSource = readFileSync(
 const pagePaths = [
   "src/renderer/src/features/workspace/pages/TodayPage.tsx",
   "src/renderer/src/features/workspace/pages/TodoPage.tsx",
-  "src/renderer/src/features/workspace/pages/WaitingPage.tsx",
 ];
 
 test("inline add panel is a shared component", () => {
@@ -17,7 +16,7 @@ test("inline add panel is a shared component", () => {
   assert.match(componentSource, /extraFields/);
 });
 
-test("Today, ToDo, and Waiting use the shared inline add panel", () => {
+test("Today and ToDo use the shared inline add panel", () => {
   for (const path of pagePaths) {
     const source = readFileSync(path, "utf8");
     assert.match(source, /InlineAddPanel/, `${path} should import and render InlineAddPanel`);

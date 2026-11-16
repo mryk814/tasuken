@@ -32,30 +32,15 @@ function task(id, overrides = {}) {
   };
 }
 
-function waiting(id, overrides = {}) {
-  return {
-    id,
-    title: id,
-    waiting_for: "相手",
-    state: "waiting",
-    check_reminder_at: "2026-07-05T08:45",
-    ...overrides,
-  };
-}
-
-test("reminder alerts include due tasks and waitings but skip completed states", () => {
+// 待ちの確認の知らせは外した。待ちの確認の時刻は、待ちを Task に写す時に Task のリマインダーへ
+// 移す（#755 束7）。
+test("reminder alerts include due tasks but skip completed states", () => {
   const alerts = reminders.buildReminderAlerts({
     tasks: [
       task("due-task"),
       task("future-task", { reminder_at: "2026-07-05T10:00" }),
       task("done-task", { state: "done" }),
       task("cancelled-task", { state: "cancelled" }),
-    ],
-    waitings: [
-      waiting("due-waiting"),
-      waiting("future-waiting", { check_reminder_at: "2026-07-05T10:00" }),
-      waiting("received-waiting", { state: "received" }),
-      waiting("cancelled-waiting", { state: "cancelled" }),
     ],
     settings: reminders.DEFAULT_REMINDER_SETTINGS,
     now: "2026-07-05T09:00",
@@ -64,14 +49,13 @@ test("reminder alerts include due tasks and waitings but skip completed states",
 
   assert.deepEqual(
     alerts.map((alert) => alert.id),
-    ["task:due-task", "waiting:due-waiting"],
+    ["task:due-task"],
   );
 });
 
 test("daily operation reminders only include Activity Log and can be switched off", () => {
   const enabled = reminders.buildReminderAlerts({
     tasks: [],
-    waitings: [],
     settings: {
       enabled: true,
       activity_log_time: "17:30",
@@ -87,7 +71,6 @@ test("daily operation reminders only include Activity Log and can be switched of
 
   const disabled = reminders.buildReminderAlerts({
     tasks: [task("due-task")],
-    waitings: [waiting("due-waiting")],
     settings: {
       enabled: false,
       activity_log_time: "17:30",
@@ -137,7 +120,7 @@ test("task reminders stay on tasks; due ones are raised above the page and on ro
   assert.match(todaySource, /<ReminderDueBanner/);
   assert.match(todaySource, /row-reminder-meta\$\{reminderDue \? " is-due" : ""\}/);
   assert.match(drawerSource, /name="reminder_at"/);
-  assert.match(drawerSource, /name="check_reminder_at"/);
+  assert.doesNotMatch(drawerSource, /name="check_reminder_at"/);
 });
 
 test("due reminders are connected to native desktop notifications", () => {
@@ -151,7 +134,7 @@ test("due reminders are connected to native desktop notifications", () => {
   assert.match(mainSource, /createReminderController/);
   assert.match(mainSource, /showNotification/);
   assert.match(mainSource, /options\.repository\.list\("task"\)/);
-  assert.match(mainSource, /options\.repository\.list\("waiting"\)/);
+  assert.doesNotMatch(mainSource, /options\.repository\.list\("waiting"\)/);
   assert.match(mainSource, /new Notification\(/);
   assert.match(mainSource, /notification\.show\(\)/);
   assert.match(mainSource, /notifiedIds/);
@@ -171,12 +154,11 @@ test("due reminders are detected at the minute and shown above the page and on r
       task("future", { reminder_at: "2026-10-06T12:00" }),
       task("done", { reminder_at: "2026-10-06T08:00", state: "done" }),
     ],
-    [{ id: "w", title: "返事待ち", state: "waiting", check_reminder_at: "2026-10-06T10:00" }],
     now,
   );
   assert.deepEqual(
     due.map((alert) => alert.id),
-    ["task:past", "waiting:w"],
+    ["task:past"],
     "完了済みと未来の時刻は出さず、Activity Logの日次通知も混ぜない",
   );
 });

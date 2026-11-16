@@ -1594,9 +1594,6 @@ export function WorkspaceApp() {
       const openTasks = fullDomain.tasks.filter(
         (task) => task.project_id === id && task.state !== "done" && task.state !== "cancelled",
       ).length;
-      const openWaitings = fullDomain.waitings.filter(
-        (waiting) => waiting.project_id === id && waiting.state === "waiting",
-      ).length;
       const openPlanNodes = fullDomain.plan_nodes.filter(
         (node) => node.project_id === id && node.state !== "done" && node.state !== "cancelled",
       ).length;
@@ -1604,7 +1601,7 @@ export function WorkspaceApp() {
       const resourcesCount = fullDomain.resources.filter(
         (resource) => resource.project_id === id,
       ).length;
-      const relatedCount = openTasks + openWaitings + openPlanNodes + notesCount + resourcesCount;
+      const relatedCount = openTasks + openPlanNodes + notesCount + resourcesCount;
       const detail =
         relatedCount > 0
           ? `\n未完了/待ち/メモ/資料など関連する項目が${relatedCount}件あります。`
@@ -2011,17 +2008,15 @@ export function WorkspaceApp() {
     const collection =
       target.entityType === "capture_entry"
         ? fullDomain.capture_entries
-        : target.entityType === "waiting"
-          ? fullDomain.waitings
-          : target.entityType === "resource"
-            ? fullDomain.resources
-            : target.entityType === "note"
-              ? fullDomain.notes
-              : target.entityType === "plan_node"
-                ? fullDomain.plan_nodes
-                : target.entityType === "task"
-                  ? fullDomain.tasks
-                  : [];
+        : target.entityType === "resource"
+          ? fullDomain.resources
+          : target.entityType === "note"
+            ? fullDomain.notes
+            : target.entityType === "plan_node"
+              ? fullDomain.plan_nodes
+              : target.entityType === "task"
+                ? fullDomain.tasks
+                : [];
     const entity = collection.find((entry) => entry.id === target.entityId);
     if (!entity) {
       throw new Error("検索結果を開けませんでした。画面を更新して、もう一度試してください。");
@@ -2029,9 +2024,7 @@ export function WorkspaceApp() {
     location.hash = target.route;
     setRoute(target.route);
     const projection =
-      target.entityType === "task" ||
-      target.entityType === "waiting" ||
-      target.entityType === "plan_node"
+      target.entityType === "task" || target.entityType === "plan_node"
         ? {
             ...entity,
             _schedule: fullDomain.schedules.find(

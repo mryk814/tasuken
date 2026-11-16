@@ -314,7 +314,6 @@ export function ThemePage({
   const themeTasks = v2.tasks.filter((t) => t.project_id === theme.id);
   const taskSections = listTaskSections(data.views || [], theme.id);
   const taskSectionGroups = groupTasksBySection(themeTasks, taskSections, theme.id);
-  const themeWaitings = v2.waitings.filter((w) => w.project_id === theme.id);
   const themePlanNodes = v2.plan_nodes.filter((p) => p.project_id === theme.id);
   const openTasks = themeTasks.filter((t) => t.state !== "done" && t.state !== "cancelled");
   const doneTasks = themeTasks
@@ -325,7 +324,6 @@ export function ThemePage({
       ),
     )
     .slice(0, 7);
-  const activeWaitings = themeWaitings.filter((w) => w.state === "waiting");
   const milestones = themePlanNodes
     .filter((p) => p.type === "milestone" && p.state !== "done" && p.state !== "cancelled")
     .sort((a, b) =>

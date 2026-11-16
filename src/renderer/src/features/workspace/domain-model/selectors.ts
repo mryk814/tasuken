@@ -17,7 +17,6 @@ import type {
   TimelineView,
   TodayEntry,
   TodoView,
-  WaitingView,
 } from "./viewModels";
 
 // 日付境界はローカル日付で揃える（UTC変換で前日へずれるため toISOString は使わない）。
@@ -86,7 +85,6 @@ function todayEntryDate(entry: TodayEntry): string {
       return entry.captureEntry.captured_at;
     case "task":
       return entry.task.today_date || dateValue(entry.schedule);
-    case "waiting":
     case "milestone":
       return dateValue(entry.schedule);
   }
@@ -155,16 +153,6 @@ export function buildTodayTaskShortlist(domain: WorkspaceDomain, date = todayStr
   );
 }
 
-export function buildWaitingView(domain: WorkspaceDomain): WaitingView {
-  const schedules = schedulesByOwner(domain);
-  return {
-    waitings: domain.waitings
-      .filter((waiting) => waiting.state === "waiting")
-      .map((waiting) => ({ waiting, schedule: schedules.get(scheduleKey("waiting", waiting.id)) }))
-      .sort(compareScheduledRows),
-  };
-}
-
 /**
  * 今日やることの進み具合。今日の表示と同じ選び方で、完了済みも数に含める。
  * Androidの「あと◯件」と同じ数え方（取り消し済みは入れない）。
@@ -192,12 +180,6 @@ export function buildTodayView(domain: WorkspaceDomain, date = todayString()): T
   ) as Array<{ task: Task; schedule?: Schedule }>;
   for (const row of taskRows) {
     entries.push({ type: "task", task: row.task, schedule: row.schedule });
-  }
-
-  for (const waiting of domain.waitings) {
-    const schedule = schedules.get(scheduleKey("waiting", waiting.id));
-    if (waiting.state === "waiting" && scheduleHasExplicitDate(schedule, date))
-      entries.push({ type: "waiting", waiting, schedule });
   }
 
   for (const planNode of domain.plan_nodes) {

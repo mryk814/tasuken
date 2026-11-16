@@ -451,7 +451,7 @@ export function Sidebar({
   };
   // 時刻を過ぎたリマインダー。Todayに今日やることの数とは別のベル付きバッジで出す。
   const reminderNow = useReminderNow();
-  const dueReminderCount = dueItemReminders(domain.tasks, domain.waitings, reminderNow).length;
+  const dueReminderCount = dueItemReminders(domain.tasks, reminderNow).length;
   const renderNavButton = (id: string) => {
     const label = routeLabel(id);
     const count = countByRoute[id] || 0;

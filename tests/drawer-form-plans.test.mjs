@@ -264,29 +264,22 @@ test("Conversationから作ったTaskはderived_fromを同じ保存操作列へ�
   });
 });
 
-test("waiting form plan keeps check reminders on waiting records", () => {
-  const result = plan("waiting", [
-    ["title", "回答待ち"],
-    ["waiting_for", "共同研究先"],
-    ["check_reminder_at", "2026-07-29T10:00"],
-  ]);
-
-  assert.equal(result.kind, "operations");
-  const waiting = result.operations.find((operation) => operation.type === "waiting").entity;
-  assert.equal(waiting.check_reminder_at, "2026-07-29T10:00");
-});
-
 test("domain form plans report the field that needs focus", () => {
   assert.deepEqual(plan("task", []), {
     kind: "invalid",
     field: "title",
     message: "タイトルを入力してください。",
   });
-  assert.deepEqual(plan("waiting", [["title", "回答待ち"]]), {
-    kind: "invalid",
-    field: "waiting_for",
-    message: "相手を入力してください。",
-  });
+});
+
+test("待ちの入力は無い（#755 束7。待ちは Task の「待ち」の状態に含めた）", () => {
+  assert.equal(
+    plan("waiting", [
+      ["title", "回答待ち"],
+      ["waiting_for", "共同研究先"],
+    ]),
+    null,
+  );
 });
 
 test("AI共通metadataは欄がある編集では保存され、欄が無い保存では消えない（#294）", () => {
