@@ -88,16 +88,18 @@ test("カード上半分は直前、下半分は直後へ挿入し、末尾は�
   assert.equal(boardDropBeforeId(rows, "c", true), undefined);
 });
 
-test("未採用AI Taskのキーボード移動は完了を飛ばして中止・再開できる", () => {
+// 本人の操作による完了は、AIの担当でも通す（#755 束10a）。未採用のAI Taskも完了へ動かせる。
+test("未採用AI Taskもキーボード移動で完了・中止・再開できる", () => {
   const task = {
     ...boardRow("ai", "waiting").task,
     intended_executor: "ai_agent",
     work_state: "ready_for_agent",
   };
-  assert.equal(boardKeyboardState(task, 1), "cancelled");
-  assert.equal(boardKeyboardState({ ...task, state: "cancelled" }, -1), "waiting");
-  assert.equal(boardKeyboardState({ ...task, work_state: "accepted" }, 1), "done");
+  assert.equal(boardKeyboardState(task, 1), "done");
+  assert.equal(boardKeyboardState({ ...task, state: "done" }, 1), "cancelled");
+  assert.equal(boardKeyboardState({ ...task, state: "done" }, -1), "waiting");
   assert.equal(boardKeyboardState({ ...task, state: "todo" }, -1), undefined);
+  assert.equal(moveBoardTask([{ task }], "ai", "done")[0].state, "done");
 });
 
 test("列の手動順序を優先し、未設定Taskは安定順で後ろに表示する", () => {
@@ -138,11 +140,12 @@ test("列間移動は対象だけの状態を変え、元列のTaskを変更し�
   assert.equal(rows[1].task.state, "todo");
 });
 
-test("未採用AI Taskの完了を拒否し、完了列内の並べ替えは完了日時を保つ", () => {
+// 本人の操作による完了は、AIの担当でも通す（#755 束10a。受け入れの決まりはMainがAIの完了にだけ掛ける）。
+test("作業中のAI Taskも完了列へ動かせ、完了列内の並べ替えは完了日時を保つ", () => {
   const ai = boardRow("ai");
   ai.task.intended_executor = "ai_agent";
-  ai.task.work_state = "working";
-  assert.throws(() => moveBoardTask([ai], "ai", "done"), /報告.*採って/);
+  ai.task.work_state = "in_progress";
+  assert.equal(moveBoardTask([ai], "ai", "done")[0].state, "done");
   const completed = { ...boardRow("done", "done", 0).task, completed_at: "2026-10-07T12:00:00Z" };
   const updates = moveBoardTask(
     [{ task: completed }, boardRow("first", "done", 1)],

@@ -40,6 +40,8 @@ export type {
 export {
   assertHumanAcceptBeforeTaskCompletion,
   assertTaskThemeExists,
+  isHumanTaskOperation,
+  settleTaskCompletion,
   currentTaskWorkState,
   normalizeCanonicalTask,
   normalizeTaskForSave,

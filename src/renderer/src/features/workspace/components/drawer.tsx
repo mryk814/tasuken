@@ -1179,11 +1179,6 @@ export function EntityDrawer({
     const schedule = findSchedule(data, "task", task.id);
     const themeName = (data.themes || []).find((t) => t.id === task.project_id)?.name || "個人業務";
     const completionNote = str((entity as Record<string, unknown>).completion_note);
-    const taskWorkState =
-      task.work_state ||
-      (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
-    const requiresHumanAcceptance =
-      task.intended_executor === "ai_agent" && taskWorkState !== "accepted";
     const learningNotes = (data.notes || [])
       .filter((note) => note.item_id === task.id && note.note_type === "learning")
       .sort((a, b) =>
@@ -1392,12 +1387,9 @@ export function EntityDrawer({
               <IconCopyPlus size={16} />
               複製する
             </button>
+            {/* AIに委任したTaskも本人は完了できる（#755 束10a。Mainが完了を受け入れとして残す）。 */}
             <button
               className="secondary-button"
-              disabled={requiresHumanAcceptance}
-              title={
-                requiresHumanAcceptance ? "AIの報告を人間が確認してから完了できます。" : undefined
-              }
               onClick={async () => {
                 const nextState = task.state === "done" ? "todo" : "done";
                 const message =
@@ -1410,18 +1402,10 @@ export function EntityDrawer({
                 close();
               }}
             >
-              {task.state === "done"
-                ? "未完了に戻す"
-                : requiresHumanAcceptance
-                  ? "確認してから完了"
-                  : "完了にする"}
+              {task.state === "done" ? "未完了に戻す" : "完了にする"}
             </button>
             {task.state !== "done" && (
-              <button
-                className="secondary-button"
-                disabled={requiresHumanAcceptance}
-                onClick={() => addLearningNote(true)}
-              >
+              <button className="secondary-button" onClick={() => addLearningNote(true)}>
                 完了して学びを書く
               </button>
             )}

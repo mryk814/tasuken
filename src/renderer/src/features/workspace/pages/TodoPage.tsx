@@ -459,8 +459,6 @@ export function TodoPage({
     const workState =
       task.work_state ||
       (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
-    const requiresHumanAcceptance =
-      task.intended_executor === "ai_agent" && workState !== "accepted";
     const due = scheduledDate(schedule);
     const completionDate = task.completed_at ? task.completed_at.slice(0, 10) : "";
     const urgency =
@@ -498,8 +496,9 @@ export function TodoPage({
         <button
           className={`todo-check-circle ${done ? "is-done" : ""}${striking ? " is-striking" : ""}`}
           // 線を引いて行を残している間は押せない（繰り返しのTaskを二重に作らない。#738）。
-          disabled={requiresHumanAcceptance || striking}
-          aria-disabled={requiresHumanAcceptance || striking}
+          // AIに委任したTaskも本人は完了できる（#755 束10a。Mainが完了を受け入れとして残す）。
+          disabled={striking}
+          aria-disabled={striking}
           onClick={(event) => {
             event.stopPropagation();
             toggleTask(task);
