@@ -1339,92 +1339,6 @@ textarea:hover {
   background: var(--color-accent-subtle-bg);
   color: var(--color-accent-strong);
 }
-.today-calendar-section {
-  margin-bottom: var(--space-2);
-}
-.today-calendar-section .section-heading h2 {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.today-calendar-meta {
-  color: var(--color-text-tertiary);
-  font-size: var(--text-xs);
-}
-.today-calendar-empty {
-  padding: var(--space-3) var(--pad-card);
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-.today-calendar-empty p {
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
-.today-calendar-error {
-  padding: var(--space-3) var(--pad-card);
-}
-.today-calendar-error p {
-  color: var(--color-danger-strong);
-  font-size: var(--text-sm);
-  margin-bottom: var(--space-2);
-}
-.today-calendar-loading {
-  padding: var(--space-3) var(--pad-card);
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
-/* 取得できていない状態。0件（「今日の予定はありません」）と見た目も分ける。 */
-.today-calendar-unavailable {
-  padding: var(--space-3) var(--pad-card);
-  color: var(--color-text-secondary);
-  font-size: var(--text-sm);
-}
-.today-calendar-list {
-  display: grid;
-}
-.today-calendar-event {
-  display: grid;
-  grid-template-columns: 6rem 1fr auto;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 36px;
-  padding: var(--space-1) var(--pad-card);
-  border-left: 3px solid transparent;
-}
-.today-calendar-event.is-past {
-  opacity: 0.5;
-}
-.today-calendar-event.is-next {
-  border-left-color: var(--color-accent);
-  background: var(--color-accent-subtle-bg);
-}
-.today-calendar-event.is-allday {
-  border-left-color: var(--color-info-bd);
-}
-.today-calendar-time {
-  font: var(--text-sm) var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-}
-.today-calendar-allday {
-  color: var(--color-info-strong);
-  font-weight: var(--weight-medium);
-}
-.today-calendar-title {
-  font-size: var(--text-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.today-calendar-location {
-  color: var(--color-text-tertiary);
-  font-size: var(--text-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .today-focus-panel {
   margin-bottom: var(--space-2);
   overflow: hidden;
@@ -12518,14 +12432,6 @@ kbd {
 }
 .activity-calendar-event.is-selected {
   z-index: 2;
-}
-.activity-calendar-event.is-calendar .activity-calendar-event-button::before {
-  border-style: dashed;
-  background: var(--color-surface-subtle);
-}
-.activity-calendar-event.is-calendar .activity-calendar-event-title {
-  color: var(--color-text-secondary);
-  font-weight: var(--weight-medium);
 }
 .activity-calendar-event-button {
   display: flex;

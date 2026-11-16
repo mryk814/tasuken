@@ -27,12 +27,11 @@ const common = readFileSync("src/renderer/src/features/workspace/components/comm
 const styles = readFileSync("src/renderer/src/styles/app.css", "utf8");
 
 test("Settings uses purpose-based categories and a current-state summary", () => {
-  for (const id of ["general", "appearance", "storage", "integrations", "ai-mcp", "advanced"]) {
+  for (const id of ["general", "appearance", "storage", "ai-mcp", "advanced"]) {
     assert.match(settings, new RegExp(`id: "${id}"`));
   }
   assert.match(settings, /現在の状態/);
   assert.match(settings, /Storage/);
-  assert.match(settings, /Calendar/);
   assert.match(settings, /AI & Context/);
   assert.doesNotMatch(settings, /AI Provider|API key|openai-native/);
   assert.match(settings, /MCP Bridge/);
@@ -41,7 +40,6 @@ test("Settings uses purpose-based categories and a current-state summary", () =>
   assert.match(common, /export function IntegrationStatus/);
   assert.match(common, /IntegrationStatusTone = "normal" \| "neutral"/);
   assert.match(common, /tone === "neutral"[\s\S]*?IconCircle/);
-  assert.match(settings, /label: "未接続", tone: "neutral"/);
   assert.match(settings, /label: "未設定", tone: "neutral"/);
 });
 
@@ -74,10 +72,8 @@ test("Settings deep links normalize to Settings and preserve category history", 
 
 test("Settings keeps integrations together and hides details until requested", () => {
   assert.match(settings, /hidden=\{activeSection !== "storage"\}/);
-  assert.match(settings, /hidden=\{activeSection !== "integrations"\}/);
   assert.match(settings, /hidden=\{activeSection !== "ai-mcp"\}/);
   assert.match(settings, /<details className="settings-detail"/);
-  assert.match(settings, /接続を解除/);
   assert.match(
     settings,
     /<Button variant="secondary" disabled=\{!mcpInfo\} onClick=\{copyMcpConfig\}>\s*接続設定をコピー\s*<\/Button>/,
@@ -162,4 +158,20 @@ test("Settings copies the exact typed MCP client config generated for the runtim
   assert.match(settings, /状態を再確認/);
   assert.match(settings, /Latest Proposal/);
   assert.doesNotMatch(settings, /const mcpSummary[\s\S]{0,300}label: "正常"/);
+});
+
+test("外部カレンダーの接続は、設定・今日・日誌のどこからも呼ばない（#755 束5）", () => {
+  const today = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
+  const activity = readFileSync(
+    "src/renderer/src/features/workspace/components/ActivityLogPanel.tsx",
+    "utf8",
+  );
+  for (const source of [settings, today, activity]) {
+    assert.doesNotMatch(source, /calendar(?:Status|Connect|Disconnect|Events)\(|shared\/calendar/);
+  }
+  assert.doesNotMatch(settings, /"integrations"|カレンダー連携/);
+  assert.doesNotMatch(today, /TodayCalendarSection|today-calendar/);
+  assert.doesNotMatch(activity, /is-calendar|calendar_event/);
+  // 日誌の時刻のカレンダー（Tasken の Activity を時刻に並べる表）は別物なので残る。
+  assert.match(activity, /aria-label="Activity の時刻カレンダー"/);
 });
