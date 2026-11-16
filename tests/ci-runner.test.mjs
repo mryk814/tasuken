@@ -18,6 +18,7 @@ const expectedSteps = [
   ["build", []],
   ["smoke:desktop:focused", []],
   ["smoke:proposal-live:focused", []],
+  ["smoke:activity:focused", []],
 ];
 
 // Execute the real runner in a child process, replacing only its subprocess port.
