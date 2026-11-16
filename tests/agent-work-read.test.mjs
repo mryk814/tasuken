@@ -1015,18 +1015,8 @@ export const ClipboardItem = unavailable;
       },
     },
   );
-  ipc.registerIpc(
-    db,
-    service,
-    unused,
-    unused,
-    unused,
-    unused,
-    unused,
-    unused,
-    unused,
-    unused,
-    (types) => notified.push(types),
+  ipc.registerIpc(db, service, unused, unused, unused, unused, unused, unused, unused, (types) =>
+    notified.push(types),
   );
   const invoke = (name, ...args) => handlers.get(name)({ sender: { id: 1 } }, ...args);
 

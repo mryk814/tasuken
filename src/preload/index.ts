@@ -271,12 +271,6 @@ const api: ResearchDeskApi = {
     mermaidSvg: (request) => ipcRenderer.invoke(IPC.mermaidSvgExport, request),
     mermaidPptx: (request) => ipcRenderer.invoke(IPC.mermaidPptxExport, request),
   },
-  calendar: {
-    getStatus: () => ipcRenderer.invoke(IPC.calendarStatus),
-    connect: (request) => ipcRenderer.invoke(IPC.calendarConnect, request),
-    disconnect: (request) => ipcRenderer.invoke(IPC.calendarDisconnect, request),
-    getEvents: (date) => ipcRenderer.invoke(IPC.calendarEvents, date),
-  },
 };
 
 const { mobileGateway: _mobileGateway, ...legacyResearchDesk } = api;
