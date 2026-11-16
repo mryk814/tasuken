@@ -7,7 +7,7 @@ import type {
 
 export interface ItemQueryWorkspacePersistence {
   list(
-    type: "item" | "task" | "waiting" | "plan_node" | "schedule",
+    type: "item" | "task" | "plan_node" | "schedule",
     includeDeleted?: boolean,
   ): ItemQueryRecord[];
   list(type: "theme", includeDeleted?: boolean): ItemQueryThemeRecord[];
@@ -21,7 +21,6 @@ export class WorkspaceItemQueryReadAdapter implements ItemQueryReadPort {
     return {
       items: this.persistence.list("item", includeArchived),
       tasks: this.persistence.list("task", includeArchived),
-      waitings: this.persistence.list("waiting", includeArchived),
       planNodes: this.persistence.list("plan_node", includeArchived),
       schedules: this.persistence.list("schedule", includeArchived),
       themes: this.persistence.list("theme", true),

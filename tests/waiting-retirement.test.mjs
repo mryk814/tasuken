@@ -440,3 +440,37 @@ test("待ちを 1 つの Markdown にして userData と同期ルートへ書き
   assert.equal(run().state, "done");
   assert.deepEqual(fs.readdirSync(exports).sort(), ["待ち (2).md", "待ち.md"]);
 });
+
+const { createTaskenCore } = await loadModule("src/main/infrastructure/sqlite/public.ts");
+
+test("AI の読み取りは元の待ちを出さず、写した Task を出す。待ちの数は「待ち」の Task から数える", async (t) => {
+  const database = openDatabase(t, tempRoot(t));
+  seed(database);
+  await runWaitingConversionOnce({ repository: database, backup: backupSpy().backup });
+  const core = createTaskenCore(database);
+  const taskId = waitingTaskId("waiting-1");
+
+  const search = core.searchItems.execute({ query: "試料の測定結果", limit: 20 });
+  assert.deepEqual(
+    search.items.map((item) => item.id),
+    [taskId],
+  );
+  const open = core.listOpenItems.execute({ limit: 100 }).items.map((item) => item.id);
+  assert.ok(open.includes(taskId));
+  assert.ok(open.every((id) => !id.startsWith("waiting-")));
+
+  const plan = core.getPlanHealth.execute({ theme_id: "theme-1" });
+  assert.equal(plan.open_waitings, 1);
+  assert.deepEqual(
+    plan.waiting_items.map((item) => item.id),
+    [taskId],
+  );
+
+  const theme = core.getThemeContext.execute({ theme_id: "theme-1" });
+  const openIds = theme.open_items.map((item) => item.id);
+  assert.ok(openIds.includes(taskId));
+  assert.equal(
+    theme.open_items.some((item) => item.entity_type === "waiting"),
+    false,
+  );
+});

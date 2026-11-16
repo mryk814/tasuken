@@ -178,7 +178,9 @@ export class ThemeContextQueryService {
     }
     // Knowledge の節と線は応答に出さない（#755 束8）。図に入れると、節が関係の図の枠（max_nodes・
     // max_edges）を黙って使い、Task と Note が押し出されるので、図を作る前に外す。
-    for (const entityType of ["knowledge_node", "knowledge_edge"] as const)
+    // 待ちも同じ（#755 束7）。待ちは Task に写してあり、写した Task が出る。元の待ちは読むだけで
+    // 残り、状態が変わらないので、出すといつまでも開いた物として Task と二重に見える。
+    for (const entityType of ["knowledge_node", "knowledge_edge", "waiting"] as const)
       visibleWorkspace[collectionKeyForEntityType(entityType)] = [];
     const graph = projectContextGraph(visibleWorkspace);
     const subgraph = getContextSubgraph(

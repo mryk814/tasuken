@@ -96,36 +96,8 @@ function projectItems(snapshot: ItemQuerySnapshot): ItemQueryRecord[] {
       ...pickAiMetadata(task),
     });
   }
-  for (const waiting of snapshot.waitings) {
-    if (waiting.legacy_item_id) migratedLegacyIds.add(String(waiting.legacy_item_id));
-    const schedule = scheduleMap.get(`waiting:${waiting.id}`);
-    projected.push({
-      ...migratedIdentity(waiting),
-      title: waiting.title,
-      kind: "waiting",
-      status:
-        waiting.state === "received"
-          ? "done"
-          : waiting.state === "cancelled"
-            ? "cancelled"
-            : "waiting",
-      priority: "normal",
-      theme_id: waiting.project_id || null,
-      description: waiting.description || "",
-      waiting_for: waiting.waiting_for || "",
-      next_action: waiting.next_action || "",
-      planned_start: schedule?.start_date || null,
-      planned_end: schedule?.end_date || null,
-      due_date: null,
-      source_record_id: waiting.source_record_id,
-      created_at: waiting.created_at,
-      updated_at: waiting.updated_at,
-      deleted_at: waiting.deleted_at,
-      source: waiting.source,
-      locator: locator("waiting", waiting.id),
-      ...pickAiMetadata(waiting),
-    });
-  }
+  // 待ち（waiting）は出さない（#755 束7）。待ちは Task に写してあり、写した Task が出る。元の待ちは
+  // 読むだけで残り、状態が変わらないので、出すといつまでも開いた物として Task と二重に見える。
   for (const node of snapshot.planNodes) {
     if (node.legacy_item_id) migratedLegacyIds.add(String(node.legacy_item_id));
     const schedule = scheduleMap.get(`plan_node:${node.id}`);
