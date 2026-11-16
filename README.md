@@ -104,7 +104,7 @@ Claude Code / Codex / GitHub Copilot CLIの登録方法、依頼文、着手か�
 
 外部AIは最初に`tasken.get_capabilities`を呼ぶと、接続先がどの書き込みを受け付けるかと、使えないtoolの理由をまとめて確認できます。MCP serverは起動時に接続先を確認し、使えない書き込みtoolを一覧に出しません。
 
-MCPの検索・文脈取得toolは読み取り専用です。Task・待ち・計画は`search_items`、Noteは`search_notes`で探します。Noteの要約一覧で本文を含めるには`include_raw_body: true`を指定し、個別本文は`get_note`で取得します。AIが着手してよいTaskかは、Taskに添える`agent_state.runnable`で判断します。作成・編集・Taskの結果報告はProposalとして届き、Taskenで採用するまで正式データは変わりません。AIが自分の1回の作業を要約した記録（AIの作業）は、`report_work`を`task_id`なしで呼ぶと案を通さずにすぐ残ります。本人の記録は作らず変えません。同じ`idempotency_key`や、同じ会話でもう記録した時間までの作業は1件に数えます。本人はいつでも消せ、AIは自分が書いた記録だけを`undo_change`へ記録のIDを渡して取り消せます。ほかの例外は`start_task_work`（人がAI ReadyにしたTaskの開始）と、設定の「AI & Context → ローカルのAIに直接の書き込みを許す」を有効にしたときの`create_task`・`create_note`です。有効にすると、`change_task`で既存Taskの編集・完了・再開・削除・委任も、本人の言葉を根拠に直接行えます（`undo_change`で取り消せます）。`edit_note`でNoteの編集、`decide_proposal`で作業報告とNote案の採否も行えます（採否は本人の言葉が必ず要ります）。どちらもAIの操作として記録します。NASのHTTPでは、配備とクライアントごとに許したときだけ`change_task`・`undo_change`を使えます（`docs/synology-headless-node.md`）。Taskenが起動していないとき、配布版のMCPはTasken.exeの場所を案内します。
+MCPの検索・文脈取得toolは読み取り専用です。Task（状態が「待ち」の物を含む）・計画は`search_items`、Noteは`search_notes`で探します。Noteの要約一覧で本文を含めるには`include_raw_body: true`を指定し、個別本文は`get_note`で取得します。AIが着手してよいTaskかは、Taskに添える`agent_state.runnable`で判断します。作成・編集・Taskの結果報告はProposalとして届き、Taskenで採用するまで正式データは変わりません。AIが自分の1回の作業を要約した記録（AIの作業）は、`report_work`を`task_id`なしで呼ぶと案を通さずにすぐ残ります。本人の記録は作らず変えません。同じ`idempotency_key`や、同じ会話でもう記録した時間までの作業は1件に数えます。本人はいつでも消せ、AIは自分が書いた記録だけを`undo_change`へ記録のIDを渡して取り消せます。ほかの例外は`start_task_work`（人がAI ReadyにしたTaskの開始）と、設定の「AI & Context → ローカルのAIに直接の書き込みを許す」を有効にしたときの`create_task`・`create_note`です。有効にすると、`change_task`で既存Taskの編集・完了・再開・削除・委任も、本人の言葉を根拠に直接行えます（`undo_change`で取り消せます）。`edit_note`でNoteの編集、`decide_proposal`で作業報告とNote案の採否も行えます（採否は本人の言葉が必ず要ります）。どちらもAIの操作として記録します。NASのHTTPでは、配備とクライアントごとに許したときだけ`change_task`・`undo_change`を使えます（`docs/synology-headless-node.md`）。Taskenが起動していないとき、配布版のMCPはTasken.exeの場所を案内します。
 
 Coding Agentは`tasken.get_task_context`へTask IDと現在のworkspace情報を渡すと、Task / assignment / Theme / RepositoryContextと、関係理由付きのNote・Activity・Work Receipt概要をまとめて取得できます。件数と本文長には上限があり、Note全文が必要な場合だけレスポンス内のstable locatorから`tasken.get_note`で取得します。
 
@@ -240,7 +240,8 @@ npm run hooks:copilot:uninstall
 - 今日: テーマの現在地、近いマイルストーン、次のタスク、最近のメモ
 - ToDo: 未完了、Inbox、期限超過、日程未確定の整理
 - Timeline: テーマ横断の長期ガントとマイルストーン一覧
-- Themes / Notes（URL・コメントを含む）/ Waiting
+- Themes / Notes（URL・コメントを含む）
+- 待ちは Task の「待ち」の状態で扱う。待ちの画面と入力、確認の通知は外した（#755）。前の版の待ちは、外した版の起動で 1 件ずつ Task に写る（待っている相手と次にすることは説明の後ろ、確認の時刻はリマインダー、日程は期限）。元の待ちは読むだけで残り、userData と同期ルートの `Exports/retired/waitings/` にも Markdown で書き出す
 - Context / Agent連携: MCP、外部AgentからのProposal差分確認、JSON / YAML / Markdownの書き出し
 - 控えと復元: 起動後に正本データベースと画像・写真の控えを作り、確かめてから世代を入れ替える。設定から控えを選んで戻せる
 - Theme Status / Plan Revision / 情報源管理 / Settings
@@ -252,7 +253,7 @@ npm run hooks:copilot:uninstall
 2. 思いついた内容は左下の `クイック記録` から Inbox に入れます。
 3. `ToDo` の Inbox フィルターで内容を具体化し、期限・Theme・状態を整えます。Excel等の表は `表から追加` でプレビューしてから取り込めます。
 4. `Timeline` で長期予定を調整します。バー移動・リサイズ、依存線、計画進捗と実進捗の差分を示すイナズマ線を利用できます。
-5. 会議・実験・AI壁打ちは `Notes`、成果物は `Links`、外部待ちは `Waiting` に残します。
+5. 会議・実験・AI壁打ちは `Notes`、成果物は `Links` に残します。外部待ちは Task の状態を「待ち」にします。
 6. 週次レビューやAIへの相談時は `AI Import / Export` で範囲と形式を選んでコピーします。
 7. `Settings` の「Advanced」で控えの保存先と最新の控えを確認します。節目では「控えを今すぐ作る」を押します。
 
