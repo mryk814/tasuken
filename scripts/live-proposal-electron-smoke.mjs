@@ -304,26 +304,31 @@ try {
     "Accepted Task needs a positive version for the stale-version journey.",
   );
 
-  // AI Readyの切り替えと依頼文のコピーは #755 束10a で外した。AIへ任せるのは、本人の言葉を根拠にした
-  // 直接の書き込み（change_task）だけ。新しい版は最初の起動でその設定を有効にする。
-  const delegated = await callMcp("tasken.change_task", {
-    task_id: taskId,
-    expected_version: initialTaskVersion,
-    action: "update",
-    changes: { intended_executor: "ai_agent" },
-    said: "このTaskはAIに任せる",
-    caller: "Electron live smoke",
-    source_session: "electron-live-smoke",
-    idempotency_key: "electron-live-delegate-v1",
+  // AI Readyの切り替え・依頼文のコピー・AIへの新しい委任は #755 束10a で外した。AIはTaskを直接の書き込み
+  // （change_task）で動かすので、委任の要求は DELEGATION_RETIRED で断られ、何も保存されない。
+  const delegation = await mcpClient.callTool({
+    name: "tasken.change_task",
+    arguments: {
+      task_id: taskId,
+      expected_version: initialTaskVersion,
+      action: "update",
+      changes: { intended_executor: "ai_agent" },
+      said: "このTaskはAIに任せる",
+      caller: "Electron live smoke",
+      source_session: "electron-live-smoke",
+      idempotency_key: "electron-live-delegate-v1",
+    },
   });
-  assert.equal(delegated.task?.work_state, "ready_for_agent", JSON.stringify(delegated));
-  await captureWorkReport(page, "ai-delegated");
+  assert.equal(delegation.isError, true, JSON.stringify(delegation));
+  assert.match(JSON.stringify(delegation), /DELEGATION_RETIRED/);
   const readyTaskContext = await getTaskContext(taskId);
   const readyTaskVersion = Number(readyTaskContext.task.version);
-  assert.ok(
-    Number.isInteger(readyTaskVersion) && readyTaskVersion > initialTaskVersion,
-    "Delegating a Task must advance the Task version.",
+  assert.equal(
+    readyTaskVersion,
+    initialTaskVersion,
+    "A refused delegation must not save anything.",
   );
+  assert.notEqual(readyTaskContext.assignment.intended_executor, "ai_agent");
 
   const staleWorkArguments = workReceiptArguments({
     taskId,
@@ -417,12 +422,13 @@ try {
     .first()
     .getByText(title, { exact: true })
     .click();
-  await page.getByRole("button", { name: "Taskを完了", exact: true }).click();
+  // 委任していない（本人の担当の）Taskなので、作業履歴の「承認して完了」で本人が完了する（#755 束10a）。
+  await page.getByRole("button", { name: "承認して完了", exact: true }).click();
   await page.getByText("Work Receiptを承認し、Taskを完了しました。", { exact: true }).waitFor();
   const completedTaskContext = await getTaskContext(taskId);
   assert.equal(completedTaskContext.task.state, "done");
   assert.equal(completedTaskContext.assignment.work_state, "accepted");
-  assert.equal(await page.getByRole("button", { name: "Taskを完了", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "承認して完了", exact: true }).count(), 0);
   await page.keyboard.press("Escape");
   const followUp = await callMcp("tasken.report_work", {
     ...workReceiptArguments({
@@ -485,7 +491,7 @@ try {
       conflictGuidance: true,
       acceptedNoteVisible: true,
       taskCreatedViaUi: true,
-      taskMarkedAiReady: true,
+      delegationRefused: true,
       taskWorkImplicitlyStarted: true,
       taskWorkAdoptedWithoutCompletion: true,
       taskWorkExplicitlyCompleted: true,
