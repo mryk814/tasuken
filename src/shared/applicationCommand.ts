@@ -638,6 +638,8 @@ export function parseCommandEnvelope(value: unknown): CommandEnvelope {
         ![
           "task",
           "note",
+          // 待ちの画面と入力は外した（#755 束7）が、前の版が作った案に残る待ちの候補を断ると
+          // 採否が止まるので、受け口は残す。採った待ちは、次の起動で Task に写る（waitingRetirement.ts）。
           "waiting",
           "plan_node",
           "schedule",

@@ -3504,6 +3504,8 @@ export class ApplicationCommandService {
       }
       if (type === "schedule") {
         const schedule = candidateEntity;
+        // 待ちの日程も意図して受ける（#755 束7。前の版の案に残る待ちの候補のため）。採った待ちと
+        // その日程は、次の起動で Task とその期限に写る（waitingRetirement.ts）。
         if (
           schedule.owner_type !== "task" &&
           schedule.owner_type !== "waiting" &&
