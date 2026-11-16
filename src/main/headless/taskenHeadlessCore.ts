@@ -35,8 +35,6 @@ export interface TaskenHeadlessCoreOptions {
    * テキストのFeed投稿・Note案・Task案を受け付ける。
    */
   writeMode?: TaskenHeadlessWriteMode;
-  /** Independent opt-in. Does not expose task.command or enable delegation. */
-  allowAiTaskStart?: boolean;
   /**
    * 既存Taskの直接変更と取り消し（#688）。`create-only`と一緒にだけ使える独立のopt-in。
    * 私用のWorkspaceのNASで、Museなどが本人の言葉を根拠にTaskを直せるようにする。
@@ -60,11 +58,7 @@ export interface TaskenHeadlessCoreOptions {
 }
 
 /** 既存Taskを直接書き換える経路。replicaの取り込みが追いついていないと断る。 */
-const EXISTING_TASK_PATHS = new Set([
-  "/v1/commands/start-ai-task-work",
-  "/v1/commands/change-task",
-  "/v1/commands/undo-change",
-]);
+const EXISTING_TASK_PATHS = new Set(["/v1/commands/change-task", "/v1/commands/undo-change"]);
 
 export type TaskenHeadlessWriteMode = "read-only" | "proposals" | "create-only";
 
@@ -121,7 +115,8 @@ export class TaskenHeadlessCoreError extends Error {
  *
  * 書き込みは既定で公開しない。`writeMode: "proposals"` を明示した場合だけ、
  * テキストの読み物投稿・Note案・Task案・Task作業報告を受け付け、Core自身が許可範囲を強制する。
- * 開始専用の`task.start_work`は別の明示opt-inが必要。`task.command`は公開しない。
+ * `task.command`は公開しない。AI Readyの開始（`task.start_work`）は外した（#755 束10a）。
+ * 前の配備に残る`TASKEN_CORE_AI_TASK_START`は読まない。
  * 既存Taskの直接変更（`task.ai_change`）も、`create-only`に足す別の明示opt-inが必要。
  */
 export async function startTaskenHeadlessCore(
@@ -129,13 +124,6 @@ export async function startTaskenHeadlessCore(
 ): Promise<TaskenHeadlessCoreHandle> {
   const env = options.env || process.env;
   const writeMode = options.writeMode || resolveTaskenHeadlessWriteMode(env.TASKEN_CORE_WRITE_MODE);
-  const allowAiTaskStart = options.allowAiTaskStart ?? env.TASKEN_CORE_AI_TASK_START === "1";
-  if (allowAiTaskStart && writeMode === "read-only") {
-    throw new TaskenHeadlessCoreError(
-      "WRITE_MODE_CONFLICT",
-      "AI開始を許可するにはproposalsまたはcreate-onlyを明示してください。",
-    );
-  }
   const allowAiTaskChange = options.allowAiTaskChange ?? env.TASKEN_CORE_AI_TASK_CHANGE === "1";
   // 直してよいのに作れない配備は作らない（作れないAIが直接変更だけを持つ形を残さない）。
   if (allowAiTaskChange && writeMode !== "create-only") {
@@ -210,9 +198,6 @@ export async function startTaskenHeadlessCore(
             }
           : {}),
         proposalAccess: writeMode !== "read-only" ? "proposals" : "read-only",
-        ...(allowAiTaskStart
-          ? { executeAiTaskStart: (command) => commands.executeAiTaskStart(command, "personal") }
-          : {}),
       },
     );
     if (syncDirectory) {

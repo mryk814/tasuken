@@ -180,7 +180,6 @@ export class TaskenDesktopComposition<
         feedWriter: options.feedWriter,
         routineWriter: options.routineWriter,
         onAgentWorkCommitted: options.onAgentWorkCommitted,
-        executeAiTaskStart: (command) => this.executeAiTaskStart(command),
       },
     );
     const mobileState: MobileGatewayStatePort = {
@@ -193,16 +192,6 @@ export class TaskenDesktopComposition<
       stats: this.coreRuntime.stats,
     });
     this.prepareMcpPackageSmoke(options.mcpPackageSmoke);
-  }
-
-  /**
-   * Desktopの開始もCoreの限定の入口を通す。AI Readyが本人の許可なので設定には依らず、
-   * Themeと依頼者は問わない（仕事のTaskも開始できる）。作業中のTaskは取り直せない。
-   */
-  executeAiTaskStart(command: unknown) {
-    const receipt = this.applicationCommands.executeAiTaskStart(command, "any");
-    this.onCoreCommandCommitted?.(receipt);
-    return receipt;
   }
 
   /**

@@ -5,7 +5,6 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
-import { TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
 
 const charter = {
   schema: "tasken-theme-charter/v1",
@@ -116,22 +115,6 @@ function fakeCoreClient({ ambiguous = false, sessionsPerClient = 1 } = {}) {
         })),
       };
     },
-    async startAiTaskWork(args) {
-      calls.push(["startAiTaskWork", args]);
-      return {
-        ok: true,
-        value: {
-          command_id: args.idempotency_key,
-          name: "StartTaskWork",
-          status: "applied",
-          task: {
-            id: args.task_id,
-            version: args.expected_version + 1,
-            work_state: "in_progress",
-          },
-        },
-      };
-    },
   };
 }
 
@@ -173,79 +156,25 @@ test("removed composite views are no longer listed; Theme/Activity stay bounded 
   });
 });
 
-test("start_task_work directly claims an AI Ready Task without creating a Proposal", async () => {
+// AI Readyの開始と、その一覧・割り当ての読み取りは外した（#755 束10a）。一覧に無く、呼んでもCoreへ届かない。
+test("start_task_work, list_agent_ready_tasks and get_task_assignment are gone and never reach Core", async () => {
   const core = fakeCoreClient();
+  const removed = [
+    "tasken.start_task_work",
+    "tasken.list_agent_ready_tasks",
+    "tasken.get_task_assignment",
+  ];
   await withMcp(core, async (client) => {
-    const listed = await client.listTools();
-    const tool = listed.tools.find((entry) => entry.name === "tasken.start_task_work");
-    assert.ok(tool);
-    assert.equal(tool.annotations?.readOnlyHint, false);
-    assert.equal(tool.annotations?.destructiveHint, false);
-    assert.equal(tool.annotations?.idempotentHint, true);
-
-    const result = await client.callTool({
-      name: "tasken.start_task_work",
-      arguments: {
-        task_id: "task-ready",
-        expected_version: 4,
-        idempotency_key: "start-task-ready",
-        caller: "Codex",
-        source_session: "codex-session-1",
-        started_at: "2026-08-26T10:00:00.000Z",
-        work_attempt_id: "12c9a3df-084a-4314-8a80-de844b512fad",
-      },
-    });
-    assert.equal(result.structuredContent.ok, true);
+    const names = (await client.listTools()).tools.map((entry) => entry.name);
+    for (const name of removed) {
+      assert.equal(names.includes(name), false, name);
+      const result = await client
+        .callTool({ name, arguments: { task_id: "task-ready" } })
+        .catch((error) => ({ isError: true, error }));
+      assert.equal(result.isError, true, name);
+    }
   });
-
-  // 開始はCoreの限定の入口だけを通る。actor・source・command名はCoreが決め、bridgeは渡さない。
-  const call = core.calls.find(([name]) => name === "startAiTaskWork");
-  assert.deepEqual(call, [
-    "startAiTaskWork",
-    {
-      task_id: "task-ready",
-      expected_version: 4,
-      idempotency_key: "start-task-ready",
-      caller: "Codex",
-      started_at: "2026-08-26T10:00:00.000Z",
-      work_attempt_id: "12c9a3df-084a-4314-8a80-de844b512fad",
-      source_session: "codex-session-1",
-    },
-  ]);
-});
-
-test("a refused limited start never retries through the legacy generic command", async () => {
-  const argumentsForStart = {
-    task_id: "task-ready",
-    expected_version: 4,
-    idempotency_key: "refused-limited-start",
-    caller: "Codex",
-    started_at: "2026-10-03T06:00:00.000Z",
-    work_attempt_id: "12c9a3df-084a-4314-8a80-de844b512fad",
-  };
-  for (const rejection of [
-    { ok: false, error: { code: "INVALID_TRANSITION", message: "Not AI Ready" } },
-    { ok: false, error: { code: "CONFLICT", message: "Stale version" } },
-    new TaskenCoreClientError("WRITE_NOT_ALLOWED", "Limited write refused"),
-    new TaskenCoreClientError("UNAUTHORIZED", "Authentication refused"),
-    new TaskenCoreClientError("VALIDATION_FAILED", "Input refused"),
-  ]) {
-    const core = fakeCoreClient();
-    core.startAiTaskWork = async (args) => {
-      core.calls.push(["startAiTaskWork", args]);
-      if (rejection instanceof Error) throw rejection;
-      return rejection;
-    };
-    await withMcp(core, async (client) => {
-      const result = await client.callTool({
-        name: "tasken.start_task_work",
-        arguments: argumentsForStart,
-      });
-      assert.equal(result.isError, true);
-    });
-    assert.equal(core.calls.filter(([name]) => name === "startAiTaskWork").length, 1);
-    assert.equal(core.calls.filter(([name]) => name === "executeTaskCommand").length, 0);
-  }
+  assert.deepEqual(core.calls, []);
 });
 
 test("Theme intent ResourceTemplate is listed and reads a bounded human intent projection", async () => {

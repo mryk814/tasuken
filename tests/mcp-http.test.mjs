@@ -68,8 +68,8 @@ test("HTTP credentials fail closed and reject duplicate, weak, or malformed sett
     assert.throws(() => parseHttpClients(invalid), /MCP_HTTP_CLIENTS_INVALID/);
   }
   assert.equal(parseHttpClients({ a: { token } })[0].readOnly, true);
-  assert.equal(parseHttpClients({ a: { token } })[0].allowStart, false);
-  assert.equal(parseHttpClients({ a: { token, allowStart: true } })[0].allowStart, true);
+  // allowStartは外した開始（#755 束10a）の許可。NASの設定に残っていても起動を断らず、使わない。
+  assert.equal("allowStart" in parseHttpClients({ a: { token, allowStart: true } })[0], false);
   assert.equal(parseHttpClients({ a: { token } })[0].allowTaskChange, false);
   assert.equal(parseHttpClients({ a: { token, allowTaskChange: true } })[0].allowTaskChange, true);
 });
@@ -162,15 +162,16 @@ test("explicit per-client write opt-in is capped by the Core profile and other c
   assert.ok(!names.includes("tasken.start_task_work"));
   assert.ok(!names.includes("tasken.create_task"));
   assert.equal(
-    (await writer.callTool({ name: "tasken.get_capabilities", arguments: {} })).structuredContent
-      .writes.task_start,
+    "task_start" in
+      (await writer.callTool({ name: "tasken.get_capabilities", arguments: {} })).structuredContent
+        .writes,
     false,
   );
 });
 
-// 開始付きのprofile(start-only・proposals-and-start・create-and-start)も書き込みのclientを受ける。
-// 開始そのものはclientごとのallowStartで出し分け、fullだけを今までどおり断る。
-test("start-enabled Core profiles accept writers but only allowStart clients see start_task_work; full is refused", async (t) => {
+// 開始（start_task_work）は外した（#755 束10a）。前の版のCoreが開始のcapabilityを返しても、
+// 設定に残ったallowStartのclientにも出さない。fullとpartialは今までどおり断る。
+test("no client sees start_task_work, even with a leftover allowStart or start capability; full is refused", async (t) => {
   const clients = {
     grokbot: { token },
     writer: { token: otherToken, readOnly: false },
@@ -186,19 +187,21 @@ test("start-enabled Core profiles accept writers but only allowStart clients see
     const starter = await connect(t, url, starterToken);
     const reader = await connect(t, url);
     const names = async (client) => (await client.listTools()).tools.map(({ name }) => name);
-    assert.ok(!(await names(writer)).includes("tasken.start_task_work"));
-    assert.ok((await names(starter)).includes("tasken.start_task_work"));
-    assert.ok(!(await names(reader)).includes("tasken.start_task_work"));
+    for (const client of [writer, starter, reader])
+      assert.ok(!(await names(client)).includes("tasken.start_task_work"));
     assert.ok(
       (await reader.listTools()).tools.every(({ annotations }) => annotations.readOnlyHint),
     );
   }
   // Desktop（full）と、それに似た一部だけの組み合わせ（partial）は、HTTPの書き込みclientを断る。
-  for (const extra of [["propose_agent_session"], ["propose_agent_session", "task.start_work"]]) {
+  for (const capabilities of [
+    [...proposalCapabilities, "propose_agent_session"],
+    ["propose_content", "propose_agent_session"],
+  ]) {
     const { url } = await fixture(t, {
       env: { TASKEN_MCP_READ_ONLY: "0" },
       clients,
-      coreClient: { status: async () => ({ capabilities: [...proposalCapabilities, ...extra] }) },
+      coreClient: { status: async () => ({ capabilities }) },
     });
     for (const credential of [otherToken, starterToken]) {
       const response = await fetch(url, {
@@ -393,7 +396,7 @@ test("GET /api/v1 refuses what /api/v1/<tool> refuses, and takes GET only", asyn
   );
 });
 
-test("/api/v1 hides start_task_work from clients without allowStart", async (t) => {
+test("/api/v1/start_task_work is an unknown tool for every client, even with a leftover allowStart (#755 束10a)", async (t) => {
   const started = [];
   const { url } = await fixture(t, {
     clients: apiClients,
@@ -413,16 +416,12 @@ test("/api/v1 hides start_task_work from clients without allowStart", async (t) 
     started_at: "2026-11-08T00:00:00.000Z",
     work_attempt_id: "5b0c4a40-2c0e-4a5c-9d0e-0d3f6f1d7a11",
   };
-  assert.equal((await api(url, "start_task_work", args, otherToken)).status, 403);
-  assert.equal((await api(url, "start_task_work", args)).status, 403);
+  for (const credential of [token, otherToken, starterToken])
+    assert.equal((await api(url, "start_task_work", args, credential)).status, 404);
   assert.deepEqual(started, []);
-  const starter = await api(url, "start_task_work", args, starterToken);
-  assert.equal(starter.status, 200, JSON.stringify(starter.body));
-  assert.equal(started.length, 1);
-  assert.equal(started[0].caller, "starter");
 });
 
-test("/api/v1/get_capabilities does not claim start for clients without allowStart", async (t) => {
+test("/api/v1/get_capabilities no longer reports start, and a leftover start capability does not change the profile", async (t) => {
   const { url } = await fixture(t, {
     clients: apiClients,
     env: { TASKEN_MCP_READ_ONLY: "0" },
@@ -432,14 +431,12 @@ test("/api/v1/get_capabilities does not claim start for clients without allowSta
       }),
     },
   });
-  const writer = (await api(url, "get_capabilities", {}, otherToken)).body;
-  assert.equal(writer.writes.task_start, false);
-  assert.equal(writer.core.write_profile, "create-only");
-  assert.ok(writer.unavailable_tools.some(({ name }) => name === "tasken.start_task_work"));
-  const starter = (await api(url, "get_capabilities", {}, starterToken)).body;
-  assert.equal(starter.writes.task_start, true);
-  assert.equal(starter.core.write_profile, "create-and-start");
-  assert.ok(!starter.unavailable_tools.some(({ name }) => name === "tasken.start_task_work"));
+  for (const credential of [otherToken, starterToken]) {
+    const body = (await api(url, "get_capabilities", {}, credential)).body;
+    assert.equal("task_start" in body.writes, false);
+    assert.equal(body.core.write_profile, "create-only");
+    assert.ok(!body.unavailable_tools.some(({ name }) => name === "tasken.start_task_work"));
+  }
 });
 
 // 既存Taskの直接変更（#688）も、開始と同じくclientごとの明示だけで出す。

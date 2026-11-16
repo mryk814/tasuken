@@ -4,16 +4,6 @@
   "entries": [
     {
       "rule": "compatibility.consumer_added",
-      "source": "tests/ai-task-start.test.mjs",
-      "target": "workspace-repository",
-      "reason": "#588 start-only headless tests require isolated production SQLite transactions to verify rollback, durable retry, revocation and shared-folder replication. This adds no runtime repository consumer and opens no production data.",
-      "owner": "issue-588-synology-replica",
-      "issue": 588,
-      "expiresAt": "2026-11-30",
-      "removalCondition": "Use the public headless temporary-database fixture factory once available."
-    },
-    {
-      "rule": "compatibility.consumer_added",
       "source": "tests/helpers/mobile-offline-gateway.mjs",
       "target": "workspace-repository",
       "reason": "#537 needs the production SQLite database to verify persisted receipts across Gateway restarts. The isolated test fixture composes Gateway/Core and owns only a temporary database; no runtime consumer is added.",

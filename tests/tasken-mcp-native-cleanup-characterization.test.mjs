@@ -12,8 +12,6 @@ const forbidden =
 const readTools = [
   "tasken.search_items",
   "tasken.list_open_items",
-  "tasken.list_agent_ready_tasks",
-  "tasken.get_task_assignment",
   "tasken.get_task_context",
   "tasken.get_note",
   "tasken.search_notes",
@@ -42,11 +40,10 @@ const proposalTools = [
  */
 const imageTools = [];
 /**
- * Proposalを作らず直接書き込む唯一の例外（人がAI ReadyにしたTaskの開始）。
+ * Proposalを作らず直接書き込むtool（本人の設定と言葉を根拠にする）。AI Readyの開始は #755 束10a で外した。
  * 注釈が `PROPOSAL_ANNOTATIONS` ではないので、proposal群とは分けて検査する。
  */
 const directWriteTools = [
-  "tasken.start_task_work",
   "tasken.change_task",
   "tasken.undo_change",
   "tasken.decide_proposal",

@@ -38,7 +38,6 @@ import {
   proposeTaskWorkResponseSchema,
   proposeRepositoryTaskResponseSchema,
   proposeContentResponseSchema,
-  taskCommandResponseSchema,
   taskQueryResponseSchema,
 } from "../../shared/contracts/task/public.ts";
 import {
@@ -50,7 +49,6 @@ import {
   TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY,
-  TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
   TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_ACTIVITY_ENTRIES_CAPABILITY,
   TASKEN_CORE_GET_THEME_CONTEXT_CAPABILITY,
@@ -77,12 +75,10 @@ import {
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
-  TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
   TASKEN_CORE_RESOLVE_REPOSITORY_CONTEXT_CAPABILITY,
   TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
   TASKEN_CORE_DISCOVERY_FILE,
   TASKEN_CORE_DISCOVERY_SCHEMA_VERSION,
-  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   TASKEN_CORE_TASK_QUERY_CAPABILITY,
   taskenCorePublicError,
 } from "../../shared/contracts/core/public.mjs";
@@ -94,8 +90,6 @@ export const TASKEN_CORE_IMAGE_PROPOSAL_TIMEOUT_MS = 30_000;
 export const TASKEN_MCP_REQUIRED_CORE_CAPABILITIES = Object.freeze([
   TASKEN_CORE_SEARCH_ITEMS_CAPABILITY,
   TASKEN_CORE_LIST_OPEN_ITEMS_CAPABILITY,
-  TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
-  TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY,
   TASKEN_CORE_GET_TASK_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_NOTE_CAPABILITY,
   TASKEN_CORE_GET_CONVERSATION_CAPABILITY,
@@ -123,7 +117,6 @@ export const TASKEN_MCP_REQUIRED_CORE_CAPABILITIES = Object.freeze([
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
-  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
   TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
   TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
@@ -293,14 +286,6 @@ export class TaskenCoreClient {
     this.taskenExecutable = options.taskenExecutable || null;
   }
 
-  async listAgentReadyTasks(request = {}) {
-    return this.query(
-      "list-agent-ready-tasks",
-      TASKEN_CORE_LIST_AGENT_READY_TASKS_CAPABILITY,
-      request,
-    );
-  }
-
   async resolveRepositoryContext(request = {}) {
     return this.query(
       "resolve-repository-context",
@@ -333,10 +318,6 @@ export class TaskenCoreClient {
       request,
       getRepositoryContextResponseSchema,
     );
-  }
-
-  async getTaskAssignment(request = {}) {
-    return this.query("get-task-assignment", TASKEN_CORE_GET_TASK_ASSIGNMENT_CAPABILITY, request);
   }
 
   async getTaskContext(request = {}) {
@@ -639,16 +620,6 @@ export class TaskenCoreClient {
       request,
       taskQueryResponseSchema,
       "task-query",
-    );
-  }
-
-  async startAiTaskWork(request = {}) {
-    return this.request(
-      "/v1/commands/start-ai-task-work",
-      TASKEN_CORE_TASK_START_WORK_CAPABILITY,
-      request,
-      taskCommandResponseSchema,
-      "start-ai-task-work",
     );
   }
 

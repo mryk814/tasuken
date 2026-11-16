@@ -31,9 +31,3 @@ export interface AgentReadyTaskThemeRecord extends Record<string, unknown> {
   id: string;
   name?: unknown;
 }
-
-/** Read-only data needed by the first Tasken Core query slice. */
-export interface AgentReadyTaskReadPort {
-  listTasks(includeArchived: boolean): AgentReadyTaskSourceRecord[];
-  listThemes(): AgentReadyTaskThemeRecord[];
-}

@@ -57,16 +57,7 @@ async function desktop(t, { enabled = true } = {}) {
   });
   const commands = new ApplicationCommandService(db);
   const isEnabled = () => db.readPreference("aiDirectWriteEnabled") === true;
-  const runtime = new TaskenCoreRuntime(
-    dir,
-    db,
-    (command) => commands.execute(command),
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    { executeAiTaskStart: (command) => commands.executeAiTaskStart(command, "any") },
-  );
+  const runtime = new TaskenCoreRuntime(dir, db, (command) => commands.execute(command));
   runtime.enableAiItemCreation(createAiItemCreationPort(commands, workspace), {
     isEnabled,
     scope: "any",
@@ -289,15 +280,13 @@ test("委任して開始すると、作業中は直接いじれない。完了�
   );
   assert.equal(delegated.task.intended_executor, "ai_agent");
   assert.equal(delegated.task.work_state, "ready_for_agent");
-  const started = await core.startAiTaskWork({
-    task_id: task.id,
-    expected_version: delegated.task.version,
-    idempotency_key: "start-delegated",
-    caller: "Claude Code",
-    started_at: new Date().toISOString(),
+  // MCPの開始（start_task_work）は #755 束10a で外した。前の版で開始済みのTaskとして置く。
+  db.save("task", {
+    ...db.get("task", task.id),
+    work_state: "in_progress",
+    work_started_at: new Date().toISOString(),
     work_attempt_id: "2b0f6a63-4f8e-4f5a-9c8b-3f6f4e1d2a10",
   });
-  assert.equal(started.ok, true);
   task = db.get("task", task.id);
   assert.equal(task.work_state, "in_progress");
   await refused(

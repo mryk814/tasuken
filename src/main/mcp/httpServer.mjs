@@ -8,7 +8,6 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 
 import {
   TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
-  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
   coreWriteProfile,
 } from "../../shared/contracts/core/public.mjs";
 import { createTaskenMcpServer } from "./server.mjs";
@@ -179,6 +178,8 @@ export function parseHttpClients(value) {
       !/^[A-Za-z0-9_-]{43}$/.test(client.token) ||
       Buffer.from(client.token, "base64url").toString("base64url") !== client.token ||
       (client.readOnly !== undefined && typeof client.readOnly !== "boolean") ||
+      // allowStartは外した開始（start_task_work。#755 束10a）の許可。NASの設定に残っていても
+      // 起動を断らないよう、名前と型だけ受けて使わない。
       (client.allowStart !== undefined && typeof client.allowStart !== "boolean") ||
       (client.allowTaskChange !== undefined && typeof client.allowTaskChange !== "boolean") ||
       tokens.has(client.token)
@@ -196,8 +197,6 @@ export function parseHttpClients(value) {
       name,
       tokenHash: digest(client.token),
       readOnly: client.readOnly !== false,
-      // 開始は既存Taskの直接の書き換えなので、clientごとに明示したときだけ出す。
-      allowStart: client.allowStart === true,
       // 既存Taskの直接変更と取り消し（#688）も、clientごとに明示したときだけ出す。
       allowTaskChange: client.allowTaskChange === true,
       toolsets,
@@ -329,31 +328,23 @@ export async function startTaskenMcpHttpServer(options = {}) {
     try {
       const readOnly = globalReadOnly || client.readOnly;
       const core = await coreClient.status();
-      // 開始(start_work)はallowStartの、直接変更(task.ai_change)はallowTaskChangeのclientにだけ見せる。
+      // 直接変更(task.ai_change)はallowTaskChangeのclientにだけ見せる。
       // 外したcapabilityで作るので、そのclientから見たprofileからも外れ、toolは一覧から外れる。
-      const withheldCapabilities = [
-        ...(client.allowStart && !readOnly ? [] : [TASKEN_CORE_TASK_START_WORK_CAPABILITY]),
-        ...(client.allowTaskChange && !readOnly ? [] : [TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY]),
-      ];
+      const withheldCapabilities =
+        client.allowTaskChange && !readOnly ? [] : [TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY];
       const capabilities = Array.isArray(core.capabilities)
         ? core.capabilities.filter((value) => !withheldCapabilities.includes(value))
         : core.capabilities;
       // Never fall back to registering all writes if Core is unavailable or has
       // a desktop/full grant. HTTP writes are restricted to NAS profiles (full,
-      // partial and unknown profiles are refused; start variants are accepted
-      // because start itself is gated per client above). The direct Task change
-      // does not change the profile name and is gated per client above as well.
+      // partial and unknown profiles are refused). The direct Task change
+      // does not change the profile name and is gated per client above.
       if (
         !Array.isArray(capabilities) ||
         (!readOnly &&
-          ![
-            "read-only",
-            "proposals",
-            "create-only",
-            "start-only",
-            "proposals-and-start",
-            "create-and-start",
-          ].includes(coreWriteProfile(capabilities).profile))
+          !["read-only", "proposals", "create-only"].includes(
+            coreWriteProfile(capabilities).profile,
+          ))
       ) {
         return reply(503, { error: "core_profile_not_allowed" });
       }

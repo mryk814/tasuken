@@ -46,16 +46,9 @@ const { ApplicationCommandService } = await importBundled(
   "src/main/services/applicationCommandService.ts",
 );
 const { TaskenCoreHost } = await importBundled("src/main/infrastructure/http/taskenCoreHost.ts");
-const { createAiTaskStartProvider } = await importBundled(
-  "src/main/composition/taskenCoreRuntime.ts",
-);
 const { createTaskenCore } = await importBundled("src/main/infrastructure/sqlite/public.ts");
-const { TaskenDesktopComposition } = await importBundled(
-  "src/main/composition/taskenDesktopComposition.ts",
-);
 
 const FIXED_AT = "2026-08-09T04:00:00.000Z";
-const FIXED_WORK_ATTEMPT_ID = "8b543370-0717-4c96-93e8-e76e99f24d02";
 const TASK_ID = "task /?#%+@ 日本語🚀";
 const THEME_ID = "theme-ai-collaboration-e2e";
 const NOTE_ID = "note-ai-collaboration-e2e";
@@ -249,14 +242,13 @@ function decideProposal(
   return service.execute(proposalDecisionCommand(database, proposal, decision, commandId));
 }
 
-function receiptArguments(provider, expectedVersion, idempotencyKey, summary, workAttemptId) {
+function receiptArguments(provider, expectedVersion, idempotencyKey, summary) {
   return {
     task_id: TASK_ID,
     expected_version: expectedVersion,
     idempotency_key: idempotencyKey,
     caller: "Fixture agent",
     source_session: "fixture-session",
-    ...(workAttemptId ? { work_attempt_id: workAttemptId } : {}),
     source_app: "fixture-provider-adapter",
     repository_context: REPOSITORY_CONTEXT,
     executor_kind: "ai_agent",
@@ -378,38 +370,19 @@ function withoutRuntimeProvenance(contract) {
   };
 }
 
-async function runProviderScenario(provider, explicitStart = false) {
+// AI Readyの一覧と開始（start_task_work）は #755 束10a で外した。残るのは、委任済みのTaskへ
+// task_id付きのreport_workを送り、本人が採用する経路（束10bで扱う）。
+async function runProviderScenario(provider) {
   const fixture = createLegacyFixture();
-  const notifiedTasks = new Map();
-  const composition = explicitStart
-    ? new TaskenDesktopComposition({
-        userDataPath: fixture.root,
-        persistence: fixture.database,
-        onCoreCommandCommitted: (receipt) => {
-          for (const change of receipt.changes) {
-            if (change.type === "task") notifiedTasks.set(change.entity.id, change.entity);
-          }
-        },
-      })
-    : null;
-  // Desktopと同じく、開始はCoreの限定の入口（Themeと依頼者を問わない`any`）を通す。
-  const executeAiTaskStart = (envelope) =>
-    composition
-      ? composition.executeAiTaskStart(envelope)
-      : fixture.service.executeAiTaskStart(envelope, "any");
   let host = new TaskenCoreHost({
     userDataPath: fixture.root,
     ...createTaskenCore(fixture.database),
-    startAiTaskWork: createAiTaskStartProvider(fixture.database, executeAiTaskStart),
   });
   await host.start();
   assertDiscoveryOwnerOnly(fixture.root);
   let client = await connectMcp(fixture.dbPath, path.join(fixture.root, "mcp-inbox"), fixture.root);
   try {
-    const assigned = fixture.database.get("task", TASK_ID);
     const beforeRead = durableSnapshot(fixture.database);
-    const ready = await callTaskWork(client, "tasken.list_agent_ready_tasks", {});
-    assert.ok(ready.tasks.some((task) => task.id === TASK_ID));
     const context = await callTaskWork(client, "tasken.get_task_context", {
       task_id: TASK_ID,
       workspace: {
@@ -427,55 +400,16 @@ async function runProviderScenario(provider, explicitStart = false) {
     assert.equal(
       durableSnapshot(fixture.database),
       beforeRead,
-      "listing and context must not start work",
+      "reading context must not start work",
     );
 
-    let progressVersion = context.task.version;
-    const workAttemptId = explicitStart ? FIXED_WORK_ATTEMPT_ID : undefined;
-    if (explicitStart) {
-      const startArguments = {
-        task_id: TASK_ID,
-        expected_version: progressVersion,
-        idempotency_key: "fixture-explicit-start",
-        caller: "Fixture agent",
-        source_session: "fixture-session",
-        started_at: FIXED_AT,
-        work_attempt_id: workAttemptId,
-      };
-      const started = await callTaskWork(client, "tasken.start_task_work", startArguments);
-      assert.equal(started.ok, true, JSON.stringify(started));
-      assert.equal(started.value.task.work_state, "in_progress");
-      assert.equal(started.value.task.work_attempt_id, workAttemptId);
-      progressVersion = started.value.task.version;
-      assert.ok(progressVersion > assigned.version);
-      assert.equal(fixture.database.get("task", TASK_ID).version, progressVersion);
-      assert.equal(
-        notifiedTasks.get(TASK_ID)?.version,
-        progressVersion,
-        "Desktop must notify the same committed version before an AI proposal arrives",
-      );
-      assert.equal(notifiedTasks.get(TASK_ID)?.work_state, "in_progress");
-      assert.equal(fixture.database.list("ai_proposal").length, 0);
-      const afterStart = durableSnapshot(fixture.database);
-      await callTaskWork(client, "tasken.start_task_work", startArguments);
-      assert.equal(
-        durableSnapshot(fixture.database),
-        afterStart,
-        "start retry must not duplicate writes",
-      );
-      const remaining = await callTaskWork(client, "tasken.list_agent_ready_tasks", {});
-      assert.equal(
-        remaining.tasks.some((task) => task.id === TASK_ID),
-        false,
-      );
-    }
+    const progressVersion = context.task.version;
 
     const progressArguments = receiptArguments(
       provider,
       progressVersion,
       "fixture-progress-1",
       "Interim receipt remains in progress.",
-      workAttemptId,
     );
     const queuedProgress = await callTaskWork(client, "tasken.report_work", {
       ...progressArguments,
@@ -525,23 +459,15 @@ async function runProviderScenario(provider, explicitStart = false) {
           event.command_id === `${progressProposal.id}:accept:work:start` &&
           event.metadata?.work_action === "started",
       );
-    if (explicitStart) {
-      assert.equal(
-        implicitStartEvent,
-        undefined,
-        "receipt adoption must not start an active Task again",
-      );
-    } else {
-      assert.ok(
-        implicitStartEvent,
-        `implicit start event missing: ${JSON.stringify(
-          fixture.database
-            .list("change_event")
-            .filter((event) => event.command_id.startsWith(`${progressProposal.id}:accept:work`)),
-        )}`,
-      );
-      assert.deepEqual(implicitStartEvent.metadata.repository_context, REPOSITORY_CONTEXT);
-    }
+    assert.ok(
+      implicitStartEvent,
+      `implicit start event missing: ${JSON.stringify(
+        fixture.database
+          .list("change_event")
+          .filter((event) => event.command_id.startsWith(`${progressProposal.id}:accept:work`)),
+      )}`,
+    );
+    assert.deepEqual(implicitStartEvent.metadata.repository_context, REPOSITORY_CONTEXT);
     assert.equal(
       fixture.database
         .list("ai_proposal")
@@ -554,7 +480,6 @@ async function runProviderScenario(provider, explicitStart = false) {
       fixture.database.get("task", TASK_ID).version,
       "fixture-done-rejected",
       "This report is rejected by the human reviewer.",
-      workAttemptId,
     );
     const queuedRejected = await callTaskWork(client, "tasken.report_work", {
       ...rejectedDoneArguments,
@@ -576,7 +501,6 @@ async function runProviderScenario(provider, explicitStart = false) {
       fixture.database.get("task", TASK_ID).version,
       "fixture-done-accepted",
       "Implementation is ready for human review.",
-      workAttemptId,
     );
     const beforeChecklist = fixture.database.get("task", TASK_ID);
     const checklistTask = fixture.database.save("task", {
@@ -742,8 +666,4 @@ test("legacy SQLite + actual stdio MCPでAI協働をhuman completionまで原子
       { ...provider, report_kind: "progress" },
     ]),
   );
-});
-
-test("AI Ready discovery + explicit MCP start uses the returned version through human adoption and restart", async () => {
-  await runProviderScenario(FAKE_PROVIDERS[0], true);
 });

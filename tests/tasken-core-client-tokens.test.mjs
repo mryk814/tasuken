@@ -51,10 +51,9 @@ async function withHost(t, run) {
   });
   const host = new TaskenCoreHost({
     userDataPath,
-    listAgentReadyTasks: record("list_agent_ready_tasks", () => ({ tasks: [] })),
     searchItems: record("search_items", () => ({ items: [{ id: "fictional-task" }] })),
     getRecentNotes: record("get_recent_notes", () => ({ notes: [{ id: "fictional-note" }] })),
-    startAiTaskWork: record("start_ai_task_work", () => ({ ok: true })),
+    changeTask: record("change_task", () => ({ ok: true })),
     listProposals: record("list_proposals", () => ({ proposals: [] })),
     proposeContent: record("propose_content", () => ({ proposal_id: "fictional" })),
   });
@@ -86,7 +85,7 @@ test("a read-only client token reaches only read query routes", async (t) => {
 
     for (const route of [
       "/v1/commands/propose-content",
-      "/v1/commands/start-ai-task-work",
+      "/v1/commands/change-task",
       "/v1/queries/list-proposals",
     ]) {
       const denied = await call(token, route, {});

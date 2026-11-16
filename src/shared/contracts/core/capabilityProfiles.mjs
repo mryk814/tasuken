@@ -7,7 +7,6 @@ import {
   TASKEN_CORE_PROPOSE_REPOSITORY_TASK_CAPABILITY,
   TASKEN_CORE_PROPOSE_TASK_WORK_CAPABILITY,
   TASKEN_CORE_RECORD_AGENT_WORK_CAPABILITY,
-  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
 } from "./protocol.mjs";
 
 /** テキストの提案（Feed投稿・Note案・Task案・Task作業報告）。NAS replicaの`proposals`配備はこれだけを公開する。 */
@@ -18,13 +17,12 @@ const PROPOSAL_CAPABILITIES = Object.freeze([
 ]);
 
 /**
- * Desktop（`full`）が必ず公開する書き込み。Agent Sessionの提案とAI Ready Taskの開始は`full`だけが持つ。
+ * Desktop（`full`）が必ず公開する書き込み。Agent Sessionの提案は`full`だけが持つ。
  * 足りない分は`partial`の`missingWrites`として報告する。
  */
 const FULL_CAPABILITIES = Object.freeze([
   ...PROPOSAL_CAPABILITIES,
   TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY,
-  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
 ]);
 
 /**
@@ -43,7 +41,7 @@ export const TASKEN_CORE_WRITE_CAPABILITIES = Object.freeze([
 ]);
 
 /**
- * @typedef {"full" | "proposals" | "read-only" | "partial" | "create-only" | "start-only" | "proposals-and-start" | "create-and-start"} CoreWriteProfile
+ * @typedef {"full" | "proposals" | "read-only" | "partial" | "create-only"} CoreWriteProfile
  * @typedef {{ profile: CoreWriteProfile, missingWrites: string[] }} CoreWriteProfileResult
  */
 
@@ -61,7 +59,6 @@ export function coreWriteProfile(capabilities) {
   const proposals = PROPOSAL_CAPABILITIES.every(has);
   const anyProposal = PROPOSAL_CAPABILITIES.some(has);
   const agentSession = has(TASKEN_CORE_PROPOSE_AGENT_SESSION_CAPABILITY);
-  const start = has(TASKEN_CORE_TASK_START_WORK_CAPABILITY);
   const create = has(TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY);
   /** @param {CoreWriteProfile} profile */
   const result = (profile) => ({ profile, missingWrites });
@@ -70,9 +67,9 @@ export function coreWriteProfile(capabilities) {
   if (has(TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY)) return result("partial");
   // 既存Taskの直接変更は、新規作成を許した配備（NASのcreate-only）にだけ足せる。
   if (has(TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY) && !create) return result("partial");
-  if (!anyProposal && !agentSession && !create) return result(start ? "start-only" : "read-only");
+  if (!anyProposal && !agentSession && !create) return result("read-only");
   // Agent Sessionの提案は`full`だけが公開する。一部だけ揃っていれば更新・設定の食い違い。
   if (!proposals || agentSession) return result("partial");
-  if (create) return result(start ? "create-and-start" : "create-only");
-  return result(start ? "proposals-and-start" : "proposals");
+  if (create) return result("create-only");
+  return result("proposals");
 }

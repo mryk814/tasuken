@@ -77,16 +77,8 @@ async function createWorkspace() {
   database.save("theme", { id: THEME_ID, name: "往復の確認" });
   database.setPreference("artifactDirectory", path.join(root, "Canonical"));
   const application = new ApplicationCommandService(database);
-  // Desktopと同じく、開始はCoreの限定の入口（Themeと依頼者を問わない`any`）を通す。
-  const runtime = new TaskenCoreRuntime(
-    root,
-    database,
-    (envelope) => application.execute(envelope),
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    { executeAiTaskStart: (envelope) => application.executeAiTaskStart(envelope, "any") },
+  const runtime = new TaskenCoreRuntime(root, database, (envelope) =>
+    application.execute(envelope),
   );
   return { root, dbPath, database, application, runtime };
 }
@@ -181,18 +173,22 @@ test("Task一件をDesktop・MCPで往復させ、同じTask IDのまま完了�
     assert.equal(database.get("task", TASK_ID).handoff_expected_result, "測定条件の比較表");
     assert.equal(database.get("task", TASK_ID).handoff_instruction, "25℃と40℃を比べる");
 
-    // 2. agentがMCPで作業を開始する。Task IDは同じ。
-    const startVersion = database.get("task", TASK_ID).version;
-    const started = await callTool(client, "tasken.start_task_work", {
-      task_id: TASK_ID,
-      expected_version: startVersion,
-      idempotency_key: "roundtrip-start",
-      caller: "Codex",
-      source_session: "roundtrip-session",
-      work_attempt_id: ATTEMPT_ID,
-      started_at: AT,
-    });
-    assert.equal(started.ok, true, JSON.stringify(started));
+    // 2. 作業が始まっている。MCPの開始の入口（start_task_work）は #755 束10a で外したので、
+    // 前の版で開始済みのTaskを、残っている受け口（StartTaskWork。束10bで扱う）で作る。Task IDは同じ。
+    application.execute(
+      command(
+        "StartTaskWork",
+        {
+          taskId: TASK_ID,
+          executorKind: "ai_agent",
+          executorIdentity: "Codex",
+          startedAt: AT,
+          workAttemptId: ATTEMPT_ID,
+        },
+        "roundtrip-start",
+        taskVersion(database),
+      ),
+    );
     assert.equal(database.get("task", TASK_ID).work_state, "in_progress");
     assert.equal(database.get("task", TASK_ID).work_attempt_id, ATTEMPT_ID);
 

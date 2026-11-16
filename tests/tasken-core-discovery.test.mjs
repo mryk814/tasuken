@@ -27,7 +27,7 @@ async function withHost(t, run) {
   const discoveryPath = path.join(userDataPath, "tasken-core.json");
   const host = new TaskenCoreHost({
     userDataPath,
-    listAgentReadyTasks: { execute: () => ({ tasks: [] }) },
+    searchItems: { execute: () => ({ items: [] }) },
   });
   try {
     await run({ host, userDataPath, discoveryPath });

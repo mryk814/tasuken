@@ -4250,11 +4250,8 @@ test("Phase 4A production Runtime shares one Task service across Desktop, Core H
       (error) => error?.code === "CORE_UNAVAILABLE",
     );
     const mcpServer = readFileSync("src/main/mcp/server.mjs", "utf8");
-    // 開始は開始専用の入口だけを通り、拒否を広い権限へfallbackしない。
-    assert.match(
-      mcpServer,
-      /const startTaskWork = async \(args\) => \{[\s\S]{0,200}coreClient\.startAiTaskWork/,
-    );
+    // AI Readyの開始（start_task_work）は #755 束10a で外した。汎用のTask変更もMCPに出さない。
+    assert.doesNotMatch(mcpServer, /coreClient\.startAiTaskWork|"tasken\.start_task_work"/);
     assert.doesNotMatch(mcpServer, /coreClient\.executeTaskCommand/);
     assert.doesNotMatch(
       mcpServer,

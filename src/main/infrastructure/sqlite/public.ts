@@ -7,7 +7,6 @@ import {
   ContentDetailQueryService,
   FeedContextQueryService,
   ItemQueryService,
-  ListAgentReadyTasksService,
   KnowledgeQueryService,
   ProposeTaskWorkService,
   ProposeAgentSessionService,
@@ -28,10 +27,7 @@ import {
   WorkspaceProposalStatusReadAdapter,
   type ProposalStatusWorkspacePersistence,
 } from "./workspaceProposalStatusReadAdapter.ts";
-import {
-  WorkspaceAgentReadyTaskReadAdapter,
-  type AgentReadyTaskWorkspacePersistence,
-} from "./workspaceAgentReadyTaskReadAdapter.ts";
+import { type AgentReadyTaskWorkspacePersistence } from "./workspaceAgentReadyTaskReadAdapter.ts";
 import {
   WorkspaceAgentWorkspaceReadAdapter,
   type AgentWorkspacePersistence,
@@ -69,7 +65,7 @@ import {
   type FeedContextWorkspacePersistence,
 } from "./workspaceFeedContextReadAdapter.ts";
 
-export { WorkspaceAgentReadyTaskReadAdapter, type AgentReadyTaskWorkspacePersistence };
+export { type AgentReadyTaskWorkspacePersistence };
 export { WorkspaceAgentWorkspaceReadAdapter, type AgentWorkspacePersistence };
 export { WorkspaceTaskContextReadAdapter, type TaskContextWorkspacePersistence };
 export { WorkspaceItemQueryReadAdapter, type ItemQueryWorkspacePersistence };
@@ -153,9 +149,6 @@ export function createTaskenCore(
     }),
   );
   return {
-    listAgentReadyTasks: new ListAgentReadyTasksService(
-      new WorkspaceAgentReadyTaskReadAdapter(persistence),
-    ),
     resolveRepositoryContext: {
       execute: agentWorkspace.resolveRepositoryContext.bind(agentWorkspace),
     },
@@ -165,7 +158,6 @@ export function createTaskenCore(
     },
     getRepositoryContext: { execute: agentWorkspace.getRepositoryContext.bind(agentWorkspace) },
     getAgentSessionContext: { execute: agentWorkspace.getAgentSessionContext.bind(agentWorkspace) },
-    getTaskAssignment: { execute: agentWorkspace.getTaskAssignment.bind(agentWorkspace) },
     getTaskContext: new TaskContextQueryService(new WorkspaceTaskContextReadAdapter(persistence)),
     searchItems: { execute: itemQueries.searchItems.bind(itemQueries) },
     listOpenItems: { execute: itemQueries.listOpenItems.bind(itemQueries) },

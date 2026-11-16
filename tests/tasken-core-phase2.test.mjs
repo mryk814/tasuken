@@ -11,7 +11,6 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { build } from "esbuild";
 
-import { ReadOnlyTaskenContext } from "./fixtures/legacyReadOnlyContext.mjs";
 import { createTaskenMcpServer } from "../src/main/mcp/server.mjs";
 import { TaskenCoreClient, TaskenCoreClientError } from "../src/main/mcp/taskenCoreClient.mjs";
 
@@ -19,7 +18,6 @@ const bundled = await build({
   stdin: {
     contents: `
       export { TaskenCoreHost } from "./src/main/infrastructure/http/taskenCoreHost.ts";
-      export { createTaskenCore } from "./src/main/infrastructure/sqlite/public.ts";
     `,
     resolveDir: process.cwd(),
   },
@@ -29,58 +27,26 @@ const bundled = await build({
   write: false,
   logLevel: "silent",
 });
-const { TaskenCoreHost, createTaskenCore } = await import(
+const { TaskenCoreHost } = await import(
   `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`
 );
 
-const now = "2026-08-20T00:00:00.000Z";
-
-function task(id, overrides = {}) {
-  return {
-    id,
-    title: id,
-    project_id: "theme-visible",
-    intended_executor: "ai_agent",
-    state: "todo",
-    updated_at: now,
-    ...overrides,
-  };
-}
-
-function fixture() {
-  return {
-    themes: [
-      {
-        id: "theme-visible",
-        name: "Visible",
-        updated_at: now,
-      },
-      { id: "theme-hidden", name: "Hidden", updated_at: now },
-    ],
-    tasks: [
-      task("ready-new", { updated_at: "2026-08-20T03:00:00.000Z", legacy_extension: "retained" }),
-      task("ready-old", { work_state: "ready_for_agent", updated_at: "2026-08-20T02:00:00.000Z" }),
-      task("working", { work_state: "in_progress" }),
-      task("hidden", { project_id: "theme-hidden" }),
-    ],
-  };
-}
-
-class FixtureRepository {
-  constructor(workspace) {
-    this.workspace = workspace;
-  }
-
-  list(type, includeDeleted = false) {
-    const records = type === "task" ? this.workspace.tasks : this.workspace.themes;
-    return records.filter((record) => includeDeleted || !record.deleted_at);
-  }
-
-  readPreference(key) {
-    // 端末の既定の公開範囲（aiVisibilityDefault）は廃止した。Core は端末の設定を読まない（#755）。
-    throw new Error(`unexpected preference read: ${key}`);
-  }
-}
+// Coreの境界（discovery・認証・body・timeout・停止）を確かめるための、1つだけの読み取りの口。
+// 以前はlist_agent_ready_tasksを使っていたが、#755 束10aで外したので、list_open_itemsに替えた。
+const openItems = {
+  execute: () => ({
+    items: [],
+    limit: 20,
+    read_only: true,
+    next_tools: [],
+    result_meta: {
+      contract_version: 1,
+      returned_count: 0,
+      matched_visible_count: 0,
+      truncated: false,
+    },
+  }),
+};
 
 async function mcpResult(
   coreClient,
@@ -95,64 +61,16 @@ async function mcpResult(
   await server.connect(serverTransport);
   await client.connect(clientTransport);
   try {
-    return await client.callTool({ name: "tasken.list_agent_ready_tasks", arguments: request });
+    return await client.callTool({ name: "tasken.list_open_items", arguments: request });
   } finally {
     await client.close();
     await server.close();
   }
 }
 
-/** 旧実装にない追加欄（agent_state）を除いて、互換部分だけを比べる。 */
-function withoutAgentState(response) {
-  const { agent_state: _agentState, ...rest } = response;
-  return {
-    ...rest,
-    ...(Array.isArray(rest.tasks)
-      ? { tasks: rest.tasks.map(({ agent_state: _taskAgentState, ...task }) => task) }
-      : {}),
-  };
-}
-
-test("Phase 2: legacy, in-process, HTTP, and MCP agent-ready results are deep-equal", async () => {
-  const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-phase2-"));
-  const workspace = fixture();
-  const repository = new FixtureRepository(workspace);
-  const core = createTaskenCore(repository);
-  const host = new TaskenCoreHost({
-    userDataPath: root,
-    listAgentReadyTasks: core.listAgentReadyTasks,
-  });
-  const context = new ReadOnlyTaskenContext("phase2.sqlite", { workspace });
-  try {
-    await host.start();
-    const request = { theme_id: "theme-visible", limit: 20 };
-    const legacy = context.toolListAgentReadyTasks(request);
-    const inProcess = core.listAgentReadyTasks.execute(request);
-    const httpResult = await new TaskenCoreClient({
-      discoveryPath: path.join(root, "tasken-core.json"),
-    }).listAgentReadyTasks(request);
-    const mcp = await mcpResult(
-      new TaskenCoreClient({ discoveryPath: path.join(root, "tasken-core.json") }),
-      request,
-    );
-
-    assert.deepEqual(withoutAgentState(inProcess), legacy);
-    assert.deepEqual(withoutAgentState(httpResult), legacy);
-    assert.deepEqual(withoutAgentState(mcp.structuredContent), legacy);
-  } finally {
-    context.close();
-    await host.stop();
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("Phase 2: discovery, auth, health, capabilities, body, and timeout boundaries are enforced", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-security-"));
-  const core = createTaskenCore(new FixtureRepository(fixture()));
-  const host = new TaskenCoreHost({
-    userDataPath: root,
-    listAgentReadyTasks: core.listAgentReadyTasks,
-  });
+  const host = new TaskenCoreHost({ userDataPath: root, listOpenItems: openItems });
   try {
     await host.start();
     const discoveryPath = path.join(root, "tasken-core.json");
@@ -171,9 +89,9 @@ test("Phase 2: discovery, auth, health, capabilities, body, and timeout boundari
     const capabilities = await fetch(`${discovery.origin}/capabilities`, { headers });
     assert.deepEqual(await health.json(), { status: "ok", api_version: "1" });
     assert.deepEqual(await version.json(), { api_version: "1" });
-    assert.deepEqual(await capabilities.json(), { capabilities: ["list_agent_ready_tasks"] });
+    assert.deepEqual(await capabilities.json(), { capabilities: ["list_open_items"] });
     assert.equal((await fetch(`${discovery.origin}/health`)).status, 401);
-    const wrongContentType = await fetch(`${discovery.origin}/v1/queries/list-agent-ready-tasks`, {
+    const wrongContentType = await fetch(`${discovery.origin}/v1/queries/list-open-items`, {
       method: "POST",
       headers: { ...headers, "content-type": "text/plain" },
       body: "{}",
@@ -187,7 +105,7 @@ test("Phase 2: discovery, auth, health, capabilities, body, and timeout boundari
     assert.equal(unknownPath.status, 404);
     assert.equal((await unknownPath.json()).error.code, "NOT_FOUND");
 
-    const oversized = await fetch(`${discovery.origin}/v1/queries/list-agent-ready-tasks`, {
+    const oversized = await fetch(`${discovery.origin}/v1/queries/list-open-items`, {
       method: "POST",
       headers: { ...headers, "content-type": "application/json" },
       body: JSON.stringify({ padding: "x".repeat(70_000) }),
@@ -205,7 +123,7 @@ test("Phase 2: discovery, auth, health, capabilities, body, and timeout boundari
         }),
     });
     await assert.rejects(
-      timeoutClient.listAgentReadyTasks({}),
+      timeoutClient.listOpenItems({}),
       (error) => error instanceof TaskenCoreClientError && error.code === "CORE_UNAVAILABLE",
     );
   } finally {
@@ -217,11 +135,7 @@ test("Phase 2: discovery, auth, health, capabilities, body, and timeout boundari
 
 test("Phase 2: Core stop closes a partial keep-alive connection and remains idempotent", async () => {
   const root = fs.mkdtempSync(path.join(process.cwd(), ".tasken-core-stop-"));
-  const core = createTaskenCore(new FixtureRepository(fixture()));
-  const host = new TaskenCoreHost({
-    userDataPath: root,
-    listAgentReadyTasks: core.listAgentReadyTasks,
-  });
+  const host = new TaskenCoreHost({ userDataPath: root, listOpenItems: openItems });
   let socket;
   try {
     const { origin } = await host.start();
@@ -270,7 +184,7 @@ test("Phase 2: version and auth failures never fall back to the legacy DB contex
       api_version: "999",
       origin: "http://127.0.0.1:1",
       token: "x".repeat(43),
-      capabilities: ["list_agent_ready_tasks"],
+      capabilities: ["list_open_items"],
     }),
     { mode: 0o600 },
   );
@@ -280,11 +194,7 @@ test("Phase 2: version and auth failures never fall back to the legacy DB contex
   assert.match(JSON.stringify(versionResult.content), /version/);
   assert.doesNotMatch(JSON.stringify(versionResult.content), /DB_CONSTRUCTOR_SENTINEL/);
 
-  const core = createTaskenCore(new FixtureRepository(fixture()));
-  const host = new TaskenCoreHost({
-    userDataPath: root,
-    listAgentReadyTasks: core.listAgentReadyTasks,
-  });
+  const host = new TaskenCoreHost({ userDataPath: root, listOpenItems: openItems });
   try {
     await host.start();
     const discovery = JSON.parse(fs.readFileSync(discoveryPath, "utf8"));
@@ -373,14 +283,14 @@ test("Phase 2: discovery symlinks and malformed credentials are rejected without
       api_version: "1",
       origin: "http://127.0.0.1:1",
       token,
-      capabilities: ["list_agent_ready_tasks"],
+      capabilities: ["list_open_items"],
     }),
     { mode: 0o600 },
   );
   fs.symlinkSync(target, link);
   try {
     await assert.rejects(
-      new TaskenCoreClient({ discoveryPath: link }).listAgentReadyTasks({}),
+      new TaskenCoreClient({ discoveryPath: link }).listOpenItems({}),
       (error) =>
         error instanceof TaskenCoreClientError &&
         error.code === "INVALID_DISCOVERY" &&
@@ -394,12 +304,12 @@ test("Phase 2: discovery symlinks and malformed credentials are rejected without
         api_version: "1",
         origin: "http://127.0.0.1:1",
         token: "not-base64url",
-        capabilities: ["list_agent_ready_tasks"],
+        capabilities: ["list_open_items"],
       }),
       { mode: 0o600 },
     );
     await assert.rejects(
-      new TaskenCoreClient({ discoveryPath: link }).listAgentReadyTasks({}),
+      new TaskenCoreClient({ discoveryPath: link }).listOpenItems({}),
       (error) =>
         error instanceof TaskenCoreClientError &&
         error.code === "INVALID_DISCOVERY" &&

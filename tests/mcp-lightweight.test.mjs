@@ -39,13 +39,14 @@ async function connect(t, options = {}) {
 
 // 書き込みは #703 で change_task・undo_change・decide_proposal・edit_note の4つ増えた（Desktopの直接の
 // 書き込み）。本人が設定で無効にしていても一覧には出す（接続し直さずに使えるように）ので、その分だけ予算を広げた。
-// 旧名3道具を外した（#755）ので、legacy の組は空。名前は受けるが、一覧は all と同じ 28 のまま。
-test("discovery budgets: default read=16, write=28, core=6; legacy adds nothing", async (t) => {
+// 旧名3道具を外した（#755）ので、legacy の組は空。名前は受けるが、一覧は all と同じ。
+// AI Readyの一覧・割り当て（読み取り2つ）と開始（書き込み1つ）を外した（#755 束10a）。read 16→14、all 28→25。
+test("discovery budgets: default read=14, write=25, core=6; legacy adds nothing", async (t) => {
   for (const [label, options, count, budget] of [
-    ["read-only", { readOnly: true }, 16, 11000],
-    ["all", { readOnly: false }, 28, 36000],
+    ["read-only", { readOnly: true }, 14, 11000],
+    ["all", { readOnly: false }, 25, 36000],
     ["core", { readOnly: true, env: { TASKEN_MCP_TOOLSETS: "core" } }, 6, 6000],
-    ["legacy", { readOnly: false, toolsets: ["all", "legacy"] }, 28, 36000],
+    ["legacy", { readOnly: false, toolsets: ["all", "legacy"] }, 25, 36000],
   ]) {
     const client = await connect(t, options);
     const { tools } = await client.listTools();
@@ -85,7 +86,7 @@ test("toolsets filter without capabilities, report reasons and never override re
   const core = await connect(t, { readOnly: false, toolsets: "core" });
   assert.equal((await core.listTools()).tools.length, 6);
   const capped = await connect(t, { capabilities: [], readOnly: false, toolsets: "all" });
-  assert.equal((await capped.listTools()).tools.length, 16);
+  assert.equal((await capped.listTools()).tools.length, 14);
   const meta = await connect(t, { readOnly: false, toolsets: "core,meta" });
   assert.equal(
     (await meta.callTool({ name: "tasken.get_capabilities", arguments: {} })).structuredContent

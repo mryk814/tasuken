@@ -14,10 +14,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod/v4";
 
 import { localDate } from "../../shared/activityProjection.mjs";
-import {
-  TASKEN_CORE_SOURCE_STATUS_CAPABILITY,
-  TASKEN_CORE_TASK_START_WORK_CAPABILITY,
-} from "../../shared/contracts/core/public.mjs";
+import { TASKEN_CORE_SOURCE_STATUS_CAPABILITY } from "../../shared/contracts/core/public.mjs";
 import {
   formatTaskLocator,
   parseCanonicalTaskId,
@@ -186,8 +183,6 @@ function withTaskLocators(result) {
  * 自己申告で、tailnet上の別のclientを装えてしまうため。その欄をschemaに持つtoolだけ上書きする。
  * `source_app`は作成IDとProposal IDの材料なので、冪等性の鍵もclientごとに分かれる
  * （別clientが同じidempotency_keyを使っても衝突しない）。
- * ただし`start_task_work`のcommand_idは`source_app`を含まず（workspaceとidempotency_keyだけから作る）、
- * 別clientが同じ鍵を使うとCONFLICTになる。データは壊れないのでCoreの導出は変えない。
  * 保存の形（`ai_creation`など）には欄を足さず、既存の`caller`・`source_app`の値だけを変える。
  */
 function withVerifiedCreator([config, handler, ...others], clientName) {
@@ -262,7 +257,7 @@ export function createTaskenMcpServer(options = {}) {
       instructions: `${
         readOnly
           ? "Tasken is read-only; use the listed bounded context and detail tools. No writes or Proposals are exposed."
-          : "Tasken manages work and knowledge. Check tasken.get_capabilities before writes when listed; Core may still refuse them. Proposals stay unofficial until human adoption; done reports never complete Tasks. Feed posts/replies appear immediately. Direct create_* tools need the user's grant (on Desktop, a Tasken setting; get_capabilities shows it); start_task_work claims only AI Ready Tasks.Reuse idempotency_key with identical content on retries and use dry_run for validation. Read tasken://guide/{feed_post,note_article,work_report,proposals} for details; never expose secrets or publish outside Tasken."
+          : "Tasken manages work and knowledge. Check tasken.get_capabilities before writes when listed; Core may still refuse them. Proposals stay unofficial until human adoption; done reports never complete Tasks. Feed posts/replies appear immediately. Direct create_*/change_task tools need the user's grant (on Desktop, a Tasken setting; get_capabilities shows it); they are the only way to change Tasks directly. Reuse idempotency_key with identical content on retries and use dry_run for validation. Read tasken://guide/{feed_post,note_article,work_report,proposals} for details; never expose secrets or publish outside Tasken."
       }${sourceInstruction}`,
     },
   );
@@ -427,35 +422,6 @@ export function createTaskenMcpServer(options = {}) {
       annotations: READ_ONLY_ANNOTATIONS,
     },
     withCoreClient(async (args) => withTaskLocators(await coreClient.listOpenItems(args))),
-  );
-
-  server.registerTool(
-    "tasken.list_agent_ready_tasks",
-    {
-      description:
-        "List human-authorized AI Ready Tasks; start only when agent_state.runnable is true. Reading never starts work; reports require human adoption.",
-      inputSchema: {
-        theme_id: optionalText,
-        limit: optionalLimit,
-        include_archived: z.boolean().optional(),
-      },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient((args) => coreClient.listAgentReadyTasks(args)),
-  );
-
-  server.registerTool(
-    "tasken.get_task_assignment",
-    {
-      description: "Read one Task assignment and its append-only Work Receipts. Read-only.",
-      inputSchema: {
-        task_id: z.string().trim().min(1).max(200),
-        limit: optionalLimit,
-        include_archived: z.boolean().optional(),
-      },
-      annotations: READ_ONLY_ANNOTATIONS,
-    },
-    withCoreClient((args) => coreClient.getTaskAssignment(args)),
   );
 
   const boundedTextLength = z.number().int().positive().max(100000).optional();
@@ -858,40 +824,6 @@ export function createTaskenMcpServer(options = {}) {
       source: "mcp",
       source_app: sourceApp(args),
     });
-  const startTaskWork = async (args) => {
-    try {
-      return await coreClient.startAiTaskWork({
-        task_id: args.task_id,
-        expected_version: args.expected_version,
-        idempotency_key: args.idempotency_key,
-        caller: args.caller,
-        started_at: args.started_at,
-        ...(args.work_attempt_id ? { work_attempt_id: args.work_attempt_id } : {}),
-        ...(args.source_session ? { source_session: args.source_session } : {}),
-      });
-    } catch (error) {
-      // 提案だけを公開する配備では開始のcapabilityがない。既定の「更新してください」は
-      // その場合に当てはまらないため、配備の境界として案内し直す。
-      if (error instanceof TaskenCoreClientError && error.code === "CAPABILITY_UNAVAILABLE") {
-        throw new TaskenCoreClientError(
-          "CAPABILITY_UNAVAILABLE",
-          `Tasken Core operation capabilityが利用できません（${TASKEN_CORE_TASK_START_WORK_CAPABILITY}）。`,
-          {
-            details: { capability: TASKEN_CORE_TASK_START_WORK_CAPABILITY },
-            next_action:
-              "この接続先は開始専用権限を公開していません。利用者が開始権限を有効化するか、tasken.report_work（status=done）で作業報告を送ってください（採用時に開始も記録されます）。",
-          },
-        );
-      }
-      throw error;
-    }
-  };
-  const requiredTimestamp = z
-    .string()
-    .trim()
-    .min(1)
-    .max(100)
-    .refine((value) => !Number.isNaN(Date.parse(value)), "ISO 8601 timestamp が必要です。");
   const contentProposalIdentity = {
     idempotency_key: z
       .string()
@@ -940,24 +872,6 @@ export function createTaskenMcpServer(options = {}) {
       source_app: sourceApp(args),
     });
   };
-
-  server.registerTool(
-    "tasken.start_task_work",
-    {
-      description:
-        "Directly start a human-authorized AI Ready Task with a UUID work_attempt_id. Retry identical claims and verify current state/attempt/executor; see tasken://guide/work_report.",
-      inputSchema: {
-        ...taskWorkBase,
-        started_at: requiredTimestamp,
-        work_attempt_id: z
-          .string()
-          .uuid()
-          .describe("Delegation UUID; stable across retries and reports."),
-      },
-      annotations: DIRECT_WRITE_ANNOTATIONS,
-    },
-    withCoreClient(startTaskWork),
-  );
 
   const receiptProposalSchema = {
     ...taskWorkBase,
@@ -1042,7 +956,7 @@ export function createTaskenMcpServer(options = {}) {
       blocker: blockedProposalSchema.blocker.optional(),
     })
     .superRefine((args, context) => {
-      // task_idを付けた時だけ、委任したTaskの作業報告の案（従来の形）。外すのは切る束10a・10b。
+      // task_idを付けた時だけ、委任したTaskの作業報告の案（従来の形）。入口の start_task_work は束10aで外した。この形を外すのは束10b。
       const required =
         args.task_id === undefined
           ? ["client_kind", ...(args.status === "blocked" && args.blocker ? [] : ["summary"])]
