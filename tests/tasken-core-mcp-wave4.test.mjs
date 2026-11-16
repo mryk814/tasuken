@@ -181,20 +181,25 @@ test("Wave 4 mixed Item queries preserve ordering, dedupe, limits, locators, and
   assert.equal("excluded_count" in search, false);
   assert.equal(search.read_only, true);
   assert.equal(search.next_tools[0].tool, "tasken.get_task_context");
+  // 待ち（waiting）は数えない。待ちは Task に写してあり、写した Task が出る（#755 束7）。
   assert.deepEqual(search.result_meta, {
     contract_version: 1,
     returned_count: 1,
-    matched_visible_count: 5,
+    matched_visible_count: 3,
     truncated: true,
   });
 
   const all = core.searchItems.execute({ query: "needle", limit: 100 });
   assert.deepEqual(all.result_meta, {
     contract_version: 1,
-    returned_count: 5,
-    matched_visible_count: 5,
+    returned_count: 3,
+    matched_visible_count: 3,
     truncated: false,
   });
+  assert.equal(
+    all.items.some((item) => item.id.startsWith("waiting-")),
+    false,
+  );
   assert.deepEqual(
     core.searchItems.execute({ query: "needle", limit: 20 }).result_meta,
     all.result_meta,
@@ -225,16 +230,16 @@ test("Wave 4 mixed Item queries preserve ordering, dedupe, limits, locators, and
   const open = core.listOpenItems.execute({ limit: 100 });
   assert.deepEqual(
     open.items.map((item) => item.id),
-    ["waiting-open", "task-visible", "legacy-visible", "plan-open"],
+    ["task-visible", "legacy-visible", "plan-open"],
   );
   assert.equal(
-    open.items.some((item) => item.id === "waiting-received"),
+    open.items.some((item) => item.id === "waiting-received" || item.id === "waiting-open"),
     false,
   );
   assert.deepEqual(open.result_meta, {
     contract_version: 1,
-    returned_count: 4,
-    matched_visible_count: 4,
+    returned_count: 3,
+    matched_visible_count: 3,
     truncated: false,
   });
   const openOne = core.listOpenItems.execute({ limit: 1 });
@@ -242,7 +247,7 @@ test("Wave 4 mixed Item queries preserve ordering, dedupe, limits, locators, and
   assert.deepEqual(openOne.result_meta, {
     contract_version: 1,
     returned_count: 1,
-    matched_visible_count: 4,
+    matched_visible_count: 3,
     truncated: true,
   });
   assert.deepEqual(core.listOpenItems.execute({ limit: 20 }).result_meta, open.result_meta);
@@ -275,7 +280,7 @@ test("Wave 4 named HTTP and pure MCP paths expose both capabilities without a na
       (await client.searchItems({ query: "needle", limit: 1 })).items[0].title,
       "Needle task",
     );
-    assert.equal((await client.listOpenItems({ limit: 1 })).items[0].id, "waiting-open");
+    assert.equal((await client.listOpenItems({ limit: 1 })).items[0].id, "task-visible");
 
     const mcpSearch = await callMcp(client, "tasken.search_items", { query: "needle", limit: 1 });
     assert.equal(mcpSearch.isError, undefined);
@@ -287,7 +292,7 @@ test("Wave 4 named HTTP and pure MCP paths expose both capabilities without a na
     );
     assert.equal(mcpSearch.structuredContent.result_meta.truncated, true);
     const mcpOpen = await callMcp(client, "tasken.list_open_items", { limit: 1 });
-    assert.equal(mcpOpen.structuredContent.items[0].id, "waiting-open");
+    assert.equal(mcpOpen.structuredContent.items[0].id, "task-visible");
 
     const response = await fetch(`${started.origin}/v1/queries/search-items`, {
       method: "POST",

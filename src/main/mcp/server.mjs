@@ -403,7 +403,7 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.search_items",
     {
       description:
-        "Search Tasks, waitings and plan nodes; results carry stable IDs and Task canonical_locator. For Notes use tasken.search_notes.",
+        "Search Tasks and plan nodes (waiting is a Task state); results carry stable IDs and Task canonical_locator. For Notes use tasken.search_notes.",
       inputSchema: {
         query: optionalText,
         theme_id: optionalText,
@@ -418,7 +418,7 @@ export function createTaskenMcpServer(options = {}) {
   server.registerTool(
     "tasken.list_open_items",
     {
-      description: "List open Tasken tasks, waitings, and plan nodes.",
+      description: "List open Tasken tasks (including state=waiting) and plan nodes.",
       inputSchema: {
         theme_id: optionalText,
         limit: optionalLimit,

@@ -305,36 +305,7 @@ export class KnowledgeQueryService {
         ...pickAiMetadata(task),
       });
     }
-    for (const waiting of this.port.list("waiting", false)) {
-      if (waiting.legacy_item_id) v2Ids.add(text(waiting.legacy_item_id));
-      const schedule = scheduleMap.get(`waiting:${waiting.id}`);
-      projected.push({
-        id: text(waiting.legacy_item_id || waiting.id),
-        title: waiting.title,
-        kind: "waiting",
-        status:
-          waiting.state === "received"
-            ? "done"
-            : waiting.state === "cancelled"
-              ? "cancelled"
-              : "waiting",
-        priority: "normal",
-        theme_id: waiting.project_id || null,
-        description: waiting.description || "",
-        waiting_for: waiting.waiting_for || "",
-        next_action: waiting.next_action || "",
-        planned_start: schedule?.start_date || null,
-        planned_end: schedule?.end_date || null,
-        due_date: null,
-        source_record_id: waiting.source_record_id,
-        created_at: waiting.created_at,
-        updated_at: waiting.updated_at,
-        deleted_at: waiting.deleted_at,
-        source: waiting.source,
-        metadata: waiting.metadata,
-        ...pickAiMetadata(waiting),
-      });
-    }
+    // 待ち（waiting）は出さない（#755 束7）。待ちは Task に写してあり、写した Task が出る。
     for (const node of this.port.list("plan_node", false)) {
       if (node.legacy_item_id) v2Ids.add(text(node.legacy_item_id));
       const schedule = scheduleMap.get(`plan_node:${node.id}`);
@@ -574,14 +545,6 @@ export class KnowledgeQueryService {
         this.port.list("task", false).filter((task) => !themeId || task.project_id === themeId),
       ).records,
     );
-    const waitings = sortUpdated(
-      this.withAiHeader(
-        "waiting",
-        this.port
-          .list("waiting", false)
-          .filter((waiting) => !themeId || waiting.project_id === themeId),
-      ).records,
-    );
     const planNodes = sortUpdated(
       this.withAiHeader(
         "plan_node",
@@ -601,7 +564,9 @@ export class KnowledgeQueryService {
       return text(schedule?.end_date || schedule?.start_date);
     };
     const openTasks = tasks.filter((task) => task.state !== "done" && task.state !== "cancelled");
-    const openWaitings = waitings.filter((waiting) => waiting.state === "waiting");
+    // 待ちは Task の「待ち」の状態に含めた（#755 束7）。待ちの数と一覧は、その Task から数える
+    // （未完了の Task の数にも入る）。元の待ちの記録は読むだけで残り、数えない。
+    const openWaitings = openTasks.filter((task) => task.state === "waiting");
     const openPlanNodes = planNodes.filter(
       (node) => node.state !== "done" && node.state !== "cancelled",
     );
@@ -615,18 +580,6 @@ export class KnowledgeQueryService {
           date: endDate("task", task.id),
           theme_id: task.project_id,
           updated_at: task.updated_at,
-        })),
-      ...openWaitings
-        .filter(
-          (waiting) => endDate("waiting", waiting.id) && endDate("waiting", waiting.id) < today,
-        )
-        .map((waiting) => ({
-          id: waiting.id,
-          title: waiting.title,
-          kind: "waiting",
-          date: endDate("waiting", waiting.id),
-          theme_id: waiting.project_id,
-          updated_at: waiting.updated_at,
         })),
       ...openPlanNodes
         .filter((node) => endDate("plan_node", node.id) && endDate("plan_node", node.id) < today)
@@ -659,13 +612,13 @@ export class KnowledgeQueryService {
           updated_at: node.updated_at,
         })),
     ];
-    const waitingItems = openWaitings.map((waiting) => ({
-      id: waiting.id,
-      title: waiting.title,
-      waiting_for: waiting.waiting_for,
-      date: endDate("waiting", waiting.id),
-      theme_id: waiting.project_id,
-      updated_at: waiting.updated_at,
+    const waitingItems = openWaitings.map((task) => ({
+      id: task.id,
+      title: task.title,
+      kind: "task",
+      date: endDate("task", task.id),
+      theme_id: task.project_id,
+      updated_at: task.updated_at,
     }));
     const matchedItemCount = overdueItems.length + waitingItems.length + unscheduledItems.length;
     const publicOverdue = sortUpdated(overdueItems)
@@ -684,7 +637,7 @@ export class KnowledgeQueryService {
       open_tasks: openTasks.length,
       open_waitings: openWaitings.length,
       open_plan_nodes: openPlanNodes.length,
-      open_count: openTasks.length + openWaitings.length + openPlanNodes.length,
+      open_count: openTasks.length + openPlanNodes.length,
       overdue_items: publicOverdue,
       waiting_items: publicWaiting,
       unscheduled_items: publicUnscheduled,
@@ -719,7 +672,6 @@ export class KnowledgeQueryService {
     );
     const entities = sortUpdated([
       ...this.withAiHeader("task", this.port.list("task", false)).records,
-      ...this.withAiHeader("waiting", this.port.list("waiting", false)).records,
       ...this.withAiHeader("plan_node", this.port.list("plan_node", false)).records,
       ...this.withAiHeader("item", this.port.list("item", false)).records,
     ]);

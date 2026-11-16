@@ -24,7 +24,6 @@ export interface ItemQueryThemeRecord extends Record<string, unknown> {
 export interface ItemQuerySnapshot {
   items: ItemQueryRecord[];
   tasks: ItemQueryRecord[];
-  waitings: ItemQueryRecord[];
   planNodes: ItemQueryRecord[];
   schedules: ItemQueryRecord[];
   themes: ItemQueryThemeRecord[];
