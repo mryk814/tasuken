@@ -54,25 +54,23 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 
 常時稼働nodeは既定で書き込みを公開しない。`--write-mode=proposals`（または `TASKEN_CORE_WRITE_MODE=proposals`）を選んだ場合だけ、次を公開する。
 
-| 公開する                                                                                   | 公開しない                                                   |
-| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
-| `propose_content`（`feed_post`・`feed_reply`・`note_create`・`note_edit`。どれも画像なし） | 画像付きの提案、`artifact`、`sketch`                         |
-| `propose_repository_task`（`task`）                                                        | `repository_context`                                         |
-| `propose_task_work`（`append_receipt`・`report_done`・`report_blocked`）                   | `task.command`（`start_task_work`）、`propose_agent_session` |
-| 既存の読み取りcapability                                                                   |                                                              |
+| 公開する                                                                                   | 公開しない                              |
+| ------------------------------------------------------------------------------------------ | --------------------------------------- |
+| `propose_content`（`feed_post`・`feed_reply`・`note_create`・`note_edit`。どれも画像なし） | 画像付きの提案、`artifact`、`sketch`    |
+| `propose_repository_task`（`task`）                                                        | `repository_context`                    |
+| `propose_task_work`（`append_receipt`・`report_done`・`report_blocked`）                   | `task.command`、`propose_agent_session` |
+| 既存の読み取りcapability                                                                   |                                         |
 
-- Task作業報告もProposalなので、`proposals`配備でも正式データは人の採用まで変わらない。開始（`start_task_work`）は直接書き込みであり、write-modeの指定だけでは公開しない。本人の個人業務のAI Ready Taskについて開始を許可するには、独立した`--allow-ai-task-start` / `TASKEN_CORE_AI_TASK_START=1`が必要。汎用`task.command`は公開しない。
+- Task作業報告もProposalなので、`proposals`配備でも正式データは人の採用まで変わらない。AI Readyの開始（`start_task_work`・`--allow-ai-task-start`・`TASKEN_CORE_AI_TASK_START=1`）は #755 束10a で外した。前の配備に残る環境変数は読まない。汎用`task.command`は公開しない。
 - 既存Taskの直接変更と取り消し（`change_task`・`undo_change`、capability `task.ai_change`）は、`create-only`に独立した`--allow-ai-task-change` / `TASKEN_CORE_AI_TASK_CHANGE=1`を足したときだけ公開する。規則はDesktopと同じ（本人の言葉、取り消し、一つの会話で30件まで、委任中・繰り返しの完了・同期の競合中は断る、AIの公開範囲の外は無いものとして扱う）。取り込みが遅れている間は`REPLICA_BEHIND`で断る。Noteの編集と採否（取り消せない書き込み）はDesktopだけ。
 - 範囲外の種類は、capabilityを残したまま実行時に `WRITE_NOT_ALLOWED`（HTTP 403）で拒否する。AIは `next_action` から送り直し方を判断できる。
 - 公開しないcapabilityは `/capabilities` に出さないため、MCP bridgeは呼び出し時点で `CAPABILITY_UNAVAILABLE` を返す。
-- MCP bridgeは起動時に `/capabilities` を読み、使えない書き込みtool（直接開始・範囲外の種類）を一覧から外す。理由は `tasken.get_capabilities` が返す。起動時にCoreへ接続できなかった場合は全toolを登録し、上の拒否が境界になる。
+- MCP bridgeは起動時に `/capabilities` を読み、使えない書き込みtool（範囲外の種類）を一覧から外す。理由は `tasken.get_capabilities` が返す。起動時にCoreへ接続できなかった場合は全toolを登録し、上の拒否が境界になる。
 - 許可範囲はCore側で強制する。MCP bridgeの `TASKEN_MCP_READ_ONLY` は公開toolを減らすための追加の境界であり、Core側の制御を置き換えない。
 - 提案受付を使う配備では、bridge側も `TASKEN_MCP_READ_ONLY=0` にする必要がある（両方が要る）。
 - Desktopは `proposalAccess: "full"` のままで、この制限の影響を受けない。
 
-`proposals` は提案を作るだけで、正式データの採用・Task完了・直接開始は行わない。`scripts/mcp-doctor.mjs` は `read-only`・`proposals`・`full` を配備として認識し、既知でない組み合わせだけを不足として報告する。
-
-開始専用opt-inのscope、UUID・再送・人間採用、有効化と撤回は[ai-task-start.md](ai-task-start.md)を参照する。既定は無効。read-onlyとの併用は拒否し、proposals/create-onlyに開始権限を含めない。
+`proposals` は提案を作るだけで、正式データの採用・Task完了は行わない。`scripts/mcp-doctor.mjs` は `read-only`・`proposals`・`full` を配備として認識し、既知でない組み合わせだけを不足として報告する。
 
 ## Phase 2: read-only replicaとして同期へ参加
 
@@ -84,7 +82,7 @@ TASKEN_HEADLESS_CORE_STOPPED {"schema_version":1,"reason":"SIGTERM"}
 - 共有フォルダのmanifestが無い場合は `SYNC_FOLDER_NOT_READY` で失敗する。先にデータ端末で同期を設定しておく。
 - ホストの`workspaceId`を採用し、node自身の`deviceId`は固定のまま。同期カーソル・適用済みsequence・取り込んだentityはnodeのSQLiteに永続化されるため、再起動後も同じidentityとstateで復帰する。
 - 初回や途中の差分がOneDrive等で未到着でも、poll（10秒間隔）で再試行する。解消しない場合の「差分を再公開」はデータ端末側で行う（`docs/shared-folder-sync.md`）。
-- このnodeは読み取り専用の運用を既定とする。MCP clientは`TASKEN_MCP_READ_ONLY=1`で起動し、write tools（`start_task_work`・`report_work(status=done)`・`propose_*`等）を公開しない。`--write-mode=proposals`を選んだ場合だけ、テキストのFeed投稿・Note案・Task案・Task作業報告を提案として受け付ける（前節）。proposals配備では、replicaが作ったProposalとDesktopの採否が変更差分として往復する。1つの`idempotency_key`は1つのnodeだけへ送る。
+- このnodeは読み取り専用の運用を既定とする。MCP clientは`TASKEN_MCP_READ_ONLY=1`で起動し、write tools（`report_work`・`propose_*`等）を公開しない。`--write-mode=proposals`を選んだ場合だけ、テキストのFeed投稿・Note案・Task案・Task作業報告を提案として受け付ける（前節）。proposals配備では、replicaが作ったProposalとDesktopの採否が変更差分として往復する。1つの`idempotency_key`は1つのnodeだけへ送る。
 - 添付画像は共有フォルダ同期の対象で、受信後に`get_capture_image`・`get_task_image`で読める。`ContentDetailQueryService`がmanifestの`size`・`sha256`と照合するため、欠落・不一致はnot_foundになる。
 - Note Proposal画像のstage（`nativeImage`によるdecode）は含まないため、画像付きProposalの作成はできない。
 - 取り込みの鮮度は、MCPの各tool結果の`source`（`node`・`state`・`as_of`・`desktop_seen_at`）で返す。`as_of`は「この時刻までのDesktopの変更は取り込み済み」で、`null`は不明（14日以内に公開したDesktopが無い、または追いついていない端末がある）。`state`は`ok`のほか、`starting`（未同期）・`conflict`・`waiting_packet`（差分の欠け）・`waiting_image`（写真の未着）・`blocked`（この版が読めない差分）・`io_error`（それ以外の失敗）・`off`があり、`ok`以外は取り込みが遅れている。`source`はreplica（`--sync-directory`あり）のCoreだけが`source_status` capabilityで公開し、Desktopの出力は変わらない。14日以内に公開したDesktopが複数あるときは、いちばん遅れている端末の時刻になる（使っていない端末があると古く見える）。

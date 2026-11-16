@@ -27,7 +27,7 @@ NASがGitHubの`main`を見て、`Dockerfile.nas`で作り、`tasken-update-imag
 
 守ること:
 
-- replicaはread-only運用が既定。`TASKEN_CORE_WRITE_MODE=proposals` と `TASKEN_MCP_READ_ONLY=0` の両方でProposal受付を許可する。本人用Task/Noteの新規作成も許可する場合だけ、新Core/bridgeを配置し`TASKEN_CORE_WRITE_MODE=create-only`を明示する。汎用の編集口は公開しない。直接開始（`TASKEN_CORE_AI_TASK_START=1`）と、既存Taskの直接変更（`TASKEN_CORE_AI_TASK_CHANGE=1`。`create-only`と一緒だけ）は、それぞれ明示したときだけ公開する（[作成](../../docs/ai-item-creation.md)・[直接変更](../../docs/synology-headless-node.md#既存taskの直接変更を許す--allow-ai-task-change688)）。
+- replicaはread-only運用が既定。`TASKEN_CORE_WRITE_MODE=proposals` と `TASKEN_MCP_READ_ONLY=0` の両方でProposal受付を許可する。本人用Task/Noteの新規作成も許可する場合だけ、新Core/bridgeを配置し`TASKEN_CORE_WRITE_MODE=create-only`を明示する。汎用の編集口は公開しない。既存Taskの直接変更（`TASKEN_CORE_AI_TASK_CHANGE=1`。`create-only`と一緒だけ）は明示したときだけ公開する（AI Readyの直接開始`TASKEN_CORE_AI_TASK_START`は #755 束10a で外した。`.env`に残っていても読まない）（[作成](../../docs/ai-item-creation.md)・[直接変更](../../docs/synology-headless-node.md#既存taskの直接変更を許す--allow-ai-task-change688)）。
 - SQLite/WALを同期フォルダ（SMB/NFS/OneDrive）へ置かない。`/data` はNASローカル。
 - DesktopとNASで同じstateを同時に開かない（二重writerにしない）。
 

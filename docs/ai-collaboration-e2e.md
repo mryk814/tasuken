@@ -2,13 +2,12 @@
 
 Issue #364 の統合証跡は `tests/ai-collaboration-e2e.test.mjs` を正本とする。
 テストは production credential や network provider を使わず、temp SQLite と actual stdio MCP server、provider/model 名だけが異なる二つの fake provider で同じシナリオを実行する。
-加えて、明示的な `start_task_work` を使うシナリオも同じ採用・再起動経路で検証する。
 
 ## Fixed sequence
 
 1. pre-#277/#278 形式の Theme / Task / Note を SQLite へ bootstrap し、Task に human requester、AI executor、RepositoryContext を割り当てる。
-2. actual stdio MCP の `tasken.list_agent_ready_tasks` で候補を見つけ、`tasken.get_task_context` で Task、assignment、安全な repository locator、関連 Note を取得する。一覧・Context読取では永続データが変わらないことも確認する。
-3. 開始方法を二つ検証する。明示開始では `tasken.start_task_work` がProposalを作らず `in_progress` を保存し、返却された `value.task.version` を後続Receiptの `expected_version` に使う。同じ開始リクエストの再送で書込が重複せず、AI Ready一覧から対象が外れることも確認する。開始省略ではAI Ready Taskへ直接 `tasken.report_work(status=progress)` を送り、採用時にstarted eventとReceiptが同じtransactionで保存されることを確認する。いずれもReceiptは人の採用まで正式保存されない。
+2. actual stdio MCP の `tasken.get_task_context` で Task、assignment、安全な repository locator、関連 Note を取得する。Context読取では永続データが変わらないことも確認する。
+3. 委任したTaskへ直接 `tasken.report_work(status=progress)` を送り、採用時にstarted eventとReceiptが同じtransactionで保存されることを確認する。Receiptは人の採用まで正式保存されない。MCPの明示開始（`tasken.start_task_work`）とAI Readyの一覧は #755 束10a で外した。
 4. 一つ目の `tasken.report_work(status=done)` を Main で reject し、Task と Receipt が変わらないことを確認する。
 5. 二つ目のdone proposal採用途中へfailureを注入し、Task / Work Receipt / ChangeEvent / Proposal statusが同じSQLite transactionでrollbackすることを確認する。
 6. 同じproposalを正常採用し、Receiptを受け入れてもTaskは未完了のままであることを確認する。AIのTask直接変更・完了は引き続き拒否し、人が別途明示した完了だけを保存する。
@@ -20,11 +19,9 @@ Issue #364 の統合証跡は `tests/ai-collaboration-e2e.test.mjs` を正本と
 
 Task Work Proposal の accept/reject は renderer が Work Receipt を組み立てず、`ApplyTaskWorkProposal` へ `proposalId` と decision だけを渡す。
 Main はcanonical Proposalを再読込し、expected versionを検証してtyped Start / Append / Done / Blocked commandとProposal statusを一つのrepository transactionへ保存する。
-AI Ready TaskのAppend / Done / Blockedは開始Proposalを必須にせず、最初のReceipt採用時にstarted eventを補います。Doneの採用はReceiptを受け入れますがTaskを完了しません。Task完了は人の明示操作で行います。
+委任したTask（`ready_for_agent`）のAppend / Done / Blockedは開始Proposalを必須にせず、最初のReceipt採用時にstarted eventを補います。Doneの採用はReceiptを受け入れますがTaskを完了しません。Task完了は人の明示操作で行います。
 採用済み・完了済み・中止済みTaskへの追加報告も受け入れ、元の本文・完了日時・work_stateを保持します。追記だけの報告は提出後のTask更新を許容し、判断時の最新versionを確認します。開始と`completed_checklist_item_ids`を含む報告は提出時versionも一致させ、該当IDだけをチェック済みにします。IDの削除・重複・不正値やversion競合時は全体を適用しません。
 失敗した command は receipt marker を残さず、同一 envelope の再送は保存済み receipt を返して Entity や ChangeEvent を増やさない。
-
-開始専用`task.start_work`を有効にしたHeadlessでは、本人の個人Taskを使う。UUIDの`work_attempt_id`を開始・報告で共通にし、同じキーの再送でversionも変更しない。再送のreadbackが別の作業単位、別executor、Ready・レビュー・削除済みなら継続着手しない。`tests/ai-task-start.test.mjs`が独立opt-in、拒否、再起動、再委任、同期、人の報告採用を検証する。通常のTask完了は引き続き人間操作とする。
 
 ## AI の作業（Task を伴わない report_work）
 

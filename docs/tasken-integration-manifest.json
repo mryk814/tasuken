@@ -81,7 +81,7 @@
   },
   "activation": {
     "aiItemCreation": "Explicit create-only configuration only",
-    "taskStart": "Independent TASKEN_CORE_AI_TASK_START=1 opt-in; default 0; read-only denied",
+    "taskStart": "Removed in #755 bundle 10a; TASKEN_CORE_AI_TASK_START is ignored",
     "aiTaskChange": "Independent TASKEN_CORE_AI_TASK_CHANGE=1 opt-in with create-only only; default 0; HTTP clients also need allowTaskChange",
     "mcpWrites": "Explicit TASKEN_MCP_READ_ONLY=0 only after approval",
     "historyImport": "Consented Codex/Claude source-folder pickup on Desktop only: one AI work record per conversation that has been quiet for 60 minutes, skipped when the AI already recorded it. No hooks and no manual file import. Optional in-app five-minute pickup is off by default; no OS autostart.",

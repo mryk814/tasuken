@@ -11,6 +11,14 @@
 - 再発防止: 記録だけ（architecture-audit が機械的に止めるので、新しい service を足したら `tests/architecture-audit.test.mjs` を一緒に流す）。
 - 同じ作業で分かったこと: Windows では、試験の `t.after` で一時フォルダーを消す処理を DB を閉じる処理より先に登録すると、開いたままの SQLite を消せずに `EPERM` で落ちる（`t.after` は登録した順に走る）。閉じてから消す 1 つの後始末にまとめた（`tests/waiting-retirement.test.mjs` の `tempRoot`）。
 
+## 2026-11-16 コメント1行の直しに `sed -i` を使い、CRLF のファイルを LF に書き直した（3 回目）
+
+- しようとしたこと: #755 束10a で、`src/main/mcp/toolAvailability.mjs` のコメントの例（`missing_capability:task.start_work`）を 1 か所だけ書き換える。
+- 起きたこと: `sed -i` で置き換えた後、`file` が「with CRLF line terminators」と言わなくなった（作業ツリー全体が LF）。差分には出ないので、`file` で見るまで気づかなかった。
+- 原因: Git Bash の `sed -i` は CRLF を LF に書き直す。同じ失敗は 2026-11-15 の項（`smoke:agent-log-sync`）の「同じ作業で分かったこと」と、2026-11-16 の行番号の項に書いてあったが、短い置き換えでつい使った。
+- 直し方: 改行を CRLF に戻す小さな script で戻した。以後の置き換えは、文の全体の一致（1 か所でなければ止める）と改行を保つ script か Edit だけで行った。commit の前に、HEAD で CRLF だった変更ファイルが LF になっていないかを一括で確かめた。
+- 再発防止: 記録だけ（3 回目なので、本人の設定の hook で「`sed -i` を CRLF のファイルに使うと止める」を足す価値がある。hook は本人の設定なので、この作業では足さず、呼び出し元へ提案する）。
+
 ## 2026-11-16 v0.1.92 の Release が、Release の時だけ流れる日誌の smoke で落ちた
 
 - しようとしたこと: #751 PR 2（AI の作業を同じカードで読む）などを入れた main（`npm run ci` 通過）に v0.1.92 のタグを付けて Release する。
