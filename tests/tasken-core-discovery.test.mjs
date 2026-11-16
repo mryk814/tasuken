@@ -18,7 +18,7 @@ const compiled = await build({
   logLevel: "silent",
 });
 const { TaskenCoreHost } = await import(
-  `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString("base64")}`,
+  `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString("base64")}`
 );
 
 async function withHost(t, run) {
@@ -83,37 +83,44 @@ test("Tasken Core discovery retries only transient Windows EPERM renames", async
     });
   });
 
-  await t.test("keeps the previous discovery, cleans the temporary file, and closes HTTP after persistent Windows EPERM", async (t) => {
-    await withHost(t, async ({ host, discoveryPath, userDataPath }) => {
-      t.mock.property(process, "platform", "win32");
-      const previous = JSON.stringify({ origin: "http://127.0.0.1:1", pid: "previous" });
-      await fs.writeFile(discoveryPath, previous, "utf8");
-      const error = Object.assign(new Error("persistent discovery rename lock"), { code: "EPERM" });
-      let attempts = 0;
-      let stagedOrigin = "";
-      const rename = fs.rename;
-      t.mock.method(fs, "rename", async (...args) => {
-        if (args[1] === discoveryPath) {
-          attempts += 1;
-          assert.equal(await fs.readFile(discoveryPath, "utf8"), previous);
-          stagedOrigin = JSON.parse(await fs.readFile(args[0], "utf8")).origin;
-          throw error;
-        }
-        return rename(...args);
+  await t.test(
+    "keeps the previous discovery, cleans the temporary file, and closes HTTP after persistent Windows EPERM",
+    async (t) => {
+      await withHost(t, async ({ host, discoveryPath, userDataPath }) => {
+        t.mock.property(process, "platform", "win32");
+        const previous = JSON.stringify({ origin: "http://127.0.0.1:1", pid: "previous" });
+        await fs.writeFile(discoveryPath, previous, "utf8");
+        const error = Object.assign(new Error("persistent discovery rename lock"), {
+          code: "EPERM",
+        });
+        let attempts = 0;
+        let stagedOrigin = "";
+        const rename = fs.rename;
+        t.mock.method(fs, "rename", async (...args) => {
+          if (args[1] === discoveryPath) {
+            attempts += 1;
+            assert.equal(await fs.readFile(discoveryPath, "utf8"), previous);
+            stagedOrigin = JSON.parse(await fs.readFile(args[0], "utf8")).origin;
+            throw error;
+          }
+          return rename(...args);
+        });
+
+        await assert.rejects(host.start(), (actual) => actual === error);
+
+        assert.equal(attempts, 3);
+        assert.equal(await fs.readFile(discoveryPath, "utf8"), previous);
+        await assertNoDiscoveryTemporary(userDataPath);
+        await assert.rejects(fetch(`${stagedOrigin}/health`));
       });
-
-      await assert.rejects(host.start(), (actual) => actual === error);
-
-      assert.equal(attempts, 3);
-      assert.equal(await fs.readFile(discoveryPath, "utf8"), previous);
-      await assertNoDiscoveryTemporary(userDataPath);
-      await assert.rejects(fetch(`${stagedOrigin}/health`));
-    });
-  });
+    },
+  );
 
   await t.test("fails immediately for a non-EPERM rename error", async (t) => {
     await withHost(t, async ({ host, discoveryPath }) => {
-      const error = Object.assign(new Error("non-retryable discovery rename failure"), { code: "EACCES" });
+      const error = Object.assign(new Error("non-retryable discovery rename failure"), {
+        code: "EACCES",
+      });
       let attempts = 0;
       const rename = fs.rename;
       t.mock.method(fs, "rename", async (...args) => {
@@ -133,7 +140,9 @@ test("Tasken Core discovery retries only transient Windows EPERM renames", async
   await t.test("fails immediately for EPERM outside Windows", async (t) => {
     await withHost(t, async ({ host, discoveryPath }) => {
       t.mock.property(process, "platform", "linux");
-      const error = Object.assign(new Error("non-Windows discovery rename failure"), { code: "EPERM" });
+      const error = Object.assign(new Error("non-Windows discovery rename failure"), {
+        code: "EPERM",
+      });
       let attempts = 0;
       const rename = fs.rename;
       t.mock.method(fs, "rename", async (...args) => {
