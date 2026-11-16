@@ -241,7 +241,7 @@ npm run hooks:copilot:uninstall
 - ToDo: 未完了、Inbox、期限超過、日程未確定の整理
 - Timeline: テーマ横断の長期ガントとマイルストーン一覧
 - Themes / Notes（URL・コメントを含む）
-- 待ちは Task の「待ち」の状態で扱う。待ちの画面と入力、確認の通知は外した（#755）。前の版の待ちは、外した版の起動で 1 件ずつ Task に写る（待っている相手と次にすることは説明の後ろ、確認の時刻はリマインダー、日程は期限）。元の待ちは読むだけで残り、userData と同期ルートの `Exports/retired/waitings/` にも Markdown で書き出す
+- 待ちは Task の「待ち」の状態で扱う。待ちの画面と入力、確認の通知は外した（#755）。前の版の待ちは、外した版の起動で 1 件ずつ Task に写る（待っている相手と次にすることは説明の後ろ、確認の時刻はリマインダー、日程は期限、関係する Task とは記録どうしの関係で結ぶ）。同期を使う PC は、ほかの PC の変更を取り込み終えてから写す（先に写した PC の Task が届けば写さない）。写す前の控えは控えの保存先に `tasken-retirement-*.sqlite` として残り、自動の控えの世代の入れ替えでは消えない。元の待ちは読むだけで残り、userData と同期ルートの `Exports/retired/waitings/` にも Markdown で書き出す
 - Context / Agent連携: MCP、外部AgentからのProposal差分確認、JSON / YAML / Markdownの書き出し
 - 控えと復元: 起動後に正本データベースと画像・写真の控えを作り、確かめてから世代を入れ替える。設定から控えを選んで戻せる
 - Theme Status / Plan Revision / 情報源管理 / Settings

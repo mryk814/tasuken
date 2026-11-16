@@ -47,8 +47,12 @@ interface AutomaticSnapshotBackupOptions extends AutomaticSnapshotBackupConfig {
   log?: (level: "info" | "warn" | "error", message: string, error?: unknown) => void;
 }
 
-/** retirement は、切った機能の記録を写す前の控え（#755 束7）。自動バックアップを止めていても取る。 */
-export type AutomaticSnapshotTrigger = "startup" | "manual" | "retirement";
+export type AutomaticSnapshotTrigger = "startup" | "manual";
+
+/** 切った機能の記録を写す前の控え（#755 束7）。自動の控えの名前と違うので、世代の入れ替えに入らない。 */
+const RETIREMENT_BACKUP_PREFIX = "tasken-retirement-";
+const RETIREMENT_BACKUP_TEMPORARY_PATTERN =
+  /^\.tasken-retirement-\d{8}T\d{9}Z-[0-9a-f]{8}\.sqlite\.tmp(?:-journal|-wal|-shm)?$/;
 
 function boundedGenerations(value: unknown): number {
   const number = Number(value);
@@ -81,6 +85,7 @@ export class AutomaticSnapshotBackupService {
   private readonly log: NonNullable<AutomaticSnapshotBackupOptions["log"]>;
   private config: AutomaticSnapshotBackupConfig;
   private running: Promise<AutomaticSnapshotBackupStatus> | null = null;
+  private retirementCopy: Promise<string | null> | null = null;
   private cancelRequested = false;
   private closed = false;
   private runtime: Omit<AutomaticSnapshotBackupStatus, keyof AutomaticSnapshotBackupConfig> = {
@@ -134,12 +139,61 @@ export class AutomaticSnapshotBackupService {
    */
   async cancel(): Promise<void> {
     this.closed = true;
+    await this.retirementCopy?.catch(() => undefined);
     if (!this.running) return;
     this.cancelRequested = true;
     await this.running.catch(() => undefined);
   }
 
+  /**
+   * 切った機能の記録を写す前の控え（#755 束7）。自動の控えと同じ保存先に、別の名前
+   * （tasken-retirement-*.sqlite）で作る。名前が違うので世代の入れ替えでは消えず、控えの一覧にも
+   * 数えない。自動バックアップを止めていても作る。作れたらファイルの場所、作れなければ null。
+   * 動いている自動の控えがあれば、終わるのを待ってから作る（同時に 2 つの写しを作らない）。
+   */
+  createRetirementCopy(): Promise<string | null> {
+    if (this.retirementCopy) return this.retirementCopy;
+    this.retirementCopy = this.createRetirementCopyOnce().finally(() => {
+      this.retirementCopy = null;
+    });
+    return this.retirementCopy;
+  }
+
+  private async createRetirementCopyOnce(): Promise<string | null> {
+    await this.running?.catch(() => undefined);
+    if (this.closed || this.database.userEntityCount() === 0) return null;
+    const directory = this.config.directory;
+    let temporaryPath = "";
+    try {
+      fs.mkdirSync(directory, { recursive: true });
+      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        if (entry.isFile() && RETIREMENT_BACKUP_TEMPORARY_PATTERN.test(entry.name))
+          this.removeTemporaryFile(
+            path.join(directory, entry.name.replace(/(-journal|-wal|-shm)$/, "")),
+          );
+      }
+      const fileName = `${RETIREMENT_BACKUP_PREFIX}${timestamp(this.now())}-${crypto.randomUUID().slice(0, 8)}.sqlite`;
+      const finalPath = path.join(directory, fileName);
+      temporaryPath = path.join(directory, `.${fileName}.tmp`);
+      await this.database.backupTo(temporaryPath, () => this.closed);
+      if (this.closed) throw new BackupCancelledError("終了のため中止した");
+      const liveCount = this.database.entityCount();
+      if (this.database.inspectBackup(temporaryPath).entityCount !== liveCount)
+        throw new Error("控えの確認でEntity件数が一致しませんでした。");
+      fs.renameSync(temporaryPath, finalPath);
+      this.log("info", "切った機能の記録を写す前の控えを作成した");
+      return finalPath;
+    } catch (error) {
+      if (temporaryPath) this.removeTemporaryFile(temporaryPath);
+      if (!(error instanceof BackupCancelledError))
+        this.log("error", "切った機能の記録を写す前の控えに失敗した", error);
+      return null;
+    }
+  }
+
   private async runOnce(trigger: AutomaticSnapshotTrigger): Promise<AutomaticSnapshotBackupStatus> {
+    // 写す前の控えを作っている途中なら、終わってから作る（同時に 2 つの写しを作らない）。
+    await this.retirementCopy?.catch(() => undefined);
     const attemptedAt = this.now();
     this.runtime.lastAttemptAt = attemptedAt.toISOString();
     this.runtime.lastError = "";

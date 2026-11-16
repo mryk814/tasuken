@@ -125,6 +125,9 @@ let agentLogSyncService: WorkspaceService | null = null;
 const AUTOMATIC_BACKUP_STARTUP_DELAY_MS = 30_000;
 // 前の版の AI Pack・日別 Context の出力の片付け（#755 束2）。起動の直後の読み込みと競らせない。
 const RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS = 20_000;
+// 待ちを Task に写す（#755 束7）のを、同期が追いつくまで確かめ直す間隔と回数（合わせて 1 時間）。
+const WAITING_CONVERSION_RETRY_MS = 5 * 60_000;
+const WAITING_CONVERSION_RETRIES = 12;
 // 前の版が残した録音・録画の確定（#755 束4）。chunk のつなぎと hash があるので、最初の表示の後に回す。
 const LEFTOVER_RECORDINGS_STARTUP_DELAY_MS = 10_000;
 let smokeMediaCaptureService: MediaCaptureService | null = null;
@@ -2175,26 +2178,32 @@ async function startDesktopApp(): Promise<void> {
     if (app.isPackaged || process.env.TASKEN_DEV_USER_DATA_DIR) {
       const exportRepository = workspaceRepository;
       const exportBackup = automaticSnapshotBackup;
+      const exportSync = sharedFolderSyncService;
+      // 同期がほかの端末に追いついていなければ写さず、5 分ごとに 1 時間まで確かめ直す
+      // （その後は次の起動）。書き出しは毎回、写した後（写さなかった時も）に流す。
+      const convertWaitingsThenExport = async (attempt: number) => {
+        const result = await runWaitingConversionOnce({
+          repository: exportRepository,
+          backup: async () => (exportBackup ? exportBackup.createRetirementCopy() : null),
+          isCaughtUp: async () => (exportSync ? exportSync.caughtUpForDerivedWrites() : true),
+          log: (level, message) => logMain(level, "retired-waiting", message),
+        });
+        runRetiredExportsOnce({
+          repository: exportRepository,
+          userDataDirectory: app.getPath("userData"),
+          syncRoot: app.isPackaged
+            ? String(exportRepository.readPreference("artifactDirectory") || "")
+            : null,
+          log: (level, message) => logMain(level, "retired-export", message),
+        });
+        if (result.state === "not_caught_up" && attempt < WAITING_CONVERSION_RETRIES)
+          setTimeout(
+            () => void convertWaitingsThenExport(attempt + 1),
+            WAITING_CONVERSION_RETRY_MS,
+          ).unref?.();
+      };
       setTimeout(
-        () =>
-          void runWaitingConversionOnce({
-            repository: exportRepository,
-            backup: async () => {
-              if (!exportBackup) return false;
-              const status = await exportBackup.run("retirement");
-              return Boolean(status.lastSuccessAt) && status.lastSuccessAt === status.lastAttemptAt;
-            },
-            log: (level, message) => logMain(level, "retired-waiting", message),
-          }).finally(() =>
-            runRetiredExportsOnce({
-              repository: exportRepository,
-              userDataDirectory: app.getPath("userData"),
-              syncRoot: app.isPackaged
-                ? String(exportRepository.readPreference("artifactDirectory") || "")
-                : null,
-              log: (level, message) => logMain(level, "retired-export", message),
-            }),
-          ),
+        () => void convertWaitingsThenExport(0),
         RETIRED_OUTPUT_CLEANUP_STARTUP_DELAY_MS,
       ).unref?.();
     }

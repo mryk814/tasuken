@@ -580,6 +580,37 @@ export class SharedFolderSyncService {
     };
   }
 
+  /**
+   * ほかの端末が公開した変更を、この端末が全部取り込み終えているか（#755 束7。待ちを Task に
+   * 写す前の確かめ）。先に写した端末の Task を受け取る前に写すと、中身の違う写しが二重にできうる。
+   * - 同期を使っていなければ true（相手がいない）。
+   * - 使っていれば、その場で 1 回同期し、それが失敗せず（待ち・止まり・古い写しへの戻りが無い）、
+   *   知っている全端末（replica を含む）のカーソルが、その端末の status.json の publishedThrough
+   *   （status.json が無い古い版の端末は、置いてある差分の最後の連番）に届いている時だけ true。
+   * 共有フォルダの同期ソフトがまだ運んでいない status.json は見えないので、それより先は保証しない
+   * （中身の違う写しは、同期で競合として本人に見せる。derivedRecords.mjs）。
+   */
+  async caughtUpForDerivedWrites() {
+    if (!this.repository.getPreference("sharedSyncEnabled")) return true;
+    const directory = String(this.repository.getPreference("sharedSyncDirectory") || "");
+    if (!directory) return false;
+    try {
+      await this.syncNow();
+    } catch {
+      return false;
+    }
+    if (!this.hasSynced || this.lastFailure || this.waitingFor || this.sequenceRolledBack)
+      return false;
+    const scan = await this.scanDevices(directory);
+    if (!scan) return false;
+    for (const id of scan.ids) {
+      const status = this.knownStatuses.get(id);
+      const published = status ? status.publishedThrough : (scan.packetMax.get(id) ?? 0);
+      if (this.repository.syncCursor(id) < published) return false;
+    }
+    return true;
+  }
+
   /** DBが公開済みの状態より古いと分かり、公開を止めている間はtrue。新しい書き込みも受けない方がよい。 */
   isPublishBlocked() {
     return this.sequenceRolledBack;
