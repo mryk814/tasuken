@@ -76,6 +76,17 @@ function formatTimestamp(value: string): string {
     : date.toLocaleString("ja-JP", { dateStyle: "short", timeStyle: "short" });
 }
 
+// ドロワーで開ける種類。待ちは画面を外したので開かず、行は押せない表示にする（#755 束7）。
+const DRAWER_OPENABLE_TYPES = new Set([
+  "capture_entry",
+  "note",
+  "plan_node",
+  "project",
+  "resource",
+  "sketch",
+  "task",
+]);
+
 function findRecord(data: WorkspaceData, type: string, id: string): BaseRecord | null {
   try {
     const collectionKey = collectionKeyForEntityType(type as RegistryEntityType);
@@ -139,15 +150,7 @@ export function LineagePanel({
       return;
     }
     const record = findRecord(data, item.ref.type, item.ref.id);
-    // 待ちは画面を外したので開かない（#755 束7）。
-    if (
-      !record ||
-      !openDrawer ||
-      !["capture_entry", "note", "plan_node", "project", "resource", "sketch", "task"].includes(
-        item.ref.type,
-      )
-    )
-      return;
+    if (!record || !openDrawer || !DRAWER_OPENABLE_TYPES.has(item.ref.type)) return;
     const entity =
       item.ref.type === "task" || item.ref.type === "plan_node"
         ? {
@@ -174,7 +177,11 @@ export function LineagePanel({
   function itemRow(item: LineageItem) {
     const canOpen =
       Boolean(openContentViewer && item.ref.type === "artifact") ||
-      Boolean(openDrawer && findRecord(data, item.ref.type, item.ref.id));
+      Boolean(
+        openDrawer &&
+        DRAWER_OPENABLE_TYPES.has(item.ref.type) &&
+        findRecord(data, item.ref.type, item.ref.id),
+      );
     const pathLabel = [
       lineage.seed.title || entityLabel({ ref: seed, is_conversation: conversation }),
     ]
@@ -202,7 +209,11 @@ export function LineagePanel({
     const canOpen =
       item.kind === "resolved" &&
       (Boolean(openContentViewer && item.ref.type === "artifact") ||
-        Boolean(openDrawer && findRecord(data, item.ref.type, item.ref.id)));
+        Boolean(
+          openDrawer &&
+          DRAWER_OPENABLE_TYPES.has(item.ref.type) &&
+          findRecord(data, item.ref.type, item.ref.id),
+        ));
     const rawAlias = typeof item.metadata.raw_alias === "string" ? item.metadata.raw_alias : "";
     return (
       <li key={`${item.direction}:${item.assertion_id}`} className="lineage-row">
