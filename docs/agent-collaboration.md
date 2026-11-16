@@ -266,15 +266,15 @@ Taskの `version` は通常編集でも変わるため、作業単位IDの代用
 
 ### 6.4 責務の境界
 
-| 境界                              | 責務                                                                                                    |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| shared contract                   | 要対応の種類、source locator、操作可能条件、回答と作業単位のschema                                      |
-| MainのTask/Proposal application層 | 状態の導出、source version照合、冪等処理、回答、採用と差戻し                                            |
-| Repository                        | 現在参照と履歴を同一transactionへ保存。必要なmigrationとExport対応                                      |
-| MCP                               | 既存append/report toolを中心に不足分だけ型付き拡張。許可範囲（start_task_work以外はProposalのみ）を維持 |
-| Desktop storeとUI                 | read modelを表示し、型で指定されたCommandへ接続。日本語文言から挙動を判定しない                         |
-| Mobile Gateway                    | Desktopと同じ意味のJSON read modelを返す                                                                |
-| Android                           | DTOとキャッシュを表示。独自の状態導出を増やさず、共有golden fixtureで意味を合わせる                     |
+| 境界                              | 責務                                                                                                 |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| shared contract                   | 要対応の種類、source locator、操作可能条件、回答と作業単位のschema                                   |
+| MainのTask/Proposal application層 | 状態の導出、source version照合、冪等処理、回答、採用と差戻し                                         |
+| Repository                        | 現在参照と履歴を同一transactionへ保存。必要なmigrationとExport対応                                   |
+| MCP                               | 既存append/report toolを中心に不足分だけ型付き拡張。報告はProposalのまま（開始の道具は#755で外した） |
+| Desktop storeとUI                 | read modelを表示し、型で指定されたCommandへ接続。日本語文言から挙動を判定しない                      |
+| Mobile Gateway                    | Desktopと同じ意味のJSON read modelを返す                                                             |
+| Android                           | DTOとキャッシュを表示。独自の状態導出を増やさず、共有golden fixtureで意味を合わせる                  |
 
 KotlinからTypeScriptを直接参照する前提にしない。状態導出はMainに置き、Androidはその結果をキャッシュする。
 
