@@ -4,16 +4,16 @@ MCP bridgeは接続ごとに公開するツールを選べます。stdioでは�
 
 ## セットの内容
 
-| セット      | ツール（`tasken.`は省略）                                                                                                                                                                                      |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `core`      | `search_items`, `list_open_items`, `get_task_context`, `get_note`, `search_notes`, `get_activity`                                                                                                              |
-| `coding`    | `resolve_repository_context`, `get_repository_context`, `get_agent_session_context`, `list_agent_ready_tasks`, `get_task_assignment`                                                                           |
-| `context`   | `get_theme_context`, `get_feed_context`                                                                                                                                                                        |
-| `proposals` | `get_proposal_status`, `list_proposals`                                                                                                                                                                        |
-| `meta`      | `get_capabilities`                                                                                                                                                                                             |
-| `write`     | `start_task_work`, `report_work`, `create_task`, `create_note`, `change_task`, `undo_change`, `decide_proposal`, `edit_note`, `propose_note`, `propose_note_edit`, `propose_feed_post`, `answer_feed_question` |
-| `all`       | 上記6セット                                                                                                                                                                                                    |
-| `legacy`    | 空。旧名3道具は外した（#755）。設定に残っていても起動を止めないよう、名前だけ受ける                                                                                                                            |
+| セット      | ツール（`tasken.`は省略）                                                                                                                                                                   |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core`      | `search_items`, `list_open_items`, `get_task_context`, `get_note`, `search_notes`, `get_activity`                                                                                           |
+| `coding`    | `resolve_repository_context`, `get_repository_context`, `get_agent_session_context`                                                                                                         |
+| `context`   | `get_theme_context`, `get_feed_context`                                                                                                                                                     |
+| `proposals` | `get_proposal_status`, `list_proposals`                                                                                                                                                     |
+| `meta`      | `get_capabilities`                                                                                                                                                                          |
+| `write`     | `report_work`, `create_task`, `create_note`, `change_task`, `undo_change`, `decide_proposal`, `edit_note`, `propose_note`, `propose_note_edit`, `propose_feed_post`, `answer_feed_question` |
+| `all`       | 上記6セット                                                                                                                                                                                 |
+| `legacy`    | 空。旧名3道具は外した（#755）。設定に残っていても起動を止めないよう、名前だけ受ける                                                                                                         |
 
 複数指定は和集合です。空配列・空文字・未知のセット名は起動エラーにし、全公開へフォールバックしません。正本は`src/main/mcp/toolAvailability.mjs`の`MCP_TOOL_REQUIREMENTS`です。
 
@@ -39,7 +39,7 @@ HTTPでは`TASKEN_MCP_HTTP_CLIENTS_FILE`の既存の各クライアント項目�
 
 共通で`task_id`・`expected_version`・`idempotency_key`・`caller`・`executor_label`が必要です。人に質問するときは`request_id`に安定したUUIDを付けます。従来どおり任意欄であり、単なる障害報告には必須ではありません。再送時は日時・版・内容・キーを保持します。Proposalの保存形式、旧requestのtool識別子、採用・再送判定は変更しません。`done`も人が採用する報告であり、Taskの完了は別の人間操作です。
 
-旧3名（`append_work_receipt`・`report_task_done`・`report_task_blocked`）は道具ごと外しました（#755）。表の「従来の入口」は、保存済みのProposalに残るtool識別子として読めるように残しています。外部クライアントのツールキャッシュは再読み込みしてください。読み取り専用の既定は16個を維持します。書き込みあり・capabilities未指定の既定は、3入口を1入口に統合したため26個から24個になります。`all,legacy`でも、legacy の組が空になったので all と同じ28個です。NASの`proposals`配備はread 16 + write 5の21個です。
+旧3名（`append_work_receipt`・`report_task_done`・`report_task_blocked`）は道具ごと外しました（#755）。表の「従来の入口」は、保存済みのProposalに残るtool識別子として読めるように残しています。外部クライアントのツールキャッシュは再読み込みしてください。AI Readyの一覧・割り当て（`list_agent_ready_tasks`・`get_task_assignment`）と開始（`start_task_work`）も外しました（#755 束10a）。読み取り専用の既定は14個、書き込みあり・capabilities未指定の既定は25個です。`all,legacy`でも、legacy の組が空なので all と同じ25個です。NASの`proposals`配備はread 14 + write 5の19個です。
 
 ## 必要時に読むガイド
 
@@ -50,7 +50,7 @@ HTTPでは`TASKEN_MCP_HTTP_CLIENTS_FILE`の既存の各クライアント項目�
 | `tasken://guide/feed_post`    | 発見の記録、根拠と仮説、重複回避、記事・画像・外部リンク |
 | `tasken://guide/note_article` | Noteと記事のMarkdown、画像アップロードと採用             |
 | `tasken://guide/work_report`  | 報告の必須欄、委任・質問ID、再送、チェック項目と採用     |
-| `tasken://guide/proposals`    | 権限、直接作成・開始とProposalの違い、dry runと採否      |
+| `tasken://guide/proposals`    | 権限、直接の書き込みとProposalの違い、dry runと採否      |
 
 tools/listのJSON Schemaから`minLength`・`maxLength`・`minimum`・`maximum`・`pattern`・`$schema`・`additionalProperties: false`を省きます。`type`・`required`・`enum`・`format`・配列上限・`additionalProperties`がschemaの場合の型は残します。型を決めるUUIDの`format`も維持します。パターン・数値上限に例外は設けず、version・再送キー・UUIDの要点は短い説明と上記ガイドに残します。SDKが呼び出し時に使うZod schemaは元の制約のままです。違反時はフィールドのpathとmessageを含むSDK入力エラーを返します。
 

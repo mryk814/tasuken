@@ -46,9 +46,9 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 
 ## MCP inventory（2026-09 slimming: MCP 21 tools、以後の追加を含め24 tools。Coreのquery/commandは全種別を温存）
 
-### Read 16 / MCP
+### Read 14 / MCP
 
-- Work selection: `search_items`, `list_open_items`, `list_agent_ready_tasks`, `get_task_assignment`
+- Work selection: `search_items`, `list_open_items`（AI Readyの`list_agent_ready_tasks`・`get_task_assignment`は #755 束10a で外した）
 - Task detail: `get_task_context`, `get_note`
 - Note: `search_notes`
 - Repository: `resolve_repository_context`, `get_repository_context`
@@ -61,7 +61,7 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 
 `search_items`・`list_open_items`の`id`は他のtoolへそのまま渡せる正本IDで、移行元の旧Item IDは`legacy_item_id`へ分ける。Taskには`canonical_locator`（`tasken://task/...`）を添え、削除済みの結果は`lifecycle: "archived"`で示す。Noteは`search_items`の対象外で、`search_notes`（Coreの`get_recent_notes`に`query`を足したもの）で探す。
 
-`list_agent_ready_tasks`・`get_task_assignment`・`get_task_context`は、Taskの状態から導出した`agent_state`（`lifecycle`・`ai_ready`・`runnable`・`not_runnable_reasons`）を添える。`work_state`は委任の段階だけを表し削除・完了を含まないため、AIが着手してよいかは`runnable`で判断する。
+`get_task_context`は、Taskの状態から導出した`agent_state`（`lifecycle`・`ai_ready`・`runnable`・`not_runnable_reasons`）を添える。`work_state`は委任の段階だけを表し削除・完了を含まない。AI Readyの開始を外した後も、前の版で委任したTaskを読むために残している（外すのは束10b）。
 
 写真の要約・manifestはCoreのTask Contextが返すが、MCPのPhoto tool（`get_capture_image` / `get_task_image`）は slimmingで廃止した。MCP経由の画像取得は行わない。
 
@@ -71,15 +71,15 @@ MCP stdio bridgeはCore HTTPを利用するが、正式Taskを直接更新する
 
 `list_proposals`は接続中のnodeが受け取ったProposalを新しい順に返す。`source_session`・`source_app`・`caller`・`status`で絞り込め、受領IDを失ったAIが自分のProposalを探し直せる。返すのは識別と状態（Task作業報告は対象`task_id`）だけで、payload本文は返さない。詳細は受領IDで`get_proposal_status`を読む。
 
-Proposal・読み物の書き込みtool（`start_task_work`を除く）は`dry_run: true`を受け付ける。Coreは本送信と同じ検証（schema・配備の許可範囲・idempotencyの衝突・画像のprepare）を行い、保存・画像のstage・Feedへの表示をせずに`status: "validated"`と、本送信の見積もり`would_status`（`queued`/`duplicate`）、正本との照合`checks`（Taskの`expected_version`、Note編集の`base_version`）を返す。版の不一致は採用時に検査されるため、本送信は拒否せず`checks`で知らせるだけとし、非公開Entityの版番号は文言に含めない。
+Proposal・読み物の書き込みtoolは`dry_run: true`を受け付ける。Coreは本送信と同じ検証（schema・配備の許可範囲・idempotencyの衝突・画像のprepare）を行い、保存・画像のstage・Feedへの表示をせずに`status: "validated"`と、本送信の見積もり`would_status`（`queued`/`duplicate`）、正本との照合`checks`（Taskの`expected_version`、Note編集の`base_version`）を返す。版の不一致は採用時に検査されるため、本送信は拒否せず`checks`で知らせるだけとし、非公開Entityの版番号は文言に含めない。
 
 MCP bridgeは、`error`オブジェクトを持つ応答（見つからない等）にも例外による失敗と同じく`isError: true`を付ける。
 
-`get_capabilities`は接続中のCoreの書き込み範囲（`write_profile`）、受け付ける書き込みの種類（`writes`）、toolごとの可否と機械可読な理由（`missing_capability:task.start_work`・`bridge_read_only`・`disabled_in_settings`）を返す。判定の正本は`src/main/mcp/toolAvailability.mjs`の要件表で、`proposals`配備の種類は`PROPOSALS_PROFILE_CONTENT_KINDS`（task契約）をCoreの拒否と共有する。MCP bridgeは起動時にCoreのcapabilityを一度読み、使えない書き込みtoolを一覧から外す。起動時にCoreへ接続できなかった場合は全toolを登録し（`bridge.filtered_at_startup: false`）、Core側の拒否が最終の境界になる。
+`get_capabilities`は接続中のCoreの書き込み範囲（`write_profile`）、受け付ける書き込みの種類（`writes`）、toolごとの可否と機械可読な理由（`missing_capability:create_ai_item`・`bridge_read_only`・`disabled_in_settings`）を返す。判定の正本は`src/main/mcp/toolAvailability.mjs`の要件表で、`proposals`配備の種類は`PROPOSALS_PROFILE_CONTENT_KINDS`（task契約）をCoreの拒否と共有する。MCP bridgeは起動時にCoreのcapabilityを一度読み、使えない書き込みtoolを一覧から外す。起動時にCoreへ接続できなかった場合は全toolを登録し（`bridge.filtered_at_startup: false`）、Core側の拒否が最終の境界になる。
 
-### Proposal 8 / MCP
+### Proposal 5 / MCP
 
-- Task work: `start_task_work`, `report_work`（status=progress/done/blocked）。旧名の`append_work_receipt`, `report_task_done`, `report_task_blocked`は外した（#755）。
+- Task work: `report_work`（status=progress/done/blocked）。旧名の`append_work_receipt`, `report_task_done`, `report_task_blocked`は外した（#755）。開始の`start_task_work`は #755 束10a で外した。
 - Content: `propose_note`, `propose_note_edit`
 - Reading: `propose_feed_post`, `answer_feed_question`
 

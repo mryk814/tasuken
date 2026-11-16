@@ -56,9 +56,9 @@ rtk node scripts/mcp-doctor.mjs --server C:/path/to/Tasken/resources/mcp/server.
 
 省略時はRepositoryの`scripts/mcp-server.mjs`を検査します。
 `--node`にはAI側で使用するNodeの絶対パスも指定できます。
-診断はCoreのhealth・認証・capabilitiesを確認後、指定したMCPを実際に起動し、ツール・Prompt・Resourceの一覧とAI Readyの読み取りを確認します。
-Task本文は出力せず、着手やProposal送信もしません。
-`task_work_available=false`なら着手ツールが公開されていません。読み取り専用設定またはMCP bridgeの版を確認してください。
+診断はCoreのhealth・認証・capabilitiesを確認後、指定したMCPを実際に起動し、ツール・Prompt・Resourceの一覧と`list_open_items`の読み取りを確認します。
+Task本文は出力せず、書き込みやProposal送信もしません。
+`write_available=false`なら書き込みのツールが公開されていません。読み取り専用設定またはMCP bridgeの版を確認してください。
 診断成功と、各AIの権限・モデルによる作業完遂は別の検証です。
 
 配布版TaskenのSettingsがコピーするMCP設定には、開発用環境変数を継承しないため
@@ -73,52 +73,14 @@ WSL・別PC・Web版AIからの接続はこのWindows用設定では検証して
 
 ## 日常の一周
 
-Windowsのカンバンではカードの「AIに渡す」からClaude Code／Codexと作業先を選び、対話CLIへ依頼できます。登録済みの作業先をTheme別に並べ、関連Themeを先頭に表示します。リポジトリ名とこのPCのパスを確認して選んでください。削除・アーカイブ・無効な登録は表示せず、Windows用パスのない作業先には理由を表示します。必要な場合は「別のフォルダを選ぶ」から補えます（登録情報は変更しません）。選んだ組み合わせはこの端末に記憶し、別Themeのタスクではその関連作業先を優先します。CLIとNode.jsのWindows版が必要です。Tasken MCPの接続設定は起動するセッションにだけ渡します。
-以後の質問・回答・権限確認はCLI側で行い、成果報告だけを既存MCPでTaskenへ戻します。起動成功は着手の証拠ではなく、`start_task_work`を受けるまでは開始待ちです。起動失敗時もAI Readyと選択内容を保ち、再試行できます。
+AIへの仕事の頼み方は、AIとの会話で伝えることだけです。AI Readyの切り替え・依頼文のコピー・MCPの開始（`start_task_work`）は外しました（#755 束10a）。TaskenからCLIを起動する機能もありません。
 
-対話起動の引数は[Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference)と[Codex CLI reference](https://developers.openai.com/codex/cli/reference)に従います（2026-10-08確認）。実CLIの認証・権限・作業完遂は端末ごとの確認が必要です。
+1. 設定 → AI & Context の「ローカルのAIに直接の書き込みを許す」が有効であることを確かめます（新しい版の最初の起動で一度だけ有効になります。PCごとの設定です）。
+2. 普段使うAIに、会話でTaskを伝えます。AIは`search_items`や`get_task_context`で対象と作業先を確かめます。
+3. AIは、あなたの言葉を`said`に写して`change_task`でTaskを編集・完了・再開します（`undo_change`で取り消せます）。新しいTaskやNoteは`create_task`・`create_note`で作ります。どれもAIの操作として記録され、日誌のActivityから取り消せます。
+4. 作業の終わりに、AIは`report_work`を`task_id`なしで一度呼び、自分の作業を1件残します（案を通さず、Taskは変えません）。
 
-1. Taskenで完了条件と関連Themeを整え、TaskをAI Readyにします。依頼文を手渡しする経路では、デスクトップの保存成功後に依頼文を自動コピーします。ボードの「AIに渡す」はCLIへ直接渡すため、クリップボードを変更しません。
-2. 普段使うAIに依頼文を貼り付けます。Taskドロワーの「依頼文をコピー」から取り直せます。解除時や既存AI Readyの編集時はクリップボードを変えません。コピー失敗時もAI Readyは保存され、再コピーの案内を表示します。
-3. AIは`get_task_context`で対象と作業先を確認し、実際に着手するときだけ`start_task_work`を呼びます。
-4. AIは通常、完了時に最新versionで`report_work(status=done)`を一度だけ送ります。完了直前に同じ結果を`report_work(status=progress)`で送る必要はありません。途中報告は長期作業で必要なとき、中断報告は人の対応が必要なときに使います。`reported_at`にはAIが作業を終えた時刻を指定します。完了報告の後で追報告が必要になったら、新しい`idempotency_key`で送ると同じTaskに積まれ、Agent Deskでまとめて確認できます。同じ`idempotency_key`で内容を変えると競合になるため、再送時は日時・内容も維持します。
-5. 人がAgent DeskでTaskごとの時系列を確認し、「採用」を押します。検証済みのチェック項目IDを`completed_checklist_item_ids`に添えた報告は、プレビューで項目名を確認してから反映します。報告の採用ではTaskを完了せず、人がTaskドロワーの「承認して完了」などで別途判断します。ActivityとDebriefのAI作業期間は、採用日時ではなく開始・報告時刻で表示します。
-
-採用後やTask完了後も`report_work(status=progress)`で追加報告できます。報告の採用でTask本文・既存の完了状態は変わりません。チェックを反映する場合は最新のTask versionが必要です。チェック項目やversionが変わった場合は`get_task_context`で再確認して報告を作り直します。
-
-追加報告は採用しても`work_state`を進めないため、Agent Deskの「採用」では作業中のままです。同じ画面の「完了」を人が選んだときだけ、追加報告の採用とTaskの完了を同時に行います。
-
-AI ReadyにしただけではAIを起動せず、定期実行も開始しません。
-まずは必要なときに依頼する運用とし、自動巡回が必要になった場合に実行間隔と対象を決めます。
-
-一覧から相談したいときは、次を外部AIに渡します。
-
-> Tasken MCPでAI ReadyのTaskを確認し、今の作業先で扱える候補を示してください。今回は一覧とContextの確認までにしてください。
-
-作業を任せるときは対象Taskを指定し、次の手順を使います。
-
-1. `get_task_context`へTask IDと現在のworkspace情報を渡す。対象、完了条件、Repositoryの一致を確認し、曖昧なら着手前に確認する。
-2. AI Readyを確認して`start_task_work`を送る。`expected_version`、`caller`、`idempotency_key`、ISO日時の`started_at`を指定する。成功したら最新のTask/versionを読み直す。
-3. 作業と検証を行い、結果に応じて`report_work(status=done)`または`report_work(status=blocked)`を送る。必要な途中報告は`report_work(status=progress)`を使う。
-4. `queued`は人の採用待ち。Proposal ID、実施した検証、残作業を伝えて依頼を閉じる。AI自身は採用しない。
-
-通信結果が不明な同じ要求を再送するときはkey・日時・内容を維持します。
-version競合はTaskを読み直して内容を再判断します。新しい要求として送る場合は新しいkeyにします。
-作業開始は直接保存されますが、結果報告は採用まで正式反映されません。
-既存のReceipt採用経路は、開始を省略したAI Ready Taskにも開始記録を補います。
-
-### 作業単位IDを付ける（任意）
-
-同じTaskへ何度も委任する場合は、一回の委任を `work_attempt_id`（UUID）で識別できます。
-付けると、再委任後に届いた前の作業の報告が「過去の作業報告」として扱われ、いまの状態を巻き戻しません。
-
-1. `start_task_work` に `work_attempt_id` を付けて委任を始める。やり直すときだけ新しいUUIDにする。
-2. 同じ委任の `report_work(status=progress)` / `report_work(status=done)` / `report_work(status=blocked)` には同じ `work_attempt_id` を付ける。
-3. 同じ作業単位の中で順番が問題になる場合は `report_sequence`（0以上の整数）を付ける。付けると、到着順や発信時刻ではなくこの順番で並びます。
-4. 人に判断を求める `report_work(status=blocked)` には `request_id`（UUID）を付ける。同じ質問を送り直すときは同じIDを使い、別の質問には新しいIDを使う。
-
-省略した場合はこれまでと同じ動作です（Taskに作業単位IDが付いていない間は、すべての報告がいまの作業として扱われます）。
-詳細は [agent-work-contract.md](./agent-work-contract.md)。
+前の版で委任したTask（作業中・確認待ち）への報告は、`task_id`を付けた`report_work`で送ると、これまでどおり案として届きます。人がFeedで採用し、Taskの完了は別に判断します。検証済みのチェック項目IDを`completed_checklist_item_ids`に添えると、採用時に反映されます。同じ`idempotency_key`で内容を変えると競合になるため、再送時は日時・内容も維持します。作業単位ID（`work_attempt_id`）と`request_id`の扱いは [agent-work-contract.md](./agent-work-contract.md)。
 
 ## 会話から気軽に残す
 
@@ -131,7 +93,7 @@ Taskを任せるほどではない発見や文章も、既存の入口へその�
 
 Feedへの投稿は届いた時点でFeedに表示され、**採用操作は要りません。** 正式Note・Taskになるのは人が採用したときだけです。どちらなのかは各呼び出しの`message`と`payload_type`で区別できます。
 
-MCPの案内とTaskの依頼文は、依頼された作業で検証した再利用可能な発見を自発的に残すようAIへ伝えます。意外な制約、落とし穴、原因と対策、比較やトレードオフが対象です。短い発見はFeedへ、仕組みや再現手順を説明したい場合は`propose_feed_post`の`article`へ技術記事草稿を添えます。独立した記事は`propose_note`を使います。
+MCPの案内は、依頼された作業で検証した再利用可能な発見を自発的に残すようAIへ伝えます。意外な制約、落とし穴、原因と対策、比較やトレードオフが対象です。短い発見はFeedへ、仕組みや再現手順を説明したい場合は`propose_feed_post`の`article`へ技術記事草稿を添えます。独立した記事は`propose_note`を使います。
 投稿数のノルマはありません。新しい発見がなければ投稿せず、既出内容や定例進捗の転載を避け、同じ発見はまとめます。観測と推測を分け、秘密情報は含めず、記事のために依頼外の調査を増やしません。記事草稿は採用前でも読めますが、正式Note化には人の採用が必要です。これらの投稿はTaskの成果・中断報告を置き換えません。
 
 AIへ渡す依頼文の例:

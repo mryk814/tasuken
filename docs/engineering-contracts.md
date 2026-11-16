@@ -69,11 +69,11 @@ Taskの場所のリマインダー（`place_reminder`）は、地名・座標・
 
 Desktopの同じ接続で、Noteの直接編集（`/v1/commands/edit-note`）とProposalの採否（`/v1/commands/decide-proposal`）も受ける（`ai_direct_write`。取り消せないのでNASには出さない）。Noteの編集は「Note編集のProposalを作り、その場で採用する」で、版（`base_version`）の照合とCanonical Markdownの保存はDesktopの採用と同じ経路を通る。本人の言葉の要否はTaskと同じ（AIが作って本人がまだ触っていないNoteだけ要らない）で、断るときはProposalを残さない。採否は本人の言葉（`said`）が必ず要り、作業報告（task_work）とNote（作成・編集の一件）だけを扱う。作業報告の採用ではTaskも完了にするかを`complete_task`で明示する。ほかの種類は`DECIDE_IN_DESKTOP`で断り、本人の画面に任せる。人の確認に限っていた作業報告の採用は、本人の言葉を取り次ぐこの入口だけを例外にする（actorはai_agentのまま、根拠を記録する）。
 
-開始専用の`task.start_work`は新規作成と独立した許可とする。DesktopはAI Readyを本人の許可として常に公開し、Themeと依頼者を問わない。NASは明示opt-inで、本人の個人業務に限る。どちらも人がAI Readyにした未着手Taskに限り、開始状態・時刻・実行者・作業単位・監査を直接保存する。汎用の`task.command`はloopbackに出さない（actorを呼び出し側が書くため）。actor/sourceはCoreで固定し、本文・完了・削除・採用・委任の権限を増やさない。報告はProposalのまま、人の採用とTask完了を別操作に保つ。撤回後も履歴を保持する。詳細は[開始専用権限](ai-task-start.md)。
+AI Readyの開始（`task.start_work`・MCPの`start_task_work`）は #755 束10a で外した。AIがTaskを動かす道は、本人が設定で許した直接の書き込み（`change_task`など、本人の言葉を根拠にし、取り消せる）だけ。汎用の`task.command`はloopbackに出さない（actorを呼び出し側が書くため）。前の版で記録した開始の来歴（change_event）と作業報告（work_receipt）はそのまま読める。
 
 Coreの全権tokenはdiscoveryで共有するMCP bridge用に限る。MCPを経由しないローカルの読み取りクライアントには、名前つきの読み取り専用tokenを発行する。保存はSHA-256だけで、取り消しは即時に効く。読み取り専用tokenはquery routeだけを通し、Proposal状態・Proposal作成・書き込みを拒否する。接続先はtokenを含まないendpoint fileで公開する。詳細は[外部AI連携](external-ai-integration.md#読み取り専用のローカルクライアント)。
 
-NASのStreamable HTTP MCPは`127.0.0.1`の`/mcp`だけで受け、Tailscale Serveのtailnet内HTTPSから接続する。Core discoveryの全権tokenを外部クライアントへ配らず、bridge専用のクライアント別Bearer tokenを使う。tokenなし・不一致は401とし、クライアントの`readOnly`は既定true、`TASKEN_MCP_READ_ONLY=1`を越えて書き込みを許可しない。HTTP側は汎用編集・削除・完了・直接開始を公開せず、明示されたCoreの`proposals` / `create-only`の範囲を上限にする。stdioとHTTPは同じCoreを使い、HTTPがSQLiteを直接開く経路を作らない。配備とtoken管理は[Synology手順](synology-headless-node.md#tailnet内のstreamable-http-mcp673)に従う。
+NASのStreamable HTTP MCPは`127.0.0.1`の`/mcp`だけで受け、Tailscale Serveのtailnet内HTTPSから接続する。Core discoveryの全権tokenを外部クライアントへ配らず、bridge専用のクライアント別Bearer tokenを使う。tokenなし・不一致は401とし、クライアントの`readOnly`は既定true、`TASKEN_MCP_READ_ONLY=1`を越えて書き込みを許可しない。HTTP側は汎用編集・削除・完了を公開せず、明示されたCoreの`proposals` / `create-only`の範囲を上限にする。stdioとHTTPは同じCoreを使い、HTTPがSQLiteを直接開く経路を作らない。配備とtoken管理は[Synology手順](synology-headless-node.md#tailnet内のstreamable-http-mcp673)に従う。
 
 ## セキュリティと秘密情報
 

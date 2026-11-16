@@ -94,29 +94,29 @@ MCPクライアントを動かす環境には **Node.js 20以上**をインス�
 
 `npm --silent run mcp`は`scripts/mcp-server.mjs`を通常のNodeで起動します。MCP bridgeはSQLiteを開かず、Desktop Mainが公開する認証済みloopback Tasken Coreへ接続します。Core停止時はDBへfallbackせず、tool resultに復旧可能な構造化errorを返します。MCPクライアント設定ではstdoutにnpmのログを混ぜないため`--silent`を付けてください。
 
-Tasken Desktopを起動した状態で、Core discovery・health・API version・認証と、実stdio MCPの起動・ツール一覧・AI Ready読み取りを診断:
+Tasken Desktopを起動した状態で、Core discovery・health・API version・認証と、実stdio MCPの起動・ツール一覧・読み取りを診断:
 
 ```bash
 npm run doctor:mcp -- --json
 ```
 
-Claude Code / Codex / GitHub Copilot CLIの登録方法、依頼文、着手から採用までの手順は [外部AI連携ガイド](./docs/external-ai-integration.md) を参照してください。診断対象をインストール済みMCPに合わせるには、設定画面でコピーしたserverパスを`--server`へ渡します。
+Claude Code / Codex / GitHub Copilot CLIの登録方法と使い方は [外部AI連携ガイド](./docs/external-ai-integration.md) を参照してください。診断対象をインストール済みMCPに合わせるには、設定画面でコピーしたserverパスを`--server`へ渡します。
 
 外部AIは最初に`tasken.get_capabilities`を呼ぶと、接続先がどの書き込みを受け付けるかと、使えないtoolの理由をまとめて確認できます。MCP serverは起動時に接続先を確認し、使えない書き込みtoolを一覧に出しません。
 
-MCPの検索・文脈取得toolは読み取り専用です。Task（状態が「待ち」の物を含む）・計画は`search_items`、Noteは`search_notes`で探します。Noteの要約一覧で本文を含めるには`include_raw_body: true`を指定し、個別本文は`get_note`で取得します。AIが着手してよいTaskかは、Taskに添える`agent_state.runnable`で判断します。作成・編集・Taskの結果報告はProposalとして届き、Taskenで採用するまで正式データは変わりません。AIが自分の1回の作業を要約した記録（AIの作業）は、`report_work`を`task_id`なしで呼ぶと案を通さずにすぐ残ります。本人の記録は作らず変えません。同じ`idempotency_key`や、同じ会話でもう記録した時間までの作業は1件に数えます。本人はいつでも消せ、AIは自分が書いた記録だけを`undo_change`へ記録のIDを渡して取り消せます。ほかの例外は`start_task_work`（人がAI ReadyにしたTaskの開始）と、設定の「AI & Context → ローカルのAIに直接の書き込みを許す」を有効にしたときの`create_task`・`create_note`です。有効にすると、`change_task`で既存Taskの編集・完了・再開・削除・委任も、本人の言葉を根拠に直接行えます（`undo_change`で取り消せます）。`edit_note`でNoteの編集、`decide_proposal`で作業報告とNote案の採否も行えます（採否は本人の言葉が必ず要ります）。どちらもAIの操作として記録します。NASのHTTPでは、配備とクライアントごとに許したときだけ`change_task`・`undo_change`を使えます（`docs/synology-headless-node.md`）。Taskenが起動していないとき、配布版のMCPはTasken.exeの場所を案内します。
+MCPの検索・文脈取得toolは読み取り専用です。Task（状態が「待ち」の物を含む）・計画は`search_items`、Noteは`search_notes`で探します。Noteの要約一覧で本文を含めるには`include_raw_body: true`を指定し、個別本文は`get_note`で取得します。作成・編集・Taskの結果報告はProposalとして届き、Taskenで採用するまで正式データは変わりません。AIが自分の1回の作業を要約した記録（AIの作業）は、`report_work`を`task_id`なしで呼ぶと案を通さずにすぐ残ります。本人の記録は作らず変えません。同じ`idempotency_key`や、同じ会話でもう記録した時間までの作業は1件に数えます。本人はいつでも消せ、AIは自分が書いた記録だけを`undo_change`へ記録のIDを渡して取り消せます。ほかの例外は、設定の「AI & Context → ローカルのAIに直接の書き込みを許す」を有効にしたときの直接の書き込みだけです。AIがTaskを動かす道はこれだけで、AI Readyと`start_task_work`は外しました（#755）。この版を最初に起動した時に一度だけ有効になり、後で無効にすればそのまま残ります（PCごとの設定）。有効なら`create_task`・`create_note`で新規作成し、`change_task`で既存Taskの編集・完了・再開・削除・委任を本人の言葉を根拠に直接行えます（`undo_change`で取り消せます）。`edit_note`でNoteの編集、`decide_proposal`で作業報告とNote案の採否も行えます（採否は本人の言葉が必ず要ります）。どちらもAIの操作として記録します。NASのHTTPでは、配備とクライアントごとに許したときだけ`change_task`・`undo_change`を使えます（`docs/synology-headless-node.md`）。Taskenが起動していないとき、配布版のMCPはTasken.exeの場所を案内します。
 
 Coding Agentは`tasken.get_task_context`へTask IDと現在のworkspace情報を渡すと、Task / assignment / Theme / RepositoryContextと、関係理由付きのNote・Activity・Work Receipt概要をまとめて取得できます。件数と本文長には上限があり、Note全文が必要な場合だけレスポンス内のstable locatorから`tasken.get_note`で取得します。
 
 Themeには、人間が書く比較的安定した`Theme Charter`と、現在の方向・問いを持つ`Theme State`を保存できます。MCPのテーマ背景は`tasken.get_theme_context`に一本化しています。`tasken://themes/{themeId}/intent` ResourceはThemeの意図だけを参照し、`daily-report` Promptは利用者が明示起動する作業テンプレートです。正本と投影の境界は [`docs/tasken-context-architecture.md`](./docs/tasken-context-architecture.md) を参照してください。
 
-人がAI ReadyにしたTaskを外部AIが選び、`get_task_context`で確認してから`start_task_work`で開始します。開始後の最新versionを使って、`task_id`を付けた`report_work(status=progress)`、`report_work(status=done)`、`report_work(status=blocked)`を送ります。報告はFeedで採用し、完了報告の採用後もTaskの完了は利用者が明示します。AIは完了したチェック項目のIDを報告に添えられ、採用時に該当項目へ反映されます。Taskの完了後も追加報告を履歴へ残せます。各Task writeには`expected_version`、`idempotency_key`、`caller`が必要です。同じ要求の再送ではkeyと内容を維持してください。RepositoryContext snapshotにはローカルパスやremote URLを保存しません。読み取り専用の運用では`TASKEN_MCP_READ_ONLY=1`を設定してください。
+前の版で委任したTask（作業中・確認待ち）への報告は、`get_task_context`で最新versionを確かめてから、`task_id`を付けた`report_work(status=progress)`、`report_work(status=done)`、`report_work(status=blocked)`で送ります。報告はFeedで採用し、完了報告の採用後もTaskの完了は利用者が明示します。AIは完了したチェック項目のIDを報告に添えられ、採用時に該当項目へ反映されます。Taskの完了後も追加報告を履歴へ残せます。各Task writeには`expected_version`、`idempotency_key`、`caller`が必要です。同じ要求の再送ではkeyと内容を維持してください。RepositoryContext snapshotにはローカルパスやremote URLを保存しません。読み取り専用の運用では`TASKEN_MCP_READ_ONLY=1`を設定してください。
 
 入口ごとの計測（回数・時間・大きさ・失敗の種類。内容は残しません。1つの要求は1行で、名前は`POST /mcp:<道具名>`や`GET /health`の形。Tasken 自身の部品が使う全権 token の要求は数えません）は、PCでは`npm run stats -- --days=7`、NASでは MCP HTTP の`GET /api/stats?days=7`をclient tokenで呼んで読めます。
 
 MCPを経由しないローカルの道具には、Coreの全権tokenではなくクライアント別の読み取り専用tokenを発行できます（[外部AI連携ガイド](./docs/external-ai-integration.md#読み取り専用のローカルクライアント)）。
 
-AI Readyは事前許可であり、自動実行の予約ではありません。外部AIを普段どおり開き、依頼文を貼り付けるかAI Readyの確認を頼みます。TaskenからCLIを直接起動する機能はありません。実stdioと一時DBを通す検証は [AI collaboration E2E](./docs/ai-collaboration-e2e.md) を参照してください。
+外部AIは普段どおり開き、会話でTaskを伝えます。TaskenからCLIを直接起動する機能はありません。実stdioと一時DBを通す検証は [AI collaboration E2E](./docs/ai-collaboration-e2e.md) を参照してください。
 
 書き込みtoolに`dry_run: true`を付けると、保存せずに検証だけを行い、本送信した場合の結果と対象の版の食い違いを返します。受領IDを失った場合は`tasken.list_proposals`で自分の`source_session`などから探し直せます。
 
@@ -191,7 +191,7 @@ npm run release:check
 SQLiteファイルそのものは共有せず、端末別の変更差分だけを交換します。
 詳細は [`docs/shared-folder-sync.md`](./docs/shared-folder-sync.md) を参照してください。
 
-NASの開始専用権限は`task.start_work`です。本人の個人業務のAI Ready Taskだけを対象にし、`create-only`とは独立して有効化します。開始にはUUIDの`work_attempt_id`も必須です。同じ要求の再送はversionを含む内容を保持し、返却されたTaskが現在も同じ作業単位・実行者のin_progressであることを確認してください。設定・撤回と報告採用の境界は[開始専用権限](docs/ai-task-start.md)を参照してください。
+NASのAI Readyの開始（`task.start_work`、`TASKEN_CORE_AI_TASK_START=1`）は外しました（#755）。前の配備に残った環境変数や、HTTPクライアントの`allowStart`は読まずに無視します（起動は止めません）。
 
 ### AIの作業の記録と、古いhooksを外す
 
