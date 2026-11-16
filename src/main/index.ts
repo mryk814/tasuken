@@ -21,7 +21,7 @@ import {
   createMobileRoutineWriter,
   createMobileWorkLogWriter,
 } from "./composition/taskenCoreRuntime.ts";
-import { retireCaptureOrganizerKeys } from "./services/captureOrganizerKeyRetirement";
+import { retireKeyFiles } from "./services/retiredKeyFiles";
 import { registerAttachmentProtocol, registerAttachmentScheme } from "./attachmentProtocol";
 import { registerMediaProtocol, registerMediaScheme } from "./mediaProtocol";
 import { registerWebArtifactProtocol, registerWebArtifactScheme } from "./webArtifactProtocol";
@@ -1896,8 +1896,9 @@ async function startDesktopApp(): Promise<void> {
   migrateLegacyUserDataIfNeeded();
   applyEmbeddedAiRetirementMigration(app.getPath("userData"));
   configureMainLog(app.getPath("userData"));
-  // 入力の AI 整理と ChatGPT の接続（#755 束9b で外した）の鍵を消す。ログにはファイル名と code だけを出す。
-  for (const { file, code } of retireCaptureOrganizerKeys(app.getPath("userData")).failed)
+  // 切った機能（#755 束9b の入力の AI 整理と ChatGPT、束5 の外部カレンダー）の接続の鍵を消す。
+  // ログにはファイル名と code だけを出す。
+  for (const { file, code } of retireKeyFiles(app.getPath("userData")).failed)
     logMain("warn", "retired-keys", `could not remove ${file} (${code})`);
   setPerformanceDiagnosticsWriter((line) => logMain("info", "performance", line));
   installMainPerformanceDiagnostics();
