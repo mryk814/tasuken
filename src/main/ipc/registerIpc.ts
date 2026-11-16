@@ -262,7 +262,6 @@ export function registerIpc(
   ipcMain.handle(IPC.activityOpenCanonicalRef, (_event, ref) =>
     service.openActivityCanonicalRef(ref),
   );
-  ipcMain.handle(IPC.aiContextPreview, (_event, request) => service.getAiContextPreview(request));
   ipcMain.handle(IPC.conversationContextPreview, (_event, request) =>
     service.getConversationContextPreview(request),
   );

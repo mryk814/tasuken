@@ -685,10 +685,6 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
   const domain = readFileSync("src/main/repositories/domain.mjs", "utf8");
   const repositorySource = readFileSync("src/main/repositories/workspaceRepository.mjs", "utf8");
   const mcp = readFileSync("src/main/mcp/server.mjs", "utf8");
-  const aiRequest = readFileSync(
-    "src/renderer/src/features/workspace/lib/taskAiRequest.ts",
-    "utf8",
-  );
   const proposalPanel = readFileSync(
     "src/renderer/src/features/workspace/components/AiProposalPanel.tsx",
     "utf8",
@@ -705,10 +701,8 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
   assert.doesNotMatch(mcp, /registerTool\("tasken\.accept_task_work"/);
   assert.doesNotMatch(mcp, /request_human_review|request_review/);
   assert.doesNotMatch(proposalPanel, /request_review/);
-  assert.match(drawer, /const isAiDelegationReady/);
-  assert.match(drawer, /このTaskはCoding AgentがTasken MCPから取得できます/);
-  assert.match(drawer, /workspaceApi\.copyText\(/);
-  assert.match(aiRequest, /tasken\.get_task_context に task_id/);
+  // AIへの依頼の欄（依頼文のコピーとHandoff）は #755 束10a で外した。
+  assert.doesNotMatch(drawer, /const isAiDelegationReady|TaskHandoffPanel|buildTaskAiRequest/);
   assert.doesNotMatch(drawer, /AIへ渡る内容を確認/);
   assert.doesNotMatch(drawer, /AIを起動して渡す/);
   assert.doesNotMatch(drawer, /StartTaskWork/);
@@ -810,7 +804,7 @@ test("direct Save, Today, MCP proposal, and Focus completion all share the AI co
   );
 });
 
-test("ToDo一覧とボード詳細から編集Drawerへ進みAI Readyを切り替えられる", () => {
+test("ToDo一覧とボード詳細から編集Drawerへ進み、AI Readyの切り替えは無い（#755 束10a）", () => {
   const today = readFileSync("src/renderer/src/features/workspace/pages/TodayPage.tsx", "utf8");
   const todo = readFileSync("src/renderer/src/features/workspace/pages/TodoPage.tsx", "utf8");
   const drawer = readFileSync("src/renderer/src/features/workspace/components/drawer.tsx", "utf8");
@@ -827,13 +821,10 @@ test("ToDo一覧とボード詳細から編集Drawerへ進みAI Readyを切り�
   assert.match(todo, /<TaskBoard[\s\S]*?onOpen=\{[\s\S]*?mode: "view"/);
   assert.match(drawer, /close\(\{ type: "task", mode: "edit", entity:/);
   assert.doesNotMatch(drawer, /onPrepareAiDelegation/);
-  assert.match(todo, /async function toggleAiReady/);
-  assert.match(taskFields, /AI Ready/);
-  assert.match(
-    taskFields,
-    /setIntendedExecutor\(checked \? "ai_agent" : "self"\);\s*setPreparedWorkState\(checked \? "ready_for_agent" : "not_delegated"\);/,
-  );
-  assert.match(taskFields, /disabled=\{!canToggleAiReady\}/);
+  // AI Readyの切り替え（一覧の行と編集の欄）は外した。保存済みの委任の値は隠し欄でそのまま残す。
+  assert.doesNotMatch(todo, /toggleAiReady|AI Readyにする/);
+  assert.doesNotMatch(taskFields, /AI Ready|setIntendedExecutor|canToggleAiReady/);
+  assert.match(taskFields, /name="intended_executor" value=\{intendedExecutor\}/);
   assert.match(taskFields, /name="work_state" value=\{preservedWorkState\}/);
 });
 

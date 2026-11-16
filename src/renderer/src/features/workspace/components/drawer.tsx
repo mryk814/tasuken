@@ -98,8 +98,6 @@ import {
   buildSavePlanNodeOperations,
 } from "../domain-model/persistence";
 import { duplicateTask } from "../domain-model/taskDuplication";
-import { buildTaskAiRequest } from "../lib/taskAiRequest";
-import { TaskHandoffPanel } from "./TaskHandoffPanel";
 
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type {
@@ -391,7 +389,9 @@ function TaskConversationPanel({
               )}
             </div>
             {answer && !item.requestId && (
-              <p className="field-help">質問IDのない旧報告です。依頼文で返答を渡してください。</p>
+              <p className="field-help">
+                質問IDのない旧報告です。返答はAIとの会話で直接伝えてください。
+              </p>
             )}
           </article>
         );
@@ -662,17 +662,7 @@ function TaskWorkSection({
     (task.intended_executor || "self") !== "self" ||
     workState !== "not_delegated" ||
     hasWorkHistory;
-  const isAiDelegationReady =
-    task.intended_executor === "ai_agent" && workState === "ready_for_agent";
   const [workOpen, setWorkOpen] = useState(hasWorkHistory || workState !== "not_delegated");
-  const copyAiRequest = async () => {
-    try {
-      await workspaceApi.copyText(buildTaskAiRequest([task]));
-      setToast("AIへの依頼文をコピーしました。", "success");
-    } catch {
-      setToast("AIへの依頼文をコピーできませんでした。もう一度お試しください。", "danger");
-    }
-  };
   const run = async (
     name: CommandEnvelope["name"],
     payload: CommandEnvelope["payload"],
@@ -736,7 +726,7 @@ function TaskWorkSection({
       "Work Receiptを追加しました。人間の確認待ちです。",
     );
   };
-  if (!hasDelegatedWork || (!executeCommand && !isAiDelegationReady)) {
+  if (!hasDelegatedWork || !executeCommand) {
     return null;
   }
   return (
@@ -747,19 +737,10 @@ function TaskWorkSection({
     >
       <summary aria-labelledby="task-work-heading">
         <span className="drawer-disclosure-title" id="task-work-heading">
-          {isAiDelegationReady ? "AIへの依頼" : "作業履歴"}
+          作業履歴
         </span>
       </summary>
       <div className="drawer-disclosure-body">
-        {isAiDelegationReady && (
-          <>
-            <p className="field-help">このTaskはCoding AgentがTasken MCPから取得できます。</p>
-            <button className="secondary-button" type="button" onClick={() => void copyAiRequest()}>
-              <IconCopyPlus size={16} />
-              依頼文をコピー
-            </button>
-          </>
-        )}
         {hasDelegatedWork &&
           (sortedReceipts.length > 0 ? (
             <div className="task-learning-list" aria-label="Work Receipt一覧">
@@ -1319,18 +1300,6 @@ export function EntityDrawer({
               </>
             )}
           </dl>
-          {saveEntities && (
-            <details className="drawer-subsection drawer-disclosure">
-              <summary>AIへの依頼・任せ直す</summary>
-              <TaskHandoffPanel
-                key={`handoff:${task.id}`}
-                task={task}
-                saveEntities={saveEntities}
-                executeCommand={executeCommand}
-                setToast={setToast}
-              />
-            </details>
-          )}
           <TaskConversationPanel
             key={`conversation:${task.id}`}
             task={task}
@@ -1848,15 +1817,6 @@ function EditDrawer({
           )}
           <AiContextFields type={type} entity={entity} />
         </form>
-        {taskForWorkSection && saveEntities && (
-          <TaskHandoffPanel
-            key={`handoff:${taskForWorkSection.id}:${taskForWorkSection.work_state || taskForWorkSection.intended_executor || "not_delegated"}`}
-            task={taskForWorkSection}
-            saveEntities={saveEntities}
-            executeCommand={_executeCommand}
-            setToast={setToast}
-          />
-        )}
         {taskForWorkSection && (
           <TaskConversationPanel
             key={`conversation:${taskForWorkSection.id}`}

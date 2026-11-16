@@ -49,7 +49,6 @@ import type {
 } from "../slideTimelineExport";
 import type { WebArtifactExecutionPolicy } from "../webArtifact.mjs";
 import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
-import type { AiContextPreview } from "../aiContextPreview.mjs";
 import type {
   AudioCaptureCancelRequest,
   AudioCaptureCommitRequest,
@@ -94,7 +93,6 @@ export const IPC = {
   activityCanonicalRootStatus: "activity:canonical-root-status",
   activityEvents: "activity:events",
   activityOpenCanonicalRef: "activity:open-canonical-ref",
-  aiContextPreview: "ai-context:preview",
   preferenceGet: "preference:get",
   preferenceSet: "preference:set",
   viewPreferenceGet: "view-preference:get",
@@ -274,15 +272,7 @@ export interface AppUpdateCheckResult {
 }
 
 export type McpCoreWriteProfile =
-  | "start-only"
-  | "proposals-and-start"
-  | "create-and-start"
-  | "full"
-  | "proposals"
-  | "read-only"
-  | "partial"
-  | "create-only"
-  | "unknown";
+  "full" | "proposals" | "read-only" | "partial" | "create-only" | "unknown";
 
 /**
  * 本人が設定（AI & Context）で、ローカルのAI（Claude Codeなど）に直接の書き込みを許したか。
@@ -358,24 +348,6 @@ export async function copyMcpBridgeConfig(
   info: McpBridgeInfo,
 ): Promise<void> {
   await copyText(info.configJson);
-}
-
-export type AiContextPreviewChannel = "mcp";
-export type AiContextPreviewScope = { type: "task"; id: string };
-
-export interface AiContextPreviewRequest {
-  channel: AiContextPreviewChannel;
-  scope: AiContextPreviewScope;
-}
-
-export interface AiContextPreviewResult {
-  state: "ready" | "empty" | "error";
-  requestedScope: AiContextPreviewScope;
-  effectiveScope: AiContextPreviewScope;
-  producer: "mcp_task_context";
-  preview: AiContextPreview | null;
-  includedInEffectiveScope: boolean | null;
-  error?: string;
 }
 
 export type ConversationContextScope = "full" | "selected_turns";
@@ -624,9 +596,6 @@ export interface ResearchDeskApi {
     /** 来歴を範囲で読む。workspace.load() は来歴を載せない（#755 束0b）。 */
     events(query: ActivityEventsQuery): Promise<Entity[]>;
     openCanonicalRef(ref: Record<string, unknown>): Promise<{ ok: boolean; error?: string }>;
-  };
-  aiContext: {
-    preview(request: AiContextPreviewRequest): Promise<AiContextPreviewResult>;
   };
   conversationContext: {
     preview(request: ConversationContextPreviewRequest): Promise<ConversationContextPreviewResult>;

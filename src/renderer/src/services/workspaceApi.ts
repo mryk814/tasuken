@@ -66,9 +66,6 @@ export const workspaceApi = {
   openActivityCanonicalRef(ref: Record<string, unknown>) {
     return desktopApi().activity.openCanonicalRef(ref);
   },
-  previewAiContext(request: Parameters<Window["api"]["aiContext"]["preview"]>[0]) {
-    return desktopApi().aiContext.preview(request);
-  },
   previewConversationContext(
     request: Parameters<Window["api"]["conversationContext"]["preview"]>[0],
   ) {

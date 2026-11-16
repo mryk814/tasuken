@@ -110,7 +110,7 @@ export function TaskBoard({
         source.task.state === state
           ? "順序を保存しました。"
           : `「${source.task.title}」を${TASK_STATE_LABELS[state]}にしました。`;
-      await saveEntities(operations, message, "main_ui", { copyAiRequest: false });
+      await saveEntities(operations, message, "main_ui");
       setCollapsedStates((current) => current.filter((value) => value !== state));
       setAnnouncement(message);
     } catch (cause) {

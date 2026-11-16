@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 
-import { AI_ICON } from "../../../pages/semanticIcons";
 import { todayIso } from "../../../utils/dataFormat.js";
 import type { DrawerConfig, SaveEntities, WorkspaceData } from "../types";
 import { dateOnly, str, uuid } from "../lib/format";
@@ -109,10 +108,9 @@ export function TaskFields({
   )
     ? intendedExecutorValue
     : "self";
-  const [intendedExecutor, setIntendedExecutor] = useState(initialIntendedExecutor);
-  const [preparedWorkState, setPreparedWorkState] = useState<string | null>(null);
+  // 委任の欄は画面から変えない（切り替えは#755 束10aで外した）。保存済みの値をそのまま残す。
+  const intendedExecutor = initialIntendedExecutor;
   const preservedWorkState =
-    preparedWorkState ||
     str(entity.work_state) ||
     (intendedExecutor === "ai_agent" ? "ready_for_agent" : "not_delegated");
   useEffect(() => {
@@ -215,15 +213,6 @@ export function TaskFields({
   const preservedSectionId =
     normalizeTaskSectionId(entity.section_id, taskSections, str(entity.project_id)) || "";
   const preservedShelf = normalizeTaskShelf(entity.planning_shelf) || "";
-  const isAiDelegationReady =
-    intendedExecutor === "ai_agent" && preservedWorkState === "ready_for_agent";
-  const canToggleAiReady =
-    !["done", "cancelled"].includes(str(entity.state)) &&
-    ["not_delegated", "ready_for_agent"].includes(preservedWorkState);
-  function toggleAiReady(checked: boolean) {
-    setIntendedExecutor(checked ? "ai_agent" : "self");
-    setPreparedWorkState(checked ? "ready_for_agent" : "not_delegated");
-  }
   return (
     <>
       <Field label="タイトル">
@@ -242,19 +231,6 @@ export function TaskFields({
       </Field>
       <input type="hidden" name="intended_executor" value={intendedExecutor} readOnly />
       <input type="hidden" name="work_state" value={preservedWorkState} readOnly />
-      <label className="toggle priority-toggle">
-        <input
-          type="checkbox"
-          checked={isAiDelegationReady}
-          disabled={!canToggleAiReady}
-          onChange={(event) => toggleAiReady(event.target.checked)}
-        />
-        <AI_ICON size={16} aria-hidden="true" />
-        AI Ready
-      </label>
-      {!canToggleAiReady && intendedExecutor === "ai_agent" && (
-        <p className="field-help">AIの作業結果を確認してからAI Readyを解除できます。</p>
-      )}
       <input type="hidden" name="planning_shelf" defaultValue={preservedShelf} />
       <Field label="リマインダー">
         <input

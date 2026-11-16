@@ -120,9 +120,11 @@ test("#413 MCP production graph is Core-only and native-free", () => {
   assert.match(packageSmoke, /command: process\.env\.TASKEN_NODE_EXEC_PATH \|\| process\.execPath/);
   assert.match(packageSmoke, /spawn\(executable/);
   assert.match(source("scripts/mcp-doctor.mjs"), /\.inspect\(\)/);
+  // DesktopのserviceはCoreの状態を確かめるだけ（Taskの文脈の読み取りはContext Previewと一緒に
+  // #755 束10aで外した）。
   assert.match(
     source("src/main/services/workspaceService.ts"),
-    /this\.taskenCoreClient\.getTaskContext/,
+    /this\.taskenCoreClient\.inspect\(\)/,
   );
   assert.match(source("src/main/services/workspaceService.ts"), /createMcpBridgeInfo/);
   assert.match(source("src/shared/ipc/contracts.ts"), /const command = "node"/);

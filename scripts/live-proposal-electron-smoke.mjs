@@ -304,36 +304,25 @@ try {
     "Accepted Task needs a positive version for the stale-version journey.",
   );
 
-  const taskRow = page.locator(".table-row", { hasText: title }).first();
-  await taskRow.getByRole("button", { name: "AI Readyにする" }).click();
-  await taskRow.getByRole("button", { name: "AI Readyを解除" }).waitFor();
-  await page
-    .getByText(
-      "AI Readyにして依頼文をコピーしました。Tasken MCPに接続したAIへ貼り付けてください。",
-      { exact: true },
-    )
-    .waitFor();
-  const copiedRequest = await electronApp.evaluate(async ({ clipboard }) => {
-    const text = await clipboard.readText();
-    return {
-      done: text.includes("tasken.report_work（status=done）"),
-      blocked: text.includes("tasken.report_work（status=blocked）"),
-      legacy: text.includes("tasken.report_task_done"),
-    };
+  // AI Readyの切り替えと依頼文のコピーは #755 束10a で外した。AIへ任せるのは、本人の言葉を根拠にした
+  // 直接の書き込み（change_task）だけ。新しい版は最初の起動でその設定を有効にする。
+  const delegated = await callMcp("tasken.change_task", {
+    task_id: taskId,
+    expected_version: initialTaskVersion,
+    action: "update",
+    changes: { intended_executor: "ai_agent" },
+    said: "このTaskはAIに任せる",
+    caller: "Electron live smoke",
+    source_session: "electron-live-smoke",
+    idempotency_key: "electron-live-delegate-v1",
   });
-  assert.deepEqual(copiedRequest, { done: true, blocked: true, legacy: false });
-  await captureWorkReport(page, "ai-ready");
+  assert.equal(delegated.task?.work_state, "ready_for_agent", JSON.stringify(delegated));
+  await captureWorkReport(page, "ai-delegated");
   const readyTaskContext = await getTaskContext(taskId);
   const readyTaskVersion = Number(readyTaskContext.task.version);
   assert.ok(
     Number.isInteger(readyTaskVersion) && readyTaskVersion > initialTaskVersion,
-    "Marking a Task AI Ready must advance the Task version.",
-  );
-  const readyTasks = await callMcp("tasken.list_agent_ready_tasks", { limit: 100 });
-  assert.equal(
-    readyTasks.tasks.some((task) => task.id === taskId),
-    true,
-    "AI Ready Task must be discoverable through MCP.",
+    "Delegating a Task must advance the Task version.",
   );
 
   const staleWorkArguments = workReceiptArguments({
@@ -454,11 +443,6 @@ try {
   const finalTaskContext = await getTaskContext(taskId);
   assert.equal(finalTaskContext.task.state, "done");
   assert.deepEqual(finalTaskContext.task, completedTaskContext.task);
-  const remainingReadyTasks = await callMcp("tasken.list_agent_ready_tasks", { limit: 100 });
-  assert.equal(
-    remainingReadyTasks.tasks.some((task) => task.id === taskId),
-    false,
-  );
   const recoveredReceipts = finalTaskContext.related.work_receipts.filter(
     (receipt) => receipt.summary === recoveredWorkSummary,
   );

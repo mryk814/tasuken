@@ -34,9 +34,6 @@ const api: ResearchDeskApi = {
     events: (query) => ipcRenderer.invoke(IPC.activityEvents, query),
     openCanonicalRef: (ref) => ipcRenderer.invoke(IPC.activityOpenCanonicalRef, ref),
   },
-  aiContext: {
-    preview: (request) => ipcRenderer.invoke(IPC.aiContextPreview, request),
-  },
   conversationContext: {
     preview: (request) => ipcRenderer.invoke(IPC.conversationContextPreview, request),
     publish: (request) => ipcRenderer.invoke(IPC.conversationContextPublish, request),
