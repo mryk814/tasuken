@@ -27,7 +27,7 @@ import {
   snoozedReminderAt,
   type ReminderAlert,
 } from "../lib/reminders";
-import type { Task, Waiting } from "../domain-model/types";
+import type { Task } from "../domain-model/types";
 import {
   PERSONAL_DEFAULT_THEME_ID,
   themePickerOptions,
@@ -621,18 +621,16 @@ function reminderBannerTime(at: string, now: string): string {
  */
 export function ReminderDueBanner({
   tasks,
-  waitings,
   onOpen,
   onUpdate,
 }: {
   tasks: Task[];
-  waitings: Waiting[];
   onOpen(alert: ReminderAlert): void;
   onUpdate(alert: ReminderAlert, reminderAt: string | null, message: string): Promise<void>;
 }) {
   const now = useReminderNow();
   const [busy, setBusy] = useState(false);
-  const due = dueItemReminders(tasks, waitings, now);
+  const due = dueItemReminders(tasks, now);
   if (!due.length) return null;
   const update = async (alert: ReminderAlert, value: string | null, message: string) => {
     if (busy) return;
@@ -659,7 +657,6 @@ export function ReminderDueBanner({
             <time dateTime={alert.at}>{reminderBannerTime(alert.at, now)}</time>
             <button type="button" className="reminder-due-title" onClick={() => onOpen(alert)}>
               {alert.title}
-              {alert.type === "waiting" ? <small>待ち</small> : null}
             </button>
             <Button
               variant="secondary"

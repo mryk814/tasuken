@@ -6,7 +6,6 @@ import {
   buildSaveResourceOperations,
   buildSaveScheduleOperations,
   buildSaveTaskOperations,
-  buildSaveWaitingOperations,
 } from "../domain-model/persistence";
 import type {
   CaptureEntry,
@@ -17,7 +16,6 @@ import type {
   Task,
   TaskChecklistItem,
   TaskRepeatRule,
-  Waiting,
   WorkspaceDomain,
 } from "../domain-model/types";
 import type { DrawerEntityType, SaveOperation, WorkspaceData } from "../types";
@@ -365,52 +363,6 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
         { action: "save", type: "theme", entity: entity as SaveOperation["entity"] },
       ],
       successMessage: base.id ? "変更を保存しました。" : "Themeを追加しました。",
-    };
-  }
-
-  if (type === "waiting") {
-    const title = formText(values, "title");
-    const waitingFor = formText(values, "waiting_for");
-    if (!title) return { kind: "invalid", field: "title", message: "タイトルを入力してください。" };
-    if (!waitingFor)
-      return { kind: "invalid", field: "waiting_for", message: "相手を入力してください。" };
-    const waitingId = (base.id as string) || uuid();
-    const waiting: Waiting = {
-      id: waitingId,
-      title,
-      waiting_for: waitingFor,
-      project_id: themeIdFromForm(formText(values, "theme_id")),
-      state: (formText(values, "state") || "waiting") as Waiting["state"],
-      check_reminder_at: reminderAtFromForm(
-        formText(values, "check_reminder_at"),
-        base.check_reminder_at,
-      ),
-      next_action: formText(values, "next_action") || null,
-      description: formText(values, "description") || null,
-      legacy_item_id: (base.legacy_item_id as string | null) ?? null,
-      created_at: (base.created_at as string) || new Date().toISOString(),
-      ...aiMetadataFromForm(values, base, hasField),
-    };
-    const operations = buildSaveWaitingOperations(waiting);
-    const endDate = formText(values, "end_date") || null;
-    const scheduleId = formText(values, "_schedule_id");
-    if (endDate || scheduleId) {
-      operations.push(
-        ...buildSaveScheduleOperations({
-          id: scheduleId || uuid(),
-          owner_type: "waiting",
-          owner_id: waitingId,
-          end_date: endDate,
-          date_kind: endDate ? "deadline" : "unknown",
-          confidence: "fixed",
-          granularity: "day",
-        }),
-      );
-    }
-    return {
-      kind: "operations",
-      operations,
-      successMessage: base.id ? "変更を保存しました。" : "待ちを追加しました。",
     };
   }
 

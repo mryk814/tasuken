@@ -139,42 +139,25 @@ export function LineagePanel({
       return;
     }
     const record = findRecord(data, item.ref.type, item.ref.id);
+    // 待ちは画面を外したので開かない（#755 束7）。
     if (
       !record ||
       !openDrawer ||
-      ![
-        "capture_entry",
-        "note",
-        "plan_node",
-        "project",
-        "resource",
-        "sketch",
-        "task",
-        "waiting",
-      ].includes(item.ref.type)
+      !["capture_entry", "note", "plan_node", "project", "resource", "sketch", "task"].includes(
+        item.ref.type,
+      )
     )
       return;
     const entity =
-      item.ref.type === "task" || item.ref.type === "waiting" || item.ref.type === "plan_node"
+      item.ref.type === "task" || item.ref.type === "plan_node"
         ? {
             ...record,
-            _schedule: findSchedule(
-              data,
-              item.ref.type as "task" | "waiting" | "plan_node",
-              item.ref.id,
-            ),
+            _schedule: findSchedule(data, item.ref.type as "task" | "plan_node", item.ref.id),
           }
         : record;
     openDrawer({
       type: (item.ref.type === "project" ? "theme" : item.ref.type) as
-        | "capture_entry"
-        | "note"
-        | "plan_node"
-        | "resource"
-        | "sketch"
-        | "task"
-        | "theme"
-        | "waiting",
+        "capture_entry" | "note" | "plan_node" | "resource" | "sketch" | "task" | "theme",
       entity,
     });
   }

@@ -270,13 +270,10 @@ test("domain view models keep task, waiting, capture, and timeline concerns sepa
     selectors.buildInboxView(domain).entries.map((entry) => entry.id),
     ["capture-1"],
   );
-  assert.deepEqual(
-    selectors.buildWaitingView(domain).waitings.map((row) => row.waiting.id),
-    ["waiting-1"],
-  );
+  // 待ちは今日の一覧に出さない。待ちは Task に写してあり、写した Task が出る（#755 束7）。
   assert.deepEqual(
     selectors.buildTodayView(domain, "2026-06-19").map((entry) => entry.type),
-    ["task", "waiting", "milestone"],
+    ["task", "milestone"],
   );
 
   const timeline = selectors.buildTimelineView(domain);
@@ -724,10 +721,6 @@ test("post-migration smoke: legacy items=[] still produces meaningful views and 
 
   const todo = selectors.buildTodoView(domainOnly);
   assert.equal(todo.tasks.length, 2);
-
-  const waiting = selectors.buildWaitingView(domainOnly);
-  assert.equal(waiting.waitings.length, 1);
-  assert.equal(waiting.waitings[0].waiting.waiting_for, "Lab");
 
   const inbox = selectors.buildInboxView(domainOnly);
   assert.equal(inbox.entries.length, 1);

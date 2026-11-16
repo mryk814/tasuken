@@ -15,7 +15,6 @@ import {
   SCHEDULE_RANGE_SEMANTICS_LABELS,
   TASK_STATE_LABELS,
   TASK_INTENDED_EXECUTOR_LABELS,
-  WAITING_STATE_LABELS,
 } from "../domain-model/labels";
 import { buildSaveTaskOperations } from "../domain-model/persistence";
 import { DEFAULT_RANGE_SEMANTICS } from "../domain-model/scheduleSemantics";
@@ -513,53 +512,6 @@ export function TaskFields({
           ))}
         </div>
       </section>
-      {schedule && <input type="hidden" name="_schedule_id" value={schedule.id} />}
-    </>
-  );
-}
-
-export function WaitingFields({
-  entity,
-  data,
-}: {
-  entity: DrawerConfig["entity"];
-  data: WorkspaceData;
-}) {
-  const schedule = findSchedule(data, "waiting", str(entity.id), entity._schedule);
-  return (
-    <>
-      <Field label="タイトル">
-        <input name="title" autoFocus defaultValue={str(entity.title)} />
-      </Field>
-      <Field label="相手">
-        <input name="waiting_for" defaultValue={str(entity.waiting_for)} />
-      </Field>
-      <ThemeSelect themes={data.themes} value={str(entity.project_id)} allowPersonal />
-      <Field label="状態">
-        <select name="state" defaultValue={str(entity.state) || "waiting"}>
-          {Object.entries(WAITING_STATE_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="期限">
-        <input name="end_date" type="date" defaultValue={dateOnly(schedule?.end_date)} />
-      </Field>
-      <Field label="確認リマインダー">
-        <input
-          name="check_reminder_at"
-          type="datetime-local"
-          defaultValue={normalizeReminderDateTime(entity.check_reminder_at) || ""}
-        />
-      </Field>
-      <Field label="次アクション">
-        <input name="next_action" defaultValue={str(entity.next_action)} />
-      </Field>
-      <Field label="説明">
-        <textarea name="description" defaultValue={str(entity.description)} />
-      </Field>
       {schedule && <input type="hidden" name="_schedule_id" value={schedule.id} />}
     </>
   );

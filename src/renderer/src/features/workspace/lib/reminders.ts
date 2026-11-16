@@ -1,6 +1,6 @@
 import { normalizeReminderDateTime as normalizeSharedReminderDateTime } from "../../../../../shared/taskNotifications";
 import type { BaseRecord } from "../types";
-import type { Task, Waiting } from "../domain-model/types";
+import type { Task } from "../domain-model/types";
 
 export const REMINDER_SETTINGS_VIEW_ID = "daily-reminder-settings";
 
@@ -11,7 +11,6 @@ export interface ReminderSettings {
 
 export type ReminderAlert =
   | { id: string; type: "task"; title: string; at: string; task: Task }
-  | { id: string; type: "waiting"; title: string; at: string; waiting: Waiting }
   | { id: string; type: "activity_log"; title: string; at: string };
 
 export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
@@ -87,13 +86,11 @@ function dailyReminderAt(today: string, time: string): string | null {
 
 export function buildReminderAlerts({
   tasks,
-  waitings,
   settings,
   now,
   today,
 }: {
   tasks: Task[];
-  waitings: Waiting[];
   settings: ReminderSettings;
   now: string;
   today: string;
@@ -106,17 +103,6 @@ export function buildReminderAlerts({
     const at = normalizeReminderDateTime(task.reminder_at);
     if (!at || at > now || task.state === "done" || task.state === "cancelled") continue;
     alerts.push({ id: `task:${task.id}`, type: "task", title: task.title, at, task });
-  }
-  for (const waiting of waitings) {
-    const at = normalizeReminderDateTime(waiting.check_reminder_at);
-    if (!at || at > now || waiting.state === "received" || waiting.state === "cancelled") continue;
-    alerts.push({
-      id: `waiting:${waiting.id}`,
-      type: "waiting",
-      title: waiting.title,
-      at,
-      waiting,
-    });
   }
 
   const activityLogAt = dailyReminderAt(today, normalizedSettings.activity_log_time);
@@ -143,11 +129,13 @@ export function snoozedReminderAt(minutes: number, base = new Date()): string {
   return localDateTimeMinute(new Date(base.getTime() + minutes * 60_000));
 }
 
-/** 時刻を過ぎたTask・待ちのリマインダー（Activity Logの日次通知は含めない）。古い順。 */
-export function dueItemReminders(tasks: Task[], waitings: Waiting[], now: string): ReminderAlert[] {
+/**
+ * 時刻を過ぎたTaskのリマインダー（Activity Logの日次通知は含めない）。古い順。
+ * 待ちの確認の時刻は、待ちを Task に写した時に Task のリマインダーへ移した（#755 束7）。
+ */
+export function dueItemReminders(tasks: Task[], now: string): ReminderAlert[] {
   return buildReminderAlerts({
     tasks,
-    waitings,
     settings: { enabled: true, activity_log_time: "" },
     now,
     today: now.slice(0, 10),

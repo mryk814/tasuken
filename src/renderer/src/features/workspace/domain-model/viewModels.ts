@@ -1,9 +1,8 @@
 import type { ExecutionWindowUrgency } from "./scheduleSemantics";
-import type { CaptureEntry, PlanNode, Schedule, Task, Waiting } from "./types";
+import type { CaptureEntry, PlanNode, Schedule, Task } from "./types";
 
 export type TodayEntry =
   | { type: "task"; task: Task; schedule?: Schedule }
-  | { type: "waiting"; waiting: Waiting; schedule?: Schedule }
   | { type: "milestone"; planNode: PlanNode; schedule?: Schedule }
   | { type: "capture"; captureEntry: CaptureEntry };
 
@@ -17,10 +16,6 @@ export interface InboxView {
 
 export interface MicroMemoView {
   entries: CaptureEntry[];
-}
-
-export interface WaitingView {
-  waitings: Array<{ waiting: Waiting; schedule?: Schedule }>;
 }
 
 /**

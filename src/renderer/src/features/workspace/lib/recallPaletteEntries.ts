@@ -1,11 +1,7 @@
 import type { CanonicalRouteId } from "../../../pages/routes";
 import type { DrawerEntityType, Theme, WorkspaceData } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
-import {
-  CAPTURE_ENTRY_STATE_LABELS,
-  TASK_STATE_LABELS,
-  WAITING_STATE_LABELS,
-} from "../domain-model/labels";
+import { CAPTURE_ENTRY_STATE_LABELS, TASK_STATE_LABELS } from "../domain-model/labels";
 import { NOTE_TYPE_LABELS } from "./domain";
 import { isChatReference } from "./chatRefs";
 import { CHAT_SERVICE_LABELS, resolveChatService } from "./chatServices";
@@ -15,7 +11,7 @@ export type RecallPaletteCategory =
   | "Tasks"
   | "Plans / Milestones"
   | "ノート / 文書"
-  | "待ち / 付箋"
+  | "付箋"
   | "会話録"
   | "近況"
   | "テーマ"
@@ -136,33 +132,6 @@ export function buildRecallPaletteEntries({
     },
   }));
 
-  const waitings: RecallPaletteDescriptor[] = domain.waitings.map((waiting) => ({
-    id: `waiting:${waiting.id}`,
-    label: text(waiting.title) || "無題の待ち",
-    keywords: [
-      "waiting",
-      "待ち",
-      themeName(waiting.project_id),
-      WAITING_STATE_LABELS[waiting.state],
-    ],
-    searchText: [waiting.description, waiting.waiting_for, waiting.next_action].map(text).join(" "),
-    category: "待ち / 付箋",
-    context: context([
-      "待ち",
-      themeName(waiting.project_id),
-      `相手: ${waiting.waiting_for}`,
-      WAITING_STATE_LABELS[waiting.state],
-      compactText(waiting.next_action || waiting.description),
-    ]),
-    target: {
-      kind: "drawer",
-      route: "waiting",
-      entityType: "waiting",
-      entityId: waiting.id,
-      mode: "edit",
-    },
-  }));
-
   const captures: RecallPaletteDescriptor[] = domain.capture_entries.map((capture) => {
     const captureLabel = capture.kind === "micro_memo" ? "付箋" : "付箋記録";
     return {
@@ -177,7 +146,7 @@ export function buildRecallPaletteEntries({
         CAPTURE_ENTRY_STATE_LABELS[capture.state],
       ],
       searchText: [capture.text, capture.url].map(text).join(" "),
-      category: "待ち / 付箋",
+      category: "付箋",
       context: context([
         captureLabel,
         themeName(capture.project_id),
@@ -283,7 +252,6 @@ export function buildRecallPaletteEntries({
     ...tasks,
     ...planNodes,
     ...notes,
-    ...waitings,
     ...captures,
     ...resources,
     ...feedPosts,

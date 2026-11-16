@@ -30,7 +30,6 @@ test("major entity details including Conversation reuse the shared lineage panel
     /seed=\{\{ type: "task", id: task\.id \}\}/,
     /seed=\{\{ type: "note", id: note\.id \}\}/,
     /seed=\{\{ type: "sketch", id: sketch\.id \}\}/,
-    /seed=\{\{ type: "waiting", id: waiting\.id \}\}/,
     /seed=\{\{ type: "plan_node", id: planNode\.id \}\}/,
     /seed=\{\{ type: "capture_entry", id: entry\.id \}\}/,
   ])

@@ -22,13 +22,3 @@ export function localDateTimeMinute(date = new Date()): string {
 }
 
 export { normalizeReminderDateTime };
-
-export function reminderIsDueToday(
-  value: unknown,
-  nowMinute = localDateTimeMinute(),
-  today = localDateString(),
-): string {
-  const at = normalizeReminderDateTime(value);
-  if (!at || at.slice(0, 10) !== today || at > nowMinute) return "";
-  return at;
-}

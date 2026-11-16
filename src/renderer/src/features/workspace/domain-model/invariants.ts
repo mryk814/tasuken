@@ -314,25 +314,7 @@ export function validateInvariants(domain: WorkspaceDomain): InvariantViolation[
   checkLegacyDuplicates(domain.waitings, "waiting");
   checkLegacyDuplicates(domain.plan_nodes, "plan_node");
   checkLegacyDuplicates(domain.capture_entries, "capture_entry");
-
-  const waitingTaskIds = new Set(
-    domain.waitings.filter((w) => w.state === "waiting" && w.task_id).map((w) => w.task_id!),
-  );
-  for (const task of domain.tasks) {
-    if (task.state === "waiting") {
-      const hasActiveWaiting = domain.waitings.some(
-        (w) => w.task_id === task.id && w.state === "waiting",
-      );
-      if (!hasActiveWaiting) {
-        violations.push({
-          rule: "waiting_task_has_waiting",
-          entity_type: "task",
-          entity_id: task.id,
-          message: `Task ${task.id} has state=waiting but no active Waiting record references it.`,
-        });
-      }
-    }
-  }
+  // 「待ち」の状態の Task に待ちの記録を求める決まりは外した。待ちは Task の状態に含めた（#755 束7）。
 
   return violations;
 }

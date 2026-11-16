@@ -17,7 +17,6 @@ import {
 export type CanonicalRouteId =
   | "today"
   | "todo"
-  | "waiting"
   | "inbox"
   | "feed"
   | "timeline"
@@ -93,15 +92,6 @@ export const ROUTE_DEFINITIONS = {
     availability: "always",
     navigation: { group: "today", parent: "today", order: 2 },
     aliases: [{ id: "todo-done" }],
-  },
-  waiting: {
-    id: "waiting",
-    label: "待ち",
-    description: "誰を、何を、いつまで待っているかを確認します。",
-    icon: IconTimeline,
-    semanticRole: "view",
-    availability: "always",
-    navigation: { group: "today", parent: "today", order: 3 },
   },
   inbox: {
     id: "inbox",
@@ -263,7 +253,7 @@ function routeIdsForGroup(group: RouteGroup): string[] {
  */
 export const crossNavigation = routeIdsForGroup("cross").filter((id) => id !== "ai-io");
 export const toolNavigation = routeIdsForGroup("tools");
-export const todayHubTabs = routeIdsForGroup("today").filter((id) => id !== "waiting");
+export const todayHubTabs = routeIdsForGroup("today");
 export const knowledgeHubTabs = routeIdsForGroup("knowledge");
 
 export function resolveRouteId(id: string): CanonicalRouteId | undefined {
@@ -278,6 +268,8 @@ export function normalizeRoute(route: string): string {
   if (route === "ai-io" || route === "proposal-inbox") return "feed";
   // 棚卸しの画面は外した（#755 束8）。前の版が覚えていた行き先は今日へ送る。
   if (route === "knowledge") return "today";
+  // 待ちの画面は外し、待ちは Task の「待ち」の状態に含めた（#755 束7）。やることへ送る。
+  if (route === "waiting") return "todo";
   return routeRedirects[route] || route;
 }
 

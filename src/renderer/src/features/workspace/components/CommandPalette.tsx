@@ -11,7 +11,7 @@ export type CommandPaletteCategory =
   | "Tasks"
   | "Plans / Milestones"
   | "ノート / 文書"
-  | "待ち / 付箋"
+  | "付箋"
   | "会話録"
   | "近況"
   | "テーマ"

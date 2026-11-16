@@ -1,4 +1,4 @@
-import type { Note, Resource, Task, Waiting, WorkspaceDomain } from "../domain-model/types";
+import type { Note, Resource, Task, WorkspaceDomain } from "../domain-model/types";
 import type { StatusUpdate, Theme, WorkspaceData } from "../types";
 import { resolveChatService } from "./chatServices";
 import { dateOnly, str } from "./format";
@@ -54,7 +54,6 @@ export interface OverdueRow {
 export interface Glance {
   today: string;
   overdue: OverdueRow[];
-  waitingRows: Waiting[];
   recentUpdates: StatusUpdate[];
   notes: (Note & { updated_at?: string; created_at?: string })[];
   chatResources: (Resource & { updated_at?: string; created_at?: string })[];
@@ -84,11 +83,6 @@ export function buildGlance(input: {
     .filter((row) => row.date && row.date < today)
     .sort((a, b) => a.date.localeCompare(b.date));
 
-  const themeWaitings = activeTheme
-    ? v2.waitings.filter((w) => w.project_id === activeTheme.id)
-    : v2.waitings;
-  const waitingRows = themeWaitings.filter((w) => w.state === "waiting").slice(0, 4);
-
   const recentUpdates = ([...data.status_updates] as StatusUpdate[])
     .filter((entry) => !activeTheme || entry.theme_id === activeTheme.id)
     .sort((a, b) => str(b.date || b.updated_at).localeCompare(str(a.date || a.updated_at)))
@@ -106,5 +100,5 @@ export function buildGlance(input: {
     2,
   );
 
-  return { today, overdue, waitingRows, recentUpdates, notes, chatResources };
+  return { today, overdue, recentUpdates, notes, chatResources };
 }

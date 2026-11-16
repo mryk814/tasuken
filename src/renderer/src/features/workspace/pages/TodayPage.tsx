@@ -42,12 +42,11 @@ import {
 } from "../../task/public";
 import {
   buildSaveTaskOperations,
-  buildSaveWaitingOperations,
   buildSavePlanNodeOperations,
   buildSaveScheduleOperations,
 } from "../domain-model/persistence";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
-import type { PlanNode, Schedule, Task, Waiting } from "../domain-model/types";
+import type { PlanNode, Schedule, Task } from "../domain-model/types";
 import type { ExecutionWindowTaskRow, OngoingPeriodTaskRow } from "../domain-model/viewModels";
 
 /** 今日期限 / 期限切れ。完了系には付けない。 */
@@ -82,7 +81,7 @@ function isActiveTask(task: Task): boolean {
 }
 
 function canComplete(row: TodayRow): boolean {
-  return row.v2?.type === "task" || row.v2?.type === "waiting" || row.v2?.type === "milestone";
+  return row.v2?.type === "task" || row.v2?.type === "milestone";
 }
 
 function canToggleToday(row: TodayRow): boolean {
@@ -432,62 +431,6 @@ function TodayDateMenu({
   );
 }
 
-function WaitingListRows({
-  rows,
-  themes,
-  today,
-  onOpenDetail,
-  onToggleComplete,
-  empty,
-  pendingIds,
-}: {
-  rows: TodayRow[];
-  themes: PageProps["themes"];
-  today: string;
-  onOpenDetail: (row: TodayRow) => void;
-  onToggleComplete: (row: TodayRow) => void;
-  empty: string;
-  pendingIds: ReadonlySet<string>;
-}) {
-  if (!rows.length) return <EmptyState title={empty} />;
-  return (
-    <div className="today-waiting-list">
-      {rows.map((row) => {
-        const themeIndex = themes.findIndex((entry) => entry.id === row.projectId);
-        const theme = themeIndex >= 0 ? themes[themeIndex] : undefined;
-        const chipColor = theme
-          ? `var(--color-${themeColor(theme, themeIndex)})`
-          : "var(--color-border-strong)";
-        const due = row.date || "";
-        const urgency = dateUrgency(due, today);
-        const pending = pendingIds.has(row.id);
-        return (
-          <div
-            key={row.id}
-            className={`today-waiting-row${urgency ? ` is-${urgency}` : ""}${pending ? " is-pending" : ""}`}
-            style={{ "--chip-color": chipColor } as React.CSSProperties}
-            aria-busy={pending || undefined}
-          >
-            <span className="today-waiting-theme-bar" aria-hidden="true" />
-            <button
-              className={`todo-check-circle${pending ? " is-pending" : ""}`}
-              aria-label={`${row.title}を受領`}
-              onClick={() => onToggleComplete(row)}
-            />
-            <button className="today-waiting-main" onClick={() => onOpenDetail(row)}>
-              <strong>{row.title}</strong>
-              <span>{row.waitingFor || theme?.name || "相手未設定"}</span>
-            </button>
-            <time className={urgency || undefined} dateTime={due || undefined}>
-              {due ? formatDate(due) : "期限なし"}
-            </time>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function themeChipStyle(themes: PageProps["themes"], projectId?: string | null) {
   const themeIndex = themes.findIndex((entry) => entry.id === projectId);
   const theme = themeIndex >= 0 ? themes[themeIndex] : undefined;
@@ -781,8 +724,6 @@ export function TodayPage({
     dailyCandidates,
     overdue,
     milestones,
-    openWaitings,
-    overdueWaitingCount,
     progress,
   } = useMemo(() => buildTodayPageProjection(v2, today), [v2, today]);
   const shelfOverdueRows = dailyCandidates.overdue;
@@ -881,16 +822,6 @@ export function TodayPage({
       );
       return;
     }
-    if (row.v2?.type === "waiting") {
-      const nextState = row.v2.waiting.state === "received" ? "waiting" : "received";
-      const next: Waiting = { ...row.v2.waiting, state: nextState };
-      if (nextState === "received") playCompleteSound();
-      await saveEntities(
-        buildSaveWaitingOperations(next),
-        nextState === "received" ? "受領しました。" : "待ちに戻しました。",
-      );
-      return;
-    }
     if (row.v2?.type === "milestone") {
       const nextState = row.v2.planNode.state === "done" ? "planned" : "done";
       const next: PlanNode = { ...row.v2.planNode, state: nextState };
@@ -971,8 +902,8 @@ export function TodayPage({
         return;
       }
       const schedule = row.v2.schedule;
-      const ownerType: Schedule["owner_type"] = row.v2.type === "waiting" ? "waiting" : "plan_node";
-      const ownerId = row.v2.type === "waiting" ? row.v2.waiting.id : row.v2.planNode.id;
+      const ownerType: Schedule["owner_type"] = "plan_node";
+      const ownerId = row.v2.planNode.id;
       const isToday = schedule?.start_date === today || schedule?.end_date === today;
 
       if (!schedule) {
@@ -1077,14 +1008,6 @@ export function TodayPage({
           type: "task",
           mode: "edit",
           entity: { ...row.v2.task, _schedule: row.v2.schedule } as Record<string, unknown>,
-        });
-        return;
-      }
-      if (row.v2.type === "waiting") {
-        openDrawer({
-          type: "waiting",
-          mode: "edit",
-          entity: { ...row.v2.waiting, _schedule: row.v2.schedule } as Record<string, unknown>,
         });
         return;
       }
@@ -1228,14 +1151,6 @@ export function TodayPage({
               `- ${scheduleRangeLabel(row.schedule)} ${row.task.title} (${row.dayIndex}/${row.totalDays}日目、終了まであと${row.daysRemaining}日)`,
           )
         : ["- なし"]),
-      "",
-      "## Waiting",
-      ...(openWaitings.length
-        ? openWaitings.map(
-            (row) =>
-              `- ${row.date || "予定なし"} ${row.title}${row.waitingFor ? ` / ${row.waitingFor}` : ""}`,
-          )
-        : ["- なし"]),
     ].join("\n");
 
   const rowHandlers = {
@@ -1291,27 +1206,17 @@ export function TodayPage({
       {/* 時刻を過ぎたリマインダーを最上部で知らせる（薄い時刻表示だけでは気づけないため）。 */}
       <ReminderDueBanner
         tasks={v2.tasks}
-        waitings={v2.waitings}
         onOpen={(alert) =>
           openDrawer({
-            type: alert.type === "waiting" ? "waiting" : "task",
+            type: "task",
             mode: "edit",
-            entity: (alert.type === "task"
-              ? alert.task
-              : alert.type === "waiting"
-                ? alert.waiting
-                : {}) as unknown as BaseRecord,
+            entity: (alert.type === "task" ? alert.task : {}) as unknown as BaseRecord,
           })
         }
         onUpdate={async (alert, reminderAt, message) => {
           if (alert.type === "task")
             await saveEntities(
               buildSaveTaskOperations({ ...alert.task, reminder_at: reminderAt }),
-              message,
-            );
-          else if (alert.type === "waiting")
-            await saveEntities(
-              buildSaveWaitingOperations({ ...alert.waiting, check_reminder_at: reminderAt }),
               message,
             );
         }}
@@ -1557,34 +1462,6 @@ export function TodayPage({
             empty="近いマイルストーンはありません"
             today={today}
             {...rowHandlers}
-            pendingIds={pendingIds}
-          />
-        </section>
-        <section className="panel today-waiting-panel">
-          <div className="section-heading">
-            <h2>
-              待ち
-              {overdueWaitingCount > 0 && (
-                <span className="today-waiting-overdue-count" title="期限切れの待ち">
-                  {overdueWaitingCount}
-                </span>
-              )}
-            </h2>
-            <Button
-              variant="primary"
-              compact
-              onClick={() => openDrawer({ type: "waiting", mode: "edit", entity: {} })}
-            >
-              追加
-            </Button>
-          </div>
-          <WaitingListRows
-            rows={openWaitings.slice(0, 8)}
-            themes={themes}
-            today={today}
-            empty="待ちはありません"
-            onOpenDetail={handleOpenDetail}
-            onToggleComplete={handleToggleComplete}
             pendingIds={pendingIds}
           />
         </section>

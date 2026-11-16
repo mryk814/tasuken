@@ -44,11 +44,7 @@ import {
   taskAiDelegationLabel,
 } from "../domain-model/labels";
 import { buildTodoView } from "../domain-model/selectors";
-import {
-  buildSaveTaskOperations,
-  buildSaveScheduleOperations,
-  buildSaveWaitingOperations,
-} from "../domain-model/persistence";
+import { buildSaveTaskOperations, buildSaveScheduleOperations } from "../domain-model/persistence";
 import { duplicateTask } from "../domain-model/taskDuplication";
 import { buildCompleteTaskOperations, repeatRuleLabel } from "../domain-model/taskRecurrence";
 import type { Schedule, Task } from "../domain-model/types";
@@ -700,27 +696,17 @@ export function TodoPage({
 
       <ReminderDueBanner
         tasks={domain.tasks}
-        waitings={domain.waitings}
         onOpen={(alert) =>
           openDrawer({
-            type: alert.type === "waiting" ? "waiting" : "task",
+            type: "task",
             mode: "edit",
-            entity: (alert.type === "task"
-              ? alert.task
-              : alert.type === "waiting"
-                ? alert.waiting
-                : {}) as unknown as BaseRecord,
+            entity: (alert.type === "task" ? alert.task : {}) as unknown as BaseRecord,
           })
         }
         onUpdate={async (alert, reminderAt, message) => {
           if (alert.type === "task")
             await saveEntities(
               buildSaveTaskOperations({ ...alert.task, reminder_at: reminderAt }),
-              message,
-            );
-          else if (alert.type === "waiting")
-            await saveEntities(
-              buildSaveWaitingOperations({ ...alert.waiting, check_reminder_at: reminderAt }),
               message,
             );
         }}

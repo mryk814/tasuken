@@ -5,7 +5,6 @@ import {
   PLAN_NODE_STATE_LABELS,
   PLAN_NODE_TYPE_LABELS,
   TASK_STATE_LABELS,
-  WAITING_STATE_LABELS,
 } from "../domain-model/labels";
 import {
   buildExecutionWindowTaskView,
@@ -18,7 +17,6 @@ import type {
   PlanNode,
   Schedule,
   Task,
-  Waiting,
   WorkspaceDomain,
 } from "../domain-model/types";
 import type {
@@ -102,7 +100,6 @@ export function buildDailyPlanningCandidates(
 
 export type TodayDomainRow =
   | { type: "task"; task: Task; schedule?: Schedule }
-  | { type: "waiting"; waiting: Waiting; schedule?: Schedule }
   | { type: "milestone"; planNode: PlanNode; schedule?: Schedule }
   | { type: "capture"; captureEntry: CaptureEntry };
 
@@ -115,7 +112,6 @@ export type TodayRow = {
   status: string;
   statusLabel: string;
   priority?: "normal" | "high";
-  waitingFor?: string | null;
   v2?: TodayDomainRow;
 };
 
@@ -160,20 +156,6 @@ function taskToRow(task: Task, schedule: Schedule | undefined): TodayRow {
   };
 }
 
-function waitingToRow(waiting: Waiting, schedule: Schedule | undefined): TodayRow {
-  return {
-    id: waiting.id,
-    title: waiting.title,
-    projectId: waiting.project_id,
-    date: scheduleDate(schedule),
-    kindLabel: "待ち",
-    status: waiting.state,
-    statusLabel: WAITING_STATE_LABELS[waiting.state],
-    waitingFor: waiting.waiting_for,
-    v2: { type: "waiting", waiting, schedule },
-  };
-}
-
 function planNodeToRow(planNode: PlanNode, schedule: Schedule | undefined): TodayRow {
   return {
     id: planNode.id,
@@ -202,21 +184,8 @@ function captureToRow(captureEntry: CaptureEntry): TodayRow {
 
 function todayEntryToRow(entry: TodayEntry): TodayRow {
   if (entry.type === "task") return taskToRow(entry.task, entry.schedule);
-  if (entry.type === "waiting") return waitingToRow(entry.waiting, entry.schedule);
   if (entry.type === "milestone") return planNodeToRow(entry.planNode, entry.schedule);
   return captureToRow(entry.captureEntry);
-}
-
-function compareWaitingRows(a: TodayRow, b: TodayRow, today: string): number {
-  const aDate = a.date || "";
-  const bDate = b.date || "";
-  const aOverdue = aDate && aDate < today ? 0 : 1;
-  const bOverdue = bDate && bDate < today ? 0 : 1;
-  if (aOverdue !== bOverdue) return aOverdue - bOverdue;
-  const aHasDate = aDate ? 0 : 1;
-  const bHasDate = bDate ? 0 : 1;
-  if (aHasDate !== bHasDate) return aHasDate - bHasDate;
-  return aDate.localeCompare(bDate) || a.title.localeCompare(b.title, "ja");
 }
 
 export interface TodayPageProjection {
@@ -226,8 +195,6 @@ export interface TodayPageProjection {
   dailyCandidates: DailyPlanningCandidates;
   overdue: TodayRow[];
   milestones: TodayRow[];
-  openWaitings: TodayRow[];
-  overdueWaitingCount: number;
   progress: { done: number; total: number };
 }
 
@@ -256,9 +223,6 @@ export function buildTodayPageProjection(
     schedule: schedules.get(`task:${task.id}`),
   }));
   const taskRows = domain.tasks.map((task) => taskToRow(task, schedules.get(`task:${task.id}`)));
-  const waitingRows = domain.waitings.map((waiting) =>
-    waitingToRow(waiting, schedules.get(`waiting:${waiting.id}`)),
-  );
   const planNodeRows = domain.plan_nodes.map((planNode) =>
     planNodeToRow(planNode, schedules.get(`plan_node:${planNode.id}`)),
   );
@@ -266,7 +230,6 @@ export function buildTodayPageProjection(
     ...taskRows.filter(
       (row) => row.status !== "done" && row.status !== "cancelled" && row.date && row.date < today,
     ),
-    ...waitingRows.filter((row) => row.status === "waiting" && row.date && row.date < today),
     ...planNodeRows.filter(
       (row) => row.status !== "done" && row.status !== "cancelled" && row.date && row.date < today,
     ),
@@ -280,9 +243,6 @@ export function buildTodayPageProjection(
     )
     .map((planNode) => planNodeToRow(planNode, schedules.get(`plan_node:${planNode.id}`)))
     .sort(compareRows);
-  const openWaitings = waitingRows
-    .filter((row) => row.status === "waiting")
-    .sort((a, b) => compareWaitingRows(a, b, today));
 
   return {
     todayRows,
@@ -291,8 +251,6 @@ export function buildTodayPageProjection(
     dailyCandidates: buildDailyPlanningCandidates(dailyTaskRows, today),
     overdue,
     milestones,
-    openWaitings,
-    overdueWaitingCount: openWaitings.filter((row) => row.date && row.date < today).length,
     progress: todayTaskProgress(domain, today),
   };
 }

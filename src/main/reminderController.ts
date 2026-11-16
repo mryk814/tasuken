@@ -1,7 +1,7 @@
 import { Notification } from "electron";
 
 import type { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
-import { localDateString, reminderIsDueToday } from "./dateTime";
+import { localDateString } from "./dateTime";
 import type { Entity } from "../shared/types/workspace";
 import {
   dueTaskNotices,
@@ -103,18 +103,10 @@ export function createReminderController(options: ReminderControllerOptions): Re
     options.repository.setPreference("taskNotificationsFired", fired);
   }
 
+  // 待ちの確認の通知は外した。待ちの確認の時刻は、待ちを Task に写す時に Task の
+  // リマインダーへ移し、上の Task の知らせが鳴らす（#755 束7）。
   function check(): void {
     checkTasks();
-    for (const waiting of options.repository.list("waiting") as Entity[]) {
-      const at = reminderIsDueToday(waiting.check_reminder_at);
-      if (!at || waiting.state === "received" || waiting.state === "cancelled") continue;
-      showNotification({
-        id: `waiting:${String(waiting.id)}:${at}`,
-        title: "Tasken 確認リマインダー",
-        body: String(waiting.title || "無題の待ち"),
-        onClick: options.showMainWindow,
-      });
-    }
   }
 
   return {

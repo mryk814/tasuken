@@ -550,7 +550,6 @@ test("page headers move purpose copy into an info popover instead of a permanent
     "TimelinePage",
     "TodayPage",
     "TodoPage",
-    "WaitingPage",
   ];
   for (const page of boilerplate) {
     const source = readFileSync(`src/renderer/src/features/workspace/pages/${page}.tsx`, "utf8");

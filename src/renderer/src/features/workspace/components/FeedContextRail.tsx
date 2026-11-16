@@ -9,7 +9,6 @@ import {
 import { AI_ICON } from "../../../pages/semanticIcons";
 import type { OpenDrawer, Theme, WorkspaceData } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
-import { WAITING_STATE_LABELS } from "../domain-model/labels";
 import {
   buildAgentActivity,
   type AgentActivity,
@@ -116,7 +115,7 @@ export function FeedContextRail({
   onOpenAttention,
   onFilterAuthor,
 }: FeedContextRailProps) {
-  const { overdue, waitingRows, recentUpdates, notes, chatResources } = buildGlance({
+  const { overdue, recentUpdates, notes, chatResources } = buildGlance({
     data,
     domain: v2,
     activeTheme,
@@ -185,7 +184,7 @@ export function FeedContextRail({
         </section>
       )}
 
-      {(overdue.length > 0 || waitingRows.length > 0 || recentUpdates.length > 0) && (
+      {(overdue.length > 0 || recentUpdates.length > 0) && (
         <section className="context-section">
           <div className="context-section-heading">
             <h2>今見るもの</h2>
@@ -193,20 +192,12 @@ export function FeedContextRail({
               今日へ
             </button>
           </div>
-          {overdue.length + waitingRows.length + recentUpdates.length > 0 && (
+          {overdue.length > 0 && (
             <div className="context-metrics">
-              {overdue.length > 0 && (
-                <button onClick={() => navigate("todo")}>
-                  <span>期限切れ</span>
-                  <strong>{overdue.length}</strong>
-                </button>
-              )}
-              {waitingRows.length > 0 && (
-                <button onClick={() => navigate("waiting")}>
-                  <span>待ち</span>
-                  <strong>{waitingRows.length}</strong>
-                </button>
-              )}
+              <button onClick={() => navigate("todo")}>
+                <span>期限切れ</span>
+                <strong>{overdue.length}</strong>
+              </button>
             </div>
           )}
           <div className="context-stack">
@@ -230,27 +221,6 @@ export function FeedContextRail({
                   <small>
                     {themeName || "個人"} / {formatDate(date)}
                   </small>
-                </span>
-              </button>
-            ))}
-            {waitingRows.slice(0, 2).map((w) => (
-              <button
-                className="context-row"
-                key={w.id}
-                onClick={() =>
-                  openDrawer({
-                    type: "waiting",
-                    entity: { ...w, _schedule: schedulesMap.get(`waiting:${w.id}`) } as Record<
-                      string,
-                      unknown
-                    >,
-                  })
-                }
-              >
-                <StatusBadge value={w.state} label={WAITING_STATE_LABELS[w.state]} />
-                <span>
-                  <strong>{w.title}</strong>
-                  <small>{w.next_action || w.description || "次の確認を決める"}</small>
                 </span>
               </button>
             ))}
@@ -325,7 +295,6 @@ export function FeedContextRail({
       {attention.length === 0 &&
         agents.length === 0 &&
         overdue.length === 0 &&
-        waitingRows.length === 0 &&
         recentUpdates.length === 0 &&
         notes.length === 0 &&
         chatResources.length === 0 && (

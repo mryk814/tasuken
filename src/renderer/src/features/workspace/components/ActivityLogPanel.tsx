@@ -307,12 +307,11 @@ function findActivityEntity(
   );
 }
 
+// 待ちは画面を外したので開かない（#755 束7。来歴の行は名前だけ出す）。
 function isOpenableActivityEntity(
   type?: string,
-): type is "task" | "waiting" | "note" | "resource" | "plan_node" | "capture_entry" | "sketch" {
-  return ["task", "waiting", "note", "resource", "plan_node", "capture_entry", "sketch"].includes(
-    type || "",
-  );
+): type is "task" | "note" | "resource" | "plan_node" | "capture_entry" | "sketch" {
+  return ["task", "note", "resource", "plan_node", "capture_entry", "sketch"].includes(type || "");
 }
 
 function ActivityThemeChips({
