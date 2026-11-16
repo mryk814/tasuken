@@ -4,6 +4,7 @@ import {
   buildSaveTaskOperations,
   type SaveContext,
 } from "./persistence";
+import { UNDELEGATED_COPY } from "./taskDuplication";
 import type { Schedule, Task, TaskChecklistItem, TaskRepeatRule } from "./types";
 
 function localDateIso(date = new Date()): string {
@@ -143,6 +144,8 @@ export function buildCompleteTaskOperations(
     repeat_series_id: task.repeat_series_id || task.id,
     repeat_parent_task_id: task.id,
     checklist_items: resetChecklist(task.checklist_items),
+    // 次の回はAIへの委任を引き継がない（#755 束10a）。
+    ...UNDELEGATED_COPY,
   };
   const nextSchedule: Schedule = {
     id: crypto.randomUUID(),

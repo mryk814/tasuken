@@ -199,6 +199,7 @@ export class AiTaskChangeService {
       });
     if (Number(task.version) !== request.expected_version) throw this.conflict(request.task_id);
     this.refuse(task, request.action);
+    this.refuseNewDelegation(task, request);
     if (!request.said && this.needsUserWords(task))
       throw new CorePublicError(
         "ASK_USER",
@@ -321,6 +322,27 @@ export class AiTaskChangeService {
         : [{ change_id: changeId, undo_change_id: undoChangeId, task_id: plan.taskId }],
       stopped: failure ? { change_id: changeId, ...failure } : null,
     });
+  }
+
+  /**
+   * AIへの新しい委任を断る（#755 束10a）。AIは本人の言葉を根拠にTaskを直接動かせるので、委任は要らない。
+   * 既に委任されているTaskの値は書き換えず残す（委任の欄を書かなくするのは束10b）。前の版で委任した
+   * Taskを自分に戻す（intended_executor=self）と、委任の依頼文を消す（null）は受ける。
+   */
+  private refuseNewDelegation(task: Entity, request: AiTaskChangeRequest): void {
+    if (request.action !== "update" || !request.changes) return;
+    const delegates =
+      request.changes.intended_executor === "ai_agent" && task.intended_executor !== "ai_agent";
+    const writesHandoff = (["handoff_expected_result", "handoff_instruction"] as const).some(
+      (field) => request.changes![field] != null,
+    );
+    if (delegates || writesHandoff)
+      throw new CorePublicError(
+        "DELEGATION_RETIRED",
+        "AIへの委任は外しました。AIは本人の言葉を根拠に、このTaskをchange_taskで直接動かせます（編集・完了・再開）。委任や依頼文は要りません。",
+        422,
+        { field: delegates ? "intended_executor" : "handoff" },
+      );
   }
 
   /** 断る変更: 委任した作業の最中、繰り返しの完了（次の回をCoreが作れない）、同期の競合中。 */

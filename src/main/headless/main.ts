@@ -45,7 +45,7 @@ Options:
                      省略時はTASKEN_CORE_WRITE_MODE。proposalsではテキストのFeed投稿・
                      Note案・Task案・Task作業報告だけを受け付け、Core自身が許可範囲を強制する。
                      create-onlyでは上記に本人用Task/Note新規作成だけを追加する。
-  --allow-ai-task-change  AIが本人の言葉を根拠に既存Taskを直接変え（編集・完了・再開・削除・委任）、
+  --allow-ai-task-change  AIが本人の言葉を根拠に既存Taskを直接変え（編集・完了・再開・削除）、
                      取り消せるようにする（Desktopのchange_task・undo_changeと同じ規則）。既定は無効。
                      TASKEN_CORE_AI_TASK_CHANGE=1でも明示できる。create-onlyと一緒にだけ使える。
                      Noteの編集と採否（取り消せない書き込み）はDesktopだけで、ここでは公開しない。
