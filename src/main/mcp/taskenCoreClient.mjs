@@ -824,11 +824,30 @@ export class TaskenCoreClient {
       if (!responseSchema) return payload;
       const parsed = responseSchema.safeParse(payload);
       if (!parsed.success) {
+        // どの項目がschemaと食い違ったかを残す（#791）。これが無いと、Core と Bridge の
+        // 版のずれで読み取りが落ちても「適合しません」しか分からず、原因の項目を特定できない。
+        // 値そのものは応答データ（本人の記録）なので含めず、host の RequestValidationError と
+        // 同じく path と code だけにする。
         throw new TaskenCoreClientError(
           "INVALID_RESPONSE",
           "Tasken Core responseがschemaに適合しません。",
           {
-            details: { operation },
+            details: {
+              operation,
+              issues: parsed.error.issues.slice(0, 10).map((issue) => {
+                const path = (Array.isArray(issue.path) ? issue.path : []).filter(
+                  (entry) => typeof entry === "string" || typeof entry === "number",
+                );
+                // 未知のキーは path でなく keys に項目名が入る。項目名は値ではないので path に寄せる。
+                if (issue.code === "unrecognized_keys" && Array.isArray(issue.keys)) {
+                  path.push(...issue.keys.filter((key) => typeof key === "string"));
+                }
+                return {
+                  path,
+                  code: typeof issue.code === "string" ? issue.code : "invalid_value",
+                };
+              }),
+            },
           },
         );
       }
