@@ -593,6 +593,33 @@ const ROUTES: readonly RouteDefinition[] = [
 
 const META_PATHS = new Set(["/health", "/version", "/capabilities"]);
 
+const PROPOSE_CONTENT_KINDS = [
+  "feed_post",
+  "feed_reply",
+  "note_create",
+  "note_edit",
+  "sketch_create",
+  "artifact_create",
+] as const;
+
+/**
+ * propose-content の kind が受け付けられないときの、呼び手向けの説明（#792）。
+ * 判別共用体の検証エラーは path と code だけが残り、廃止された kind なのか
+ * 打ち間違いなのかが読み取れない。kind の問題だけはここで先に拾い、
+ * 何が起きたかと代わりに何を送ればよいかを返す。それ以外の検証は従来どおり。
+ */
+function proposeContentKindError(body: unknown): string | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const kind = (body as Record<string, unknown>).kind;
+  if (typeof kind === "string" && (PROPOSE_CONTENT_KINDS as readonly string[]).includes(kind)) {
+    return null;
+  }
+  if (kind === "knowledge_create") {
+    return "Knowledge の提案（kind: knowledge_create、旧 tasken.propose_knowledge）は廃止されました（#755）。知識は Note として kind: note_create で送ってください。";
+  }
+  return `kind が不正です（受け取った値: ${typeof kind === "string" ? kind : "なし"}）。受け付ける kind は ${PROPOSE_CONTENT_KINDS.join(" / ")} です。`;
+}
+
 const STATS_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]);
 
 /**
@@ -1180,13 +1207,18 @@ export class TaskenCoreHost {
         const allowsNoteProposalImages =
           url === "/v1/commands/propose-content" &&
           request.headers["x-tasken-proposal-images"] === "1";
-        const body = parseRouteRequest(
-          route,
-          await requestBody(
-            request,
-            allowsNoteProposalImages ? MAX_NOTE_PROPOSAL_WITH_IMAGES_BODY_BYTES : MAX_BODY_BYTES,
-          ),
+        const rawBody = await requestBody(
+          request,
+          allowsNoteProposalImages ? MAX_NOTE_PROPOSAL_WITH_IMAGES_BODY_BYTES : MAX_BODY_BYTES,
         );
+        if (url === "/v1/commands/propose-content") {
+          const kindMessage = proposeContentKindError(rawBody);
+          if (kindMessage) {
+            json(response, 400, errorResponse("VALIDATION_FAILED", kindMessage));
+            return;
+          }
+        }
+        const body = parseRouteRequest(route, rawBody);
         const provider = this.options[route.provider] as unknown as QueryProvider<unknown, unknown>;
         json(response, 200, provider.execute(body));
         return;
