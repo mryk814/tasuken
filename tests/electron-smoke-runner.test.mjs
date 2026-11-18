@@ -107,6 +107,16 @@ test("Electron smoke restart reuses userData/result and requires restart-ready w
   assert.equal(packagedArgs.includes("--disable-gpu-compositing"), false);
 });
 
+// #748: smoke の中の待ちは読み込みの完了を待ち、固定の秒数で落ちない。全体の上限は runner に一つだけ。
+test("desktop smoke waits for load completion, with the only time bound in the runner", async () => {
+  const source = await readFile("src/main/index.ts", "utf8");
+  assert.doesNotMatch(source, /sticky memo smoke load timeout/);
+  assert.doesNotMatch(source, /setTimeout\(resolve, 2000\)/);
+  assert.match(source, /"did-fail-load"/);
+  const runner = await readFile("scripts/run-electron-smoke.mjs", "utf8");
+  assert.match(runner, /export const smokeTimeoutMs/);
+});
+
 // Today Mini の窓の検査は、窓ごと外した（#755）ので消した。
 test("desktop smoke waits for the exact pasted nodes", async () => {
   const source = await readFile("src/main/index.ts", "utf8");

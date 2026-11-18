@@ -136,6 +136,7 @@
 - 直し方: 付箋の読み込みの待ちを 30 秒にした（`src/main/index.ts` の該当行にコメント）。
 - 再発防止: 固定の秒数の待ちが重さに弱い形は、上の記録と同じく #748（読み込みの完了を待つ形に変える）で直す。記録だけ。
 - 追記（同じ日、束1 の smoke の守りを戻す作業、CPU 90〜96%、別の worktree が全試験を流し続けていた）: 30 秒にしても `sticky memo smoke load timeout` で3回続けて落ち、4回目は手前の `Notes page が見つかりません` で落ちた。読み込みの出来事を一時的に記録して流した回は、`did-navigate` が 3.4 秒、`dom-ready` が 3.5 秒で `did-finish-load` も届き、全部通った。出来事の取りこぼしではなく、重さで読み込みそのものが遅れていると見ている。同じ source のまま流し直すと通る。直しは引き続き #748。
+- 追記（2026-11-18、#748 の実施）: 付箋の待ちを、固定の秒数ではなく `did-finish-load` / `did-fail-load` の完了を待つ形に変えた（失敗の時はコードと説明を持って落ちる）。全体の上限は runner（`scripts/run-electron-smoke.mjs`）の `smokeTimeoutMs`（15分）に一つだけ置いた。検証の結果は下の `markdownImageRendered` の項の追記にまとめた。
 
 ## 2026-11-14 設定の欄の中に置いた対話が崩れ、preload の新しい名前空間と試験の抑止で監査が落ちた
 
@@ -182,6 +183,7 @@
 - 再発防止: 記録だけ。一度の失敗なので、待ち時間は延ばしていない。また起きたら、2秒の待ちを読み込みの完了まで待つ形に変える。
 - 追記（同じ日、#741 の後追いの `npm run ci`、CPU 100%）: また `markdownImageRendered:false` で落ちた。その前の版の準備の `npm run ci` では、付箋の窓の `sticky memo smoke load timeout`（`did-finish-load` を 10 秒待つ）で2回続けて落ちた。どちらも同じ build で smoke だけ流し直すと通った。固定の秒数の待ちが重さに弱い形なので、読み込みの完了を待つ形に変える直しを #748 に分けた（今回は延ばしていない）。
 - 同じ日の次の `npm run ci`: 試験の段で `architecture-audit-profiles.test.mjs` と `ci-runner.test.mjs` の11件が `spawnSync ... electron.exe ETIMEDOUT` で落ち、後の段は走らなかった。ほかのセッションの作業で PC が重かった。2つのファイルだけ流し直すと 15/15 で通り、後の段（監査3つ・build・smoke 2つ）を `run-ci.mjs` と同じ順に手で流すと全部通った。記録だけ（試験の中の子プロセスの待ち時間は延ばしていない）。→ 原因が分かり、#735 で直した（上の記録）。
+- 追記（2026-11-18、#748 の実施）: プレビュー画像の待ちも、2秒の固定ではなく `load` / `error` の完了を待つ形に変えた（error の時は理由を持って落ちる）。付箋の窓も同じ形にし、全体の上限は runner の `smokeTimeoutMs`（15分）に一つだけ置いた。検証: 検証機（Linux + xvfb）で typecheck・build が通り、`tests/electron-smoke-runner.test.mjs` は 10/10（#748 の形を固定する試験を追加）、`smoke:desktop:focused` は2回続けて exit 0。全試験（`npm test`）は 2161 件中 2150 件通過で、落ちた2件（Markdown の線形時間の試験と headless replica の試験）はこの変更と無関係で、単独で流し直すと両方とも通った（全試験の実行中は同じ VM で Go の試験も並行していた）。「PC が重い時に `npm run ci` を続けて流しても落ちない」の最終確認は本人の PC 側に残る。
 
 ## 2026-11-12 ドロワーに制御した入力欄を足したら、フォームの最初の1文字が消えた
 

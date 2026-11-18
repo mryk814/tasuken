@@ -801,11 +801,12 @@ flowchart LR
       );
       const smokePreviewImage = preview?.querySelector('.md-image img[alt="Smoke Image"]');
       if (smokePreviewImage && !smokePreviewImage.complete) {
-        await new Promise((resolve) => {
+        // 確かめたいのは「読み込めたか」であって速さではないので、固定の秒数で諦めず
+        // load / error の完了を待つ。error の時は理由を持って落ちる。全体の上限は
+        // runner（scripts/run-electron-smoke.mjs）に一つだけある（#748）。
+        await new Promise((resolve, reject) => {
           smokePreviewImage.addEventListener("load", resolve, { once: true });
-          smokePreviewImage.addEventListener("error", resolve, { once: true });
-          // 画面チャンクのアイドル先読み中でも、添付プロトコルの画像デコード完了を待つ。
-          setTimeout(resolve, 2000);
+          smokePreviewImage.addEventListener("error", () => reject(new Error("Smoke Image の読み込みが error で終わった")), { once: true });
         });
       }
       const markdownImageRendered = Boolean(
@@ -1119,14 +1120,21 @@ flowchart LR
   if (!stickyWindow) throw new Error("sticky memo smoke window was not registered");
   if (stickyWindow.webContents.isLoading()) {
     await new Promise<void>((resolve, reject) => {
-      // Today Mini を外してから（#755）、付箋がこの smoke で最初に開く切り離し窓になり、
-      // renderer の初回の読み込みの重さを付箋が負う。PC が重いと 10 秒を超えて2回続けて落ちた
-      // （上限を 60 秒にした時は 3.3 秒で読めた）。読み込みの完了を待つ形への直しは #748。
-      const timer = setTimeout(() => reject(new Error("sticky memo smoke load timeout")), 30_000);
-      stickyWindow.webContents.once("did-finish-load", () => {
-        clearTimeout(timer);
-        resolve();
-      });
+      // 確かめたいのは「読み込めたか」であって速さではないので、固定の秒数で諦めず
+      // did-finish-load / did-fail-load の完了を待つ。失敗の時は理由（コードと説明）を
+      // 持って落ちる。全体の上限は runner（scripts/run-electron-smoke.mjs）に一つだけ
+      // ある（#748。固定の秒数で落ちた記録は FAILURES.md の 2026-11-14 の項）。
+      stickyWindow.webContents.once("did-finish-load", () => resolve());
+      stickyWindow.webContents.once(
+        "did-fail-load",
+        (_event, errorCode, errorDescription, validatedURL) => {
+          reject(
+            new Error(
+              `sticky memo smoke load failed: ${errorCode} ${errorDescription} (${validatedURL})`,
+            ),
+          );
+        },
+      );
     });
   }
   const stickyEdit = (await stickyWindow.webContents.executeJavaScript(`

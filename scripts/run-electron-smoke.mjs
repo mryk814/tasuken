@@ -116,6 +116,10 @@ function spawnSmokeProcess(launch, args, options) {
   return spawn(launch.command, [...launch.prefixArgs, ...args], options);
 }
 
+// 全体の上限はここに一つだけ持つ（#748）。smoke の中の待ちは読み込みの完了を待つ形で、
+// 秒数で落ちるのはこの上限だけにする。
+export const smokeTimeoutMs = 15 * 60 * 1000;
+
 export function runElectronSmoke({
   cwd = process.cwd(),
   tempRoot = os.tmpdir(),
@@ -149,7 +153,16 @@ export function runElectronSmoke({
     stdio: "inherit",
     windowsHide: true,
   });
+  let activeChild = child;
+  const timer = setTimeout(() => {
+    console.error(
+      `Electron smoke exceeded the overall limit of ${smokeTimeoutMs} ms; killing the smoke process`,
+    );
+    process.exitCode = 1;
+    activeChild?.kill();
+  }, smokeTimeoutMs);
   child.on("error", (error) => {
+    clearTimeout(timer);
     console.error(`Electron smoke could not start: ${error.message}`);
     process.exitCode = 1;
   });
@@ -164,6 +177,7 @@ export function runElectronSmoke({
       console.error(`Electron smoke result is invalid: ${String(error)}`);
     }
     if (code !== 0 || signal !== null || !restartArtifactIds) {
+      clearTimeout(timer);
       console.error(
         `Electron smoke failed before restart check; preserving diagnostics at ${paths.runRoot}`,
       );
@@ -185,11 +199,14 @@ export function runElectronSmoke({
         windowsHide: true,
       },
     );
+    activeChild = restarted;
     restarted.on("error", (error) => {
+      clearTimeout(timer);
       console.error(`Electron smoke restart could not start: ${error.message}`);
       process.exitCode = 1;
     });
     restarted.on("exit", (restartCode, restartSignal) => {
+      clearTimeout(timer);
       let passed = false;
       try {
         passed =
