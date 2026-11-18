@@ -769,7 +769,12 @@ test("content proposal client requires its named capability and rejects additive
       (error) =>
         error instanceof TaskenCoreClientError &&
         error.code === "INVALID_RESPONSE" &&
-        error.details.operation === "propose-content",
+        error.details.operation === "propose-content" &&
+        // #791: 食い違った項目が path と code で残る（値そのものは含めない）。
+        error.details.issues.some(
+          (issue) => issue.path.includes("private_path") && typeof issue.code === "string",
+        ) &&
+        !JSON.stringify(error.details).includes("C:/private"),
     );
 
     const delayedImageResponse = new TaskenCoreClient({
