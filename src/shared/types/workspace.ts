@@ -153,6 +153,11 @@ export interface CanonicalNoteCreationCompanion {
   noteId: string;
   commandId: string;
   event: Entity;
+  /**
+   * task_id指定時だけ同伴するNote→Taskの紐づけ（Referenceとその作成イベント）。
+   * Noteと同じコミットで保存し、復旧receiptでも一緒に再生する。
+   */
+  taskLink?: { reference: Entity; event: Entity };
 }
 
 export type CanonicalNoteCommitCompanion =

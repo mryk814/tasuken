@@ -323,6 +323,32 @@ function normalizeCanonicalNoteAiCompanion(
     const metadata = objectValue(event.metadata);
     const after = parsedRecord(event.after_json);
     const origin = objectValue(after.ai_creation);
+    // task_id指定時だけ同伴するNote→Taskの紐づけ。Note本体と同じ作法で、
+    // 参照とその作成イベントの対応までをここで確かめる（復旧時の再生でも同じ検証を通る）。
+    const taskLink = objectValue(companion.taskLink);
+    const linkReference = objectValue(taskLink.reference);
+    const linkEvent = objectValue(taskLink.event);
+    const linkAfter = parsedRecord(linkEvent.after_json);
+    const taskLinkValid =
+      companion.taskLink == null ||
+      (typeof linkReference.id === "string" &&
+        linkReference.id.length > 0 &&
+        linkReference.source_type === "note" &&
+        linkReference.source_id === noteId &&
+        linkReference.target_type === "task" &&
+        typeof linkReference.target_id === "string" &&
+        linkReference.target_id.length > 0 &&
+        linkReference.relation_type === "related_to" &&
+        linkEvent.entity_id === linkReference.id &&
+        linkEvent.entity_type === "reference" &&
+        linkEvent.record_type === "reference" &&
+        linkEvent.command_name === "CreateAiItem" &&
+        linkEvent.command_id === companion.commandId &&
+        typeof linkEvent.command_fingerprint === "string" &&
+        Boolean(linkEvent.command_fingerprint) &&
+        linkEvent.actor_kind === "ai_agent" &&
+        linkEvent.before_json === "null" &&
+        linkAfter.id === linkReference.id);
     if (
       companion.noteId !== noteId ||
       event.entity_id !== noteId ||
@@ -337,7 +363,8 @@ function normalizeCanonicalNoteAiCompanion(
       after.id !== noteId ||
       origin.schema !== "tasken-ai-creation/v1" ||
       origin.command_id !== companion.commandId ||
-      JSON.stringify(metadata.ai_creation) !== JSON.stringify(after.ai_creation)
+      JSON.stringify(metadata.ai_creation) !== JSON.stringify(after.ai_creation) ||
+      !taskLinkValid
     )
       throw new Error("canonical Note creation companionが不正です。");
     return companion as unknown as CanonicalNoteCommitCompanion;
@@ -409,8 +436,17 @@ function canonicalNoteAiOperations(
   companion: CanonicalNoteCommitCompanion | null,
 ): SaveOperation[] {
   if (!companion) return [];
-  if (companion.schema === "tasken-note-creation-companion/v1")
-    return [{ action: "save", type: "change_event", entity: companion.event }];
+  if (companion.schema === "tasken-note-creation-companion/v1") {
+    const operations: SaveOperation[] = [
+      { action: "save", type: "change_event", entity: companion.event },
+    ];
+    if (companion.taskLink)
+      operations.push(
+        { action: "save", type: "reference", entity: companion.taskLink.reference },
+        { action: "save", type: "change_event", entity: companion.taskLink.event },
+      );
+    return operations;
+  }
   return [
     { action: "save", type: "ai_proposal", entity: companion.proposal },
     { action: "save", type: "change_event", entity: companion.event },

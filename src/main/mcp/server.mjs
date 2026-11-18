@@ -1035,7 +1035,7 @@ export function createTaskenMcpServer(options = {}) {
     note: {
       fields: aiNoteCreationFields,
       description:
-        "Save a new Note directly (marked AI-created/unseen); returns the official ID. Theme defaults to 個人業務. Reuse idempotency_key on retries; see tasken://guide/note_article for Markdown.",
+        "Save a new Note directly (marked AI-created/unseen); returns the official ID. With task_id, created linked to that Task and taking its Theme. Theme defaults to 個人業務. Reuse idempotency_key on retries.",
     },
   };
   for (const [kind, { fields, description }] of Object.entries(creationTools)) {
