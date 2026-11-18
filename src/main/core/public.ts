@@ -100,6 +100,11 @@ export type {
   PreparedNoteProposalImages,
 } from "./ports/noteProposalImagePort.ts";
 export type {
+  ArtifactProposalAssetManifestEntry,
+  ArtifactProposalAssetPort,
+  PreparedArtifactProposalAssets,
+} from "./ports/artifactProposalAssetPort.ts";
+export type {
   CaptureImageManifestEntry,
   CaptureImagePort,
   StagedCaptureImages,

@@ -596,10 +596,11 @@ export class TaskenCoreClient {
   }
 
   async proposeContent(request = {}) {
-    // 画像はNote単体だけでなく、読み物投稿の記事にも載る。どちらも同じ
-    // 大きめのbody上限と長いタイムアウトを必要とする。
+    // 画像はNote単体だけでなく、読み物投稿の記事にも載る。Artifactの同梱
+    // アセットも同じで、どちらも大きめのbody上限と長いタイムアウトを必要とする。
     const hasImages =
       (Array.isArray(request.images) && request.images.length > 0) ||
+      (Array.isArray(request.assets) && request.assets.length > 0) ||
       (Array.isArray(request.article?.images) && request.article.images.length > 0);
     const extraHeaders = hasImages ? { "x-tasken-proposal-images": "1" } : {};
     return this.request(

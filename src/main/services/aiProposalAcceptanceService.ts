@@ -41,6 +41,7 @@ interface ArtifactMaterializer {
     manifest: unknown,
     finalBody: string,
   ): string[];
+  discardProposalArtifactAssets?(proposalId: string, manifest: unknown): string[];
 }
 
 interface ProposalRepository {
@@ -752,6 +753,9 @@ export class AiProposalAcceptanceService {
     const noteImageManifest = Object.hasOwn(canonicalPayload, "note_images")
       ? canonicalPayload.note_images
       : null;
+    const artifactAssetsManifest = Object.hasOwn(canonicalPayload, "artifact_assets")
+      ? canonicalPayload.artifact_assets
+      : null;
     const artifactEntries = Array.isArray(canonicalPayload.artifacts)
       ? canonicalPayload.artifacts
       : [];
@@ -814,13 +818,40 @@ export class AiProposalAcceptanceService {
         if (candidate.entity.id !== candidateId)
           throw new Error("Artifact候補IDが正本と一致しません。");
         const normalized = validateArtifactProposal(artifactEntries[request.entryIndex]);
+        // task_id指定時はTaskの添付として保存する（#789）。出所の正本は
+        // source_type/source_idなので、対象Taskが無いProposalは宙に浮いた
+        // 添付を作らず、ここで止める。Themeは指定が無ければTaskのThemeを引く。
+        const entry = artifactEntries[request.entryIndex];
+        const taskId = text(entry.task_id).trim();
+        let sourceType = "ai_proposal";
+        let sourceId: string = currentProposal.id;
+        let themeFallback: unknown = null;
+        if (taskId) {
+          const task = this.repository.get("task", taskId);
+          if (!task) throw new Error("添付先のTaskが見つかりません。Previewを開き直してください。");
+          sourceType = "task";
+          sourceId = taskId;
+          themeFallback = task.project_id || task.theme_id || null;
+        }
+        const themeId = canonicalThemeId(this.repository, entry, themeFallback);
         const result = this.artifacts.materializeArtifactProposal({
           title: normalized.title,
           fileName: normalized.fileName,
           mediaType: normalized.mediaType,
           content: normalized.content,
-          themeId: canonicalThemeId(this.repository, artifactEntries[request.entryIndex]),
+          themeId,
           materializationKey: candidateId,
+          // 同梱アセットはmaterializeの中で検証し、data URIへ差し替えてから保存する。
+          ...(artifactAssetsManifest
+            ? {
+                assets: {
+                  proposalId,
+                  manifest: artifactAssetsManifest as NonNullable<
+                    ArtifactProposalMaterializeRequest["assets"]
+                  >["manifest"],
+                },
+              }
+            : {}),
         });
         if (result.status === "needs_directory") {
           throw new Error("Artifact保存先が未設定です。Settingsで保存先を選んでください。");
@@ -835,9 +866,9 @@ export class AiProposalAcceptanceService {
           entity: {
             id: candidateId,
             title: normalized.title,
-            source_type: "ai_proposal",
-            source_id: currentProposal.id,
-            theme_id: canonicalThemeId(this.repository, artifactEntries[request.entryIndex]),
+            source_type: sourceType,
+            source_id: sourceId,
+            theme_id: themeId,
             description: text(artifactEntries[request.entryIndex].reason),
             generated_by: null,
             filename: result.file.filename,
@@ -903,6 +934,11 @@ export class AiProposalAcceptanceService {
             );
           }
         }
+      }
+      if (artifactAssetsManifest !== null) {
+        // アセットの実データは採用ならHTMLへ埋め込み済み、却下なら未使用。
+        // どちらでもstage済みファイルは役目を終えたので片付ける（receipt確定後）。
+        this.artifacts.discardProposalArtifactAssets?.(proposalId, artifactAssetsManifest);
       }
       return receipt;
     } catch (error) {

@@ -15,6 +15,7 @@ import {
   createNativeImageDecoder,
   createNoteProposalImagePort,
 } from "../services/proposalMarkdownImages.ts";
+import { createArtifactProposalAssetPort } from "../services/proposalArtifactAssets.ts";
 import { createCaptureImagePort } from "../services/captureImageStore.ts";
 import {
   MobileGatewayRuntime,
@@ -180,6 +181,7 @@ export class TaskenDesktopComposition<
         feedWriter: options.feedWriter,
         routineWriter: options.routineWriter,
         onAgentWorkCommitted: options.onAgentWorkCommitted,
+        artifactProposalAssetPort: createArtifactProposalAssetPort(options.userDataPath),
       },
     );
     const mobileState: MobileGatewayStatePort = {

@@ -40,6 +40,20 @@ export interface ArtifactProposalMaterializeRequest {
   themeId?: string | null;
   /** Stable candidate identity used to make retries resolve to the same managed file. */
   materializationKey?: string;
+  /**
+   * 同梱アセット（#789）。content中の `tasken-upload://<reference_id>` を、
+   * stage済みファイルのdata URIへ差し替えてから保存する。
+   */
+  assets?: {
+    proposalId: string;
+    manifest: readonly {
+      reference_id: string;
+      file_name: string;
+      media_type: string;
+      size: number;
+      sha256: string;
+    }[];
+  };
 }
 
 export type ArtifactProposalMaterializeResult =

@@ -91,6 +91,9 @@ const { AiProposalAcceptanceService } = await importBundled(
 const { ProposalMarkdownImageStore } = await importBundled(
   "src/main/services/proposalMarkdownImages.ts",
 );
+const { ProposalArtifactAssetStore } = await importBundled(
+  "src/main/services/proposalArtifactAssets.ts",
+);
 const { ContentDetailQueryService } = await importBundled(
   "src/main/core/services/contentDetailQueryService.ts",
 );
@@ -556,6 +559,250 @@ test("artifact acceptance rebuilds content from DB, compensates DB failure, and 
     database.db.close();
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("HTML artifact acceptance attaches to the named Task and refuses a missing Task (#789)", () => {
+  const directory = root();
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  const files = new Map();
+  const materializer = {
+    materializeArtifactProposal(request) {
+      assert.equal(request.themeId, "theme-docs");
+      const storedPath = path.join(directory, `${request.materializationKey}.html`);
+      const created = !files.has(storedPath);
+      if (created) files.set(storedPath, request.content);
+      return {
+        status: "ok",
+        directory,
+        created,
+        file: {
+          filename: "report.html",
+          fileType: "html",
+          mimeType: "text/html",
+          fileSize: request.content.length,
+          storedPath,
+          originalPath: "",
+          copiedAt: "2026-08-21T00:00:00.000Z",
+          storageMode: "managed",
+        },
+      };
+    },
+    rollbackMaterializedArtifactProposal(storedPath) {
+      files.delete(storedPath);
+    },
+  };
+  try {
+    database.save("theme", { id: "theme-docs", name: "調査資料" });
+    database.save("task", {
+      id: "task-html",
+      title: "HTMLレポートを残す",
+      project_id: "theme-docs",
+      state: "todo",
+      priority: "normal",
+      requester: "self",
+    });
+    const makeProposal = (id, taskId) =>
+      database.save("ai_proposal", {
+        id,
+        source: "mcp",
+        source_app: "fixture",
+        payload_type: "artifacts",
+        payload: {
+          artifacts: [
+            {
+              action: "create",
+              title: "Report",
+              file_name: "report.html",
+              media_type: "text/html",
+              content: "<!doctype html><html><body><h1>Report</h1></body></html>",
+              task_id: taskId,
+              reason: "brief",
+            },
+          ],
+        },
+        request: { tool: "tasken.propose_artifact" },
+        status: "pending",
+        received_at: "2026-08-21T00:00:00.000Z",
+      });
+    const commands = new ApplicationCommandService(database);
+    const acceptance = new AiProposalAcceptanceService(commands, materializer, database);
+
+    const proposal = makeProposal("proposal-html-task", "task-html");
+    const artifactId = stableProposalEntityId(proposal.id, "artifact", 0);
+    const candidate = {
+      type: "artifact",
+      entity: {
+        id: artifactId,
+        title: "Report",
+        source_type: "task",
+        source_id: "task-html",
+        proposal_materialization: { entryIndex: 0, themeId: "theme-docs" },
+      },
+    };
+    const receipt = acceptance.execute(envelope(proposal, [candidate]));
+    assert.equal(receipt.status, "applied");
+    const saved = database.get("artifact", artifactId);
+    assert.equal(saved.source_type, "task");
+    assert.equal(saved.source_id, "task-html");
+    assert.equal(saved.theme_id, "theme-docs");
+    assert.equal(saved.mime_type, "text/html");
+    assert.equal(saved.web_kind, "self_contained_html");
+    assert.equal(saved.web_execution_policy, "sandboxed_interactive");
+    assert.equal(saved.accepted_from_proposal_id, proposal.id);
+    assert.equal(files.size, 1);
+
+    const orphan = makeProposal("proposal-html-missing-task", "task-missing");
+    const orphanId = stableProposalEntityId(orphan.id, "artifact", 0);
+    const orphanCandidate = {
+      type: "artifact",
+      entity: {
+        id: orphanId,
+        proposal_materialization: { entryIndex: 0, themeId: null },
+      },
+    };
+    assert.throws(
+      () => acceptance.execute(envelope(orphan, [orphanCandidate])),
+      /添付先のTaskが見つかりません/,
+    );
+    assert.equal(database.get("artifact", orphanId), null);
+    assert.equal(files.size, 1);
+  } finally {
+    database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("HTML artifact acceptance inlines staged assets into one self-contained file (#789)", () => {
+  const directory = root();
+  const managed = path.join(directory, "managed");
+  fs.mkdirSync(managed);
+  const database = new WorkspaceDatabase(path.join(directory, "workspace.sqlite3"));
+  database.loadWorkspace();
+  database.setPreference("artifactDirectory", managed);
+  const workspace = new WorkspaceService(database, directory, () => "2026-08-21T00:00:00.000Z");
+  try {
+    database.save("theme", { id: "theme-assets", name: "同梱資料" });
+    database.save("task", {
+      id: "task-assets",
+      title: "図入りの報告を残す",
+      project_id: "theme-assets",
+      state: "todo",
+      priority: "normal",
+      requester: "self",
+    });
+    const html =
+      '<!doctype html><html><body><h1>図入り報告</h1><img src="tasken-upload://chart"></body></html>';
+    const pngBase64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    const assetStore = new ProposalArtifactAssetStore(directory);
+    const prepared = assetStore.prepare("proposal-html-assets", html, [
+      {
+        reference_id: "chart",
+        file_name: "chart.png",
+        media_type: "image/png",
+        data_base64: pngBase64,
+      },
+    ]);
+    assetStore.stage(prepared);
+    const stagedPath = path.join(
+      directory,
+      "attachments",
+      "artifact-assets",
+      prepared.manifest[0].file_name,
+    );
+    assert.equal(fs.existsSync(stagedPath), true);
+
+    const proposal = database.save("ai_proposal", {
+      id: "proposal-html-assets",
+      source: "mcp",
+      source_app: "fixture",
+      payload_type: "artifacts",
+      payload: {
+        artifacts: [
+          {
+            action: "create",
+            title: "図入り報告",
+            file_name: "report-with-chart.html",
+            media_type: "text/html",
+            content: html,
+            task_id: "task-assets",
+            theme: "",
+            reason: "brief with a chart",
+          },
+        ],
+        artifact_assets: prepared.manifest,
+      },
+      request: { tool: "tasken.propose_artifact" },
+      status: "pending",
+      received_at: "2026-08-21T00:00:00.000Z",
+    });
+    const acceptance = new AiProposalAcceptanceService(
+      new ApplicationCommandService(database),
+      workspace,
+      database,
+    );
+    const artifactId = stableProposalEntityId(proposal.id, "artifact", 0);
+    const candidate = {
+      type: "artifact",
+      entity: {
+        id: artifactId,
+        title: "図入り報告",
+        source_type: "task",
+        source_id: "task-assets",
+        proposal_materialization: { entryIndex: 0, themeId: null },
+      },
+    };
+    const receipt = acceptance.execute(envelope(proposal, [candidate]));
+    assert.equal(receipt.status, "applied");
+    const saved = database.get("artifact", artifactId);
+    assert.equal(saved.source_type, "task");
+    assert.equal(saved.source_id, "task-assets");
+    assert.equal(saved.theme_id, "theme-assets");
+    const stored = fs.readFileSync(saved.stored_path, "utf8");
+    assert.match(stored, /data:image\/png;base64,/);
+    assert.doesNotMatch(stored, /tasken-upload:/);
+    assert.equal(saved.file_size, Buffer.byteLength(stored, "utf8"));
+    // 埋め込み済みのアセット実ファイルはreceipt後に片付く。
+    assert.equal(fs.existsSync(stagedPath), false);
+  } finally {
+    database.db.close();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("artifact preview resolves the target Task and flags a missing one (#789)", () => {
+  const task = { id: "task-html", title: "HTMLレポートを残す", project_id: "theme-docs" };
+  const makeProposal = (id, taskId) => ({
+    id,
+    payload_type: "artifacts",
+    payload: {
+      artifacts: [
+        {
+          action: "create",
+          title: "Report",
+          file_name: "report.html",
+          media_type: "text/html",
+          content: "<html><body>hi</body></html>",
+          task_id: taskId,
+        },
+      ],
+    },
+    status: "pending",
+  });
+  const preview = buildPreview(makeProposal("preview-html-task", "task-html"), {
+    data: { tasks: [task] },
+    themes: [],
+    items: [],
+  });
+  assert.equal(preview.candidates[0].task.id, "task-html");
+  assert.deepEqual(preview.candidates[0].issues, []);
+  const missing = buildPreview(makeProposal("preview-html-missing", "task-missing"), {
+    data: { tasks: [task] },
+    themes: [],
+    items: [],
+  });
+  assert.equal(missing.candidates[0].task, undefined);
+  assert.match(missing.candidates[0].issues.join(" "), /添付先のTaskが見つかりません/);
 });
 
 test("WorkspaceService atomically publishes deterministic Artifact files, cleans failed staging, and reuses only identical finals", () => {

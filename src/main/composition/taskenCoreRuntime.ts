@@ -16,6 +16,7 @@ import { createMobileFeedActionPort, type FeedWriterPort } from "./mobileFeedAct
 import { createMobileRoutinePort, type RoutineWriterPort } from "./mobileRoutinePort.ts";
 import { createMobileWorkLogPort, type WorkLogWriterPort } from "./mobileWorkLogPort.ts";
 import type { NoteProposalImagePort } from "../core/public.ts";
+import type { ArtifactProposalAssetPort } from "../core/public.ts";
 import type { CaptureImagePort } from "../core/public.ts";
 import { CaptureImageStorageError } from "../services/captureImageStore.ts";
 import {
@@ -207,6 +208,8 @@ export class TaskenCoreRuntime {
       routineWriter?: RoutineWriterPort;
       /** 古い hooks の会話を畳んだ記録を書いた後の、画面の更新（#751）。 */
       onAgentWorkCommitted?: () => void;
+      /** HTML Artifact提案の同梱アセットの保存口（#789）。 */
+      artifactProposalAssetPort?: ArtifactProposalAssetPort;
     } = {},
   ) {
     this.persistence = persistence;
@@ -223,6 +226,7 @@ export class TaskenCoreRuntime {
       onProposalCommitted,
       onAgentWorkCommitted: options.onAgentWorkCommitted,
       noteProposalImagePort,
+      artifactProposalAssetPort: options.artifactProposalAssetPort,
       captureImagePort: this.captureImagePort,
     });
     this.contentProposals = core.proposeContent;

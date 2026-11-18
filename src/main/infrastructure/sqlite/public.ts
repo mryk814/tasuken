@@ -16,6 +16,7 @@ import {
   TaskContextQueryService,
   ThemeContextQueryService,
   type NoteProposalImagePort,
+  type ArtifactProposalAssetPort,
   type CaptureImagePort,
 } from "../../core/public.ts";
 import { WorkspaceAiProposalWriteAdapter } from "./workspaceAiProposalWriteAdapter.ts";
@@ -117,6 +118,7 @@ export function createTaskenCore(
      */
     onAgentWorkCommitted?: () => void;
     noteProposalImagePort?: NoteProposalImagePort;
+    artifactProposalAssetPort?: ArtifactProposalAssetPort;
     captureImagePort?: CaptureImagePort;
   } = {},
 ) {
@@ -206,6 +208,7 @@ export function createTaskenCore(
       new WorkspaceAiProposalWriteAdapter(persistence, options.onProposalCommitted),
       undefined,
       options.noteProposalImagePort,
+      options.artifactProposalAssetPort,
     ),
   };
 }

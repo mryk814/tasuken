@@ -152,6 +152,12 @@ export const MCP_TOOL_REQUIREMENTS = Object.freeze({
     capability: TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
     kind: "note_edit",
   },
+  "tasken.propose_artifact": {
+    toolset: "write",
+    access: "proposal",
+    capability: TASKEN_CORE_PROPOSE_CONTENT_CAPABILITY,
+    kind: "artifact_create",
+  },
   "tasken.propose_feed_post": {
     toolset: "write",
     access: "reading",

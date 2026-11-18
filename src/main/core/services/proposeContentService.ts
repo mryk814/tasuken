@@ -4,17 +4,27 @@ import {
   hasTaskenUploadImageDestination,
   proposeContentRequestSchema,
   proposeContentResponseSchema,
+  type ArtifactProposalAsset,
   type ContentProposalPayloadType,
   type NoteProposalImage,
   type ProposeContentRequest,
   type ProposeContentResponse,
 } from "../../../shared/contracts/task/public.ts";
-import { validateArtifactProposal, validateSafeSvg } from "../../../shared/proposalMedia.mjs";
+import {
+  hasTaskenUploadAssetReference,
+  validateArtifactProposal,
+  validateSafeSvg,
+} from "../../../shared/proposalMedia.mjs";
 import type {
   AiProposalRecord,
   AiProposalTransaction,
   AiProposalWritePort,
 } from "../ports/aiProposalWritePort.ts";
+import type {
+  ArtifactProposalAssetManifestEntry,
+  ArtifactProposalAssetPort,
+  PreparedArtifactProposalAssets,
+} from "../ports/artifactProposalAssetPort.ts";
 import type {
   NoteProposalImageManifestEntry,
   NoteProposalImagePort,
@@ -109,6 +119,7 @@ function proposalId(
 function payloadFor(
   request: ProposeContentRequest,
   preparedImages?: { body: string; manifest: readonly NoteProposalImageManifestEntry[] },
+  preparedAssets?: { manifest: readonly ArtifactProposalAssetManifestEntry[] },
 ): {
   payload: Record<string, unknown>;
   target?: Record<string, unknown>;
@@ -226,6 +237,7 @@ function payloadFor(
     file_name: request.file_name,
     media_type: request.media_type,
     content: request.content,
+    ...(request.task_id ? { task_id: request.task_id } : {}),
     theme: request.theme || "",
     reason: request.reason || "",
   };
@@ -237,7 +249,14 @@ function payloadFor(
       error instanceof Error ? error.message : "Artifactが不正です。",
     );
   }
-  return { payload: { artifacts: [artifact] } };
+  return {
+    payload: {
+      artifacts: [artifact],
+      // アセットの実データはstage済みファイルが持ち、正本にはmanifestだけ残す
+      // （note画像のnote_imagesと同じ形）。
+      ...(preparedAssets ? { artifact_assets: preparedAssets.manifest } : {}),
+    },
+  };
 }
 
 function prepareNoteImages(
@@ -301,6 +320,57 @@ function prepareNoteImages(
   };
 }
 
+function prepareArtifactAssets(
+  assetPort: ArtifactProposalAssetPort | undefined,
+  proposalId: string,
+  content: string,
+  assets: readonly ArtifactProposalAsset[] | undefined,
+): PreparedArtifactProposalAssets | undefined {
+  if (!assets) {
+    if (hasTaskenUploadAssetReference(content)) {
+      throw new ProposeContentError(
+        "VALIDATION_FAILED",
+        "本文のアセット参照に対応するデータがありません。アセットを添えて再提案してください。",
+      );
+    }
+    return undefined;
+  }
+  if (!assetPort) {
+    throw new ProposeContentError(
+      "VALIDATION_FAILED",
+      "アセット付きのArtifact Proposalにはアセットストレージが必要です。アセットを外すか、対応するTasken Coreへ送信してください。",
+    );
+  }
+  let result: PreparedArtifactProposalAssets;
+  try {
+    result = assetPort.prepare({ proposalId, content, assets });
+  } catch (error) {
+    if (error instanceof ProposeContentError) throw error;
+    throw new ProposeContentError(
+      "VALIDATION_FAILED",
+      error instanceof Error
+        ? error.message
+        : "アセットを準備できませんでした。形式と内容を確認してください。",
+    );
+  }
+  if (!Array.isArray(result.manifest) || result.manifest.length !== assets.length) {
+    throw new ProposeContentError(
+      "VALIDATION_FAILED",
+      "アセットの準備結果が不正です。アセットを確認してProposalを作り直してください。",
+    );
+  }
+  return {
+    manifest: result.manifest.map((entry) => ({
+      reference_id: entry.reference_id,
+      file_name: entry.file_name,
+      mime_type: entry.mime_type,
+      size: entry.size,
+      sha256: entry.sha256,
+    })),
+    prepared: result.prepared,
+  };
+}
+
 const DRY_RUN_MESSAGE =
   "dry_runのため検証だけを行い、Proposalは保存していません。本送信は同じidempotency_keyで行ってください。";
 
@@ -314,6 +384,19 @@ function contentDryRunChecks(
   request: ProposeContentRequest,
   transaction: AiProposalTransaction,
 ): DryRunCheck[] {
+  if (request.kind === "artifact_create") {
+    if (!request.task_id) return [];
+    const task = transaction.getEntity("task", request.task_id);
+    return task
+      ? [{ code: "task_found", ok: true, message: "添付先のTaskがあります。" }]
+      : [
+          {
+            code: "task_found",
+            ok: false,
+            message: "添付先のTaskが見つかりません。task_idを確認してください。",
+          },
+        ];
+  }
   if (request.kind !== "note_edit") return [];
   const note = transaction.getEntity("note", request.note_id);
   if (!note) {
@@ -343,6 +426,7 @@ export class ProposeContentService {
     private readonly writePort: AiProposalWritePort,
     private readonly now: () => string = () => new Date().toISOString(),
     private readonly noteProposalImagePort?: NoteProposalImagePort,
+    private readonly artifactProposalAssetPort?: ArtifactProposalAssetPort,
   ) {}
 
   execute(input: ProposeContentRequest): ProposeContentResponse {
@@ -363,7 +447,11 @@ export class ProposeContentService {
               request.article.images,
             )
           : undefined;
-    const { payload, target } = payloadFor(request, preparedImages);
+    const preparedAssets =
+      request.kind === "artifact_create"
+        ? prepareArtifactAssets(this.artifactProposalAssetPort, id, request.content, request.assets)
+        : undefined;
+    const { payload, target } = payloadFor(request, preparedImages, preparedAssets);
     const proposalRequestBase = {
       tool: TOOL_BY_KIND[request.kind],
       idempotency_key: request.idempotency_key,
@@ -441,8 +529,25 @@ export class ProposeContentService {
       });
     }
 
+    // バイナリを伴う提案（note画像／Artifactアセット）は、保存前にstageし、
+    // 重複で終わる場合だけrollbackする。stage対象はkindごとにどちらか一方。
+    const staged = preparedImages
+      ? {
+          stage: () => this.noteProposalImagePort!.stage(preparedImages.prepared),
+          rollback: () => this.noteProposalImagePort!.rollback(preparedImages.prepared),
+          stageFailureMessage: "ノート画像を保存できませんでした。画像と保存先を確認してください。",
+        }
+      : preparedAssets
+        ? {
+            stage: () => this.artifactProposalAssetPort!.stage(preparedAssets.prepared),
+            rollback: () => this.artifactProposalAssetPort!.rollback(preparedAssets.prepared),
+            stageFailureMessage:
+              "アセットを保存できませんでした。アセットと保存先を確認してください。",
+          }
+        : undefined;
+
     let status: "queued" | "duplicate";
-    if (!preparedImages) {
+    if (!staged) {
       status = saveOrFindExisting().result;
     } else {
       const preflight = this.writePort.runTransaction(getExistingStatus);
@@ -450,29 +555,27 @@ export class ProposeContentService {
         status = "duplicate";
       } else {
         try {
-          this.noteProposalImagePort!.stage(preparedImages.prepared);
+          staged.stage();
         } catch (error) {
           try {
-            this.noteProposalImagePort!.rollback(preparedImages.prepared);
+            staged.rollback();
           } catch {
             // Preserve the original staging failure after attempting compensating cleanup.
           }
           throw new ProposeContentError(
             "VALIDATION_FAILED",
-            error instanceof Error
-              ? error.message
-              : "ノート画像を保存できませんでした。画像と保存先を確認してください。",
+            error instanceof Error ? error.message : staged.stageFailureMessage,
           );
         }
         try {
           const committed = saveOrFindExisting();
           status = committed.result;
           if (committed.result === "duplicate" && !committed.restorePendingImages) {
-            this.noteProposalImagePort!.rollback(preparedImages.prepared);
+            staged.rollback();
           }
         } catch (error) {
           try {
-            this.noteProposalImagePort!.rollback(preparedImages.prepared);
+            staged.rollback();
           } catch {
             // Preserve the original database failure after attempting compensating cleanup.
           }

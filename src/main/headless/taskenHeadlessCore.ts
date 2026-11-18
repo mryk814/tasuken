@@ -18,6 +18,7 @@ import {
 } from "../services/captureImageStore.ts";
 import { AutomaticSnapshotBackupService } from "../services/automaticSnapshotBackup.ts";
 import { createImageHeaderDecoder } from "../services/imageHeaderDecoder.ts";
+import { createArtifactProposalAssetPort } from "../services/proposalArtifactAssets.ts";
 import { inspectWorkspaceBackup } from "../repositories/workspaceRepository.mjs";
 import { createHeadlessMobileGateway, DEFAULT_MOBILE_GATEWAY_PORT } from "./mobileGateway.ts";
 import { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
@@ -198,6 +199,8 @@ export async function startTaskenHeadlessCore(
             }
           : {}),
         proposalAccess: writeMode !== "read-only" ? "proposals" : "read-only",
+        // アセットはデコーダー不要なので、常時稼働nodeでも受けられる（#789）。
+        artifactProposalAssetPort: createArtifactProposalAssetPort(userDataPath),
       },
     );
     if (syncDirectory) {

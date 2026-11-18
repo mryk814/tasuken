@@ -71,6 +71,8 @@ interface ProposalCandidate {
   type: CandidateType;
   entry: Record<string, unknown>;
   theme?: Theme;
+  /** artifact候補の添付先Task（entry.task_idを解決したもの。#789）。 */
+  task?: BaseRecord;
   duplicate?: BaseRecord;
   action: string;
   issues: string[];
@@ -118,6 +120,9 @@ function candidateMeta(candidate: ProposalCandidate) {
     return [NOTE_TYPE_LABELS[str(candidate.entry.note_type)] || "Note", theme]
       .filter(Boolean)
       .join(" / ");
+  }
+  if (candidate.type === "artifact" && candidate.task) {
+    return `artifact / Task「${str(candidate.task.title) || candidate.task.id}」の添付`;
   }
   return `${candidate.type} / ${candidate.theme?.name || "Theme未解決"}`;
 }
@@ -243,18 +248,26 @@ export function buildPreview(
         if (payloadType === "sketches") validateSafeSvg(entry.svg);
         else validateArtifactProposal(entry);
         const themeName = str(entry.theme);
+        const taskId = payloadType === "artifacts" ? str(entry.task_id) : "";
+        const task = taskId
+          ? (props.data.tasks || []).find((candidate) => candidate.id === taskId)
+          : undefined;
+        const issues: string[] = [];
+        if (
+          themeName &&
+          !props.themes.some((theme) => theme.id === themeName || str(theme.name) === themeName)
+        )
+          issues.push("Themeを解決できないため未設定で保存します");
+        if (taskId && !task) issues.push("添付先のTaskが見つかりません。採用時に止まります");
         return {
           type: payloadType === "sketches" ? "sketch" : "artifact",
           entry,
           theme: props.themes.find(
             (theme) => theme.id === themeName || str(theme.name) === themeName,
           ),
+          ...(task ? { task } : {}),
           action: "create",
-          issues:
-            themeName &&
-            !props.themes.some((theme) => theme.id === themeName || str(theme.name) === themeName)
-              ? ["Themeを解決できないため未設定で保存します"]
-              : [],
+          issues,
         };
       }),
       payloadIssues: [],
@@ -964,20 +977,23 @@ export function ProposalDetail(props: ProposalDetailProps) {
       for (const candidate of accepted.filter((entry) => entry.type === "artifact")) {
         const normalized = validateArtifactProposal(candidate.entry);
         const entryIndex = preview.candidates.indexOf(candidate);
+        // task_id指定時はTaskの添付として送る（Main側の再構築と同じ形。#789）。
+        const themeId =
+          candidate.theme?.id || (candidate.task ? str(candidate.task.project_id) || null : null);
         operations.push({
           action: "save",
           type: "artifact",
           entity: {
             id: stableProposalEntityId(active.id, "artifact", entryIndex),
             title: normalized.title,
-            source_type: "ai_proposal",
-            source_id: active.id,
-            theme_id: candidate.theme?.id || null,
+            source_type: candidate.task ? "task" : "ai_proposal",
+            source_id: candidate.task ? candidate.task.id : active.id,
+            theme_id: themeId,
             description: str(candidate.entry.reason),
             generated_by: null,
             proposal_materialization: {
               entryIndex,
-              themeId: candidate.theme?.id || null,
+              themeId,
             },
           },
           options: { source: "ai_proposal" },

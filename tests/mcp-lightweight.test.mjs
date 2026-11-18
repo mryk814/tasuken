@@ -41,12 +41,13 @@ async function connect(t, options = {}) {
 // 書き込み）。本人が設定で無効にしていても一覧には出す（接続し直さずに使えるように）ので、その分だけ予算を広げた。
 // 旧名3道具を外した（#755）ので、legacy の組は空。名前は受けるが、一覧は all と同じ。
 // AI Readyの一覧・割り当て（読み取り2つ）と開始（書き込み1つ）を外した（#755 束10a）。read 16→14、all 28→25。
-test("discovery budgets: default read=14, write=25, core=6; legacy adds nothing", async (t) => {
+// HTML等の成果物提案 propose_artifact を書き込みに1つ足した（#789）。all 25→26。
+test("discovery budgets: default read=14, write=26, core=6; legacy adds nothing", async (t) => {
   for (const [label, options, count, budget] of [
     ["read-only", { readOnly: true }, 14, 11000],
-    ["all", { readOnly: false }, 25, 36000],
+    ["all", { readOnly: false }, 26, 36000],
     ["core", { readOnly: true, env: { TASKEN_MCP_TOOLSETS: "core" } }, 6, 6000],
-    ["legacy", { readOnly: false, toolsets: ["all", "legacy"] }, 25, 36000],
+    ["legacy", { readOnly: false, toolsets: ["all", "legacy"] }, 26, 36000],
   ]) {
     const client = await connect(t, options);
     const { tools } = await client.listTools();

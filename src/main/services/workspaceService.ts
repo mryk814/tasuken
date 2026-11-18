@@ -131,6 +131,7 @@ import {
   ProposalMarkdownImageStore,
   type ProposalMarkdownImageDecoder,
 } from "./proposalMarkdownImages";
+import { ProposalArtifactAssetStore } from "./proposalArtifactAssets";
 import { writeAtomicTextFile } from "./atomicText.mjs";
 import { bufferSignature } from "./canonicalHash.mjs";
 import {
@@ -701,6 +702,7 @@ export class WorkspaceService {
   private readonly canonicalRecoveryWarningPath: string;
   private readonly conversationContextRecoveryDirectory: string;
   private readonly proposalMarkdownImages: ProposalMarkdownImageStore;
+  private readonly proposalArtifactAssets: ProposalArtifactAssetStore;
   private readonly taskenCoreClient?: {
     inspect(): Promise<{ api_version: string; capabilities: string[] }>;
   };
@@ -719,6 +721,7 @@ export class WorkspaceService {
       userDataPath,
       proposalMarkdownImageDecoder,
     );
+    this.proposalArtifactAssets = new ProposalArtifactAssetStore(userDataPath);
     this.canonicalRecoveryPath = path.join(userDataPath, "canonical-markdown-recovery.json");
     this.canonicalRecoveryWarningPath = path.join(
       userDataPath,
@@ -3413,6 +3416,15 @@ export class WorkspaceService {
       { filename: normalized.fileName, mime_type: normalized.mediaType },
       "Proposal確定",
     );
+    // 同梱アセットはstage済みファイルを検証してからdata URIへ差し替え、
+    // 自己完結した内容を保存する（検証はproposalArtifactAssetsが担う）。
+    const finalContent = request.assets
+      ? this.proposalArtifactAssets.inlineAssets(
+          request.assets.proposalId,
+          request.assets.manifest,
+          normalized.content,
+        )
+      : normalized.content;
     const location = this.resolveThemeContentDirectory(request.themeId || null, "artifacts");
     if (location.kind === "needs_directory") return { status: "needs_directory" };
     fs.mkdirSync(location.directory, { recursive: true });
@@ -3434,7 +3446,7 @@ export class WorkspaceService {
     const tempPath = `${storedPath}.tasken-tmp`;
     let created = false;
     if (fs.existsSync(storedPath)) {
-      if (!materializationKey || fs.readFileSync(storedPath, "utf8") !== normalized.content) {
+      if (!materializationKey || fs.readFileSync(storedPath, "utf8") !== finalContent) {
         throw new Error("Artifactの確定先が競合しています。Previewを開き直してください。");
       }
     } else {
@@ -3449,7 +3461,7 @@ export class WorkspaceService {
           fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL,
           0o600,
         );
-        const content = Buffer.from(normalized.content, "utf8");
+        const content = Buffer.from(finalContent, "utf8");
         let offset = 0;
         while (offset < content.length) {
           const written = fs.writeSync(descriptor, content, offset, content.length - offset);
@@ -3460,7 +3472,7 @@ export class WorkspaceService {
         fs.closeSync(descriptor);
         descriptor = null;
         if (fs.existsSync(storedPath)) {
-          if (!materializationKey || fs.readFileSync(storedPath, "utf8") !== normalized.content) {
+          if (!materializationKey || fs.readFileSync(storedPath, "utf8") !== finalContent) {
             throw new Error("Artifactの確定先が競合しています。Previewを開き直してください。");
           }
           fs.rmSync(tempPath, { force: true });
@@ -3519,6 +3531,10 @@ export class WorkspaceService {
     finalBody: string,
   ): string[] {
     return this.proposalMarkdownImages.discardUnreferenced(proposalId, manifest, finalBody);
+  }
+
+  discardProposalArtifactAssets(proposalId: string, manifest: unknown): string[] {
+    return this.proposalArtifactAssets.discard(proposalId, manifest);
   }
 
   reload(sender: WebContents): boolean {

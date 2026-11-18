@@ -39,6 +39,9 @@ const { createTaskenCore } = await importBundled("src/main/infrastructure/sqlite
 const { createNoteProposalImagePort } = await importBundled(
   "src/main/services/proposalMarkdownImages.ts",
 );
+const { createArtifactProposalAssetPort } = await importBundled(
+  "src/main/services/proposalArtifactAssets.ts",
+);
 const { ApplicationCommandService } = await importBundled(
   "src/main/services/applicationCommandService.ts",
 );
@@ -910,6 +913,176 @@ test("propose_feed_post carries an article image and one media entry through std
       stored.payload.note_images[0].file_name,
     );
     assert.equal(fs.existsSync(storedImagePath), true);
+  } finally {
+    await client.close();
+    await host.stop();
+    database.db.close();
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("propose_artifact queues an HTML document for a Task and dry_run checks the Task (#789)", async () => {
+  const root = fixtureRoot();
+  const dbPath = path.join(root, "workspace.sqlite3");
+  const database = new WorkspaceDatabase(dbPath);
+  database.save("theme", { id: "theme-html", name: "HTML資料" });
+  database.save("task", {
+    id: "task-html",
+    title: "HTMLレポートを残す",
+    project_id: "theme-html",
+    state: "todo",
+    priority: "normal",
+    requester: "self",
+  });
+  const host = new TaskenCoreHost({ userDataPath: root, ...createTaskenCore(database) });
+  await host.start();
+  const client = await connectMcp(root);
+  try {
+    const listed = await client.listTools();
+    const artifactTool = listed.tools.find((tool) => tool.name === "tasken.propose_artifact");
+    assert.ok(artifactTool);
+    assert.ok(artifactTool.inputSchema.properties.media_type.enum.includes("text/html"));
+    assert.ok(artifactTool.inputSchema.properties.task_id);
+
+    const html = "<!doctype html><html><body><h1>Report</h1></body></html>";
+    const args = {
+      ...baseArgs("html-artifact-1"),
+      title: "Report",
+      file_name: "report.html",
+      media_type: "text/html",
+      content: html,
+      task_id: "task-html",
+      reason: "brief",
+    };
+    const dryRun = await callProposal(client, "tasken.propose_artifact", {
+      ...args,
+      dry_run: true,
+    });
+    assert.equal(dryRun.status, "validated");
+    assert.equal(dryRun.payload_type, "artifacts");
+    assert.deepEqual(dryRun.checks, [
+      { code: "task_found", ok: true, message: "添付先のTaskがあります。" },
+    ]);
+    assert.equal(database.list("ai_proposal").length, 0);
+
+    const missingDryRun = await callProposal(client, "tasken.propose_artifact", {
+      ...args,
+      idempotency_key: "html-artifact-missing",
+      task_id: "task-missing",
+      dry_run: true,
+    });
+    assert.equal(missingDryRun.checks[0].code, "task_found");
+    assert.equal(missingDryRun.checks[0].ok, false);
+    assert.equal(database.list("ai_proposal").length, 0);
+
+    const queued = await callProposal(client, "tasken.propose_artifact", args);
+    assert.equal(queued.status, "queued");
+    assert.equal(queued.payload_type, "artifacts");
+    const proposal = database.get("ai_proposal", queued.proposal_id);
+    assert.equal(proposal.request.tool, "tasken.propose_artifact");
+    assert.deepEqual(proposal.payload, {
+      artifacts: [
+        {
+          action: "create",
+          title: "Report",
+          file_name: "report.html",
+          media_type: "text/html",
+          content: html,
+          task_id: "task-html",
+          theme: "",
+          reason: "brief",
+        },
+      ],
+    });
+  } finally {
+    await client.close();
+    await host.stop();
+    database.db.close();
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});
+
+test("propose_artifact stages bundled assets beside the proposal without base64 in the HTML (#789)", async () => {
+  const root = fixtureRoot();
+  const dbPath = path.join(root, "workspace.sqlite3");
+  const database = new WorkspaceDatabase(dbPath);
+  database.save("theme", { id: "theme-html-assets", name: "同梱資料" });
+  database.save("task", {
+    id: "task-html-assets",
+    title: "図入りのHTMLレポートを残す",
+    project_id: "theme-html-assets",
+    state: "todo",
+    priority: "normal",
+    requester: "self",
+  });
+  const host = new TaskenCoreHost({
+    userDataPath: root,
+    ...createTaskenCore(database, {
+      artifactProposalAssetPort: createArtifactProposalAssetPort(root),
+    }),
+  });
+  await host.start();
+  const client = await connectMcp(root);
+  try {
+    const listed = await client.listTools();
+    const artifactTool = listed.tools.find((tool) => tool.name === "tasken.propose_artifact");
+    assert.ok(artifactTool.inputSchema.properties.assets);
+
+    const pngBase64 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+    const pngBytes = Buffer.from(pngBase64, "base64");
+    const html =
+      '<!doctype html><html><body><h1>図入り報告</h1><img src="tasken-upload://chart"></body></html>';
+    const args = {
+      ...baseArgs("html-artifact-assets-1"),
+      title: "図入り報告",
+      file_name: "report-with-chart.html",
+      media_type: "text/html",
+      content: html,
+      task_id: "task-html-assets",
+      assets: [
+        {
+          reference_id: "chart",
+          file_name: "chart.png",
+          media_type: "image/png",
+          data_base64: pngBase64,
+        },
+      ],
+    };
+
+    const mismatched = await client.callTool({
+      name: "tasken.propose_artifact",
+      arguments: {
+        ...args,
+        idempotency_key: "html-artifact-assets-mismatch",
+        assets: [{ ...args.assets[0], media_type: "image/jpeg" }],
+      },
+    });
+    assert.equal(mismatched.isError, true);
+    assert.equal(mismatched.structuredContent.error.code, "VALIDATION_FAILED");
+    assert.equal(database.list("ai_proposal").length, 0);
+
+    const queued = await callProposal(client, "tasken.propose_artifact", args);
+    assert.equal(queued.status, "queued");
+    const proposal = database.get("ai_proposal", queued.proposal_id);
+    // HTML本文はプレースホルダのまま（base64転記なし）、実データはmanifestだけが指す。
+    assert.equal(proposal.payload.artifacts[0].content, html);
+    assert.equal(proposal.payload.artifact_assets.length, 1);
+    const manifest = proposal.payload.artifact_assets[0];
+    assert.deepEqual(Object.keys(manifest).sort(), [
+      "file_name",
+      "mime_type",
+      "reference_id",
+      "sha256",
+      "size",
+    ]);
+    assert.equal(manifest.reference_id, "chart");
+    assert.equal(manifest.mime_type, "image/png");
+    assert.equal(manifest.size, pngBytes.length);
+    assert.equal(manifest.sha256, createHash("sha256").update(pngBytes).digest("hex"));
+    const stagedPath = path.join(root, "attachments", "artifact-assets", manifest.file_name);
+    assert.equal(fs.existsSync(stagedPath), true);
+    assert.deepEqual(fs.readFileSync(stagedPath), pngBytes);
   } finally {
     await client.close();
     await host.stop();

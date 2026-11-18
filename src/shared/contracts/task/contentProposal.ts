@@ -168,6 +168,32 @@ export const noteProposalImageSchema = z
   })
   .strict();
 
+export const artifactProposalAssetMediaTypeSchema = z.enum([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "video/mp4",
+  "video/webm",
+]);
+
+/**
+ * HTML Artifactに同梱する画像・動画（#789）。
+ *
+ * バイナリは本文へbase64で転記させず、部品として分けて送る（note画像と同じ作法。
+ * 転記は壊れやすく、#790の二の舞になる）。HTML本文からは
+ * `tasken-upload://<reference_id>` で参照し、採用時にCoreが実データへ差し替えて
+ * 自己完結した1ファイルに仕上げる。
+ */
+export const artifactProposalAssetSchema = z
+  .object({
+    reference_id: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+    file_name: safeFileName(180),
+    media_type: artifactProposalAssetMediaTypeSchema,
+    data_base64: z.string().min(1).max(16_777_216),
+  })
+  .strict();
+
 /**
  * 外部リンクのURL。
  *
@@ -388,8 +414,25 @@ export const proposeContentRequestSchema = z
         kind: z.literal("artifact_create"),
         title: boundedText(200),
         file_name: boundedText(180),
-        media_type: z.enum(["image/svg+xml", "text/markdown", "text/plain", "application/json"]),
+        media_type: z.enum([
+          "image/svg+xml",
+          "text/markdown",
+          "text/plain",
+          "application/json",
+          "text/html",
+        ]),
         content: z.string().min(1).max(1_000_000),
+        /**
+         * 任意のTask参照（#789）。指定すると採用後のArtifactはそのTaskの添付
+         * （source_type=task）になり、Task詳細とget_task_contextに現れる。
+         * HTML文書をnoteとは別枠でタスクに残すための入口。
+         */
+        task_id: boundedText(200).optional(),
+        /**
+         * HTMLが参照する画像・動画の同梱（#789）。本文の
+         * `tasken-upload://<reference_id>` に対応する実データを部品として送る。
+         */
+        assets: z.array(artifactProposalAssetSchema).min(1).max(8).optional(),
         theme: optionalText(500),
         reason: optionalText(2_000),
       })
@@ -438,3 +481,5 @@ export type ProposeContentResponse = z.output<typeof proposeContentResponseSchem
 export type ContentProposalPayloadType = z.output<typeof contentProposalPayloadTypeSchema>;
 export type NoteProposalImage = z.output<typeof noteProposalImageSchema>;
 export type NoteProposalImageMediaType = z.output<typeof noteProposalImageMediaTypeSchema>;
+export type ArtifactProposalAsset = z.output<typeof artifactProposalAssetSchema>;
+export type ArtifactProposalAssetMediaType = z.output<typeof artifactProposalAssetMediaTypeSchema>;

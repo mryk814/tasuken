@@ -355,6 +355,8 @@ export {
   type ProposeRepositoryTaskResponse,
 } from "./repositoryTaskProposal.ts";
 export {
+  artifactProposalAssetMediaTypeSchema,
+  artifactProposalAssetSchema,
   contentProposalActorSchema,
   contentProposalPayloadTypeSchema,
   contentProposalRepositoryContextSchema,
@@ -367,6 +369,8 @@ export {
   noteProposalImageSchema,
   proposeContentRequestSchema,
   proposeContentResponseSchema,
+  type ArtifactProposalAsset,
+  type ArtifactProposalAssetMediaType,
   type ContentProposalPayloadType,
   type NoteProposalImage,
   type NoteProposalImageMediaType,

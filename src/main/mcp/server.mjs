@@ -1299,6 +1299,72 @@ export function createTaskenMcpServer(options = {}) {
     withCoreClient((args) => queueContent(args, "note_edit")),
   );
 
+  server.registerTool(
+    "tasken.propose_artifact",
+    {
+      description:
+        "Queue a finished document (SVG, Markdown, text, JSON, or HTML) as an Artifact draft; adoption saves it, with task_id attached to that Task. HTML previews sandboxed; see tasken://guide/artifact.",
+      inputSchema: {
+        ...contentProposalBase,
+        title: z.string().trim().min(1).max(200),
+        file_name: z
+          .string()
+          .trim()
+          .min(1)
+          .max(180)
+          .describe(
+            "File name only, no path. Extension must match media_type (.html for text/html).",
+          ),
+        media_type: z.enum([
+          "image/svg+xml",
+          "text/markdown",
+          "text/plain",
+          "application/json",
+          "text/html",
+        ]),
+        content: z.string().min(1).max(1000000),
+        task_id: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe(
+            "Optional Task to attach the adopted Artifact to. Take the ID from get_task_context or search_items; dry_run reports whether the Task exists.",
+          ),
+        assets: z
+          .array(
+            z
+              .object({
+                reference_id: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
+                file_name: z.string().trim().min(1).max(180),
+                media_type: z.enum([
+                  "image/png",
+                  "image/jpeg",
+                  "image/gif",
+                  "image/webp",
+                  "video/mp4",
+                  "video/webm",
+                ]),
+                data_base64: z.string().min(1).max(16777216),
+              })
+              .strict(),
+          )
+          .min(1)
+          .max(8)
+          .optional()
+          .describe(
+            "Images/videos the HTML references as tasken-upload://reference-id. Each asset must be referenced from the HTML and every reference must have an asset; at most 8 assets, 12MiB each, 24MiB total.",
+          ),
+        theme: optionalText,
+        reason: z.string().max(2000).optional(),
+        source_app: z.string().trim().min(1).max(120).optional(),
+      },
+      annotations: PROPOSAL_ANNOTATIONS,
+    },
+    withCoreClient((args) => queueContent(args, "artifact_create")),
+  );
+
   return filterAvailableTools();
 }
 
