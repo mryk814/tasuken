@@ -715,6 +715,66 @@ test("content proposal transport enforces 64KiB by actual UTF-8 bytes and media 
   }
 });
 
+test("propose-content rejects a retired or unknown kind with an explanation (#792)", async () => {
+  const root = fixtureRoot();
+  const database = new WorkspaceDatabase(path.join(root, "workspace.sqlite3"));
+  const host = new TaskenCoreHost({ userDataPath: root, ...createTaskenCore(database) });
+  await host.start();
+  try {
+    const discovery = JSON.parse(fs.readFileSync(path.join(root, "tasken-core.json"), "utf8"));
+    const headers = {
+      authorization: `Bearer ${discovery.token}`,
+      "content-type": "application/json",
+    };
+    const post = (payload) =>
+      fetch(`${discovery.origin}/v1/commands/propose-content`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
+    const base = {
+      idempotency_key: "kind-check",
+      caller: "Fixture agent",
+      actor: { kind: "ai_agent" },
+      source: "mcp",
+      title: "Kind check",
+      body: "本文",
+    };
+
+    // 廃止された kind（旧 propose_knowledge）は、検証エラーの形ではなく廃止の説明で断る。
+    const retired = await post({ ...base, kind: "knowledge_create", node_type: "claim" });
+    assert.equal(retired.status, 400);
+    const retiredBody = await retired.json();
+    assert.equal(retiredBody.error.code, "VALIDATION_FAILED");
+    assert.match(retiredBody.error.message, /廃止/);
+    assert.match(retiredBody.error.message, /note_create/);
+
+    // kind が無い・未知の kind も、受け付ける kind が分かる形で断る。
+    for (const payload of [{ ...base }, { ...base, kind: "knowlege_create" }]) {
+      const res = await post(payload);
+      assert.equal(res.status, 400);
+      const body = await res.json();
+      assert.equal(body.error.code, "VALIDATION_FAILED");
+      assert.match(body.error.message, /kind が不正です/);
+      assert.match(body.error.message, /note_create/);
+    }
+
+    // 受け付ける kind は従来どおり通る（この先の検証は別の理由で落ちてよいが、kind の説明にはならない）。
+    const accepted = await post({ ...base, kind: "note_create" });
+    assert.equal(accepted.status, 200);
+  } finally {
+    try {
+      await host.stop();
+    } finally {
+      try {
+        database.db.close();
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    }
+  }
+});
+
 test("content proposal client requires its named capability and rejects additive response fields", async () => {
   const root = fixtureRoot();
   const discoveryPath = path.join(root, "tasken-core.json");
