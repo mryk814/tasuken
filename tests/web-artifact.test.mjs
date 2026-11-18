@@ -213,7 +213,8 @@ test("ContentViewerは隔離Interactive Previewを常時表示する", () => {
   assert.match(viewer, /readWebArtifactPreview\(artifact\.id\)/);
   assert.doesNotMatch(viewer, /Static Preview|Interactive Preview|webMode/);
   assert.match(viewer, /sandbox="allow-scripts"/);
-  assert.match(viewer, /key=\{load\.artifact\.id\}/);
+  // #789: Document のプレビューも同じ iframe を使うため、key は Artifact / Document の ID。
+  assert.match(viewer, /key=\{load\.artifact\?\.id \|\| load\.document\?\.id\}/);
   assert.match(viewer, /src=\{webPreviewUrl\}/);
   assert.doesNotMatch(viewer, /srcDoc=/);
   assert.match(viewer, /allow=""/);

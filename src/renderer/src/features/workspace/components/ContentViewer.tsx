@@ -33,6 +33,7 @@ import type {
   Note,
   OpenContentViewer,
   OpenDrawer,
+  TaskDocument,
   WorkspaceData,
 } from "../types";
 import {
@@ -60,7 +61,13 @@ export type { ContentViewerTarget };
 
 type LoadState =
   | { status: "loading" }
-  | { status: "error"; message: string; artifact?: Artifact; mediaAvailability?: MediaAvailability }
+  | {
+      status: "error";
+      message: string;
+      artifact?: Artifact;
+      document?: TaskDocument;
+      mediaAvailability?: MediaAvailability;
+    }
   | {
       status: "ready";
       mode: "markdown";
@@ -101,7 +108,8 @@ type LoadState =
       mode: "web";
       title: string;
       previewUrl: string;
-      artifact: Artifact;
+      artifact?: Artifact;
+      document?: TaskDocument;
     };
 
 // conversationモードはファイル実体を持たないため、ファイル系の操作は他モードだけへ絞る。
@@ -181,6 +189,23 @@ async function resolveTarget(target: ContentViewerTarget, data: WorkspaceData): 
       messageCount: parseConversation(body).messageCount,
       sourceUrl: str(resource.url),
       resource,
+    };
+  }
+
+  if (target.type === "document") {
+    const taskDocument = (data.documents || []).find((entry) => entry.id === target.documentId);
+    if (!taskDocument) {
+      return { status: "error", message: "Documentが見つかりません。削除済みの可能性があります。" };
+    }
+    // 表示部品はWeb Artifactと共通（tasken-web Preview＋sandbox）。器だけが違う（#789）。
+    const result = await workspaceApi.readWebArtifactPreview(taskDocument.id);
+    if (!result.ok) return { status: "error", message: result.error, document: taskDocument };
+    return {
+      status: "ready",
+      mode: "web",
+      title: str(taskDocument.title) || str(taskDocument.filename) || "Document",
+      previewUrl: result.url,
+      document: taskDocument,
     };
   }
 
@@ -357,7 +382,8 @@ export function ContentViewer({
 
   const webPreviewUrl = useMemo(() => {
     if (load.status !== "ready" || load.mode !== "web") return "";
-    return load.previewUrl || webArtifactPreviewUrl(load.artifact.id, "sandboxed_interactive");
+    const fallbackId = load.artifact?.id || load.document?.id || "";
+    return load.previewUrl || webArtifactPreviewUrl(fallbackId, "sandboxed_interactive");
   }, [load]);
 
   function handlePreviewClick(event: MouseEvent<HTMLDivElement>) {
@@ -886,7 +912,7 @@ export function ContentViewer({
           {load.status === "ready" && load.mode === "web" && (
             <div className="content-viewer-web is-interactive">
               <iframe
-                key={load.artifact.id}
+                key={load.artifact?.id || load.document?.id}
                 className="content-viewer-web-frame"
                 title={`${load.title}のWeb Preview`}
                 src={webPreviewUrl}

@@ -105,6 +105,19 @@ export interface Note extends BaseRecord {
   comments?: NoteComment[];
 }
 
+/** Task配下のHTML文書（#789）。Noteと同列のコンテンツで、本体は管理ファイル側。 */
+export interface TaskDocument extends BaseRecord {
+  title: string;
+  filename?: string;
+  media_type?: string;
+  file_size?: number;
+  task_id?: string | null;
+  theme_id?: string | null;
+  description?: string;
+  ai_creation?: unknown;
+  ai_seen_at?: string | null;
+}
+
 export interface Link extends BaseRecord {
   title: string;
   url: string;
@@ -302,6 +315,7 @@ export interface WorkspaceData {
   knowledge_edges: BaseRecord[];
   change_events: BaseRecord[];
   artifacts: Artifact[];
+  documents: TaskDocument[];
   sketches: Sketch[];
   /** Habitの最小実験（#454後半）。実施記録は habit_entrys に置く。 */
   habits: BaseRecord[];
@@ -369,6 +383,7 @@ export type OpenSketchEditor = (entity: DrawerEntity) => void;
 export type ContentViewerTarget =
   | { type: "note"; noteId: string }
   | { type: "artifact"; artifactId: string }
+  | { type: "document"; documentId: string }
   | { type: "chat_log"; resourceId: string };
 
 export type OpenContentViewer = (target: ContentViewerTarget) => void;

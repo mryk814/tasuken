@@ -131,6 +131,7 @@ import {
   ProposalMarkdownImageStore,
   type ProposalMarkdownImageDecoder,
 } from "./proposalMarkdownImages";
+import { DocumentFileStore } from "./documentFileStore";
 import { writeAtomicTextFile } from "./atomicText.mjs";
 import { bufferSignature } from "./canonicalHash.mjs";
 import {
@@ -179,6 +180,8 @@ const MARKDOWN_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
 /** アプリ内ビューア用。インフォグラフィック等の大きめ画像も許容する。 */
 const PREVIEW_IMAGE_MAX_BYTES = 40 * 1024 * 1024;
 const PREVIEW_TEXT_MAX_BYTES = 5 * 1024 * 1024;
+// Documentはアセット埋め込みで最大24MiB＋base64化の膨らみを見込む（#789）。
+const DOCUMENT_PREVIEW_MAX_BYTES = 40 * 1024 * 1024;
 const RELEASES_API_URL = "https://api.github.com/repos/mryk814/tasuken/releases/latest";
 const RELEASES_PAGE_URL = "https://github.com/mryk814/tasuken/releases/latest";
 const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
@@ -701,6 +704,7 @@ export class WorkspaceService {
   private readonly canonicalRecoveryWarningPath: string;
   private readonly conversationContextRecoveryDirectory: string;
   private readonly proposalMarkdownImages: ProposalMarkdownImageStore;
+  private readonly documentFiles: DocumentFileStore;
   private readonly taskenCoreClient?: {
     inspect(): Promise<{ api_version: string; capabilities: string[] }>;
   };
@@ -719,6 +723,7 @@ export class WorkspaceService {
       userDataPath,
       proposalMarkdownImageDecoder,
     );
+    this.documentFiles = new DocumentFileStore(userDataPath);
     this.canonicalRecoveryPath = path.join(userDataPath, "canonical-markdown-recovery.json");
     this.canonicalRecoveryWarningPath = path.join(
       userDataPath,
@@ -1018,8 +1023,9 @@ export class WorkspaceService {
   }
 
   /** Human-only IPC action; records recognition without changing authority or origin. */
-  markAiItemSeen(type: "task" | "note", id: string): Record<string, unknown> {
-    if (type !== "task" && type !== "note") throw new Error("Task/Noteだけを確認できます。");
+  markAiItemSeen(type: "task" | "note" | "document", id: string): Record<string, unknown> {
+    if (type !== "task" && type !== "note" && type !== "document")
+      throw new Error("Task/Note/Documentだけを確認できます。");
     const current = this.repository.get(type, id);
     if (!current || objectValue(current.ai_creation).schema !== "tasken-ai-creation/v1")
       throw new Error("AI作成の項目が見つかりません。");
@@ -1035,7 +1041,7 @@ export class WorkspaceService {
         },
         options: { source: String(current.source || "ai") },
       });
-    return this.repository.save("task", entity, { source: String(current.source || "ai") });
+    return this.repository.save(type, entity, { source: String(current.source || "ai") });
   }
 
   restoreEntity(
@@ -3116,9 +3122,40 @@ export class WorkspaceService {
     return { ok: true, artifact, filePath };
   }
 
+  /**
+   * Document（#789）のPreview解決。表示部品（sanitize＋CSP＋sandbox）はWeb Artifactと
+   * 共通で、器だけが違う：IDがDocumentを指していたら、その管理ファイルを読む。
+   * Preview URLの形もArtifactと同じ（tasken-web://preview/<id>）にそろえる。
+   */
+  private resolveDocumentPreview(
+    idValue: unknown,
+  ): { ok: true; document: Record<string, unknown> } | { ok: false; error: string } {
+    if (typeof idValue !== "string" || !idValue.trim()) {
+      return { ok: false, error: "DocumentのIDがありません。画面を再読み込みしてください。" };
+    }
+    const document = this.repository.get("document", idValue.trim());
+    if (!document || document.deleted_at) {
+      return { ok: false, error: "Documentが見つかりません。削除済みの可能性があります。" };
+    }
+    if (String(document.media_type || "") !== "text/html") {
+      return { ok: false, error: "このDocumentはHTML形式ではありません。" };
+    }
+    return { ok: true, document };
+  }
+
   getWebArtifactPreview(artifactIdValue: unknown): WebArtifactPreviewResult {
     const resolved = this.resolveWebArtifact(artifactIdValue);
-    if (!resolved.ok) return resolved;
+    if (!resolved.ok) {
+      const document = this.resolveDocumentPreview(artifactIdValue);
+      if (!document.ok) return resolved;
+      const executionPolicy = "sandboxed_interactive" as const;
+      return {
+        ok: true,
+        url: webArtifactPreviewUrl(String(document.document.id), executionPolicy),
+        mimeType: "text/html",
+        executionPolicy,
+      };
+    }
     const executionPolicy = "sandboxed_interactive" as const;
     return {
       ok: true,
@@ -3135,7 +3172,26 @@ export class WorkspaceService {
     | { ok: true; html: string; executionPolicy: "static" | "sandboxed_interactive" }
     | { ok: false; error: string } {
     const resolved = this.resolveWebArtifact(artifactIdValue);
-    if (!resolved.ok) return resolved;
+    if (!resolved.ok) {
+      const document = this.resolveDocumentPreview(artifactIdValue);
+      if (!document.ok) return resolved;
+      const executionPolicy = normalizeWebArtifactExecutionPolicy(policyValue);
+      const html = this.documentFiles.read(String(document.document.filename || ""));
+      if (html === null) {
+        return {
+          ok: false,
+          error: "Documentを読み込めませんでした。ファイルの変更・削除を確認してください。",
+        };
+      }
+      // 同梱アセットを埋め込んだDocumentはArtifact Previewの上限より大きくなりうる。
+      if (Buffer.byteLength(html, "utf8") > DOCUMENT_PREVIEW_MAX_BYTES) {
+        return {
+          ok: false,
+          error: "HTMLが大きすぎるためPreviewできません。外部ブラウザで開いてください。",
+        };
+      }
+      return { ok: true, html, executionPolicy };
+    }
     const executionPolicy = normalizeWebArtifactExecutionPolicy(policyValue);
 
     try {

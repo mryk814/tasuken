@@ -43,6 +43,10 @@ export const TASKEN_CORE_TASK_QUERY_CAPABILITY = "task.query";
 export const TASKEN_CORE_TASK_COMMAND_CAPABILITY = "task.command";
 
 export const TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY = "create_ai_item";
+// AIがTask配下へDocument（HTML文書）を直接作る（#789）。Task・Noteの新規作成と同じ
+// create-only の直接書き込みで、使えるかは create_ai_item と同じ条件（Desktopは本人の
+// 設定、NAS replicaは配備の書き込み範囲）で決まる。
+export const TASKEN_CORE_CREATE_AI_DOCUMENT_CAPABILITY = "create_ai_document";
 // 本人の言葉を根拠にした既存Taskの直接変更と、その取り消し（#703）。取り消せる書き込みだけなので、
 // Desktopに加えて、私用のWorkspaceのNAS replicaも明示したときだけ公開する（#688）。
 // Desktopでは本人の設定（aiDirectWriteEnabled）を要求のたびに読む。

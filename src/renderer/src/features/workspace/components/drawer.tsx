@@ -64,6 +64,7 @@ import type { CommandEnvelope } from "../../../../../shared/applicationCommand";
 import { AiCreationMark } from "./AiCreationMark";
 import { AiContextFields, AiContextSummary } from "./aiContext";
 import { ArtifactSection } from "./artifacts";
+import { DocumentSection } from "./documents";
 import { ConversationPreview } from "./ConversationPreview";
 import { LineagePanel } from "./LineagePanel";
 import { CaptureEntryFields, findSchedule, PlanNodeFields, TaskFields } from "./drawerEntityFields";
@@ -1355,6 +1356,12 @@ export function EntityDrawer({
                   </p>
                 )}
               </section>
+              <DocumentSection
+                taskId={task.id}
+                data={data}
+                openContentViewer={openContentViewer}
+                removeEntity={removeEntity}
+              />
               <ArtifactSection
                 sourceType="task"
                 sourceId={task.id}

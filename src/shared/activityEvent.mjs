@@ -38,6 +38,8 @@ export const ACTIVITY_EVENT_KINDS = Object.freeze([
   "knowledge_updated",
   "sketch_created",
   "sketch_updated",
+  "document_created",
+  "document_updated",
   "reference_created",
   "reference_updated",
   "capture_formalized",

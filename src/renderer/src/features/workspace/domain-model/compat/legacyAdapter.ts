@@ -1152,6 +1152,7 @@ export function projectLegacyWorkspace(
     schedules: base?.schedules || [],
     change_events: base?.change_events || [],
     artifacts: base?.artifacts || [],
+    documents: base?.documents || [],
     plan_revisions: base?.plan_revisions || [],
     meta: base?.meta,
   };

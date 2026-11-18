@@ -14,6 +14,9 @@ import {
   aiItemCreationRequestSchema,
   type AiItemCreationRequest,
   type AiItemCreationResponse,
+  aiDocumentCreationRequestSchema,
+  type AiDocumentCreationRequest,
+  type AiDocumentCreationResponse,
   getSourceStatusRequestSchema,
   type GetSourceStatusRequest,
   type GetSourceStatusResponse,
@@ -126,6 +129,7 @@ import {
   TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
+  TASKEN_CORE_CREATE_AI_DOCUMENT_CAPABILITY,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY,
@@ -191,6 +195,7 @@ interface QueryProvider<Request, Response> {
 export interface TaskenCoreHostOptions {
   userDataPath: string;
   createAiItem?: QueryProvider<AiItemCreationRequest, AiItemCreationResponse>;
+  createAiDocument?: QueryProvider<AiDocumentCreationRequest, AiDocumentCreationResponse>;
   changeTask?: QueryProvider<AiTaskChangeRequest, AiTaskChangeResponse>;
   undoChange?: QueryProvider<AiChangeUndoRequest, AiChangeUndoResponse>;
   decideProposal?: QueryProvider<AiProposalDecisionRequest, AiProposalDecisionResponse>;
@@ -333,6 +338,13 @@ const ROUTES: readonly RouteDefinition[] = [
     provider: "createAiItem",
     capability: TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
     schema: aiItemCreationRequestSchema,
+  },
+  {
+    path: "/v1/commands/create-ai-document",
+    kind: "command",
+    provider: "createAiDocument",
+    capability: TASKEN_CORE_CREATE_AI_DOCUMENT_CAPABILITY,
+    schema: aiDocumentCreationRequestSchema,
   },
   {
     path: "/v1/commands/change-task",
@@ -723,6 +735,7 @@ function publicRequestError(error: unknown) {
     error instanceof Error &&
     [
       "AiItemCreationError",
+      "AiDocumentCreationError",
       "ProposeTaskWorkError",
       "ProposeRepositoryTaskError",
       "ProposeContentError",
@@ -902,6 +915,16 @@ export class TaskenCoreHost {
   ) {
     if (this.server) throw new Error("Core起動後の権限変更はできません。");
     this.options.createAiItem = provider;
+    this.directWriteEnabled = directWriteEnabled || null;
+  }
+
+  /** Documentの直接作成（#789）。公開の条件はcreate-ai-itemと同じ（上のコメント参照）。 */
+  enableAiDocumentCreation(
+    provider: QueryProvider<AiDocumentCreationRequest, AiDocumentCreationResponse>,
+    directWriteEnabled?: () => boolean,
+  ) {
+    if (this.server) throw new Error("Core起動後の権限変更はできません。");
+    this.options.createAiDocument = provider;
     this.directWriteEnabled = directWriteEnabled || null;
   }
 
@@ -1207,9 +1230,15 @@ export class TaskenCoreHost {
         const allowsNoteProposalImages =
           url === "/v1/commands/propose-content" &&
           request.headers["x-tasken-proposal-images"] === "1";
+        // Documentの同梱アセットも、画像入りの提案と同じ大きめの上限が要る（#789）。
+        const allowsDocumentAssets =
+          url === "/v1/commands/create-ai-document" &&
+          request.headers["x-tasken-document-assets"] === "1";
         const rawBody = await requestBody(
           request,
-          allowsNoteProposalImages ? MAX_NOTE_PROPOSAL_WITH_IMAGES_BODY_BYTES : MAX_BODY_BYTES,
+          allowsNoteProposalImages || allowsDocumentAssets
+            ? MAX_NOTE_PROPOSAL_WITH_IMAGES_BODY_BYTES
+            : MAX_BODY_BYTES,
         );
         if (url === "/v1/commands/propose-content") {
           const kindMessage = proposeContentKindError(rawBody);

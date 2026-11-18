@@ -48,6 +48,8 @@ const directWriteTools = [
   "tasken.undo_change",
   "tasken.decide_proposal",
   "tasken.edit_note",
+  // Document の直接作成（#789）。
+  "tasken.create_document",
 ];
 
 function toolBlock(value, toolName) {

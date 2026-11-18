@@ -1,5 +1,6 @@
 import { WorkspaceService } from "../services/workspaceService.ts";
 import {
+  createAiDocumentCreationPort,
   createAiItemCreationPort,
   createAiTaskChangeService,
   createMobileFeedWriter,
@@ -236,6 +237,8 @@ export async function startTaskenHeadlessCore(
     }
     if (writeMode === "create-only" && workspace) {
       runtime.enableAiItemCreation(createAiItemCreationPort(commands, workspace));
+      // Documentの直接作成（#789）もcreate-onlyの範囲。新規作成と同じく配備で許している。
+      runtime.enableAiDocumentCreation(createAiDocumentCreationPort(userDataPath));
       // 配備で明示した時点で許しているので、Desktopのような要求ごとの設定は読まない。
       if (allowAiTaskChange)
         runtime.enableAiTaskChange(createAiTaskChangeService(repository, commands, () => true));

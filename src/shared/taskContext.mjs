@@ -9,6 +9,7 @@ const DEFAULT_INCLUDE = [
   "resources",
   "activity",
   "work_receipts",
+  "documents",
 ];
 const INCLUDE_VALUES = new Set([...DEFAULT_INCLUDE, "captures"]);
 const ABSOLUTE_PATH = /^(?:[A-Za-z]:[\\/]|[\\/]{1,2})/;
@@ -354,6 +355,23 @@ export function publicCaptureSummary(capture, budget, relation) {
       images: images.filter((entry) => entry.file_name),
       included_because: relation.includedBecause,
       relation_path: relation.path,
+    },
+    budget,
+  );
+}
+
+export function publicDocumentSummary(document, budget) {
+  const takeSafe = (value, limit) => budget.take(safeReceiptText(value), limit);
+  return withPublicAi(
+    document,
+    {
+      ...commonFields(document),
+      title: takeSafe(document.title, 500),
+      filename: takeSafe(document.filename, 500),
+      media_type: document.media_type || null,
+      file_size: Number.isFinite(Number(document.file_size)) ? Number(document.file_size) : null,
+      task_id: document.task_id || null,
+      description: takeSafe(document.description, 600),
     },
     budget,
   );

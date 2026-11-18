@@ -43,7 +43,7 @@ export const workspaceApi = {
   undoAiChange(changeId: string) {
     return desktopApi().entities.undoAiChange(changeId);
   },
-  markAiItemSeen(type: "task" | "note", id: string) {
+  markAiItemSeen(type: "task" | "note" | "document", id: string) {
     return desktopApi().entities.markAiItemSeen(type, id);
   },
   openTaskCapture() {

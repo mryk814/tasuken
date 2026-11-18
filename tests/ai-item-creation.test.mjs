@@ -530,7 +530,7 @@ function packetShape(value, inputs, prefix = "$", out = new Set()) {
   return out;
 }
 
-test("replica が書く AI の Task・Note の差分の形（作成・直接変更）が変わったら、contracts/sync/ai-item-packets.json に印が要る", async () => {
+test("replica が書く AI の Task・Note・Document の差分の形（作成・直接変更）が変わったら、contracts/sync/ai-item-packets.json に印が要る", async () => {
   const dir = temporary();
   const hostDirectory = path.join(dir, "desktop");
   fs.mkdirSync(hostDirectory);
@@ -579,6 +579,19 @@ test("replica が書く AI の Task・Note の差分の形（作成・直接変�
       ended_at: "2026-11-14T10:00:00.000Z",
     };
     const work = await client.recordAgentWork(workRequest);
+    // Document（#789）も、replicaがAIの書き込みで出す差分。古いDesktopは知らない種類を取り込めない。
+    const documentRequest = {
+      task_id: task.entity.id,
+      title: "contract document",
+      file_name: "contract-document.html",
+      content: "<!doctype html><html><body><p>contract document body</p></body></html>",
+      caller: "dot",
+      source_app: "test-dot",
+      source_session: "conversation-1",
+      reason: "contract shape check",
+      idempotency_key: "contract-document-1",
+    };
+    const document = await client.createAiDocument(documentRequest);
     await core.syncNow();
     // replica が共有フォルダへ実際に出したファイル（各 Entity の最後の差分）
     const replicaDevice = fs
@@ -600,6 +613,8 @@ test("replica が書く AI の Task・Note の差分の形（作成・直接変�
       ...Object.values(changeRequest.changes.place_reminder),
       ...Object.values(workRequest),
       ...workRequest.changed,
+      ...Object.values(documentRequest),
+      document.entity.file_name,
     ]);
     const changeEvent = packets
       .filter(
@@ -616,6 +631,7 @@ test("replica が書く AI の Task・Note の差分の形（作成・直接変�
       task_change: [...packetShape(latest(target.entity.id), inputs)].sort(),
       task_change_event: [...packetShape(changeEvent, inputs)].sort(),
       agent_work_record: [...packetShape(latest(work.id), inputs)].sort(),
+      document: [...packetShape(latest(document.entity.id), inputs)].sort(),
     };
     const digest = createHash("sha256").update(JSON.stringify(shape)).digest("hex");
     const contract = fs.existsSync(AI_ITEM_CONTRACT)

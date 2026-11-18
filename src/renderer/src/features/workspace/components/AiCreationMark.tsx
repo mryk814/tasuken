@@ -27,7 +27,7 @@ export function AiCreationMark({
   const label = `AI作成 · ${seenAt ? "既読" : "未確認"}`;
   const OriginIcon = SEMANTIC_ICONS.aiGenerated;
   async function markSeen() {
-    if (type !== "task" && type !== "note") return;
+    if (type !== "task" && type !== "note" && type !== "document") return;
     setSaving(true);
     setError("");
     try {
@@ -69,7 +69,7 @@ export function AiCreationMark({
         {Boolean(origin.reason) && (
           <span className="ai-creation-reason">{String(origin.reason)}</span>
         )}
-        {detail && !seenAt && (type === "task" || type === "note") && (
+        {detail && !seenAt && (type === "task" || type === "note" || type === "document") && (
           <button
             type="button"
             className="text-button compact"

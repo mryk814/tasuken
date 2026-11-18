@@ -5,3 +5,5 @@ export function validateArtifactProposal(value: unknown): {
   mediaType: string;
   content: string;
 };
+export function findTaskenUploadAssetReferences(content: unknown): string[];
+export function hasTaskenUploadAssetReference(content: unknown): boolean;

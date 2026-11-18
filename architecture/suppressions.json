@@ -158,16 +158,6 @@
       "removalCondition": "Use the public temporary-database fixture factory once available."
     },
     {
-      "rule": "compatibility.consumer_added",
-      "source": "src/main/services/workspaceService.ts",
-      "target": "generic-task-write",
-      "reason": "#405 human-only AI item seen IPC changes only ai_seen_at while preserving Task semantics and provenance. It is not exposed through MCP; this metadata write remains explicit migration debt.",
-      "owner": "task-capability-migration",
-      "issue": 405,
-      "expiresAt": "2026-11-30",
-      "removalCondition": "Move the human-only seen metadata operation into the Task command capability and remove the generic Task save."
-    },
-    {
       "rule": "composition.baseline_increase",
       "source": "src/renderer/src/services/workspaceApi.ts",
       "reason": "#405 typed human-only markAiItemSeen adapter is composed beside the remaining aggregate workspace adapters. No generic MCP write permission is added. #629 adds a typed explicit log import through the same aggregate API and Core proposal boundary.",

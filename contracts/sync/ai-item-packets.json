@@ -1,5 +1,5 @@
 {
-  "description": "Desktop と NAS の replica が読み合う、AI が replica で書く Task・Note・AI の作業の同期差分の形（新規作成と、既存 Task の直接変更の Task と Change Event と、AI の作業の記録。tests/ai-item-creation.test.mjs が replica の実際の出力と比べる）。形を変えたら、入れる前に flags の末尾へ一行足す。replica は main に入ってから 5 分で新しい形を書き始め、Desktop は本人が上げるまで古いまま。desktop_first は、古い Desktop がこの形を取り込めず、Desktop を先に上げる必要があるか（どの書き込みも断る）。取り込めないのが一部の経路の書く差分だけなら、desktop_first を false にして desktop_first_routes にその経路を並べ、その経路だけを断る。replica は、Desktop の status.json の syncShape より後に desktop_first: true の印があると、書き込みを断る。",
+  "description": "Desktop と NAS の replica が読み合う、AI が replica で書く Task・Note・AI の作業・Document の同期差分の形（新規作成と、既存 Task の直接変更の Task と Change Event と、AI の作業の記録と、Task 配下の Document の作成。tests/ai-item-creation.test.mjs が replica の実際の出力と比べる）。形を変えたら、入れる前に flags の末尾へ一行足す。replica は main に入ってから 5 分で新しい形を書き始め、Desktop は本人が上げるまで古いまま。desktop_first は、古い Desktop がこの形を取り込めず、Desktop を先に上げる必要があるか（どの書き込みも断る）。取り込めないのが一部の経路の書く差分だけなら、desktop_first を false にして desktop_first_routes にその経路を並べ、その経路だけを断る。replica は、Desktop の status.json の syncShape より後に desktop_first: true の印があると、書き込みを断る。",
   "shape": {
     "task": [
       "$.changeId: string",
@@ -301,6 +301,46 @@
       "$.revisionId: string",
       "$.workspaceId: string",
       "$: object"
+    ],
+    "document": [
+      "$.changeId: string",
+      "$.createdAt: string",
+      "$.deviceId: string",
+      "$.deviceSequence: number",
+      "$.entity.ai_authority: string=\"ai_generated\"",
+      "$.entity.ai_creation.caller: string",
+      "$.entity.ai_creation.command_id: string",
+      "$.entity.ai_creation.reason: string",
+      "$.entity.ai_creation.received_at: string",
+      "$.entity.ai_creation.schema: string=\"tasken-ai-creation/v1\"",
+      "$.entity.ai_creation.source_app: string",
+      "$.entity.ai_creation.source_session: string",
+      "$.entity.ai_creation: object",
+      "$.entity.ai_seen_at: null",
+      "$.entity.created_at: string",
+      "$.entity.deleted_at: null",
+      "$.entity.description: string",
+      "$.entity.device_id: string",
+      "$.entity.file_size: number",
+      "$.entity.filename: string",
+      "$.entity.id: string",
+      "$.entity.media_type: string=\"text/html\"",
+      "$.entity.sha256: string",
+      "$.entity.source: string=\"manual\"",
+      "$.entity.task_id: string",
+      "$.entity.theme_id: string=\"theme-personal-default\"",
+      "$.entity.title: string",
+      "$.entity.updated_at: string",
+      "$.entity.version: number",
+      "$.entity: object",
+      "$.entityId: string",
+      "$.entityType: string=\"document\"",
+      "$.format: string=\"tasken-sync-change\"",
+      "$.formatVersion: number",
+      "$.parentRevisionIds: array",
+      "$.revisionId: string",
+      "$.workspaceId: string",
+      "$: object"
     ]
   },
   "flags": [
@@ -334,6 +374,13 @@
       "desktop_first": false,
       "desktop_first_routes": ["/v1/commands/record-agent-work"],
       "note": "replica が AI の作業の記録（#751 の新しい種類 agent_work_record）を書くようになった。古い Desktop はこの種類を知らず、差分を取り込めずに同期が止まる。止めるのはこの種類を書く経路だけにし、ほかの案・作成は通す。Task・Note の形は変わらない"
+    },
+    {
+      "date": "2026-11-19",
+      "shape_sha256": "9af805ca0697c847174f6938d24bf402c4062336e2aac54367ef37d79f838f1d",
+      "desktop_first": false,
+      "desktop_first_routes": ["/v1/commands/create-ai-document"],
+      "note": "replica が Task 配下の Document（#789 の新しい Entity 種類）を書くようになった。古い Desktop はこの種類を知らず、差分を取り込めずに同期が止まる。止めるのはこの種類を書く経路だけにし、ほかの作成・変更は通す（agent_work_record の前例と同じ形）。Task・Note の形は変わらない"
     }
   ]
 }

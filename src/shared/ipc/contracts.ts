@@ -701,7 +701,7 @@ export interface ResearchDeskApi {
     ackCapturedTaskFocus(requestId: string, ok: boolean): Promise<void>;
   };
   entities: {
-    markAiItemSeen(type: "task" | "note", id: string): Promise<Entity>;
+    markAiItemSeen(type: "task" | "note" | "document", id: string): Promise<Entity>;
     /** AIの直接変更を、本人が画面から取り消す（#703）。 */
     undoAiChange(changeId: string): Promise<{
       undone: Array<{ change_id: string; undo_change_id: string; task_id: string }>;

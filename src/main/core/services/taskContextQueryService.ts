@@ -20,6 +20,7 @@ import {
   publicAssignmentForContext,
   publicCaptureSummary,
   publicConversationSummary,
+  publicDocumentSummary,
   publicNoteSummary,
   publicReceiptForContext,
   publicResourceSummary,
@@ -189,6 +190,7 @@ export class TaskContextQueryService {
       activity: [],
       work_receipts: [],
       captures: [],
+      documents: [],
     };
     const selectionExclusions: Record<string, any>[] = [];
     const recordOmitted = (type: string, bounded: Record<string, any>) => {
@@ -312,6 +314,19 @@ export class TaskContextQueryService {
         "work_receipt",
         records("work_receipt").filter((receipt) => receipt.task_id === taskId),
         (receipt) => publicReceiptForContext(receipt, budget),
+      );
+    if (includeSet.has("documents"))
+      projectBounded(
+        "documents",
+        "document",
+        sortUpdated(
+          records("document")
+            .map((record) => access.records.get(entityKey("document", record.id)))
+            .filter((record): record is TaskContextRecord =>
+              Boolean(record && record.task_id === taskId),
+            ),
+        ),
+        (record) => publicDocumentSummary(record, budget),
       );
     if (includeSet.has("captures"))
       projectBounded(

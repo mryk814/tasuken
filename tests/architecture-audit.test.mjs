@@ -305,11 +305,15 @@ test("production audit is deterministic and keeps temporary composition growth v
     const report = JSON.parse(first.stdout);
     assert.equal(report.mode, "report-only");
     // ai-task-start.test.mjs の抑止を、試験ごと外した（#755 束10a）ので 21 → 20。
-    assert.equal(report.summary.newFindings, 20, unexplainedFindings(report));
-    assert.equal(report.summary.suppressedFindings, 20);
+    // #789 で markAiItemSeen の保存が "task" 固定から実型へ変わり、workspaceService の
+    // generic-task-write 利用者という指摘が検出形から外れたので 20 → 19。
+    // seen メタデータ書き込みが Task コマンド能力を迂回する #405 の移行債務そのものは
+    // 解消しておらず、#405 側で引き続き追う。
+    assert.equal(report.summary.newFindings, 19, unexplainedFindings(report));
+    assert.equal(report.summary.suppressedFindings, 19);
     assert.equal(report.summary.blockingFindings, 0, unexplainedFindings(report));
     const newFindings = report.findings.filter((entry) => !entry.baseline);
-    assert.equal(newFindings.length, 20);
+    assert.equal(newFindings.length, 19);
     assert.equal(
       newFindings.every((entry) => entry.suppressed && entry.suppression?.issue),
       true,
@@ -326,7 +330,7 @@ test("production audit is deterministic and keeps temporary composition growth v
         ["src/shared/ipc/contracts.ts", true, 407],
       ],
     );
-    assert.equal(report.summary.newCompatibilityConsumers, 16);
+    assert.equal(report.summary.newCompatibilityConsumers, 15);
     assert.deepEqual(
       newFindings
         .filter((entry) => entry.ruleId === "compatibility.consumer_added")
@@ -337,7 +341,6 @@ test("production audit is deterministic and keeps temporary composition growth v
         ["scripts/perf-workspace-bench.mjs", "workspace-repository", true, 690],
         ["src/main/headless/taskenHeadlessCore.ts", "workspace-repository", true, 588],
         ["src/main/headless/taskenHeadlessCore.ts", "workspace-service", true, 588],
-        ["src/main/services/workspaceService.ts", "generic-task-write", true, 405],
         [
           "src/renderer/src/features/workspace/components/AgentWorkTimeline.tsx",
           "renderer-workspace-internals",

@@ -4,16 +4,16 @@ MCP bridgeは接続ごとに公開するツールを選べます。stdioでは�
 
 ## セットの内容
 
-| セット      | ツール（`tasken.`は省略）                                                                                                                                                                   |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `core`      | `search_items`, `list_open_items`, `get_task_context`, `get_note`, `search_notes`, `get_activity`                                                                                           |
-| `coding`    | `resolve_repository_context`, `get_repository_context`, `get_agent_session_context`                                                                                                         |
-| `context`   | `get_theme_context`, `get_feed_context`                                                                                                                                                     |
-| `proposals` | `get_proposal_status`, `list_proposals`                                                                                                                                                     |
-| `meta`      | `get_capabilities`                                                                                                                                                                          |
-| `write`     | `report_work`, `create_task`, `create_note`, `change_task`, `undo_change`, `decide_proposal`, `edit_note`, `propose_note`, `propose_note_edit`, `propose_feed_post`, `answer_feed_question` |
-| `all`       | 上記6セット                                                                                                                                                                                 |
-| `legacy`    | 空。旧名3道具は外した（#755）。設定に残っていても起動を止めないよう、名前だけ受ける                                                                                                         |
+| セット      | ツール（`tasken.`は省略）                                                                                                                                                                                      |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `core`      | `search_items`, `list_open_items`, `get_task_context`, `get_note`, `search_notes`, `get_activity`                                                                                                              |
+| `coding`    | `resolve_repository_context`, `get_repository_context`, `get_agent_session_context`                                                                                                                            |
+| `context`   | `get_theme_context`, `get_feed_context`                                                                                                                                                                        |
+| `proposals` | `get_proposal_status`, `list_proposals`                                                                                                                                                                        |
+| `meta`      | `get_capabilities`                                                                                                                                                                                             |
+| `write`     | `report_work`, `create_task`, `create_note`, `create_document`, `change_task`, `undo_change`, `decide_proposal`, `edit_note`, `propose_note`, `propose_note_edit`, `propose_feed_post`, `answer_feed_question` |
+| `all`       | 上記6セット                                                                                                                                                                                                    |
+| `legacy`    | 空。旧名3道具は外した（#755）。設定に残っていても起動を止めないよう、名前だけ受ける                                                                                                                            |
 
 複数指定は和集合です。空配列・空文字・未知のセット名は起動エラーにし、全公開へフォールバックしません。正本は`src/main/mcp/toolAvailability.mjs`の`MCP_TOOL_REQUIREMENTS`です。
 

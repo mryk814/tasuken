@@ -110,6 +110,17 @@ export {
   type AiItemCreationPort,
 } from "./services/aiItemCreationService.ts";
 export {
+  AiDocumentCreationService,
+  AiDocumentCreationError,
+  type AiDocumentCreationOptions,
+} from "./services/aiDocumentCreationService.ts";
+export type {
+  DocumentAssetManifestEntry,
+  DocumentAssetPort,
+  PreparedDocumentAssets,
+} from "./ports/documentAssetPort.ts";
+export type { AiDocumentCreationPort, WrittenDocumentFile } from "./ports/documentCreationPort.ts";
+export {
   AGENT_WORK_PICKUP_WRITER,
   AgentWorkRecordService,
   planAgentWorkRange,

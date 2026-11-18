@@ -332,7 +332,9 @@ test("MCP Wave 3 get_task_context preserves legacy fields and the empty capture 
       const expected = legacy.toolGetTaskContext(request);
       // The frozen legacy fixture predates photo summaries. This workspace has no captures;
       // require the additive empty collection while keeping every legacy field exact.
+      // Documents (#789) are likewise an additive empty collection for this fixture.
       if (expected.related) expected.related.captures = [];
+      if (expected.related) expected.related.documents = [];
       assert.deepEqual(withoutAgentState(core.getTaskContext.execute(request)), expected);
       assert.deepEqual(withoutAgentState(await client.getTaskContext(request)), expected);
       const mcp = await callMcp(client, "tasken.get_task_context", request);
@@ -356,6 +358,7 @@ test("Wave 3 preserves graph/text bounds and redacts receipt, URL, and local pat
     const result = core.getTaskContext.execute(request);
     const expected = legacy.toolGetTaskContext(request);
     expected.related.captures = [];
+    expected.related.documents = [];
     assert.deepEqual(withoutAgentState(result), expected);
     // 作業中のTaskは委任済みでも、新しく着手できるとは示さない。
     assert.deepEqual(result.assignment.agent_state, {

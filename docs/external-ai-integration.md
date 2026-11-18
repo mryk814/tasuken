@@ -77,7 +77,7 @@ AIへの仕事の頼み方は、AIとの会話で伝えることだけです。A
 
 1. 設定 → AI & Context の「ローカルのAIに直接の書き込みを許す」が有効であることを確かめます（新しい版の最初の起動で一度だけ有効になります。PCごとの設定です）。
 2. 普段使うAIに、会話でTaskを伝えます。AIは`search_items`や`get_task_context`で対象と作業先を確かめます。
-3. AIは、あなたの言葉を`said`に写して`change_task`でTaskを編集・完了・再開します（`undo_change`で取り消せます）。新しいTaskやNoteは`create_task`・`create_note`で作ります。どれもAIの操作として記録され、日誌のActivityから取り消せます。
+3. AIは、あなたの言葉を`said`に写して`change_task`でTaskを編集・完了・再開します（`undo_change`で取り消せます）。新しいTaskやNoteは`create_task`・`create_note`で作ります。Task配下に残すHTML文書は`create_document`で直接作ります（#789）。どれもAIの操作として記録され、日誌のActivityから取り消せます。
 4. 作業の終わりに、AIは`report_work`を`task_id`なしで一度呼び、自分の作業を1件残します（案を通さず、Taskは変えません）。
 
 前の版で委任したTask（作業中・確認待ち）への報告は、`task_id`を付けた`report_work`で送ると、これまでどおり案として届きます。人がFeedで採用し、Taskの完了は別に判断します。検証済みのチェック項目IDを`completed_checklist_item_ids`に添えると、採用時に反映されます。同じ`idempotency_key`で内容を変えると競合になるため、再送時は日時・内容も維持します。作業単位ID（`work_attempt_id`）と`request_id`の扱いは [agent-work-contract.md](./agent-work-contract.md)。
