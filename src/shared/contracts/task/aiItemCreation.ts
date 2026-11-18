@@ -47,6 +47,11 @@ export const aiNoteCreationFields = {
   ...commonCreationFields,
   note_type: z.enum(["memo", "report", "prompt"]).optional(),
   report_date: localDateSchema.optional().describe("For note_type=report only."),
+  task_id: entityIdSchema
+    .optional()
+    .describe(
+      "Attach the Note to this Task (from search_items / get_task_context): the Note is created already linked, so it appears in the Task's context and detail without adoption. Theme defaults to the Task's Theme unless theme_id is given.",
+    ),
 };
 
 const TASK_ONLY_FIELDS = [
@@ -57,7 +62,7 @@ const TASK_ONLY_FIELDS = [
   "checklist",
   "place_reminder",
 ] as const;
-const NOTE_ONLY_FIELDS = ["note_type", "report_date"] as const;
+const NOTE_ONLY_FIELDS = ["note_type", "report_date", "task_id"] as const;
 
 /** Creation only: identity, ownership, assignment and paths are owned by Core. */
 export const aiItemCreationRequestSchema = z
@@ -97,6 +102,8 @@ export const aiItemCreationResponseSchema = z
         title: z.string(),
         body: z.string(),
         theme_id: z.string().nullable(),
+        /** Noteを紐づけたTask。紐づけが無いNoteと、Taskの作成ではnull。 */
+        task_id: z.string().nullable(),
         deleted_at: z.string().nullable(),
         ai_creation: aiCreationOriginSchema,
         ai_seen_at: z.string().nullable(),

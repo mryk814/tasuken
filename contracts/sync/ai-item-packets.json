@@ -117,6 +117,54 @@
       "$.workspaceId: string",
       "$: object"
     ],
+    "note_task_link": [
+      "$.changeId: string",
+      "$.createdAt: string",
+      "$.deviceId: string",
+      "$.deviceSequence: number",
+      "$.entity.assertion_id: string",
+      "$.entity.confidence: null",
+      "$.entity.created_at: string",
+      "$.entity.deleted_at: null",
+      "$.entity.device_id: string",
+      "$.entity.evidence_refs: array",
+      "$.entity.evidence_refs[].id: string",
+      "$.entity.evidence_refs[].type: string",
+      "$.entity.evidence_refs[]: object",
+      "$.entity.id: string",
+      "$.entity.layer: string=\"operational\"",
+      "$.entity.metadata.command_id: string",
+      "$.entity.metadata.created_via: string=\"create_ai_item\"",
+      "$.entity.metadata: object",
+      "$.entity.object.id: string",
+      "$.entity.object.type: string",
+      "$.entity.object: object",
+      "$.entity.origin: string=\"system_action\"",
+      "$.entity.predicate: string=\"related_to\"",
+      "$.entity.recorded_at: string",
+      "$.entity.relation_type: string=\"related_to\"",
+      "$.entity.source: string=\"manual\"",
+      "$.entity.source_id: string",
+      "$.entity.source_type: string",
+      "$.entity.status: string=\"asserted\"",
+      "$.entity.subject.id: string",
+      "$.entity.subject.type: string",
+      "$.entity.subject: object",
+      "$.entity.superseded_by_assertion_id: null",
+      "$.entity.target_id: string",
+      "$.entity.target_type: string",
+      "$.entity.updated_at: string",
+      "$.entity.version: number",
+      "$.entity: object",
+      "$.entityId: string",
+      "$.entityType: string=\"reference\"",
+      "$.format: string=\"tasken-sync-change\"",
+      "$.formatVersion: number",
+      "$.parentRevisionIds: array",
+      "$.revisionId: string",
+      "$.workspaceId: string",
+      "$: object"
+    ],
     "task_change": [
       "$.changeId: string",
       "$.createdAt: string",
@@ -377,10 +425,16 @@
     },
     {
       "date": "2026-11-19",
-      "shape_sha256": "9af805ca0697c847174f6938d24bf402c4062336e2aac54367ef37d79f838f1d",
+      "shape_sha256": "1638420390b46888a44f044c18f927e109d033efd263e20c2d55c2123264317a",
+      "desktop_first": false,
+      "note": "task_id付きNote作成（#796）で、replicaが関連（Reference: note→task related_to）の差分も書くようになった。Referenceは既存のEntity種別でDesktopも平時からやり取りしており、形は正本の関連契約（#279/#283）のまま。古いDesktopも従来のReferenceとして取り込める。Note・Taskの形は変わらない"
+    },
+    {
+      "date": "2026-11-19",
+      "shape_sha256": "99c2a941b269e595c915cab2a65bf015cb07fd9da942cac1e02100cf0d3484db",
       "desktop_first": false,
       "desktop_first_routes": ["/v1/commands/create-ai-document"],
-      "note": "replica が Task 配下の Document（#789 の新しい Entity 種類）を書くようになった。古い Desktop はこの種類を知らず、差分を取り込めずに同期が止まる。止めるのはこの種類を書く経路だけにし、ほかの作成・変更は通す（agent_work_record の前例と同じ形）。Task・Note の形は変わらない"
+      "note": "#796 と #789 が main で合流した現在の形。関連（Reference: note→task related_to）の差分と、Task 配下の Document の差分の両方を含む。古い Desktop は Document を取り込めないため、その種類を書く経路だけを従来どおり断る。Note・Task の形は変わらない"
     }
   ]
 }
