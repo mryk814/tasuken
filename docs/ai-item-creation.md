@@ -8,7 +8,7 @@ Desktop Coreは`create_ai_item`を常に公開し、使えるかは設定「AI &
 
 Headlessの`--write-mode=create-only`は従来のproposals受付に加え、`create_ai_item`だけを公開する（設定は見ない）。read-only/proposalsの挙動は維持する。汎用`task.command`・編集・削除・完了・委任を公開しない。入力からactor/workspace/既存Entity ID/保存パスを受け付けない。
 
-MCPは`tasken.create_task`と`tasken.create_note`。必須入力は`title`・`caller`・`idempotency_key`、任意は`body`・`reason`・`source_app`・`source_session`・`theme_id`（省略時は個人業務。無いThemeは`INVALID_REFERENCE`）。Taskはさらに`priority`・`schedule`（期限だけなら`end_date`、一日なら`start_date`、期間なら両方。`date_kind`はCoreが導く）・`today_date`・`checklist`（項目名の配列）を受ける。Noteは`note_type`（memo/report/prompt）と、reportなら`report_date`を受ける。他方の種類の欄は断る。NAS（create-only）も同じ欄を受ける。案内（inputSchema）に載る欄を一部の接続先だけが断ると、AIは送って403を受けるまで分からないため（#721）。日報の日付は、提案の採用と同じく`properties_json.daily_report.date`に置く。Taskは本人実行・未委任・未着手で作る。正式ID/version/本文/Theme/削除状態とこのnodeのworkspace IDを読み戻す。NoteのMarkdown保存状態も返し、ファイル保存が未完了なら`internal_ahead`/`unavailable`を明示する。
+MCPは`tasken.create_task`と`tasken.create_note`。必須入力は`title`・`caller`・`idempotency_key`、任意は`body`・`reason`・`source_app`・`source_session`・`theme_id`（省略時は個人業務。無いThemeは`INVALID_REFERENCE`）。Taskはさらに`priority`・`schedule`（期限だけなら`end_date`、一日なら`start_date`、期間なら両方。`date_kind`はCoreが導く）・`today_date`・`checklist`（項目名の配列）を受ける。Noteは`note_type`（memo/report/prompt）と、reportなら`report_date`を受ける。Noteは`task_id`も受け、指定するとNoteをそのTaskへ紐づけて作る（後述）。他方の種類の欄は断る。NAS（create-only）も同じ欄を受ける。案内（inputSchema）に載る欄を一部の接続先だけが断ると、AIは送って403を受けるまで分からないため（#721）。日報の日付は、提案の採用と同じく`properties_json.daily_report.date`に置く。Taskは本人実行・未委任・未着手で作る。正式ID/version/本文/Theme/削除状態とこのnodeのworkspace IDを読み戻す。NoteのMarkdown保存状態も返し、ファイル保存が未完了なら`internal_ahead`/`unavailable`を明示する。
 
 指定されなかった欄はEntityに足さない。NAS replicaの同期差分の形（`contracts/sync/ai-item-packets.json`）を、欄を使わない作成では変えないため。
 
@@ -18,11 +18,13 @@ AI作成の由来は`ai_creation`、情報の根拠は`ai_authority`、認識状
 
 同じkey/内容は保存済みEntityを返し、内容違いは競合。削除後の再送は削除状態を返し復活させない。NoteはDesktopと同じWorkspaceServiceのCanonical Markdown保存・復旧処理を使い、作成イベントを同伴して保存する。headless bundleではDesktop APIを明示的に利用不可にし、画像とOS操作は公開しない。新経路から`accepted_from_proposal_id`を生成しない。
 
+Noteに`task_id`を指定すると、Noteと同じコミットでReference（note→task、`related_to`、operational）も保存し、`get_task_context`の関連Noteとタスク詳細のLineagePanelに採用なしで現れる。無い・削除済みのTaskは`INVALID_REFERENCE`（field: `task_id`）。`theme_id`省略時はTaskのThemeを引き継ぎ、明示された`theme_id`が優先する。関連そのものは作成コマンドの機械的な同伴物なので、AIの提案としての関連付け（`origin: "ai_suggested"`、採用の証跡が要る）とは分け、`origin: "system_action"`として証跡にNote自身と作成コマンド（command_id）を残す。関連とその作成イベントは作成companion（`tasken-note-creation-companion/v1` の `taskLink`）に同伴し、復旧receiptの再生でも一緒に復元される。関連のIDはcommand_idから決定的に導くため、再送・復旧で二重に作られない。本人が関連を消した後の再送では、応答の`task_id`はnullに戻り、関連は復活しない。
+
 ## 導入と検証
 
 NASへの導入はbackup/image交換/再起動の独立した配備作業であり、PCのビルド完了を本番接続確認と扱わない。旧設定値を黙って変更しない。Core/bridge更新と`create-only`の明示指定後、接続を再読込して`get_capabilities`と新ツール一覧を確認する。
 
-`tests/ai-item-creation.test.mjs`は隔離DB、実stdio MCP、権限・入力範囲、同時再送・再起動・内容違い・削除後再送、旧pending共存、Canonical Note失敗復旧とUndo、Desktopの設定の即時反映と広げた入力（Theme・日程・優先度・チェックリスト・今日）を確認する。
+`tests/ai-item-creation.test.mjs`は隔離DB、実stdio MCP、権限・入力範囲、同時再送・再起動・内容違い・削除後再送、旧pending共存、Canonical Note失敗復旧とUndo、Desktopの設定の即時反映と広げた入力（Theme・日程・優先度・チェックリスト・今日）、NoteのTask紐づけ（関連の保存・Task文脈への出現・Theme引き継ぎ・無いTaskの拒否）を確認する。
 
 表示だけの手動確認はbuild後に `rtk node scripts/ai-item-creation-ui-smoke.mjs` を使う。
 Tempの専用profileでTask/Noteを作成し、由来アイコンと未確認の点、説明の表示、既読の保存、Task状態の保持を確認する。通常データや本番同期先は使わない。

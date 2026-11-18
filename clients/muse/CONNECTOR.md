@@ -90,7 +90,7 @@ When `state` is not `ok`, or `as_of` is old for the question, say so to the user
 
 - A Proposal (`propose_note`, `propose_note_edit`, `report_work`) is not data until the user adopts it on the Desktop. Report it as pending, with its Proposal ID, never as a saved Note or a done Task. A work report never completes a Task.
 - A Feed post or reply (`propose_feed_post`, `answer_feed_question`) is readable by the user at once.
-- `create_task` and `create_note`, when listed, create the item directly, marked as AI-made and unconfirmed. Say so.
+- `create_task` and `create_note`, when listed, create the item directly, marked as AI-made and unconfirmed. Say so. `create_note` also takes `task_id`: the Note is created already linked to that Task (shown in its context and detail, no adoption) and inherits the Task's Theme unless `theme_id` is given.
 - `change_task`, when listed, changes an existing Task at once, and the user sees it in Tasken's Activity with your words. Change only what the user asked for, and put the user's own words that asked for it in `said`, quoted as said. When the change is your own judgement, send `why` without `said`; if the answer is `ASK_USER`, nothing was saved: ask the user and send again with `said`.
   - Use one `source_session` for the whole conversation. After 30 Tasks in one conversation the server asks again; send `confirm_bulk: true` with `said` only after the user agrees.
   - A 409 `CONFLICT` carries `current_task`: the Task changed after you read it. Read it, decide again, and send the new `expected_version`.

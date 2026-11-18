@@ -86,7 +86,22 @@ export class AiItemCreationService {
     }
     if (this.persistence.get(request.kind, entityId, true))
       throw new AiItemCreationError("IDEMPOTENCY_CONFLICT", "同じ作成IDが既に存在します。");
-    const themeId = request.theme_id || PERSONAL_DEFAULT_THEME_ID;
+    // Noteの紐づけ先Task。Themeの検証と同じく、無いTaskへは作らない。
+    const targetTask =
+      request.kind === "note" && request.task_id
+        ? this.persistence.get("task", request.task_id, true)
+        : null;
+    if (request.kind === "note" && request.task_id && (!targetTask || targetTask.deleted_at))
+      throw new CorePublicError("INVALID_REFERENCE", "指定したTaskがありません。", 400, {
+        field: "task_id",
+      });
+    // 紐づけ先Taskがあるとき、Themeの指定が無ければTaskのThemeを引き継ぐ
+    // （Focus SessionのNoteと同じ置き方）。明示されたThemeは従来どおり優先する。
+    const themeId =
+      request.theme_id ||
+      (typeof targetTask?.project_id === "string" && targetTask.project_id
+        ? targetTask.project_id
+        : PERSONAL_DEFAULT_THEME_ID);
     if (!this.persistence.get("theme", themeId))
       throw new CorePublicError("INVALID_REFERENCE", "指定したThemeがありません。", 400, {
         field: "theme_id",
@@ -193,9 +208,76 @@ export class AiItemCreationService {
         noteId: entityId,
         commandId,
         event,
+        ...(targetTask
+          ? {
+              taskLink: this.taskLink(
+                commandId,
+                entityId,
+                String(targetTask.id),
+                request,
+                fingerprint,
+                origin,
+                receivedAt,
+              ),
+            }
+          : {}),
       });
     }
     return this.readback(request.kind, entityId, "created");
+  }
+
+  /**
+   * Note→Taskの紐づけ。関連そのものは作成コマンドの機械的な同伴物なので、
+   * AIの「提案」としての関連付け（origin: ai_suggested、採用の証跡が要る）とは分け、
+   * system_actionとして、証跡にNote自身と作成コマンドを残す。IDはコマンドから
+   * 決定的に導くので、再送・復旧で二重に作られない。
+   */
+  private taskLink(
+    commandId: string,
+    noteId: string,
+    taskId: string,
+    request: AiItemCreationRequest,
+    fingerprint: string,
+    origin: Record<string, unknown>,
+    receivedAt: string,
+  ): { reference: Entity; event: Entity } {
+    const referenceId = stableId(`${commandId}:task-link`);
+    const reference: Entity = {
+      id: referenceId,
+      source_type: "note",
+      source_id: noteId,
+      target_type: "task",
+      target_id: taskId,
+      relation_type: "related_to",
+      layer: "operational",
+      status: "asserted",
+      origin: "system_action",
+      evidence_refs: [{ type: "note", id: noteId }],
+      metadata: { created_via: "create_ai_item", command_id: commandId },
+      recorded_at: receivedAt,
+    };
+    const event: Entity = {
+      id: `ai-item-task-link-${commandId}`,
+      entity_type: "reference",
+      record_type: "reference",
+      entity_id: referenceId,
+      change_type: "created",
+      changed_at: receivedAt,
+      event_kind: "reference_created",
+      occurred_at: receivedAt,
+      entity_ref: { type: "reference", id: referenceId },
+      actor_kind: "ai_agent",
+      actor_id: request.caller,
+      source: "ai",
+      command_source: "mcp",
+      command_id: commandId,
+      command_name: "CreateAiItem",
+      command_fingerprint: fingerprint,
+      before_json: "null",
+      after_json: JSON.stringify(reference),
+      metadata: { ai_creation: origin },
+    };
+    return { reference, event };
   }
 
   private readback(kind: "task" | "note", id: string, status: "created" | "duplicate") {
@@ -205,6 +287,21 @@ export class AiItemCreationService {
       kind === "note"
         ? canonicalMarkdownBindingFromProperties(entity.properties_json, { noteId: id })
         : null;
+    // 紐づけは応答の利便のためだけに読み戻す。正本はReferenceであり、
+    // 本人が関連を消した後の再送では、消えたまま（null）で返す。
+    let taskId: string | null = null;
+    if (kind === "note") {
+      const origin = entity.ai_creation as { command_id?: unknown } | undefined;
+      if (typeof origin?.command_id === "string") {
+        const reference = this.persistence.get(
+          "reference",
+          stableId(`${origin.command_id}:task-link`),
+          true,
+        );
+        if (reference && !reference.deleted_at && typeof reference.target_id === "string")
+          taskId = reference.target_id;
+      }
+    }
     return aiItemCreationResponseSchema.parse({
       schema: "tasken-ai-item-creation/v1",
       status,
@@ -217,6 +314,7 @@ export class AiItemCreationService {
         title: String(entity.title),
         body: String((kind === "note" ? entity.body_markdown : entity.description) || ""),
         theme_id: typeof entity.project_id === "string" ? entity.project_id : null,
+        task_id: taskId,
         deleted_at: entity.deleted_at || null,
         ai_creation: entity.ai_creation,
         ai_seen_at: entity.ai_seen_at || null,

@@ -264,6 +264,113 @@ test("canonical Note, file failure, DB-after-file recovery and existing delete/U
   }
 });
 
+test("Note with task_id: created already linked to the Task, in the same commit", () => {
+  const dir = temporary();
+  const db = open(dir);
+  db.save("theme", { id: "theme-work", name: "仕事" });
+  const workspace = new WorkspaceService(db, dir, undefined, undefined, () => {
+    throw Error("no images");
+  });
+  const commands = new ApplicationCommandService(db);
+  const creator = () =>
+    new AiItemCreationService(db, createAiItemCreationPort(commands, workspace));
+  try {
+    const task = creator().execute({ ...request("task", "host-task"), theme_id: "theme-work" });
+    const linked = creator().execute({
+      ...request("note", "linked-note"),
+      task_id: task.entity.id,
+    });
+    // 応答には紐づけ先と、Taskから引き継いだThemeが返る。AI印と未確認は従来どおり。
+    assert.equal(linked.entity.task_id, task.entity.id);
+    assert.equal(linked.entity.theme_id, "theme-work");
+    assert.equal(linked.entity.ai_seen_at, null);
+    assert.equal(linked.entity.ai_creation.caller, "dot");
+    // 関連はNoteと同じコミットで1件だけ。形は related_to / operational / system_action。
+    const references = db.list("reference");
+    assert.equal(references.length, 1);
+    const reference = references[0];
+    assert.equal(reference.source_type, "note");
+    assert.equal(reference.source_id, linked.entity.id);
+    assert.equal(reference.target_type, "task");
+    assert.equal(reference.target_id, task.entity.id);
+    assert.equal(reference.relation_type, "related_to");
+    assert.equal(reference.origin, "system_action");
+    assert.equal(reference.status, "asserted");
+    // 関連の作成イベントも、作成コマンドの名で残る。
+    const linkEvent = db
+      .list("change_event")
+      .find(
+        (event) => event.entity_id === reference.id && event.event_kind === "reference_created",
+      );
+    assert(linkEvent);
+    assert.equal(linkEvent.command_id, linked.entity.ai_creation.command_id);
+    assert.equal(linkEvent.actor_kind, "ai_agent");
+    // 再送はduplicateで、関連は増えない。
+    const replay = creator().execute({
+      ...request("note", "linked-note"),
+      task_id: task.entity.id,
+    });
+    assert.equal(replay.status, "duplicate");
+    assert.equal(replay.entity.task_id, task.entity.id);
+    assert.equal(db.list("reference").length, 1);
+    // task_idの無いNoteには関連が付かず、応答のtask_idはnull。
+    const plain = creator().execute(request("note", "plain-note"));
+    assert.equal(plain.entity.task_id, null);
+    assert.equal(db.list("reference").length, 1);
+    // 無いTask・削除済みのTaskは INVALID_REFERENCE で断り、Noteも作らない。
+    assert.throws(
+      () => creator().execute({ ...request("note", "missing"), task_id: "no-such-task" }),
+      (error) => error.code === "INVALID_REFERENCE" && error.details?.field === "task_id",
+    );
+    const gone = creator().execute(request("task", "gone-task"));
+    db.remove("task", gone.entity.id);
+    assert.throws(
+      () => creator().execute({ ...request("note", "gone"), task_id: gone.entity.id }),
+      (error) => error.code === "INVALID_REFERENCE",
+    );
+    assert.equal(db.list("note").length, 2);
+    // task_idはTask作成では断る（Noteだけの欄）。
+    assert.throws(
+      () => creator().execute({ ...request("task", "bad-kind"), task_id: task.entity.id }),
+      /task_id/,
+    );
+    // 本人が関連を消した後の再送では、関連は復活せず、応答のtask_idもnullに戻る。
+    db.remove("reference", reference.id);
+    const afterRemoval = creator().execute({
+      ...request("note", "linked-note"),
+      task_id: task.entity.id,
+    });
+    assert.equal(afterRemoval.status, "duplicate");
+    assert.equal(afterRemoval.entity.task_id, null);
+    assert.equal(db.list("reference").length, 0);
+  } finally {
+    db.db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("headless: a Note created with task_id appears in get_task_context without adoption", async () => {
+  const dir = temporary();
+  let core;
+  try {
+    core = await startTaskenHeadlessCore({ userDataPath: dir, writeMode: "create-only" });
+    const client = new TaskenCoreClient({ userDataPath: dir });
+    const task = await client.createAiItem(request("task", "context-task"));
+    const note = await client.createAiItem({
+      ...request("note", "context-note"),
+      task_id: task.entity.id,
+    });
+    assert.equal(note.entity.task_id, task.entity.id);
+    const context = await client.getTaskContext({ task_id: task.entity.id });
+    const related = context.related.notes.filter((entry) => entry.id === note.entity.id);
+    assert.equal(related.length, 1);
+    assert.equal(related[0].included_because, "asserted_relation");
+  } finally {
+    await core?.stop();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("Desktop: 直接の書き込みは設定をその場で読み、Theme・期限・優先度・チェックリスト・今日を受ける", async () => {
   const dir = temporary();
   const db = open(dir);
@@ -549,6 +656,11 @@ test("replica が書く AI の Task・Note の差分の形（作成・直接変�
     const client = new TaskenCoreClient({ userDataPath: path.join(dir, "replica") });
     const task = await client.createAiItem(request("task", "contract-task"));
     const note = await client.createAiItem(request("note", "contract-note"));
+    // task_id付きNote（#796）は、Noteの差分に加えて関連（Reference）の差分も書く。
+    const linkedNote = await client.createAiItem({
+      ...request("note", "contract-linked-note"),
+      task_id: task.entity.id,
+    });
     // replica の直接変更（#688）も、既存 Task の差分と Change Event を書く。
     const target = await client.createAiItem(request("task", "contract-change"));
     const changeRequest = {
@@ -594,6 +706,7 @@ test("replica が書く AI の Task・Note の差分の形（作成・直接変�
     const inputs = new Set([
       ...Object.values(request("task", "contract-task")),
       ...Object.values(request("note", "contract-note")),
+      ...Object.values(request("note", "contract-linked-note")),
       ...Object.values(request("task", "contract-change")),
       ...Object.values(changeRequest),
       ...Object.values(changeRequest.changes),
@@ -610,9 +723,18 @@ test("replica が書く AI の Task・Note の差分の形（作成・直接変�
       )
       .at(-1);
     assert.ok(changeEvent, "直接変更の Change Event が共有フォルダへ出ている");
+    const linkPacket = packets
+      .filter(
+        (packet) =>
+          packet.entityType === "reference" && packet.entity?.target_id === task.entity.id,
+      )
+      .at(-1);
+    assert.ok(linkPacket, "task_id付きNoteの関連（Reference）が共有フォルダへ出ている");
+    assert.equal(linkPacket.entity.source_id, linkedNote.entity.id);
     const shape = {
       task: [...packetShape(latest(task.entity.id), inputs)].sort(),
       note: [...packetShape(latest(note.entity.id), inputs)].sort(),
+      note_task_link: [...packetShape(linkPacket, inputs)].sort(),
       task_change: [...packetShape(latest(target.entity.id), inputs)].sort(),
       task_change_event: [...packetShape(changeEvent, inputs)].sort(),
       agent_work_record: [...packetShape(latest(work.id), inputs)].sort(),
