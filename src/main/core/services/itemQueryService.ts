@@ -86,6 +86,7 @@ function projectItems(snapshot: ItemQuerySnapshot): ItemQueryRecord[] {
       description: task.description || "",
       planned_start: schedule?.start_date || null,
       planned_end: schedule?.end_date || null,
+      reminder_at: task.reminder_at ?? null,
       due_date: null,
       source_record_id: task.source_record_id,
       created_at: task.created_at,

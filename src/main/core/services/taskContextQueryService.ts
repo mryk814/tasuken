@@ -143,7 +143,21 @@ export class TaskContextQueryService {
     const truncation: Record<string, any> = {};
     const themeCandidate = themeById(task.project_id || task.theme_id);
     const filteredTheme = themeCandidate ? withAiHeader("theme", [themeCandidate])[0] : null;
-    const taskOutput = publicTaskForContext(taskWithHeader, budget);
+    // The saved schedule and reminder ride along (#804): without them the
+    // reader cannot check what change_task actually saved (#784/#786).
+    const taskSchedule = records("schedule").find(
+      (s) => s.owner_type === "task" && String(s.owner_id) === taskId,
+    );
+    const taskOutput = {
+      ...publicTaskForContext(taskWithHeader, budget),
+      schedule: taskSchedule
+        ? {
+            start_date: taskSchedule.start_date ?? null,
+            end_date: taskSchedule.end_date ?? null,
+          }
+        : null,
+      reminder_at: task.reminder_at ?? null,
+    };
     // 委任段階（work_state）だけでは削除・完了を表せないため、着手可否を状態から添える。
     const assignmentOutput = {
       ...publicAssignmentForContext(task, budget),
