@@ -1,6 +1,8 @@
 import {
+  AiDocumentCreationService,
   AiItemCreationService,
   AiTaskChangeService,
+  type AiDocumentCreationPort,
   type AiItemCreationPort,
 } from "../core/public.ts";
 import {
@@ -536,6 +538,23 @@ export class TaskenCoreRuntime {
     );
   }
 
+  /**
+   * AIのDocument新規作成（#789）を公開する。Task・Noteの新規作成と同じ条件：
+   * `isEnabled`はDesktopだけが渡し、本人の設定を要求のたびに読む。
+   * NAS replicaは配備の書き込み範囲（create-only）を選んだ時点で許しているので渡さない。
+   */
+  enableAiDocumentCreation(
+    port: AiDocumentCreationPort,
+    options: { isEnabled?: () => boolean } = {},
+  ) {
+    this.host.enableAiDocumentCreation(
+      new AiDocumentCreationService(this.persistence, port, {
+        isEnabled: options.isEnabled,
+      }),
+      options.isEnabled,
+    );
+  }
+
   /** 既存Taskの直接変更と取り消し（#703）。Desktopと、明示したNAS replica（#688）が呼ぶ。 */
   enableAiTaskChange(service: AiTaskChangeService) {
     this.host.enableAiTaskChange({
@@ -601,6 +620,7 @@ export class TaskenCoreRuntime {
   }
 }
 export { createAiItemCreationPort } from "./aiItemCreationPort.ts";
+export { createAiDocumentCreationPort } from "./aiDocumentCreationPort.ts";
 export { createAiTaskChangeService } from "./aiTaskChangePort.ts";
 export {
   createMobileFeedWriter,

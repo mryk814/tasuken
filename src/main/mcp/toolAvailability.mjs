@@ -2,6 +2,7 @@ import {
   TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
   TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
   TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
+  TASKEN_CORE_CREATE_AI_DOCUMENT_CAPABILITY,
   TASKEN_CORE_GET_ACTIVITY_CAPABILITY,
   TASKEN_CORE_GET_AGENT_SESSION_CONTEXT_CAPABILITY,
   TASKEN_CORE_GET_FEED_CONTEXT_CAPABILITY,
@@ -41,6 +42,12 @@ export const MCP_TOOL_REQUIREMENTS = Object.freeze({
     toolset: "write",
     access: "direct_write",
     capability: TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
+    setting: "direct_write",
+  },
+  "tasken.create_document": {
+    toolset: "write",
+    access: "direct_write",
+    capability: TASKEN_CORE_CREATE_AI_DOCUMENT_CAPABILITY,
     setting: "direct_write",
   },
   "tasken.change_task": {

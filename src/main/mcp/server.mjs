@@ -4,6 +4,7 @@ import {
   aiProposalDecisionRequestSchema,
   aiChangeUndoRequestSchema,
   aiNoteCreationFields,
+  aiDocumentCreationFields,
   aiTaskChangeRequestSchema,
   aiTaskCreationFields,
 } from "../../shared/contracts/task/public.ts";
@@ -1046,6 +1047,17 @@ export function createTaskenMcpServer(options = {}) {
       withCoreClient((args) => coreClient.createAiItem({ ...args, kind })),
     );
   }
+
+  server.registerTool(
+    "tasken.create_document",
+    {
+      description:
+        "Save a finished HTML document directly under a Task (AI-created/unseen); shown in the Task detail and get_task_context at once. Assets: tasken-upload://reference-id; see tasken://guide/document.",
+      inputSchema: aiDocumentCreationFields,
+      annotations: DIRECT_WRITE_ANNOTATIONS,
+    },
+    withCoreClient((args) => coreClient.createAiDocument(args)),
+  );
 
   server.registerTool(
     "tasken.change_task",

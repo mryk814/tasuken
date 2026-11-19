@@ -423,6 +423,17 @@ export {
   type AiItemCreationResponse,
 } from "./aiItemCreation.ts";
 export {
+  aiDocumentCreationFields,
+  aiDocumentCreationRequestSchema,
+  aiDocumentCreationResponseSchema,
+  documentAssetMediaTypeSchema,
+  documentAssetSchema,
+  type AiDocumentCreationRequest,
+  type AiDocumentCreationResponse,
+  type DocumentAsset,
+  type DocumentAssetMediaType,
+} from "./aiDocumentCreation.ts";
+export {
   aiChangeUndoRequestSchema,
   aiChangeUndoResponseSchema,
   aiTaskChangeRequestSchema,

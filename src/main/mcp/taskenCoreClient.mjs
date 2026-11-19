@@ -3,6 +3,7 @@ import {
   aiProposalDecisionResponseSchema,
   aiChangeUndoResponseSchema,
   aiItemCreationResponseSchema,
+  aiDocumentCreationResponseSchema,
   aiTaskChangeResponseSchema,
   recordAgentWorkResponseSchema,
 } from "../../shared/contracts/task/public.ts";
@@ -45,6 +46,7 @@ import {
   TASKEN_CORE_AI_TASK_CHANGE_CAPABILITY,
   TASKEN_CORE_API_VERSION,
   TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
+  TASKEN_CORE_CREATE_AI_DOCUMENT_CAPABILITY,
   TASKEN_CORE_FIND_TASKS_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_FIND_THEMES_FOR_REPOSITORY_CAPABILITY,
   TASKEN_CORE_GET_REPOSITORY_CONTEXT_CAPABILITY,
@@ -582,6 +584,21 @@ export class TaskenCoreClient {
       request,
       aiItemCreationResponseSchema,
       "create-ai-item",
+    );
+  }
+
+  async createAiDocument(request = {}) {
+    // 同梱アセットがある時は、画像入りの提案と同じ大きめのbody上限と長いタイムアウトが要る。
+    const hasAssets = Array.isArray(request.assets) && request.assets.length > 0;
+    const extraHeaders = hasAssets ? { "x-tasken-document-assets": "1" } : {};
+    return this.request(
+      "/v1/commands/create-ai-document",
+      TASKEN_CORE_CREATE_AI_DOCUMENT_CAPABILITY,
+      request,
+      aiDocumentCreationResponseSchema,
+      "create-ai-document",
+      extraHeaders,
+      hasAssets ? Math.max(this.timeoutMs, TASKEN_CORE_IMAGE_PROPOSAL_TIMEOUT_MS) : this.timeoutMs,
     );
   }
 

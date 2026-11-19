@@ -526,7 +526,8 @@ export function registerIpc(
     return result;
   });
   ipcMain.handle(IPC.aiItemSeen, (_event, type, id) => {
-    if (type !== "task" && type !== "note") throw new Error("Task/Noteだけを確認できます。");
+    if (type !== "task" && type !== "note" && type !== "document")
+      throw new Error("Task/Note/Documentだけを確認できます。");
     const saved = service.markAiItemSeen(type, requireId(id));
     notifyEntitiesChanged([type], { entities: [{ type, entity: saved as Entity }] });
     return saved;

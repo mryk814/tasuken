@@ -1,7 +1,7 @@
 import contract from "../../../../contracts/sync/ai-item-packets.json" with { type: "json" };
 
 /**
- * replica が AI の書き込み（Task・Note の新規作成と、既存 Task の直接変更）で出す同期差分の形の印
+ * replica が AI の書き込み（Task・Note の新規作成と、既存 Task の直接変更、Document の作成）で出す同期差分の形の印
  * （contracts/sync/ai-item-packets.json の flags）。
  * 印の正本は JSON のまま置き、ここは実行時の判定が読む口だけにする。
  * tests/ai-item-creation.test.mjs が「最後の印 ＝ この版の replica が出す形」を保証するので、

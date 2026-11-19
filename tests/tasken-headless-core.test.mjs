@@ -820,6 +820,12 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
     assert.deepEqual(capabilities.structuredContent.unavailable_tools, [
       { name: "tasken.create_task", reason: "missing_capability:create_ai_item", listed: false },
       { name: "tasken.create_note", reason: "missing_capability:create_ai_item", listed: false },
+      // Document の直接作成（#789）も create-only / Desktop の配備だけ。案の配備には出さない。
+      {
+        name: "tasken.create_document",
+        reason: "missing_capability:create_ai_document",
+        listed: false,
+      },
       // 既存Taskの直接変更はDesktopだけ。NASには出さない（#703）。
       { name: "tasken.change_task", reason: "missing_capability:task.ai_change", listed: false },
       {

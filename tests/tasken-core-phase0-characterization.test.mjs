@@ -18,7 +18,8 @@ test("Phase 0: MCP inventory documents every registered read and Proposal tool",
   // AI Readyの一覧と割り当て（読み取り）、開始（直接の書き込み）は #755 束10a で外した。
   assert.equal(readTools.length, 14);
   // 旧名 3 道具（append_work_receipt・report_task_done・report_task_blocked）は #755 束1 で外した。
-  assert.equal(proposalTools.length, 9);
+  // create_document（#789、直接書き込み）が加わり 9 → 10。
+  assert.equal(proposalTools.length, 10);
   assert.deepEqual(
     readTools.filter((entry) => entry.name.endsWith("_image")).map((entry) => entry.name),
     [],

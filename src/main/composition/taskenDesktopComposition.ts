@@ -8,6 +8,7 @@ import { AI_DIRECT_WRITE_PREFERENCE } from "../../shared/ipc/contracts.ts";
 import type { CommandReceipt } from "../../shared/applicationCommand.ts";
 import { TaskenCoreRuntime } from "./taskenCoreRuntime.ts";
 import { createAiItemCreationPort } from "./aiItemCreationPort.ts";
+import { createAiDocumentCreationPort } from "./aiDocumentCreationPort.ts";
 import { createAiTaskChangeService } from "./aiTaskChangePort.ts";
 import { ApplicationCommandService } from "../services/applicationCommandService";
 import { AiProposalDecisionService } from "../services/aiProposalDecisionService";
@@ -211,6 +212,11 @@ export class TaskenDesktopComposition<
     const isEnabled = () => this.repository.readPreference(AI_DIRECT_WRITE_PREFERENCE) === true;
     this.coreRuntime.enableAiItemCreation(
       createAiItemCreationPort(this.applicationCommands, options.workspace, options.onCreated),
+      { isEnabled },
+    );
+    // Documentの直接作成（#789）も、新規作成と同じ設定で開く。
+    this.coreRuntime.enableAiDocumentCreation(
+      createAiDocumentCreationPort(this.userDataPath, options.onCreated),
       { isEnabled },
     );
     const aiTaskChanges = createAiTaskChangeService(

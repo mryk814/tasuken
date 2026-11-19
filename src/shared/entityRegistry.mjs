@@ -372,6 +372,18 @@ const definitions = /** @type {const} */ ([
     requiredFields: ["title"],
   },
   {
+    // Task配下のHTML文書（#789）。Noteと同列のネイティブなコンテンツで、
+    // 本体（自己完結HTML）は管理ファイルに置き、Entityはメタデータと出所を持つ。
+    type: "document",
+    collectionKey: "documents",
+    label: "Document",
+    iconKey: "file",
+    projection: "legacy",
+    themePolicy: "optional",
+    themeField: "theme_id",
+    requiredFields: ["title", "filename", "task_id"],
+  },
+  {
     type: "habit",
     collectionKey: "habits",
     domainCollectionKey: "habits",

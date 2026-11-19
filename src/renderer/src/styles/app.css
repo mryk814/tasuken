@@ -12732,6 +12732,35 @@ kbd {
   color: var(--color-text);
   white-space: pre-wrap;
 }
+.task-document-section {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+}
+.task-document-list {
+  display: grid;
+  gap: var(--space-2);
+}
+.task-document-item {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+}
+.task-document-main {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.task-document-meta {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+.task-document-actions {
+  display: flex;
+  gap: var(--space-2);
+}
 .task-work-external-references {
   display: flex;
   flex-wrap: wrap;
