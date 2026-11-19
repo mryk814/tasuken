@@ -12761,6 +12761,19 @@ kbd {
   display: flex;
   gap: var(--space-2);
 }
+/* NotesPageの一覧冒頭に出すときは、上の区切り線ではなく下の区切り線で分ける（#799）。 */
+.task-document-section--in-notes {
+  border-top: none;
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-3) var(--pad-card);
+}
+.task-document-task {
+  justify-self: start;
+}
+.task-document-task-missing {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
 .task-work-external-references {
   display: flex;
   flex-wrap: wrap;
