@@ -195,6 +195,20 @@ internal fun decodeReminderAtPatchValue(value: JsonElement?): String? = when (va
 internal fun reminderAtLabel(value: String?, zone: ZoneId = ZoneId.systemDefault()): String =
     TaskNotificationPlan.parseReminderAt(value, zone)?.format(DateTimeFormatter.ofPattern("M/d HH:mm")) ?: "なし"
 
+/**
+ * 一覧の行に出す短い知らせる時刻（#783）。今日は「19:00」だけ、他の日は「11/18 19:00」。
+ * 無い・読めない時は null（行には何も出さない）。
+ */
+internal fun reminderRowLabel(
+    value: String?,
+    today: LocalDate = LocalDate.now(),
+    zone: ZoneId = ZoneId.systemDefault(),
+): String? {
+    val at = TaskNotificationPlan.parseReminderAt(value, zone) ?: return null
+    val time = at.format(DateTimeFormatter.ofPattern("HH:mm"))
+    return if (at.toLocalDate() == today) time else "${shortDateLabel(at.toLocalDate(), today)} $time"
+}
+
 internal const val REMINDER_AT_UPDATE_REQUIRED = "時刻の同期にはDesktopの更新が必要です。Desktopを更新してから再試行してください。"
 
 /** 時刻の欄を知らない古い Desktop が UpdateTask の reminderAt を断ったとき。接続先の応答だけを信じる。 */

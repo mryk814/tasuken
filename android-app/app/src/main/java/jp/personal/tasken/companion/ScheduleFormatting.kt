@@ -52,6 +52,26 @@ internal fun scheduleSummaryText(
     return listOfNotNull(dates, duration).joinToString("・").ifEmpty { "予定なし" }
 }
 
+/** 一覧の行に出す短い日付。「11/21」。年が今日と違う時だけ年を付ける。 */
+internal fun shortDateLabel(date: LocalDate, today: LocalDate = LocalDate.now()): String =
+    if (date.year != today.year) "${date.year}/${date.monthValue}/${date.dayOfMonth}"
+    else "${date.monthValue}/${date.dayOfMonth}"
+
+/**
+ * 一覧の行に出す短い予定（#783）。期限だけなら「期限 11/21」、実施日は「11/21」、
+ * 期間は「11/21〜11/28」。予定が無ければ null（行には何も出さない）。
+ */
+internal fun scheduleRowLabel(
+    startDate: LocalDate?,
+    endDate: LocalDate?,
+    today: LocalDate = LocalDate.now(),
+): String? = when {
+    startDate == null && endDate == null -> null
+    startDate == null -> "期限 ${shortDateLabel(endDate!!, today)}"
+    endDate == null || endDate == startDate -> shortDateLabel(startDate, today)
+    else -> "${shortDateLabel(startDate, today)}〜${shortDateLabel(endDate, today)}"
+}
+
 /** 日付欄の下に出す近い候補。今日・明日・次の月曜。 */
 internal fun quickScheduleDates(today: LocalDate = LocalDate.now()): List<Pair<String, LocalDate>> {
     val nextMonday = today.plusDays(((8 - today.dayOfWeek.value) % 7).let { if (it == 0) 7 else it }.toLong())
