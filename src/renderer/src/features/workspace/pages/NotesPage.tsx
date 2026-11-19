@@ -51,10 +51,12 @@ import { MarkdownDiffMarkerRail } from "../components/MarkdownDiffMarkerRail";
 import { MarkdownEditorBoundary } from "../components/MarkdownEditorBoundary";
 import { MarkdownPreview } from "../components/MarkdownPreview";
 import { NoteCreateMenu } from "../components/NoteCreateMenu";
+import { DocumentLibrarySection } from "../components/documents";
 import { ToolbarMenu, type ToolbarMenuItem } from "../components/ToolbarMenu";
 import type { SelectionCommandRequest } from "../components/MarkdownRichEditor";
 import { clipboardImageFile, readFileAsDataUrl } from "../lib/clipboardImage";
 import { isChatReference } from "../lib/chatRefs";
+import { buildDocumentLibraryEntries } from "../lib/documentLibrary";
 import {
   NOTES_KIND_LABELS,
   notesKindFromNoteType,
@@ -299,8 +301,10 @@ export function NotesPage({
   notesEditorSelectionId,
   openDrawer,
   navigate,
+  openContentViewer,
   saveEntity,
   saveEntities,
+  removeEntity,
   removeEntityQuiet,
   setToast,
 }: PageProps) {
@@ -372,6 +376,16 @@ export function NotesPage({
   }, [records, scope, searchKeyOf, textSearch, themeId]);
   const [visibleLimit, setVisibleLimit] = useState(NOTES_RENDER_BATCH_SIZE);
   const renderedRecords = visible.slice(0, visibleLimit);
+  // 文書（Document）はNoteと同列のコンテンツとして、一覧の冒頭にタスク横断で並べる（#799）。
+  // 種類scopeはNoteの種別専用なので混ぜず、検索とThemeの絞り込みだけNote一覧に揃える。
+  const documentEntries = useMemo(
+    () =>
+      buildDocumentLibraryEntries(data.documents, data.tasks, {
+        query: normalizedQuery,
+        themeId,
+      }),
+    [data.documents, data.tasks, normalizedQuery, themeId],
+  );
   const workbenchRecords = useMemo(() => visible.filter(isWorkbenchRecord), [visible]);
   const editorSelectedRecord =
     notesEditorSelectionId && notesEditorSelectionId !== dismissedEditorSelectionId
@@ -2622,6 +2636,15 @@ export function NotesPage({
             void importDroppedMarkdown(Array.from(event.dataTransfer.files));
           }}
         >
+          <DocumentLibrarySection
+            entries={documentEntries}
+            openContentViewer={openContentViewer}
+            removeEntity={removeEntity}
+            onOpenTask={(taskId) => {
+              const task = data.tasks.find((entry) => entry.id === taskId);
+              if (task) openDrawer({ type: "task", entity: task });
+            }}
+          />
           {renderedRecords.map((record) => {
             const comments = record.comments as NoteComment[] | undefined;
             const url = str(record.source_url || record.url);
@@ -2688,7 +2711,7 @@ export function NotesPage({
               </div>
             );
           })}
-          {!visible.length && (
+          {!visible.length && !documentEntries.length && (
             <EmptyState
               title="一致する項目はありません"
               action="Noteを書く"
