@@ -2448,6 +2448,9 @@ internal fun TodayDetailPane(
         }
         return
     }
+    // NavigableListDetailPaneScaffold の詳細ペインは 1 つの SaveableStateHolder 枠を共有するため、
+    // task.id で key を分けて別タスクの rememberSaveable 状態（特に予定ドラフト）が復元・上書きされるのを防ぐ（#786）。
+    key(task.id) {
     val completionFeedbackScale = rememberTaskCompletionFeedbackScale(completionFeedbackEventId)
     var titleDraft by rememberSaveable(task.id) { mutableStateOf(task.title) }
     var titleBase by rememberSaveable(task.id) { mutableStateOf(task.title) }
@@ -2933,6 +2936,7 @@ internal fun TodayDetailPane(
         }
         }
     }
+    }
 }
 
 /** 詳細の頭に並べる札。変更は下の各欄で行い、ここは読むだけにする。 */
@@ -3376,6 +3380,12 @@ private fun TaskScheduleEditor(
         task.plannedStartTime,
         task.plannedDurationMinutes,
     ).joinToString("|")
+    var dateTarget by rememberSaveable(task.id) { mutableStateOf<ScheduleDateTarget?>(null) }
+    var editing by rememberSaveable(task.id) { mutableStateOf(false) }
+
+    // SaveableStateHolder 共有枠で別タスクや旧版の控えが復元されて自動保存される事故を防ぐため、
+    // 予定ドラフト群を (task.id, scheduleFingerprint) で位置キー分離する（#786）。
+    key(task.id, scheduleFingerprint) {
     var startDraft by rememberSaveable(task.id, scheduleFingerprint) {
         mutableStateOf(schedule?.startDate.orEmpty())
     }
@@ -3385,9 +3395,12 @@ private fun TaskScheduleEditor(
     var rangeSemanticsDraft by rememberSaveable(task.id, scheduleFingerprint) {
         mutableStateOf(schedule?.rangeSemantics.orEmpty())
     }
-    var dateTarget by rememberSaveable(task.id) { mutableStateOf<ScheduleDateTarget?>(null) }
-    var durationDraft by rememberSaveable(task.id, scheduleFingerprint) { mutableStateOf(task.plannedDurationMinutes?.toString().orEmpty()) }
-    var editing by rememberSaveable(task.id) { mutableStateOf(false) }
+    var durationDraft by rememberSaveable(task.id, scheduleFingerprint) {
+        mutableStateOf(task.plannedDurationMinutes?.toString().orEmpty())
+    }
+    var dirtyByUser by rememberSaveable(task.id, scheduleFingerprint) {
+        mutableStateOf(false)
+    }
 
     val startDate = startDraft.toLocalDateOrNull()
     val endDate = endDraft.toLocalDateOrNull()
@@ -3423,12 +3436,14 @@ private fun TaskScheduleEditor(
             wasTrueRange -> rangeSemanticsDraft
             else -> "once_within_window"
         }
+        dirtyByUser = true
     }
 
     // 変更が揃ったらそのまま保存する。別ボタンで「確定」させない。
     // 時刻・所要の打ち込みは短い待ちを置き、閉じた瞬間は待ちなく送る。
-    LaunchedEffect(draft, isValid, hasChanges, enabled, editing) {
-        if (!enabled || !isValid || !hasChanges) return@LaunchedEffect
+    // 利用者が操作していない初期表示・状態復元だけでは絶対に自動保存しない（#786）。
+    LaunchedEffect(task.id, draft, isValid, hasChanges, dirtyByUser, enabled, editing) {
+        if (!dirtyByUser || !enabled || !isValid || !hasChanges) return@LaunchedEffect
         if (editing) delay(350)
         latestOnSave(draft)
     }
@@ -3506,7 +3521,9 @@ private fun TaskScheduleEditor(
             )
         }
         OutlinedTextField(
-            value = durationDraft, onValueChange = { durationDraft = it.filter(Char::isDigit) }, enabled = enabled,
+            value = durationDraft,
+            onValueChange = { durationDraft = it.filter(Char::isDigit); dirtyByUser = true },
+            enabled = enabled,
             label = { Text("所要時間") }, suffix = { Text("分") },
             singleLine = true, isError = !durationValid,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -3519,7 +3536,10 @@ private fun TaskScheduleEditor(
             quickDurations.forEach { minutes ->
                 FilterChip(
                     selected = durationDraft == minutes.toString(),
-                    onClick = { durationDraft = if (durationDraft == minutes.toString()) "" else minutes.toString() },
+                    onClick = {
+                        durationDraft = if (durationDraft == minutes.toString()) "" else minutes.toString()
+                        dirtyByUser = true
+                    },
                     enabled = enabled,
                     label = { Text(durationLabel(minutes)) },
                 )
@@ -3541,14 +3561,14 @@ private fun TaskScheduleEditor(
             ) {
                 FilterChip(
                     selected = rangeSemanticsDraft == "once_within_window",
-                    onClick = { rangeSemanticsDraft = "once_within_window" },
+                    onClick = { rangeSemanticsDraft = "once_within_window"; dirtyByUser = true },
                     enabled = enabled,
                     label = { Text("期間内に一度") },
                     modifier = Modifier.testTag("schedule-range-once"),
                 )
                 FilterChip(
                     selected = rangeSemanticsDraft == "ongoing",
-                    onClick = { rangeSemanticsDraft = "ongoing" },
+                    onClick = { rangeSemanticsDraft = "ongoing"; dirtyByUser = true },
                     enabled = enabled,
                     label = { Text("期間中継続") },
                     modifier = Modifier.testTag("schedule-range-ongoing"),
@@ -3605,6 +3625,7 @@ private fun TaskScheduleEditor(
                 },
             )
         }
+    }
     }
 }
 

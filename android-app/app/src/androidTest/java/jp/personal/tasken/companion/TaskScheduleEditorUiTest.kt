@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsNotSelected
@@ -38,7 +40,7 @@ class TaskScheduleEditorUiTest {
         composeRule.onNodeWithTag("schedule-start-date").assertTextContains("8月24日（月）", substring = true)
         composeRule.onNodeWithTag("schedule-end-date").assertTextContains("未設定", substring = true)
         composeRule.onNodeWithTag("schedule-range-semantics").assertDoesNotExist()
-        composeRule.onNodeWithTag("schedule-clear").assertIsNotEnabled()
+        composeRule.onNodeWithTag("schedule-clear").assertIsEnabled()
     }
 
     @Test
@@ -156,6 +158,80 @@ class TaskScheduleEditorUiTest {
 
         composeRule.onNodeWithTag("schedule-start-date").assertTextContains("未設定", substring = true)
         composeRule.onNodeWithTag("schedule-clear").assertIsNotEnabled()
+    }
+
+    /**
+     * #786 の回帰テスト:
+     * ListDetailPaneScaffold のように 1 つの詳細ペイン（SaveableStateHolder の同じ枠）で
+     * タスク A（期限 2026-11-17）を開く → 一覧へ戻る → タスク B（期限 2027-01-14）を開いたとき、
+     * A の予定の控えが B に復元されて即座に自動保存（上書き）されないことを確かめる。
+     */
+    @Test
+    fun openingAnotherTaskInSharedDetailPaneDoesNotOverwriteItsSchedule() {
+        val taskA = sampleTask(
+            schedule(startDate = null, endDate = "2026-11-17", dateKind = "deadline").copy(
+                id = "20000000-0000-4000-8000-00000000000a",
+            ),
+        ).copy(id = "10000000-0000-4000-8000-00000000000a", title = "今日の期限のタスク")
+        val taskB = sampleTask(
+            schedule(startDate = null, endDate = "2027-01-14", dateKind = "deadline").copy(
+                id = "20000000-0000-4000-8000-00000000000b",
+            ),
+        ).copy(id = "10000000-0000-4000-8000-00000000000b", title = "未来の期限のタスク")
+
+        val showDetail = mutableStateOf(true)
+        val currentTask = mutableStateOf(taskA)
+        val savedCalls = mutableListOf<Pair<String, MobileTaskScheduleDraft>>()
+
+        composeRule.setContent {
+            val holder = rememberSaveableStateHolder()
+            MaterialTheme {
+                if (showDetail.value) {
+                    holder.SaveableStateProvider("detail-pane") {
+                        TodayDetailPane(
+                            task = currentTask.value,
+                            actionState = TaskActionUiState.Idle,
+                            onStateAction = {},
+                            onScheduleUpdate = { task, draft -> savedCalls += task.id to draft },
+                        )
+                    }
+                }
+            }
+        }
+
+        composeRule.waitForIdle()
+        // 一覧へ戻る（SaveableStateProvider が詳細ペインの保存状態を記録して破棄する）
+        composeRule.runOnIdle { showDetail.value = false }
+        composeRule.waitForIdle()
+        // 別のタスク B を同じ詳細ペイン枠で開く
+        composeRule.runOnIdle {
+            currentTask.value = taskB
+            showDetail.value = true
+        }
+        composeRule.mainClock.advanceTimeBy(500)
+        composeRule.waitForIdle()
+
+        composeRule.runOnIdle {
+            assertEquals("タスクを開いただけで予定を上書き保存してはいけない", emptyList<Pair<String, MobileTaskScheduleDraft>>(), savedCalls)
+        }
+        composeRule.onNodeWithTag("schedule-summary").performScrollTo().assertTextContains("2027年1月14日（木）まで", substring = true)
+
+        // さらにタスク B を閉じて外部（PC/MCP）で期日が更新された後にタスク B を開き直しても、旧控えで巻き戻らない
+        composeRule.runOnIdle { showDetail.value = false }
+        composeRule.waitForIdle()
+        composeRule.runOnIdle {
+            currentTask.value = taskB.copy(
+                schedule = taskB.schedule?.copy(version = 3, endDate = "2027-02-01"),
+            )
+            showDetail.value = true
+        }
+        composeRule.mainClock.advanceTimeBy(500)
+        composeRule.waitForIdle()
+
+        composeRule.runOnIdle {
+            assertEquals("外部更新後に開き直しても旧予定で巻き戻してはいけない", emptyList<Pair<String, MobileTaskScheduleDraft>>(), savedCalls)
+        }
+        composeRule.onNodeWithTag("schedule-summary").performScrollTo().assertTextContains("2027年2月1日（月）まで", substring = true)
     }
 
     @Test
