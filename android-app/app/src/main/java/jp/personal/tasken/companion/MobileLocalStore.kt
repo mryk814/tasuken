@@ -669,7 +669,33 @@ abstract class MobileLocalDao {
     @Query("SELECT * FROM routine_cache WHERE serverId = :serverId")
     abstract suspend fun routineCache(serverId: String): RoutineCacheEntity?
 
-    @Query("SELECT * FROM task_cache WHERE todayDate = :date ORDER BY updatedAt DESC, id ASC")
+    // Today 判定（#784）: TaskFilters.kt の isTaskOnToday と同じ条件。
+    // todayDate = :date に加え、期間中継続（ongoing）を除く期日が当日、または期日超過かつ未完了の Task を含める。
+    @Query(
+        """
+        SELECT * FROM task_cache
+        WHERE state != 'cancelled'
+          AND (
+            todayDate = :date
+            OR (
+              NOT (
+                scheduleStartDate IS NOT NULL AND scheduleStartDate != ''
+                AND scheduleEndDate IS NOT NULL AND scheduleEndDate != ''
+                AND scheduleEndDate > scheduleStartDate
+                AND scheduleRangeSemantics = 'ongoing'
+              )
+              AND (
+                COALESCE(NULLIF(scheduleEndDate, ''), NULLIF(scheduleStartDate, '')) = :date
+                OR (
+                  state != 'done'
+                  AND COALESCE(NULLIF(scheduleEndDate, ''), NULLIF(scheduleStartDate, '')) < :date
+                )
+              )
+            )
+          )
+        ORDER BY updatedAt DESC, id ASC
+        """,
+    )
     @Transaction
     abstract fun observeTasks(date: String): Flow<List<TaskCacheWithConflict>>
 
@@ -677,7 +703,31 @@ abstract class MobileLocalDao {
     @Transaction
     abstract fun observeAllTasks(): Flow<List<TaskCacheWithConflict>>
 
-    @Query("SELECT * FROM task_cache WHERE todayDate = :date ORDER BY updatedAt DESC, id ASC")
+    @Query(
+        """
+        SELECT * FROM task_cache
+        WHERE state != 'cancelled'
+          AND (
+            todayDate = :date
+            OR (
+              NOT (
+                scheduleStartDate IS NOT NULL AND scheduleStartDate != ''
+                AND scheduleEndDate IS NOT NULL AND scheduleEndDate != ''
+                AND scheduleEndDate > scheduleStartDate
+                AND scheduleRangeSemantics = 'ongoing'
+              )
+              AND (
+                COALESCE(NULLIF(scheduleEndDate, ''), NULLIF(scheduleStartDate, '')) = :date
+                OR (
+                  state != 'done'
+                  AND COALESCE(NULLIF(scheduleEndDate, ''), NULLIF(scheduleStartDate, '')) < :date
+                )
+              )
+            )
+          )
+        ORDER BY updatedAt DESC, id ASC
+        """,
+    )
     abstract suspend fun tasksForDate(date: String): List<TaskCacheEntity>
 
     @Query("SELECT * FROM task_cache ORDER BY updatedAt DESC, id ASC")

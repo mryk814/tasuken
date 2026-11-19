@@ -2092,9 +2092,10 @@ internal fun TodayTaskList(
                 (!task.pending || task.canEditPendingCreate || task.canEditPendingTask) &&
                 task.conflict == null && actionState !is TaskActionUiState.Saving
             val today = LocalDate.now()
+            val onToday = isTaskOnToday(task, today)
             val rescheduleTarget = when {
                 !scheduleEditable -> null
-                allTasksMode && task.todayDate != today.toString() -> today
+                allTasksMode && !onToday -> today
                 else -> today.plusDays(1)
             }
             SwipeTaskActions(
@@ -2271,8 +2272,8 @@ internal fun TodayTaskList(
                             TodayRowChecklist(task, actionState, onChecklistUpdate, onTaskSelected)
                         }
                     }
-                    if (onTodayDateUpdate != null && task.state !in setOf("done", "cancelled") &&
-                        task.todayDate != LocalDate.now().toString()
+                    if (allTasksMode && onTodayDateUpdate != null && task.state !in setOf("done", "cancelled") &&
+                        !onToday
                     ) {
                         IconButton(
                             onClick = { onTodayDateUpdate(task, LocalDate.now()) },

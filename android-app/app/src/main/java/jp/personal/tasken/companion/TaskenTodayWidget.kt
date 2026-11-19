@@ -83,14 +83,24 @@ internal const val WidgetDueSoonSection = "期限が近い"
 internal fun isWidgetDueSoon(dueDate: LocalDate?, today: String): Boolean =
     dueDate != null && !dueDate.isAfter(LocalDate.parse(today).plusDays(TaskNotificationPlan.WidgetDueSoonDays))
 
-internal fun widgetSectionFor(todayDate: String?, today: String, dueDate: LocalDate? = null): String = when {
-    // 期限の近いものは、扱う日がいつでも先頭の見出しに集める（#753）。
-    isWidgetDueSoon(dueDate, today) -> WidgetDueSoonSection
-    todayDate == null -> "日付なし"
-    // today_date は「扱う日」であり締切ではない。過ぎた分は持ち越しと呼ぶ。
-    todayDate < today -> "持ち越し"
-    todayDate == today -> "今日"
-    else -> "今後"
+internal fun widgetSectionFor(
+    todayDate: String?,
+    today: String,
+    dueDate: LocalDate? = null,
+    isOngoingRange: Boolean = false,
+): String {
+    val day = LocalDate.parse(today)
+    val effectiveDue = dueDate?.takeUnless { isOngoingRange }
+    return when {
+        // 今日の予定（扱う日が今日、または今日までの期日）を必ず先頭の見出しにする（#784・#787）。
+        todayDate == today || (effectiveDue != null && !effectiveDue.isAfter(day)) -> "今日"
+        // 明日〜3日先に期限が来るものは「今日」のすぐ後ろに並べる（#753・#787）。
+        isWidgetDueSoon(effectiveDue, today) -> WidgetDueSoonSection
+        todayDate == null -> "日付なし"
+        // today_date は「扱う日」であり締切ではない。過ぎた分は持ち越しと呼ぶ。
+        todayDate < today -> "持ち越し"
+        else -> "今後"
+    }
 }
 
 internal fun orderWidgetTasks(
@@ -98,12 +108,16 @@ internal fun orderWidgetTasks(
     today: String,
     todayDates: Map<String, String?>,
     dueDates: Map<String, LocalDate?> = emptyMap(),
+    ongoingRangeIds: Set<String> = emptySet(),
 ): List<TaskenWidgetTask> {
-    val rank = mapOf(WidgetDueSoonSection to -1, "持ち越し" to 0, "今日" to 1, "今後" to 2, "日付なし" to 3)
+    val rank = mapOf("今日" to 0, WidgetDueSoonSection to 1, "持ち越し" to 2, "今後" to 3, "日付なし" to 4)
     // 見出しの中は、期限の近い順（期限の無いものは後ろ）、同じなら題名の順。
     return tasks.sortedWith(
-        compareBy<TaskenWidgetTask>({ rank[widgetSectionFor(todayDates[it.id], today, dueDates[it.id])] ?: 9 })
-            .thenBy(nullsLast()) { dueDates[it.id] }
+        compareBy<TaskenWidgetTask>({
+            val ongoing = it.id in ongoingRangeIds
+            rank[widgetSectionFor(todayDates[it.id], today, dueDates[it.id], ongoing)] ?: 9
+        })
+            .thenBy(nullsLast()) { if (it.id in ongoingRangeIds) null else dueDates[it.id] }
             .thenBy { it.title },
     )
 }
@@ -244,23 +258,39 @@ class TaskenTodayWidget : AppWidgetProvider() {
             val dao = MobileLocalDatabase.open(context).mobileDao()
             val themesById = dao.themes().associate { it.id to it }
             val allTasks = dao.tasks()
-            val todayTasks = allTasks.filter { it.todayDate == today && it.state != "cancelled" }
+            val todayDate = LocalDate.parse(today)
+            val todayTasks = allTasks.filter {
+                isTaskOnToday(
+                    todayDate = it.todayDate,
+                    scheduleStartDate = it.scheduleStartDate,
+                    scheduleEndDate = it.scheduleEndDate,
+                    scheduleRangeSemantics = it.scheduleRangeSemantics,
+                    state = it.state,
+                    today = todayDate,
+                )
+            }
             // ウィジェットは未完了の作業だけを出す。完了/取消はタスクリストの「完了」フィルタで確認する。
             val openTasks = allTasks.filter { it.state != "done" && it.state != "cancelled" }
-            val todayDate = LocalDate.parse(today)
-            val dueDates = openTasks.associate { it.id to TaskNotificationPlan.dueDate(it.scheduleStartDate, it.scheduleEndDate) }
+            val ongoingIds = openTasks
+                .filter { isOngoingScheduleRange(it.scheduleStartDate, it.scheduleEndDate, it.scheduleRangeSemantics) }
+                .map { it.id }
+                .toSet()
+            val dueDates = openTasks.associate {
+                it.id to scheduleDueDateForToday(it.scheduleStartDate, it.scheduleEndDate, it.scheduleRangeSemantics)
+            }
             val ordered = orderWidgetTasks(
                 openTasks.map {
                     val theme = it.themeId?.let(themesById::get)
                     val requiresWorkReceipt = it.workState in widgetStateActionWorkStates
                     val dueDate = dueDates[it.id]
+                    val isOngoing = it.id in ongoingIds
                     TaskenWidgetTask(
                         id = it.id,
                         title = it.title,
                         isDone = false,
                         themeTitle = theme?.title,
                         themeColor = theme?.let { widgetThemeColorInt(it.color) },
-                        section = widgetSectionFor(it.todayDate, today, dueDate),
+                        section = widgetSectionFor(it.todayDate, today, dueDate, isOngoing),
                         isPending = it.optimisticCommandId != null,
                         hasConflict = it.conflictCommandId != null,
                         requiresWorkReceipt = requiresWorkReceipt,
@@ -272,6 +302,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
                 today,
                 openTasks.associate { it.id to it.todayDate },
                 dueDates,
+                ongoingIds,
             )
             return TaskenWidgetSnapshot(
                 tasks = ordered,

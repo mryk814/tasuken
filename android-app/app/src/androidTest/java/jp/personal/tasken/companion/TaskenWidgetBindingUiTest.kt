@@ -47,7 +47,29 @@ class TaskenWidgetBindingUiTest {
             dao.upsertTask(widgetTask("widget-verify-3", "完了済みの件", null, "done", todayText, null))
             dao.upsertTask(widgetTask("widget-verify-4", "今後の件", "widget-verify-blue", "todo", future, "cmd-missing"))
             dao.upsertTask(widgetTask("widget-verify-5", "取消済みの件", null, "cancelled", todayText, null))
+            dao.upsertTask(
+                widgetTask("widget-verify-6", "今日が期限の件", "widget-verify-green", "todo", null, null)
+                    .copy(scheduleEndDate = todayText, scheduleDateKind = "deadline"),
+            )
+            dao.upsertTask(
+                widgetTask("widget-verify-7", "明日が期限の件", "widget-verify-blue", "todo", null, null)
+                    .copy(scheduleEndDate = today.plusDays(1).toString(), scheduleDateKind = "deadline"),
+            )
+            dao.upsertTask(
+                widgetTask("widget-verify-8", "過去完了の期限の件", null, "done", null, null)
+                    .copy(scheduleEndDate = overdue, scheduleDateKind = "deadline"),
+            )
         }
+
+        // #784: Room の tasksForDate にも todayDate=null かつ今日が期限の件が含まれ、過去完了・取消は含まれない。
+        val roomTodayIds = runBlocking { dao.tasksForDate(todayText) }
+            .map { it.id }
+            .filter { it.startsWith("widget-verify") }
+            .toSet()
+        assertEquals(
+            setOf("widget-verify-2", "widget-verify-3", "widget-verify-6"),
+            roomTodayIds,
+        )
 
         val items = runBlocking { TaskenTodayWidget.loadListItems(context, todayText, TaskenTodayWidget.WIDGET_LIST_LIMIT) }
         val flat = items.map {
@@ -63,17 +85,20 @@ class TaskenWidgetBindingUiTest {
             }
         assertEquals(
             listOf(
+                "H:今日",
+                "R:widget-verify-6:今日が期限の件",
+                "R:widget-verify-2:今日の件",
+                "H:期限が近い",
+                "R:widget-verify-7:明日が期限の件",
                 "H:持ち越し",
                 "R:widget-verify-1:持ち越しの件",
-                "H:今日",
-                "R:widget-verify-2:今日の件",
                 "H:今後",
                 "R:widget-verify-4:今後の件",
             ),
             seeded,
         )
         // 完了・取消のタスクはウィジェットに出さない（タスクリストの「完了」フィルタで確認する）。
-        assertFalse(seeded.any { it.contains("完了済みの件") || it.contains("取消済みの件") })
+        assertFalse(seeded.any { it.contains("完了済みの件") || it.contains("取消済みの件") || it.contains("過去完了") })
         val rows = items.filterIsInstance<TaskenWidgetListItem.Row>().associate { it.task.id to it.task }
         // 返信待ちのような送信待ち表示は行に出さない。
         assertTrue(rows.getValue("widget-verify-4").isPending)
@@ -126,7 +151,7 @@ class TaskenWidgetBindingUiTest {
         composeRule.runOnIdle { assertTrue("host laid out: ${hostSize.toList()}", hostSize[0] > 0 && hostSize[1] > 0) }
         composeRule.runOnIdle {
             assertEquals(
-                3,
+                5,
                 items.filterIsInstance<TaskenWidgetListItem.Row>().count { it.task.id.startsWith("widget-verify") },
             )
         }
@@ -143,7 +168,7 @@ class TaskenWidgetBindingUiTest {
             }
         }
         // 実RemoteViewsの適用結果が画面階層に存在すること（ドット・タイトル・右チェックの行）。
-        listOf("持ち越し", "持ち越しの件", "今日", "今日の件", "今後", "今後の件").forEach { expected ->
+        listOf("今日", "今日が期限の件", "今日の件", "期限が近い", "明日が期限の件", "持ち越し", "持ち越しの件", "今後", "今後の件").forEach { expected ->
             assertTrue("missing in view hierarchy: $expected", shownTexts.any { it.contains(expected) })
         }
         assertEquals(null, shownTexts.firstOrNull { it.contains("完了済みの件") || it.contains("取消済みの件") })

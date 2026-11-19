@@ -18,16 +18,27 @@ class TaskFiltersTest {
     )
 
     @Test
-    fun todayMatchesExistingProjectionAndFutureDatesExcludeToday() {
+    fun todayIncludesDueTodayAndOverdueOpenTasksWhileExcludingOngoingAndFuture() {
         val tasks = listOf(
-            task("past", "2026-09-04"), task("today", "2026-09-05"), task("future", "2026-09-06"),
+            task("past", "2026-09-04"),
+            task("today", "2026-09-05"),
+            task("future", "2026-09-06"),
             task("scheduled-today", schedule = schedule("2026-09-05", null)),
+            task("deadline-today", schedule = schedule(null, "2026-09-05")),
             task("scheduled-future", schedule = schedule("2026-09-06", null)),
             task("ongoing", schedule = schedule("2026-09-04", "2026-09-06")),
+            task("ongoing-ends-today", schedule = schedule("2026-09-03", "2026-09-05")),
+            task("window-ends-today", schedule = MobileTaskSchedule(null, null, "2026-09-03", "2026-09-05", "range", "once_within_window")),
             task("past-schedule", schedule = schedule(null, "2026-09-04")),
+            task("past-schedule-done", schedule = schedule(null, "2026-09-04")).copy(state = "done"),
+            task("deadline-today-done", schedule = schedule(null, "2026-09-05")).copy(state = "done"),
+            task("deadline-today-cancelled", schedule = schedule(null, "2026-09-05")).copy(state = "cancelled"),
             task("none"),
         )
-        assertEquals(listOf("today"), filter(tasks, TaskScheduleFilter.Today))
+        assertEquals(
+            listOf("today", "scheduled-today", "deadline-today", "window-ends-today", "past-schedule", "deadline-today-done"),
+            filter(tasks, TaskScheduleFilter.Today),
+        )
         assertEquals(listOf("future", "scheduled-future", "ongoing"), filter(tasks, TaskScheduleFilter.Upcoming))
         assertEquals(listOf("none"), filter(tasks, TaskScheduleFilter.Unscheduled))
         assertEquals(tasks.map { it.id }, filter(tasks, TaskScheduleFilter.All))

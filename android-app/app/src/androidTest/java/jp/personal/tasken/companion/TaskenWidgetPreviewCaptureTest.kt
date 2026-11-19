@@ -33,10 +33,10 @@ class TaskenWidgetPreviewCaptureTest {
     private var host: FrameLayout? = null
 
     private val tasks = listOf(
-        TaskenWidgetTask("p1", "実験室安全点検チェックシートを提出", false, "個人業務", widgetThemeColorInt("chart-1"), "持ち越し"),
-        TaskenWidgetTask("p2", "試料Bを準備", false, "触媒探索", widgetThemeColorInt("chart-2"), "今日"),
+        TaskenWidgetTask("p2", "試料Bを準備", false, "触媒探索", widgetThemeColorInt("chart-2"), "今日", dueLabel = "今日", dueNow = true),
         TaskenWidgetTask("p3", "考察メモを見直す", false, "触媒探索", widgetThemeColorInt("chart-2"), "今日"),
         TaskenWidgetTask("p4", "温度条件の違いを記録", false, "試料評価", widgetThemeColorInt("chart-3"), "今日", requiresWorkReceipt = true),
+        TaskenWidgetTask("p1", "実験室安全点検チェックシートを提出", false, "個人業務", widgetThemeColorInt("chart-1"), "持ち越し"),
         TaskenWidgetTask("p5", "学会要旨の下書き", false, "試料評価", widgetThemeColorInt("chart-3"), "今後"),
         TaskenWidgetTask("p6", "装置メンテナンスの予約", false, null, null, "今後"),
     )
@@ -77,7 +77,7 @@ class TaskenWidgetPreviewCaptureTest {
         )
     }
 
-    /** 期限の近いものが先頭の見出しに集まり、行に期限のラベルが付く（#753）。並びは実際の並べ替えを通す。 */
+    /** 今日が先頭、次に期限が近い、その下に持ち越し・日付なしが並ぶ（#784・#787）。並びは実際の並べ替えを通す。 */
     @Test
     fun captureDueSoonOrder() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -87,8 +87,8 @@ class TaskenWidgetPreviewCaptureTest {
             Triple("今日の買い出し", today, null),
             Triple("学会要旨の下書き", today, day.plusDays(12)),
             Triple("図書館の本を返す", null, day.plusDays(1)),
-            Triple("確定申告の書類を出す", "2026-11-20", day),
-            Triple("実験室安全点検チェックシートを提出", "2026-11-14", day.minusDays(2)),
+            Triple("確定申告の書類を出す", null, day),
+            Triple("実験室安全点検チェックシートを提出", "2026-11-14", null),
             Triple("装置メンテナンスの予約", null, day.plusDays(3)),
             Triple("読みかけの論文", null, null),
         )
@@ -107,7 +107,7 @@ class TaskenWidgetPreviewCaptureTest {
         )
         capture(
             context, "08-tall-due-soon", TaskenWidgetMode.Tall,
-            TaskenWidgetSnapshot(ordered, 0, 0, "2026-11-16T00:00:00Z", todayDoneCount = 0, todayTotalCount = 2),
+            TaskenWidgetSnapshot(ordered, 0, 0, "2026-11-16T00:00:00Z", todayDoneCount = 0, todayTotalCount = 3),
             300 to 420,
         )
     }

@@ -208,21 +208,41 @@ class TaskNotificationPlanTest {
     }
 
     @Test
-    fun theWidgetPutsTasksWithANearDueDateFirst() {
+    fun theWidgetPutsTodayFirstThenNearDueDateThenCarryover() {
         val today = "2026-11-16"
         val day = LocalDate.parse(today)
-        assertEquals(WidgetDueSoonSection, widgetSectionFor(null, today, day))
-        assertEquals(WidgetDueSoonSection, widgetSectionFor("2026-11-20", today, day.minusDays(2)))
-        assertEquals(WidgetDueSoonSection, widgetSectionFor(today, today, day.plusDays(3)))
-        // 4 日より先の期限は、今までどおり扱う日で分ける。
+        // 期日が今日または超過のタスクは todayDate に関係なく「今日」先頭に入る（#784・#787）。
+        assertEquals("今日", widgetSectionFor(null, today, day))
+        assertEquals("今日", widgetSectionFor("2026-11-20", today, day.minusDays(2)))
+        // 今日の予定（todayDate == today）は期限が近くても「今日」に留める（#787）。
+        assertEquals("今日", widgetSectionFor(today, today, day.plusDays(3)))
         assertEquals("今日", widgetSectionFor(today, today, day.plusDays(4)))
+        // 今日以外で 1〜3 日先の期限は「今日」の次の「期限が近い」に入る。
+        assertEquals(WidgetDueSoonSection, widgetSectionFor(null, today, day.plusDays(1)))
+        assertEquals(WidgetDueSoonSection, widgetSectionFor("2026-11-14", today, day.plusDays(3)))
+        // ongoing 期間は締切ではないので「今日」や「期限が近い」へ吸い上げない。
+        assertEquals("今後", widgetSectionFor("2026-11-20", today, day, isOngoingRange = true))
         assertEquals("日付なし", widgetSectionFor(null, today, null))
 
-        val tasks = listOf("today-plain", "far-due", "tomorrow-due", "overdue", "today-due", "undated").map { TaskenWidgetTask(it, it, false) }
-        val todayDates = mapOf("today-plain" to today, "far-due" to today, "tomorrow-due" to null, "overdue" to "2026-11-20", "today-due" to today, "undated" to null)
-        val dueDates = mapOf("far-due" to day.plusDays(10), "tomorrow-due" to day.plusDays(1), "overdue" to day.minusDays(2), "today-due" to day)
+        val tasks = listOf("today-plain", "far-due", "tomorrow-due", "overdue", "today-due", "carryover", "undated")
+            .map { TaskenWidgetTask(it, it, false) }
+        val todayDates = mapOf(
+            "today-plain" to today,
+            "far-due" to today,
+            "tomorrow-due" to null,
+            "overdue" to "2026-11-20",
+            "today-due" to today,
+            "carryover" to "2026-11-10",
+            "undated" to null,
+        )
+        val dueDates = mapOf(
+            "far-due" to day.plusDays(10),
+            "tomorrow-due" to day.plusDays(1),
+            "overdue" to day.minusDays(2),
+            "today-due" to day,
+        )
         assertEquals(
-            listOf("overdue", "today-due", "tomorrow-due", "far-due", "today-plain", "undated"),
+            listOf("overdue", "today-due", "far-due", "today-plain", "tomorrow-due", "carryover", "undated"),
             orderWidgetTasks(tasks, today, todayDates, dueDates).map { it.id },
         )
         assertEquals("今日", TaskNotificationPlan.dueLabel(day, day))
