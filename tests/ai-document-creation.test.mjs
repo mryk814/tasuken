@@ -265,54 +265,69 @@ test("an invalid asset fails the whole creation and leaves nothing behind", (t) 
   assert.equal(listFilesRecursive(path.join(userDataPath, "attachments")).length, 0);
 });
 
-test("create-only headless: MCP tool is listed and get_task_context shows the Document", async (t) => {
+test("create-only headless: MCP tool is listed and get_task_context shows the Document", async () => {
   const dir = temporary();
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const bootstrap = new WorkspaceDatabase(path.join(dir, "research-desk.sqlite"));
   bootstrap.loadWorkspace();
   bootstrap.db.close();
 
-  const core = await startTaskenHeadlessCore({ userDataPath: dir, writeMode: "create-only" });
-  t.after(() => core.stop());
-  const client = new TaskenCoreClient({ userDataPath: dir });
-  const task = await client.createAiItem({
-    kind: "task",
-    title: "Document host task",
-    body: "",
-    caller: "dot",
-    source_app: "test-dot",
-    idempotency_key: "task-for-document",
-    reason: "",
-  });
-  const created = await client.createAiDocument({
-    task_id: task.entity.id,
-    title: "設計メモ",
-    file_name: "design.html",
-    content: "<!doctype html><html><body><p>design</p></body></html>",
-    caller: "dot",
-    source_app: "test-dot",
-    idempotency_key: "document-e2e",
-    reason: "e2e",
-  });
-  assert.equal(created.status, "created");
-  assert.equal(created.entity.task_id, task.entity.id);
+  let core;
+  let transport;
+  let mcp;
+  try {
+    core = await startTaskenHeadlessCore({ userDataPath: dir, writeMode: "create-only" });
+    const client = new TaskenCoreClient({ userDataPath: dir });
+    const task = await client.createAiItem({
+      kind: "task",
+      title: "Document host task",
+      body: "",
+      caller: "dot",
+      source_app: "test-dot",
+      idempotency_key: "task-for-document",
+      reason: "",
+    });
+    const created = await client.createAiDocument({
+      task_id: task.entity.id,
+      title: "設計メモ",
+      file_name: "design.html",
+      content: "<!doctype html><html><body><p>design</p></body></html>",
+      caller: "dot",
+      source_app: "test-dot",
+      idempotency_key: "document-e2e",
+      reason: "e2e",
+    });
+    assert.equal(created.status, "created");
+    assert.equal(created.entity.task_id, task.entity.id);
 
-  const context = await client.getTaskContext({ task_id: task.entity.id });
-  const documents = context.related?.documents || context.documents || [];
-  assert.equal(documents.length, 1);
-  assert.equal(documents[0].id, created.entity.id);
-  assert.equal(documents[0].title, "設計メモ");
-  assert.ok(documents[0].ai, "context should carry the AI origin header");
+    const context = await client.getTaskContext({ task_id: task.entity.id });
+    const documents = context.related?.documents || context.documents || [];
+    assert.equal(documents.length, 1);
+    assert.equal(documents[0].id, created.entity.id);
+    assert.equal(documents[0].title, "設計メモ");
+    assert.ok(documents[0].ai, "context should carry the AI origin header");
 
-  const transport = new StdioClientTransport({
-    command: nodeExecPath,
-    args: [path.join(mcpDirectory, "server.mjs")],
-    env: { ...process.env, TASKEN_USER_DATA_DIR: dir, TASKEN_MCP_READ_ONLY: "0" },
-    stderr: "pipe",
-  });
-  const mcp = new Client({ name: "document-test", version: "1" });
-  await mcp.connect(transport);
-  t.after(() => mcp.close());
-  const tools = (await mcp.listTools()).tools.map((tool) => tool.name);
-  assert.ok(tools.includes("tasken.create_document"));
+    transport = new StdioClientTransport({
+      command: nodeExecPath,
+      args: [path.join(mcpDirectory, "server.mjs")],
+      env: { ...process.env, TASKEN_USER_DATA_DIR: dir, TASKEN_MCP_READ_ONLY: "0" },
+      stderr: "pipe",
+    });
+    // ブリッジの起動診断（TASKEN_MCP_DIAGNOSTIC）は子のstderrへ出る。pipeのまま
+    // 読み手がいないと、起動に失敗した理由が試験のログへ残らない。
+    transport.stderr?.on("data", (chunk) => process.stderr.write(chunk));
+    mcp = new Client({ name: "document-test", version: "1" });
+    await mcp.connect(transport);
+    const tools = (await mcp.listTools()).tools.map((tool) => tool.name);
+    assert.ok(tools.includes("tasken.create_document"));
+  } finally {
+    // 後始末は1つにまとめ、閉じてから消す。t.afterを分けると登録順に走る最初の
+    // rmSyncが、開いたままのSQLiteに当たってWindowsでEPERMになり、throwした
+    // after以降のafter（Core停止・ブリッジ終了）が走らず、Coreと子のプロセスが
+    // 残って試験全体が止まる（FAILURES.md 2026-11-16と同じ形）。
+    // 途中の片付けが失敗しても、残りの片付けは必ず試す。
+    await mcp?.close().catch(() => {});
+    await transport?.close().catch(() => {});
+    await core?.stop().catch(() => {});
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

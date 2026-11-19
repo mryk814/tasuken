@@ -2,6 +2,14 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-19 ai-document-creation の後始末の順で、Windows の CI 全体が 45 分止まった
+
+- しようとしたこと: #789 の `tests/ai-document-creation.test.mjs`（create-only headless の実証）で、後始末を `t.after` に分けて登録した（一時フォルダー削除 → Core 停止 → MCP 終了の順）。
+- 起きたこと: windows-quality が 2 回とも、一時フォルダー削除の `t.after` が開いたままの SQLite に当たって `EPERM` で落ち、そのまま 45 分の上限まで全体が止まって cancelled。本体の検証は全部通っていたのに、落ちた理由（EPERM）自体も、止まったままでは要約が出ずログに残らなかった。
+- 原因: (1) `t.after` は登録順に走るので、DB を閉じる前に消しに行き、Windows では開いたままの SQLite を消せずに throw する（2026-11-16 の項と同じ形）。(2) **throw した `t.after` 以後の `t.after` は走らない**（Node の test runner の仕様。実測で確認）。Core 停止と MCP 終了が両方飛ばされ、プロセス内の Core（HTTP）とブリッジの子プロセスが残り、試験ファイルのプロセスが終了できなくなった。
+- 直し方: 後始末は `try/finally` の 1 つにまとめ、MCP → transport → Core の順に閉じてから一時フォルダーを消す（`tests/ai-item-creation.test.mjs` の `disconnect` と同じ形）。途中の片付けが失敗しても残りを必ず試す。あわせて、ブリッジの子の stderr（起動診断 `TASKEN_MCP_DIAGNOSTIC`）を試験の stderr へ流し、起動に失敗した理由がログに残るようにした。
+- 再発防止: 記録だけ。新しい試験で headless Core や子プロセスを起こすときは、後始末を `t.after` に分けて登録しない（分けた時点で、最初の throw が残りの後始末を全部止める）。
+
 ## 2026-11-16 待ちを Task に写す service が repositories の関数を読み、architecture-audit に止められた
 
 - しようとしたこと: #755 束7 で、写した記録の ID を元の ID から決める関数を `src/main/repositories/derivedRecords.mjs` に置き、repository（同期の版の ID）と service（`src/main/services/waitingRetirement.ts`。写した Task の ID）の両方から読んだ。
