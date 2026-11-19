@@ -2213,6 +2213,25 @@ internal fun TodayTaskList(
                                 verticalArrangement = Arrangement.spacedBy(2.dp),
                             ) {
                                 TaskThemeLabel(task.themeId, themes)
+                                // 時刻情報（#783）。期限と知らせる時刻を、開かずに読める形で同じ並びに出す。
+                                scheduleRowLabel(
+                                    task.schedule?.startDate?.toLocalDateOrNull(),
+                                    task.schedule?.endDate?.toLocalDateOrNull(),
+                                    today,
+                                )?.let { label ->
+                                    TaskRowTimeMeta(
+                                        icon = R.drawable.ic_tabler_calendar,
+                                        text = label,
+                                        modifier = Modifier.testTag("task-schedule-${task.id}"),
+                                    )
+                                }
+                                reminderRowLabel(task.reminderAt, today)?.let { label ->
+                                    TaskRowTimeMeta(
+                                        icon = R.drawable.ic_tabler_bell,
+                                        text = label,
+                                        modifier = Modifier.testTag("task-reminder-${task.id}"),
+                                    )
+                                }
                                 if (returned) {
                                     // 印（行の右の「戻」）が言うことを、読み上げと小さな字でも言う。
                                     Text(
@@ -2336,6 +2355,28 @@ private fun TodayRowChecklist(
                 ) { Text("ほか${task.checklistItems.size - 3}項目") }
             }
         }
+}
+
+/** 一覧の行の時刻情報（期限・知らせる時刻、#783）。Theme の札と同じ声で小さく出す。 */
+@Composable
+private fun TaskRowTimeMeta(icon: Int, text: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(
+            painterResource(icon),
+            contentDescription = null,
+            modifier = Modifier.size(13.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelMedium,
+        )
+    }
 }
 
 @Composable
