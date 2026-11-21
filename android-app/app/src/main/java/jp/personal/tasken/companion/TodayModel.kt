@@ -146,7 +146,8 @@ data class MobileTaskWorkProposal(
 )
 
 sealed interface MobileProposalReviewResult {
-    data class Applied(val proposalId: String, val decision: String) : MobileProposalReviewResult
+    /** 答えを端末の送信の列に積んだ（届くのはつながった時）。 */
+    data class Queued(val proposalId: String, val decision: String) : MobileProposalReviewResult
     data class Conflict(val proposalId: String, val message: String) : MobileProposalReviewResult
     data class Unavailable(val proposalId: String, val message: String) : MobileProposalReviewResult
 }
@@ -154,7 +155,6 @@ sealed interface MobileProposalReviewResult {
 sealed interface ProposalReviewUiState {
     data object Idle : ProposalReviewUiState
     data class Reviewing(val proposalId: String, val decision: String) : ProposalReviewUiState
-    data class Applied(val proposalId: String, val decision: String) : ProposalReviewUiState
     data class Error(val proposalId: String, val message: String) : ProposalReviewUiState
 }
 
@@ -376,8 +376,9 @@ class TodayViewModel(
     val workReceiptDetailState: StateFlow<WorkReceiptDetailUiState> = mutableWorkReceiptDetailState.asStateFlow()
     private val mutableTaskWorkProposals = MutableStateFlow<List<MobileTaskWorkProposal>>(emptyList())
     val taskWorkProposals: StateFlow<List<MobileTaskWorkProposal>> = mutableTaskWorkProposals.asStateFlow()
-    private val mutableProposalReviewOnline = MutableStateFlow(false)
-    val proposalReviewOnline: StateFlow<Boolean> = mutableProposalReviewOnline.asStateFlow()
+    private val mutableProposalDecisions = MutableStateFlow<List<MobileProposalDecision>>(emptyList())
+    /** まだ届いていない（か、受け取られなかった）提案への答え。 */
+    val proposalDecisions: StateFlow<List<MobileProposalDecision>> = mutableProposalDecisions.asStateFlow()
     private val mutableProposalRefreshing = MutableStateFlow(false)
     val proposalRefreshing: StateFlow<Boolean> = mutableProposalRefreshing.asStateFlow()
     private val mutableProposalReviewState = MutableStateFlow<ProposalReviewUiState>(ProposalReviewUiState.Idle)
@@ -424,6 +425,11 @@ class TodayViewModel(
 
     init {
         (repository as? MobileGatewayRepository)?.let(::observeRoutineRecords)
+        (repository as? MobileGatewayRepository)?.let { gateway ->
+            viewModelScope.launch(ioDispatcher) {
+                gateway.observeProposalDecisions().collect { mutableProposalDecisions.value = it }
+            }
+        }
         val offlineRepository = repository as? MobileOfflineTaskRepository
         if (offlineRepository != null) {
             observeCache(offlineRepository)
@@ -715,7 +721,6 @@ class TodayViewModel(
 
     private fun refreshProposals(canConnect: Boolean) {
         proposalRefreshJob?.cancel()
-        mutableProposalReviewOnline.value = false
         val gateway = repository as? MobileGatewayRepository
         if (!canConnect || gateway == null) {
             mutableProposalRefreshing.value = false
@@ -723,16 +728,15 @@ class TodayViewModel(
         }
         mutableProposalRefreshing.value = true
         proposalRefreshJob = viewModelScope.launch(ioDispatcher) {
-            val online = try {
+            try {
                 gateway.refreshTaskWorkProposals()
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                // Proposal availability is independent of Today; a failed refresh leaves review offline.
-                false
+                // Proposal availability is independent of Today; a failed refresh keeps the saved proposals,
+                // and answers to them still go to the outbox.
             }
             currentCoroutineContext().ensureActive()
-            mutableProposalReviewOnline.value = online
             mutableProposalRefreshing.value = false
         }
     }
@@ -813,7 +817,6 @@ class TodayViewModel(
         pairingFormOpen = true
         proposalRefreshJob?.cancel()
         mutableProposalRefreshing.value = false
-        mutableProposalReviewOnline.value = false
         cachedPairingRequired = null
         cachedUnavailable = null
         applyResult(gateway.retryPairing())
@@ -832,13 +835,6 @@ class TodayViewModel(
             )
             return
         }
-        if (!mutableProposalReviewOnline.value) {
-            mutableProposalReviewState.value = ProposalReviewUiState.Error(
-                proposal.id,
-                "Desktopへ接続してからProposalを判断してください。",
-            )
-            return
-        }
         val gateway = repository as? MobileGatewayRepository
         if (gateway == null) {
             mutableProposalReviewState.value = ProposalReviewUiState.Error(
@@ -849,18 +845,23 @@ class TodayViewModel(
         }
         mutableProposalReviewState.value = ProposalReviewUiState.Reviewing(proposal.id, decision)
         when (val result = withContext(ioDispatcher) { gateway.reviewTaskWorkProposal(proposal, decision) }) {
-            is MobileProposalReviewResult.Applied -> {
-                mutableProposalReviewOnline.value = true
-                mutableProposalReviewState.value = ProposalReviewUiState.Applied(result.proposalId, result.decision)
+            // 積んだ答えは、提案の札が「未送信」の印で見せる（届けば札ごと消える）。言葉では知らせない。
+            is MobileProposalReviewResult.Queued -> {
+                mutableProposalReviewState.value = ProposalReviewUiState.Idle
             }
             is MobileProposalReviewResult.Conflict -> {
                 mutableProposalReviewState.value = ProposalReviewUiState.Error(result.proposalId, result.message)
             }
             is MobileProposalReviewResult.Unavailable -> {
-                mutableProposalReviewOnline.value = false
                 mutableProposalReviewState.value = ProposalReviewUiState.Error(result.proposalId, result.message)
             }
         }
+    }
+
+    /** 受け取られなかった提案への答えを閉じる。 */
+    fun discardProposalDecision(commandId: String) {
+        val gateway = repository as? MobileGatewayRepository ?: return
+        viewModelScope.launch(ioDispatcher) { gateway.discardProposalDecision(commandId) }
     }
 
     fun resetProposalReviewState() {
@@ -1548,6 +1549,7 @@ interface MobileGatewayRepository : MobileTaskRepository {
     suspend fun loadWorkReceipt(taskId: String, receiptId: String): MobileWorkReceiptLoadResult =
         MobileWorkReceiptLoadResult.Unavailable(receiptId, "このDesktopではWork Receipt詳細を利用できません。")
     suspend fun refreshTaskWorkProposals(): Boolean = false
+    /** 提案への答えを端末の送信の列に積む。圏外でも積め、つながったら送る。 */
     suspend fun reviewTaskWorkProposal(
         proposal: MobileTaskWorkProposal,
         decision: String,
@@ -1555,6 +1557,10 @@ interface MobileGatewayRepository : MobileTaskRepository {
         proposal.id,
         "このDesktopではProposal判断を利用できません。",
     )
+    /** まだ届いていない（か、受け取られなかった）提案への答え。提案と Task の詳細に重ねて見せる。 */
+    fun observeProposalDecisions(): Flow<List<MobileProposalDecision>> = kotlinx.coroutines.flow.flowOf(emptyList())
+    /** 受け取られなかった答えを、本人が閉じる。閉じたら true。 */
+    suspend fun discardProposalDecision(commandId: String): Boolean = false
     /** Feed投稿の取り直し。窓口を持たないDesktopでは、保存済みの投稿を残して失敗を返す。 */
     suspend fun refreshFeed(): Boolean = false
     /**

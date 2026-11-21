@@ -108,6 +108,15 @@ object MobileProposalContract {
         return json.encodeToString(envelope)
     }
 
+    /** 送信の列に置いた答え（[encodeDecision] で書いた物）を読み戻す。 */
+    fun decodeDecisionEnvelope(payload: String): MobileTaskWorkProposalDecisionEnvelopeDto = try {
+        json.decodeFromString<MobileTaskWorkProposalDecisionEnvelopeDto>(payload).also(::validateDecisionEnvelope)
+    } catch (error: MobileProposalContractException) {
+        throw error
+    } catch (error: Exception) {
+        throw MobileProposalContractException("保存済みの提案への答えが不正です。", error)
+    }
+
     fun decodeDecision(payload: String): MobileTaskWorkProposalDecisionResponseDto = try {
         json.decodeFromString<MobileTaskWorkProposalDecisionResponseDto>(payload).also(::validateDecisionResponse)
     } catch (error: MobileProposalContractException) {

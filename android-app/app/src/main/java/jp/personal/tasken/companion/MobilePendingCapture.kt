@@ -26,6 +26,11 @@ internal fun outboxReasonText(lastError: String?): String? {
     }.getOrDefault(raw).takeIf { it.isNotBlank() }
 }
 
+/** 列の行に残した理由の種類（structuredCommandError の code）。古い形（文だけ）なら null。 */
+internal fun outboxReasonCode(lastError: String?): String? = runCatching {
+    Json.parseToJsonElement(lastError ?: return null).jsonObject["code"]?.jsonPrimitive?.content
+}.getOrNull()?.takeIf { it.isNotBlank() }
+
 internal fun List<OutboxCommandEntity>.toSendRetry(): MobileSendRetry? {
     if (isEmpty()) return null
     // 最後に試した命令の理由を見せる（試した時刻が無い行は、途中で止まった送信を戻した物）。

@@ -809,7 +809,7 @@ class TodayViewModelTest {
     }
 
     @Test
-    fun proposalReviewRequiresOnlineRefreshAndProjectsCanonicalResult() {
+    fun proposalReviewQueuesTheAnswerAndLeavesNoMessage() {
         var received: Pair<String, String>? = null
         val repository = object : MobileGatewayRepository {
             override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-23T00:00:00Z")
@@ -822,7 +822,7 @@ class TodayViewModelTest {
                 decision: String,
             ): MobileProposalReviewResult {
                 received = proposal.id to decision
-                return MobileProposalReviewResult.Applied(proposal.id, decision)
+                return MobileProposalReviewResult.Queued(proposal.id, decision)
             }
         }
         val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
@@ -833,13 +833,13 @@ class TodayViewModelTest {
             viewModel.reviewTaskWorkProposalNow(proposal, "accept")
         }
 
-        assertEquals(true, viewModel.proposalReviewOnline.value)
         assertEquals(proposal.id to "accept", received)
-        assertEquals(ProposalReviewUiState.Applied(proposal.id, "accept"), viewModel.proposalReviewState.value)
+        // 積んだ答えは提案の札の印で見せるので、言葉の知らせは出さない。
+        assertEquals(ProposalReviewUiState.Idle, viewModel.proposalReviewState.value)
     }
 
     @Test
-    fun staleOrOfflineProposalCannotBeAccepted() {
+    fun anOfflineAnswerIsQueuedButAStaleProposalCannotBeAccepted() {
         var calls = 0
         val repository = object : MobileGatewayRepository {
             override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-23T00:00:00Z")
@@ -852,7 +852,7 @@ class TodayViewModelTest {
                 decision: String,
             ): MobileProposalReviewResult {
                 calls += 1
-                return MobileProposalReviewResult.Applied(proposal.id, decision)
+                return MobileProposalReviewResult.Queued(proposal.id, decision)
             }
         }
         val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
@@ -861,12 +861,13 @@ class TodayViewModelTest {
             viewModel.loadNow()
             viewModel.reviewTaskWorkProposalNow(sampleProposal(), "accept")
         }
-        assertTrue((viewModel.proposalReviewState.value as ProposalReviewUiState.Error).message.contains("Desktop"))
-        assertEquals(0, calls)
+        // 提案を読み直せなかった（圏外）時も、答えは端末の送信の列に積む（#816）。
+        assertEquals(ProposalReviewUiState.Idle, viewModel.proposalReviewState.value)
+        assertEquals(1, calls)
 
         runBlocking { viewModel.reviewTaskWorkProposalNow(sampleProposal().copy(stale = true), "accept") }
         assertTrue((viewModel.proposalReviewState.value as ProposalReviewUiState.Error).message.contains("更新"))
-        assertEquals(0, calls)
+        assertEquals(1, calls)
     }
 
     @Test
