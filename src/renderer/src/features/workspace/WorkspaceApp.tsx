@@ -723,14 +723,16 @@ export function WorkspaceApp() {
       let activeDirectory = "";
       activityAutoExportRunning.current = true;
       try {
-        const [time, artifactDirectory, lastExportDate, lastFinalizedDate] = await Promise.all([
-          workspaceApi.getPreference("activityLogAutoExportTime"),
-          workspaceApi.getPreference("artifactDirectory"),
-          workspaceApi.getPreference("activityLogLastAutoExportDate"),
-          workspaceApi.getPreference("activityLogLastFinalizedDate"),
-        ]);
-        // 日誌はいつも Tasken ルートの Activity に出す（#810）。前の版の個別指定は使わない。
-        activeDirectory = activityLogDirectoryFor(artifactDirectory);
+        const [time, artifactDirectory, legacyDirectory, lastExportDate, lastFinalizedDate] =
+          await Promise.all([
+            workspaceApi.getPreference("activityLogAutoExportTime"),
+            workspaceApi.getPreference("artifactDirectory"),
+            workspaceApi.getPreference("activityLogDirectory"),
+            workspaceApi.getPreference("activityLogLastAutoExportDate"),
+            workspaceApi.getPreference("activityLogLastFinalizedDate"),
+          ]);
+        // 日誌は Tasken ルートの Activity に出す（#810）。前の版の個別指定はルートが無いときだけ。
+        activeDirectory = activityLogDirectoryFor(artifactDirectory, legacyDirectory);
         const targetDates = activityDatesToAutoExport({
           now,
           time,

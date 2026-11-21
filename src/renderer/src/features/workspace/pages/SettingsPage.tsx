@@ -54,11 +54,18 @@ const TASKEN_ROOT_KIND_LABELS: Record<TaskenRootKind, string> = {
 
 // ルートの外にある場所の呼び名。控えだけは、外にある理由を名前に含める（同期の事故と一緒に壊れないため）。
 // Theme の保存先と日誌の個別指定は #810 から新しい保存に使わない。前に置いたファイルの場所として出す。
-function taskenRootExceptionLabel(entry: TaskenRootStatus["exceptions"][number]): string {
+function taskenRootExceptionLabel(
+  entry: TaskenRootStatus["exceptions"][number],
+  hasRoot: boolean,
+): string {
   if (entry.kind === "sync") return "同期フォルダ";
   if (entry.kind === "theme")
     return `Theme「${entry.themeName || entry.themeId || ""}」（前の保存先。新しい保存はルートへ）`;
-  if (entry.kind === "activity") return "日誌（前の出力先。新しい日誌はルートの Activity へ）";
+  // 日誌の個別指定は、ルートを設定するまではまだ使う（#810）。
+  if (entry.kind === "activity")
+    return hasRoot
+      ? "日誌（前の出力先。新しい日誌はルートの Activity へ）"
+      : "日誌（ルートを設定するまでの出力先）";
   return "控え（ルートの外。同期と独立させるため）";
 }
 
@@ -1214,7 +1221,9 @@ export function SettingsPage({
                   <ul>
                     {rootStatus.exceptions.map((entry) => (
                       <li key={`${entry.kind}:${entry.themeId || entry.path}`}>
-                        <span className="tasken-root-label">{taskenRootExceptionLabel(entry)}</span>
+                        <span className="tasken-root-label">
+                          {taskenRootExceptionLabel(entry, Boolean(rootStatus.root))}
+                        </span>
                         <span className="mono-value" title={entry.path}>
                           {entry.path}
                         </span>

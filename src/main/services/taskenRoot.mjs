@@ -253,13 +253,15 @@ export class TaskenRootService {
   /**
    * 段 2（#810）で新しい保存に使わなくなった、ルートの外の指定。storage_root を持つ Theme と、
    * {root}/Activity 以外の日誌の個別指定。前に置いたファイルはそこに残っている。
+   * 日誌の個別指定は、ルートを設定していない端末ではまだ使うので、そのときは載せない。
    */
   retiredOutsideEntries() {
+    const root = this.root();
     return listTaskenRootExceptions({
-      root: this.root(),
+      root,
       themes: this.repository.list("theme"),
       activityLogDirectory: text(this.repository.getPreference("activityLogDirectory")),
-    }).filter((entry) => entry.kind === "theme" || entry.kind === "activity");
+    }).filter((entry) => entry.kind === "theme" || (entry.kind === "activity" && root));
   }
 
   /**
