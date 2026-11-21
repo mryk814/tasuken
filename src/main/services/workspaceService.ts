@@ -141,6 +141,7 @@ import {
   assertConfiguredCanonicalPath,
   assertExplicitCanonicalPath,
   assertGeneratedCanonicalPath,
+  isForeignAbsolutePath,
 } from "./canonicalPath.mjs";
 import { buildMermaidPptxBuffer } from "./mermaidPowerPointService";
 import { discoverThemeFolderLocation, ensureThemeFolderLocation } from "./themeFolderLocation.mjs";
@@ -185,6 +186,8 @@ const PREVIEW_IMAGE_MAX_BYTES = 40 * 1024 * 1024;
 const PREVIEW_TEXT_MAX_BYTES = 5 * 1024 * 1024;
 // Documentはアセット埋め込みで最大24MiB＋base64化の膨らみを見込む（#789）。
 const DOCUMENT_PREVIEW_MAX_BYTES = 40 * 1024 * 1024;
+const FOREIGN_CANONICAL_PATH =
+  "MarkdownのファイルはほかのOSの端末の場所にあります。この端末ではTaskenにだけ保存し、ファイルはその端末で保存したときに更新します。";
 const RELEASES_API_URL = "https://api.github.com/repos/mryk814/tasuken/releases/latest";
 const RELEASES_PAGE_URL = "https://github.com/mryk814/tasuken/releases/latest";
 const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
@@ -2081,6 +2084,7 @@ export class WorkspaceService {
     const noteId = String(note.id || "");
     const themeId = String(note.project_id || note.theme_id || "").trim() || null;
     if (binding?.canonical_path) {
+      if (isForeignAbsolutePath(binding.canonical_path)) throw new Error(FOREIGN_CANONICAL_PATH);
       assertExplicitCanonicalPath(binding.canonical_path);
       const filePath = path.resolve(binding.canonical_path);
       if (path.extname(filePath).toLowerCase() !== ".md") {
@@ -2424,6 +2428,22 @@ export class WorkspaceService {
       body: String(note.body_markdown || ""),
     });
     const nextRevision = Number(current?.version || 0) + 1;
+    // 別の OS の端末（Desktop の C:\… など）が結び付けたファイルは、この端末では書けない。
+    // 例外にせず DB だけ保存し、ファイルは結び付けた端末が次に保存するときに任せる（#810）。
+    // 結び付けのパスはそのまま残す（消すと、その端末でも別のファイルを作り直してしまう）。
+    if (binding?.canonical_path && isForeignAbsolutePath(binding.canonical_path)) {
+      return this.saveNoteInternally(
+        note,
+        this.bindingForAttempt(binding, noteId, null, operationId, attemptAt, {
+          sync_state: "unavailable",
+          last_error: FOREIGN_CANONICAL_PATH,
+        }),
+        options,
+        request.companions,
+        noteAiCompanion,
+        workLogCompanion,
+      );
+    }
     const target = this.resolveCanonicalTarget(note, binding);
     const baseAttempt = this.bindingForAttempt(binding, noteId, target, operationId, attemptAt);
 
