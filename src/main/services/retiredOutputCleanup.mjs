@@ -303,7 +303,11 @@ function readDirectoryEntries(fileSystem, directory) {
   }
 }
 
-/** AI Pack を探す Theme folder。同期ルートの Themes/ の下と、Theme ごとの保存先。 */
+/**
+ * AI Pack を探す Theme folder。同期ルートの Themes/ の下と、Theme ごとの保存先。
+ * Theme ごとの保存先（storage_root）は #810 から新しい書き込みに使わないが、ここは前の版が
+ * そこへ書いた物を片付けるだけで新しくは書かないので、前の版と同じ場所を見続ける。
+ */
 function themeFolderCandidates(fileSystem, artifactDirectory, themes) {
   const ids = new Set(themes.map((theme) => text(theme.themeId)).filter(Boolean));
   const candidates = [];
