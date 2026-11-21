@@ -38,6 +38,14 @@
 - 直し方: 直していない（#816 の範囲の外）。#816 の変更とは関係が無いことを、main で同じ落ち方をすることで確かめた。
 - 再発防止: 記録だけ。このクラスで落ちたら、前の版で同じ回数だけ流して比べる。直すなら、ViewModel を使う試験の後で viewModelScope を閉じる（か、ViewModel の試験を別のクラスに分ける）。
 
+## 2026-11-21 Android の採否を押した順に送る錠が、同じ頃に押した 2 件の順を入れ替えた（#774）
+
+- しようとしたこと: 採る・見送るを 5 秒持ってから送る Android の列（`ProposalDecisionHold`）で、「kotlinx の `Mutex` は待った順に渡す」ことに頼り、押した順に 1 件ずつ送ろうとした。
+- 起きたこと: `ProposalDecisionHoldTest.aRefusedDecisionComesBackWithoutBlockingTheNext` が `expected:<[p1, p2]> but was:<[p2, p1]>` で落ちた。
+- 原因: 2 件をほぼ同時に押すと、それぞれの 5 秒の待ちが `Dispatchers.Default` の別のスレッドで明け、錠を取りに行く順が押した順と食い違う。錠は「取りに来た順」は守るが「押した順」は知らない。
+- 直し方: 押した時に「前の 1 件が終わった」印（`CompletableDeferred`）を鎖にしてつなぎ、送る前に前の印を待つ。取り消して早く終わった物も、前の印が終わるまでは自分の印を立てない（後ろが追い越さない）。3 回続けて流して通った。
+- 再発防止: 上の試験と、`ProposalDecisionHold` の頭のコメント。順を守る列は、錠の順番待ちでなく押した時に決まる鎖で作る。
+
 ## 2026-11-21 取り消しで戻したカードの判が、画面の右上の隅へ飛んだ（#774）
 
 - しようとしたこと: 提案を採った後の「取り消す」で、戻ったカードに判を置いてから浮かせて消す（`lib/decisionMotion.ts`）。判は `position: absolute` で、載せるカードに `classList.add("decision-seal-host")` で `position: relative` を付けていた。
