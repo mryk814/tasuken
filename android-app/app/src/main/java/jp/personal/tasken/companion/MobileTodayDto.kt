@@ -116,6 +116,12 @@ data class MobileTaskScheduleDto(
     val rangeSemantics: String?,
     val confidence: String,
     val granularity: String,
+    /**
+     * X-Tasken-Schedule-Time: 1 を付けた要求にだけ返る（#785）。期限の日の HH:mm と、その何分前に知らせるか。
+     * 読めない値は応答全体を断らずに、その欄だけ無いものとして読む（readableScheduleEnd）。
+     */
+    val endTime: String? = null,
+    val notifyBeforeMinutes: Int? = null,
 )
 
 class MobileTodayContractException(message: String, cause: Throwable? = null) :
@@ -312,4 +318,7 @@ fun MobileTaskScheduleDto.toMobileTaskSchedule(): MobileTaskSchedule = MobileTas
     rangeSemantics = rangeSemantics,
     confidence = confidence,
     granularity = granularity,
-)
+).let { schedule ->
+    val end = readableScheduleEnd(startDate, endDate, granularity, endTime, notifyBeforeMinutes)
+    schedule.copy(endTime = end.first, notifyBeforeMinutes = end.second)
+}

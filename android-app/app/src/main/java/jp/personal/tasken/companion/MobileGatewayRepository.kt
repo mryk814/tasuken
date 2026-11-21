@@ -1459,11 +1459,22 @@ class AndroidMobileTaskRepository(
         val cache = toCache()
         val knowsPlace = serverReportsPlaceReminder(body)
         val knowsReminderAt = serverReportsReminderAt(body)
-        if (knowsPlace && knowsReminderAt) return cache
+        val knowsScheduleTime = serverReportsScheduleTime(body)
+        if (knowsPlace && knowsReminderAt && knowsScheduleTime) return cache
         val previous = dao.task(id)
+        // 期限の時刻を知らない Desktop の応答では写しの時刻を保つ。日付が無くなった時は時刻も無い（Core の正規化と同じ）。
+        val keptEnd = if (knowsScheduleTime) null else readableScheduleEnd(
+            cache.scheduleStartDate,
+            cache.scheduleEndDate,
+            cache.scheduleGranularity,
+            previous?.scheduleEndTime,
+            previous?.scheduleNotifyBeforeMinutes,
+        )
         return cache.copy(
             placeReminderJson = if (knowsPlace) cache.placeReminderJson else previous?.placeReminderJson,
             reminderAt = if (knowsReminderAt) cache.reminderAt else previous?.reminderAt,
+            scheduleEndTime = if (keptEnd != null) keptEnd.first else cache.scheduleEndTime,
+            scheduleNotifyBeforeMinutes = if (keptEnd != null) keptEnd.second else cache.scheduleNotifyBeforeMinutes,
         )
     }
 
@@ -1494,6 +1505,8 @@ class AndroidMobileTaskRepository(
         scheduleRangeSemantics = schedule?.rangeSemantics,
         scheduleConfidence = schedule?.confidence,
         scheduleGranularity = schedule?.granularity,
+        scheduleEndTime = schedule?.let { readableScheduleEnd(it.startDate, it.endDate, it.granularity, it.endTime, it.notifyBeforeMinutes).first },
+        scheduleNotifyBeforeMinutes = schedule?.let { readableScheduleEnd(it.startDate, it.endDate, it.granularity, it.endTime, it.notifyBeforeMinutes).second },
         updatedAt = updatedAt,
         optimisticCommandId = null,
     )
@@ -1545,6 +1558,9 @@ class AndroidMobileTaskRepository(
             }
             if (isUnsupportedReminderAt(envelopeJson, response, expectedServerId)) {
                 return MobileCommandSendResult.Rejected("capability_unavailable", REMINDER_AT_UPDATE_REQUIRED)
+            }
+            if (isUnsupportedScheduleTime(envelopeJson, response, expectedServerId)) {
+                return MobileCommandSendResult.Rejected("capability_unavailable", SCHEDULE_TIME_UPDATE_REQUIRED)
             }
             when {
                 response.status == 200 -> {
@@ -1657,6 +1673,8 @@ class AndroidMobileTaskRepository(
             connection.setRequestProperty("X-Tasken-Place-Reminder", "1")
             // これが無いと Gateway は reminderAt を返さない（同じ取り決め。#753）。
             connection.setRequestProperty("X-Tasken-Reminder-At", "1")
+            // これが無いと Gateway は日程の endTime と notifyBeforeMinutes を返さない（同じ取り決め。#785）。
+            connection.setRequestProperty("X-Tasken-Schedule-Time", "1")
             if (accessToken != null) connection.setRequestProperty("Authorization", "Bearer $accessToken")
             if (body != null) {
                 connection.doOutput = true

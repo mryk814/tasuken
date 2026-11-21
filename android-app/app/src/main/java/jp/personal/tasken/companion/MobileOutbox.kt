@@ -95,6 +95,10 @@ private fun scheduleValue(schedule: MobileTaskScheduleDraft): JsonObject = build
     put("startDate", schedule.startDate?.let(::JsonPrimitive) ?: JsonNull)
     put("endDate", schedule.endDate?.let(::JsonPrimitive) ?: JsonNull)
     put("rangeSemantics", schedule.rangeSemantics?.let(::JsonPrimitive) ?: JsonNull)
+    // 時刻の欄（#785）はいったん必ず載せ、送る前に alignScheduleTimeKeys が前と後でそろえる
+    // （どちらにも時刻が無ければ両方から外し、古い Desktop にも日付の変更が通るようにする）。
+    put("endTime", schedule.endTime?.let(::JsonPrimitive) ?: JsonNull)
+    put("notifyBeforeMinutes", schedule.notifyBeforeMinutes?.let(::JsonPrimitive) ?: JsonNull)
 }
 
 private fun plannedScheduleValue(startTime: String?, durationMinutes: Int?): JsonObject = buildJsonObject {
@@ -104,23 +108,43 @@ private fun plannedScheduleValue(startTime: String?, durationMinutes: Int?): Jso
 
 private fun TaskCacheEntity.scheduleDraftOrNull(): MobileTaskScheduleDraft? {
     if (scheduleId == null && scheduleDateKind == null) return null
-    return MobileTaskScheduleDraft(scheduleStartDate, scheduleEndDate, scheduleRangeSemantics)
+    val (endTime, notifyBeforeMinutes) = readableEnd()
+    return MobileTaskScheduleDraft(
+        scheduleStartDate,
+        scheduleEndDate,
+        scheduleRangeSemantics,
+        endTime = endTime,
+        notifyBeforeMinutes = notifyBeforeMinutes,
+    )
 }
 
 private fun TaskCacheEntity.withOptimisticSchedule(
     schedule: MobileTaskScheduleDraft,
     commandId: String,
     updatedAt: String,
-): TaskCacheEntity = copy(
-    scheduleStartDate = schedule.startDate,
-    scheduleEndDate = schedule.endDate,
-    scheduleDateKind = deriveScheduleDateKind(schedule.startDate, schedule.endDate),
-    scheduleRangeSemantics = schedule.rangeSemantics,
-    scheduleConfidence = scheduleConfidence ?: "fixed",
-    scheduleGranularity = scheduleGranularity ?: "day",
-    updatedAt = updatedAt,
-    optimisticCommandId = commandId,
-)
+): TaskCacheEntity {
+    val granularity = scheduleGranularity ?: "day"
+    val (endTime, notifyBeforeMinutes) = readableScheduleEnd(
+        schedule.startDate, schedule.endDate, granularity, schedule.endTime, schedule.notifyBeforeMinutes,
+    )
+    return copy(
+        scheduleStartDate = schedule.startDate,
+        scheduleEndDate = schedule.endDate,
+        scheduleDateKind = deriveScheduleDateKind(schedule.startDate, schedule.endDate),
+        scheduleRangeSemantics = schedule.rangeSemantics,
+        scheduleConfidence = scheduleConfidence ?: "fixed",
+        scheduleGranularity = granularity,
+        scheduleEndTime = endTime,
+        scheduleNotifyBeforeMinutes = notifyBeforeMinutes,
+        updatedAt = updatedAt,
+        optimisticCommandId = commandId,
+    )
+}
+
+/** 受け取った Task の要約の時刻と知らせ（読める組だけ）。 */
+private fun MobileTaskSummaryDto.readableScheduleEndOrNone(): Pair<String?, Int?> = schedule?.let {
+    readableScheduleEnd(it.startDate, it.endDate, it.granularity, it.endTime, it.notifyBeforeMinutes)
+} ?: (null to null)
 
 private fun structuredCommandError(code: String, message: String, retryable: Boolean): String =
     buildJsonObject {
@@ -586,6 +610,7 @@ class MobileOutbox(
             val changed = changes.filter { (key, value) -> original[key] != value }
             require(changed.isNotEmpty()) { "変更されていません。" }
             val intent = MobileTaskEditIntent(JsonObject(changed), JsonObject(original.filterKeys { it in changed }))
+                .withAlignedScheduleTime()
             val pending = OutboxCommandEntity(
                 commandId = id, idempotencyKey = id, requestId = UUID.randomUUID().toString(),
                 clientDeviceId = deviceId(), issuedAt = issuedAt, commandName = "UpdateTask",
@@ -711,7 +736,13 @@ class MobileOutbox(
             it.copy(task = it.task.copy(plannedStartTime = normalized.plannedStartTime,
                 plannedDurationMinutes = normalized.plannedDurationMinutes),
                 schedule = if (normalized.startDate == null && normalized.endDate == null) null else
-                MobileCreateTaskScheduleDto(normalized.startDate, normalized.endDate, normalized.rangeSemantics))
+                MobileCreateTaskScheduleDto(
+                    normalized.startDate,
+                    normalized.endDate,
+                    normalized.rangeSemantics,
+                    endTime = normalized.endTime,
+                    notifyBeforeMinutes = normalized.notifyBeforeMinutes,
+                ))
         }?.let { return it }
         return enqueueScalarEdit(taskId, buildJsonObject {
             put("schedule", scheduleValue(normalized))
@@ -736,7 +767,16 @@ class MobileOutbox(
         }
         require(schedule.plannedStartTime == null || isPlannedStartTime(schedule.plannedStartTime)) { "予定開始時刻は HH:mm で入力してください。" }
         require(schedule.plannedDurationMinutes == null || isPlannedDurationMinutes(schedule.plannedDurationMinutes)) { "所要時間は1〜10080分で入力してください。" }
-        return schedule.copy(startDate = start?.toString(), endDate = end?.toString())
+        require(schedule.endTime == null || isScheduleEndTime(schedule.endTime)) { "期限の時刻は HH:mm で入力してください。" }
+        require(schedule.notifyBeforeMinutes == null || isNotifyBeforeMinutes(schedule.notifyBeforeMinutes)) { "知らせは0〜10080分前で選んでください。" }
+        // 日付を外したら時刻も、時刻を外したら知らせも外す（拒まずにそろえる。Core の正規化と同じ）。
+        val endTime = schedule.endTime.takeIf { start != null || end != null }
+        return schedule.copy(
+            startDate = start?.toString(),
+            endDate = end?.toString(),
+            endTime = endTime,
+            notifyBeforeMinutes = schedule.notifyBeforeMinutes.takeIf { endTime != null },
+        )
     }
 
     suspend fun acceptServer(commandId: String) {
@@ -783,6 +823,8 @@ class MobileOutbox(
                 conflict.localScheduleStartDate,
                 conflict.localScheduleEndDate,
                 conflict.localScheduleRangeSemantics,
+                endTime = conflict.localScheduleEndTime,
+                notifyBeforeMinutes = conflict.localScheduleNotifyBeforeMinutes,
             )
         } else {
             null
@@ -793,7 +835,7 @@ class MobileOutbox(
             null
         }
         val envelopeJson = if (isUpdate) {
-            val changes = when {
+            val rawChanges = when {
                 conflict.localTitle != null -> titlePatch(conflict.localTitle)
                 conflict.localTodayDateChanged -> todayDatePatch(conflict.localTodayDate)
                 conflict.localThemeIdChanged -> themeIdPatch(conflict.localThemeId)
@@ -806,7 +848,7 @@ class MobileOutbox(
                 }
                 else -> error("端末側の更新内容が競合情報にありません。")
             }
-            val base = when {
+            val rawBase = when {
                 conflict.localTitle != null -> titlePatch(conflict.serverTitle)
                 conflict.localTodayDateChanged -> todayDatePatch(conflict.serverTodayDate)
                 conflict.localThemeIdChanged -> themeIdPatch(conflict.serverThemeId)
@@ -819,6 +861,7 @@ class MobileOutbox(
                 }
                 else -> error("Desktop側の更新内容が競合情報にありません。")
             }
+            val (changes, base) = alignScheduleTimeKeys(rawChanges, rawBase)
             MobileTaskCommandContract.encode(
                 MobileTaskUpdateEnvelopeDto(
                     apiVersion = 1,
@@ -944,7 +987,8 @@ class MobileOutbox(
     )
 
     private data class ThemeUpdateBase(val themeId: String?)
-    private data class ScheduleUpdateBase(val schedule: MobileTaskScheduleDraft?)
+    /** time は、命令の前の日程に時刻の欄があった時だけ（#785）。無ければ時刻に触れていない命令。 */
+    private data class ScheduleUpdateBase(val schedule: MobileTaskScheduleDraft?, val time: Pair<String?, Int?>? = null)
     private data class ChecklistUpdateBase(val items: List<MobileChecklistItem>)
 
     private fun receiptExpectation(command: OutboxCommandEntity): ReceiptExpectation = when (command.commandName) {
@@ -1037,12 +1081,18 @@ class MobileOutbox(
         val value = envelope.command.base.getValue("schedule")
         if (value == JsonNull) return ScheduleUpdateBase(null)
         val schedule = value as JsonObject
+        val time = if ("endTime" in schedule) {
+            decodeScheduleEndTimeValue(schedule["endTime"]) to decodeNotifyBeforeValue(schedule["notifyBeforeMinutes"])
+        } else null
         return ScheduleUpdateBase(
             MobileTaskScheduleDraft(
                 startDate = schedule.getValue("startDate").let { if (it == JsonNull) null else it.jsonPrimitive.content },
                 endDate = schedule.getValue("endDate").let { if (it == JsonNull) null else it.jsonPrimitive.content },
                 rangeSemantics = schedule.getValue("rangeSemantics").let { if (it == JsonNull) null else it.jsonPrimitive.content },
+                endTime = time?.first,
+                notifyBeforeMinutes = time?.second,
             ),
+            time,
         )
     }
 
@@ -1163,6 +1213,8 @@ class MobileOutbox(
                                 scheduleRangeSemantics = task.schedule?.rangeSemantics,
                                 scheduleConfidence = task.schedule?.confidence,
                                 scheduleGranularity = task.schedule?.granularity,
+                                scheduleEndTime = task.readableScheduleEndOrNone().first,
+                                scheduleNotifyBeforeMinutes = task.readableScheduleEndOrNone().second,
                                 updatedAt = task.updatedAt,
                                 optimisticCommandId = null,
                             ),
@@ -1298,6 +1350,14 @@ class MobileOutbox(
                             rangeSemantics = value.getValue("rangeSemantics").let {
                                 if (it == JsonNull) null else it.jsonPrimitive.content
                             },
+                            // 時刻の欄の無い変更（前の版の命令）は時刻に触れていないので、Desktop の今の値のまま
+                            // （「端末の変更で送り直す」が時刻を消さないように）。
+                            endTime = if ("endTime" in value) {
+                                decodeScheduleEndTimeValue(value["endTime"])
+                            } else current.readableScheduleEndOrNone().first,
+                            notifyBeforeMinutes = if ("endTime" in value) {
+                                decodeNotifyBeforeValue(value["notifyBeforeMinutes"])
+                            } else current.readableScheduleEndOrNone().second,
                         )
                     }
                     val localPlaceReminderChanged = localPatch?.containsKey("placeReminder") == true
@@ -1344,6 +1404,8 @@ class MobileOutbox(
                             scheduleRangeSemantics = current.schedule?.rangeSemantics,
                             scheduleConfidence = current.schedule?.confidence,
                             scheduleGranularity = current.schedule?.granularity,
+                            scheduleEndTime = current.readableScheduleEndOrNone().first,
+                            scheduleNotifyBeforeMinutes = current.readableScheduleEndOrNone().second,
                             updatedAt = current.updatedAt,
                             optimisticCommandId = null,
                             conflictCommandId = command.commandId,
@@ -1368,6 +1430,8 @@ class MobileOutbox(
                             localScheduleStartDate = localSchedule?.startDate,
                             localScheduleEndDate = localSchedule?.endDate,
                             localScheduleRangeSemantics = localSchedule?.rangeSemantics,
+                            localScheduleEndTime = localSchedule?.endTime,
+                            localScheduleNotifyBeforeMinutes = localSchedule?.notifyBeforeMinutes,
                             localScheduleChanged = localScheduleChanged,
                             localPlannedStartTime = localPlannedSchedule?.startTime,
                             localPlannedDurationMinutes = localPlannedSchedule?.durationMinutes,
@@ -1447,6 +1511,7 @@ class MobileOutbox(
                             taskId = requireNotNull(command.taskId),
                             baseSchedule = scheduleBase.schedule,
                             reason = reason,
+                            baseScheduleTime = scheduleBase.time,
                         )
                     } else if (checklistBase != null) {
                         dao.rejectChecklistUpdateAndRollback(

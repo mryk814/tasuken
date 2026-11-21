@@ -42,10 +42,19 @@ data class MobileCreateTaskCommandDto(
 )
 
 @Serializable
+@OptIn(ExperimentalSerializationApi::class)
 data class MobileCreateTaskScheduleDto(
     val startDate: String? = null,
     val endDate: String? = null,
     val rangeSemantics: String? = null,
+    /**
+     * 期限の時刻と知らせ（#785）。無い時は欄ごと送らない（欄を知らない古い Desktop でも作成が通る）。
+     * 前の版が積んだ作成の命令は欄を持たず、そのまま読める。
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val endTime: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val notifyBeforeMinutes: Int? = null,
 )
 
 @Serializable
@@ -369,7 +378,10 @@ object MobileTaskCommandContract {
                 "startDate" to (schedule.startDate?.let(::JsonPrimitive) ?: JsonNull),
                 "endDate" to (schedule.endDate?.let(::JsonPrimitive) ?: JsonNull),
                 "rangeSemantics" to (schedule.rangeSemantics?.let(::JsonPrimitive) ?: JsonNull),
-            )), false)
+            ) + if (schedule.endTime != null || schedule.notifyBeforeMinutes != null) mapOf(
+                "endTime" to (schedule.endTime?.let(::JsonPrimitive) ?: JsonNull),
+                "notifyBeforeMinutes" to (schedule.notifyBeforeMinutes?.let(::JsonPrimitive) ?: JsonNull),
+            ) else emptyMap()), false)
         }
         require(runCatching { OffsetDateTime.parse(envelope.issuedAt) }.isSuccess)
         envelope.command.provenance?.let(::validateCreationProvenance)
@@ -506,10 +518,21 @@ object MobileTaskCommandContract {
             return
         }
         require(value is JsonObject)
-        require(value.keys == setOf("startDate", "endDate", "rangeSemantics"))
+        // 時刻の欄（#785）は 2 つそろって載るか、どちらも載らない（前の版が積んだ命令は載らない）。
+        require(
+            value.keys == setOf("startDate", "endDate", "rangeSemantics") ||
+                value.keys == setOf("startDate", "endDate", "rangeSemantics", "endTime", "notifyBeforeMinutes"),
+        )
         val start = nullableDate(value.getValue("startDate"))
         val end = nullableDate(value.getValue("endDate"))
         require(start == null || end == null || !end.isBefore(start))
+        if ("endTime" in value) {
+            val time = decodeScheduleEndTimeValue(value["endTime"])
+            val lead = decodeNotifyBeforeValue(value["notifyBeforeMinutes"])
+            // Gateway と同じ: 時刻は日付のある日程にだけ、知らせは時刻がある時だけ。
+            require(time == null || start != null || end != null)
+            require(lead == null || time != null)
+        }
         val semantics = value.getValue("rangeSemantics").let {
             when (it) {
                 JsonNull -> null

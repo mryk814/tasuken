@@ -38,12 +38,26 @@ internal data class MobileTaskEditIntent(val changes: JsonObject, val base: Json
             val schedule = changes.getValue("schedule")
             val fields = (schedule as? JsonObject) ?: JsonObject(emptyMap())
             fun date(key: String): String? = fields[key]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content
+            val granularity = task.scheduleGranularity ?: "day"
+            // 時刻の欄の無い変更（前の版が積んだ命令・日付だけの変更）は、写しの時刻のまま（Desktop と同じ「省いた欄は保つ」）。
+            // 日付を外すと時刻と知らせも外れる（Core の正規化と同じ）。
+            val (endTime, notifyBeforeMinutes) = readableScheduleEnd(
+                date("startDate"),
+                date("endDate"),
+                granularity,
+                if ("endTime" in fields) date("endTime") else task.scheduleEndTime,
+                if ("notifyBeforeMinutes" in fields) {
+                    fields["notifyBeforeMinutes"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content?.toIntOrNull()
+                } else task.scheduleNotifyBeforeMinutes,
+            )
             projected.copy(
                 scheduleStartDate = date("startDate"), scheduleEndDate = date("endDate"),
                 scheduleRangeSemantics = date("rangeSemantics"),
                 scheduleDateKind = deriveScheduleDateKind(date("startDate"), date("endDate")),
                 scheduleConfidence = task.scheduleConfidence ?: "fixed",
-                scheduleGranularity = task.scheduleGranularity ?: "day",
+                scheduleGranularity = granularity,
+                scheduleEndTime = endTime,
+                scheduleNotifyBeforeMinutes = notifyBeforeMinutes,
             )
         } else projected
     }
@@ -102,7 +116,9 @@ internal fun OutboxCommandEntity.heldTaskChange(): MobileHeldTaskChange? {
                     "schedule" -> (value as? JsonObject)?.let { fields ->
                         fun label(key: String) = fields[key]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content ?: "未指定"
                         "予定: 開始 ${label("startDate")}・期限 ${label("endDate")}" +
-                            when (label("rangeSemantics")) { "ongoing" -> "（期間中継続）"; "once_within_window" -> "（期間内に一度）"; else -> "" }
+                            (fields["endTime"]?.takeUnless { it == JsonNull }?.jsonPrimitive?.content?.let { " $it" } ?: "") +
+                            when (label("rangeSemantics")) { "ongoing" -> "（期間中継続）"; "once_within_window" -> "（期間内に一度）"; else -> "" } +
+                            (if (fields["endTime"].let { it != null && it != JsonNull }) "・知らせ ${notifyBeforeLabel(runCatching { decodeNotifyBeforeValue(fields["notifyBeforeMinutes"]) }.getOrNull())}" else "")
                     } ?: "予定: 未指定"
                     "placeReminder" -> decodePlaceReminderPatchValue(value)?.let { "場所: ${it.name}（${it.radiusMeters}m）" } ?: "場所: 外す"
                     "reminderAt" -> "知らせる時刻: ${reminderAtLabel(decodeReminderAtPatchValue(value))}"

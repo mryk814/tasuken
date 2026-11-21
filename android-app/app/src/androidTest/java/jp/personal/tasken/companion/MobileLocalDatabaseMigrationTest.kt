@@ -15,6 +15,33 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class MobileLocalDatabaseMigrationTest {
+    @Test fun migrationThirtyTwoToThirtyThreeAddsScheduleTimeColumnsAndKeepsEveryRowAndColumn() {
+        helper.createDatabase(DatabaseName, 32).apply {
+            execSQL("INSERT INTO task_cache (id,serverVersion,title,themeId,state,workState,todayDate,updatedAt,optimisticCommandId,conflictCommandId,scheduleId,scheduleVersion,scheduleStartDate,scheduleEndDate,scheduleDateKind,scheduleRangeSemantics,scheduleConfidence,scheduleGranularity,plannedStartTime,plannedDurationMinutes,checklistJson,description,placeReminderJson,reminderAt) VALUES ('task',4,'保持するTask','theme','todo','not_delegated','2026-11-18','2026-11-18T08:00:00Z','command','conflict','schedule',2,NULL,'2026-11-19','deadline',NULL,'fixed','day','09:30',45,'[]','本文','保持する場所','2026-11-18T21:00')")
+            execSQL("INSERT INTO outbox_command (commandId,idempotencyKey,requestId,clientDeviceId,issuedAt,commandName,envelopeJson,serverId,state,attemptCount,createdAt,taskId) VALUES ('command','key','request','device','2026-11-18T08:00:00Z','UpdateTask','保持する日付だけの入力','server','pending',0,'2026-11-18T08:00:00Z','task')")
+            execSQL("INSERT INTO task_conflict (commandId,taskId,intendedAction,expectedVersion,serverVersion,serverState,serverTitle,localTodayDateChanged,localThemeIdChanged,localChecklistChanged,serverUpdatedAt,detectedAt,localScheduleStartDate,localScheduleEndDate,localScheduleChanged,localPlannedScheduleChanged,localPlaceReminderChanged,localReminderAt,localReminderAtChanged) VALUES ('conflict','task','UpdateTask',3,4,'todo','Desktop側',0,0,0,'2026-11-18T08:00:00Z','2026-11-18T08:00:00Z',NULL,'2026-11-20',1,0,0,NULL,0)")
+            close()
+        }
+        helper.runMigrationsAndValidate(DatabaseName, 33, true, MIGRATION_32_33).use { db ->
+            db.query("SELECT title,themeId,todayDate,optimisticCommandId,conflictCommandId,scheduleId,scheduleVersion,scheduleEndDate,scheduleGranularity,plannedStartTime,plannedDurationMinutes,description,placeReminderJson,reminderAt,scheduleEndTime,scheduleNotifyBeforeMinutes FROM task_cache WHERE id='task'").use {
+                assertTrue(it.moveToFirst())
+                assertEquals(listOf("保持するTask", "theme", "2026-11-18", "command", "conflict", "schedule"), (0..5).map(it::getString))
+                assertEquals(2, it.getInt(6)); assertEquals("2026-11-19", it.getString(7)); assertEquals("day", it.getString(8))
+                assertEquals("09:30", it.getString(9)); assertEquals(45, it.getInt(10)); assertEquals("本文", it.getString(11))
+                assertEquals("保持する場所", it.getString(12)); assertEquals("2026-11-18T21:00", it.getString(13))
+                // 新しい欄は空で始まる（時刻を知らない写しは「時刻なし」）。
+                assertTrue(it.isNull(14)); assertTrue(it.isNull(15))
+            }
+            db.query("SELECT envelopeJson,state,taskId FROM outbox_command WHERE commandId='command'").use {
+                assertTrue(it.moveToFirst()); assertEquals("保持する日付だけの入力", it.getString(0)); assertEquals("pending", it.getString(1)); assertEquals("task", it.getString(2))
+            }
+            db.query("SELECT serverTitle,localScheduleEndDate,localScheduleChanged,localScheduleEndTime,localScheduleNotifyBeforeMinutes FROM task_conflict WHERE commandId='conflict'").use {
+                assertTrue(it.moveToFirst()); assertEquals("Desktop側", it.getString(0)); assertEquals("2026-11-20", it.getString(1)); assertEquals(1, it.getInt(2))
+                assertTrue(it.isNull(3)); assertTrue(it.isNull(4))
+            }
+            db.execSQL("UPDATE task_cache SET scheduleEndTime='23:59', scheduleNotifyBeforeMinutes=30 WHERE id='task'")
+        }
+    }
     @Test fun migrationThirtyOneToThirtyTwoAddsRoutineCopyAndKeepsTasksAndPendingRecords() {
         helper.createDatabase(DatabaseName, 31).apply {
             execSQL("INSERT INTO task_cache (id,serverVersion,title,themeId,state,workState,todayDate,updatedAt,optimisticCommandId,checklistJson,reminderAt) VALUES ('task',4,'保持するTask',NULL,'todo','not_delegated',NULL,'2026-11-16T08:00:00Z','command','[]','2026-11-16T09:00:00+09:00')")

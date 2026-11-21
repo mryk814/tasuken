@@ -77,6 +77,10 @@ data class MobileTaskSchedule(
     val rangeSemantics: String?,
     val confidence: String = "fixed",
     val granularity: String = "day",
+    /** 期限の時刻（#785）。期限の日（終了日、無ければ開始日）の現地の HH:mm。 */
+    val endTime: String? = null,
+    /** 期限の時刻の何分前に知らせるか（#785）。0 = ちょうど。時刻が無ければ null。 */
+    val notifyBeforeMinutes: Int? = null,
 )
 
 data class MobileTaskScheduleDraft(
@@ -85,6 +89,9 @@ data class MobileTaskScheduleDraft(
     val rangeSemantics: String?,
     val plannedStartTime: String? = null,
     val plannedDurationMinutes: Int? = null,
+    /** 期限の時刻と知らせ（#785）。送る形は scheduleValue と alignScheduleTimeKeys が決める。 */
+    val endTime: String? = null,
+    val notifyBeforeMinutes: Int? = null,
 )
 
 data class MobileWorkReceiptSummary(
@@ -1044,6 +1051,8 @@ class TodayViewModel(
             task.schedule?.startDate == normalized.startDate &&
             task.schedule?.endDate == normalized.endDate &&
             task.schedule?.rangeSemantics == normalized.rangeSemantics &&
+            task.schedule?.endTime == normalized.endTime &&
+            task.schedule?.notifyBeforeMinutes == normalized.notifyBeforeMinutes &&
             task.plannedStartTime == normalized.plannedStartTime &&
             task.plannedDurationMinutes == normalized.plannedDurationMinutes
         ) return
@@ -1107,7 +1116,16 @@ class TodayViewModel(
         }
         require(draft.plannedStartTime == null || isPlannedStartTime(draft.plannedStartTime)) { "予定開始時刻は HH:mm で入力してください。" }
         require(draft.plannedDurationMinutes == null || isPlannedDurationMinutes(draft.plannedDurationMinutes)) { "所要時間は1〜10080分で入力してください。" }
-        return draft.copy(startDate = start?.toString(), endDate = end?.toString())
+        require(draft.endTime == null || isScheduleEndTime(draft.endTime)) { "期限の時刻は HH:mm で入力してください。" }
+        require(draft.notifyBeforeMinutes == null || isNotifyBeforeMinutes(draft.notifyBeforeMinutes)) { "知らせは0〜10080分前で選んでください。" }
+        // 日付を外したら時刻も、時刻を外したら知らせも外す（Core の正規化と同じ）。
+        val endTime = draft.endTime.takeIf { start != null || end != null }
+        return draft.copy(
+            startDate = start?.toString(),
+            endDate = end?.toString(),
+            endTime = endTime,
+            notifyBeforeMinutes = draft.notifyBeforeMinutes.takeIf { endTime != null },
+        )
     }
 
     fun updateTaskTheme(task: MobileTask, themeId: String?) {

@@ -69,6 +69,10 @@ data class TaskCacheEntity(
     val placeReminderJson: String? = null,
     /** 時刻の知らせ（#753）。Task の reminder_at のまま（時差つきか、時差なしの現地時刻）。 */
     val reminderAt: String? = null,
+    /** 期限の時刻（#785）。期限の日の現地の HH:mm。読むときは readableEnd() を通す。 */
+    val scheduleEndTime: String? = null,
+    /** 期限の時刻の何分前に知らせるか（#785）。0 = ちょうど。 */
+    val scheduleNotifyBeforeMinutes: Int? = null,
 )
 
 /** Task ごとの最終通知日（端末のローカル日付）。場所のリマインダーを 1 日 1 回に抑える。 */
@@ -380,6 +384,9 @@ data class TaskConflictEntity(
     val localPlaceReminderChanged: Boolean = false,
     val localReminderAt: String? = null,
     val localReminderAtChanged: Boolean = false,
+    /** 端末側の日程の変更に載っていた期限の時刻と知らせ（#785）。載っていない前の版の変更は、Desktop の値のまま。 */
+    val localScheduleEndTime: String? = null,
+    val localScheduleNotifyBeforeMinutes: Int? = null,
 )
 
 data class TaskCacheWithConflict(
@@ -1094,6 +1101,8 @@ abstract class MobileLocalDao {
             scheduleDateKind = command.schedule?.let { deriveScheduleDateKind(it.startDate, it.endDate) },
             scheduleConfidence = command.schedule?.let { "fixed" },
             scheduleGranularity = command.schedule?.let { "day" },
+            scheduleEndTime = command.schedule?.endTime,
+            scheduleNotifyBeforeMinutes = command.schedule?.notifyBeforeMinutes,
             updatedAt = updatedAt,
         ))
         return pending.commandId
@@ -1123,7 +1132,8 @@ abstract class MobileLocalDao {
             val incoming = command.taskEditIntent()
             if (previous.changes.keys == incoming.changes.keys &&
                 incoming.changes.keys.all { it in setOf("schedule", "plannedSchedule", "checklistItems", "placeReminder", "reminderAt") }) {
-                val combined = MobileTaskEditIntent(incoming.changes, previous.base)
+                // 時刻の欄は、つないだ後の前と後でそろえ直す（片方にだけ時刻があれば両方に載せる。#785）。
+                val combined = MobileTaskEditIntent(incoming.changes, previous.base).withAlignedScheduleTime()
                 deleteOutbox(parent.commandId)
                 if (combined.changes == combined.base) {
                     upsertTask(updated.copy(optimisticCommandId = parent.dependsOnCommandId))
@@ -1694,6 +1704,8 @@ abstract class MobileLocalDao {
         taskId: String,
         baseSchedule: MobileTaskScheduleDraft?,
         reason: String,
+        /** 変える前の時刻と知らせ。命令に時刻の欄が無ければ null（写しの時刻のまま）。 */
+        baseScheduleTime: Pair<String?, Int?>?,
     ) {
         val command = requireNotNull(outbox(commandId)) { "Outbox command is missing" }
         require(
@@ -1715,6 +1727,8 @@ abstract class MobileLocalDao {
                     scheduleRangeSemantics = null,
                     scheduleConfidence = null,
                     scheduleGranularity = null,
+                    scheduleEndTime = null,
+                    scheduleNotifyBeforeMinutes = null,
                     optimisticCommandId = null,
                 )
             } else {
@@ -1723,6 +1737,9 @@ abstract class MobileLocalDao {
                     scheduleEndDate = baseSchedule.endDate,
                     scheduleDateKind = deriveScheduleDateKind(baseSchedule.startDate, baseSchedule.endDate),
                     scheduleRangeSemantics = baseSchedule.rangeSemantics,
+                    // 時刻の欄の無い変更（前の版の命令）は時刻に触れていないので、写しの時刻のまま。
+                    scheduleEndTime = if (baseScheduleTime != null) baseScheduleTime.first else current.scheduleEndTime,
+                    scheduleNotifyBeforeMinutes = if (baseScheduleTime != null) baseScheduleTime.second else current.scheduleNotifyBeforeMinutes,
                     optimisticCommandId = null,
                 )
             },
@@ -2099,7 +2116,7 @@ abstract class MobileLocalDao {
         PlaceReminderNoticeEntity::class,
         RoutineCacheEntity::class,
     ],
-    version = 32,
+    version = 33,
     exportSchema = true,
 )
 abstract class MobileLocalDatabase : RoomDatabase() {
@@ -2146,8 +2163,22 @@ abstract class MobileLocalDatabase : RoomDatabase() {
                     MIGRATION_29_30,
                     MIGRATION_30_31,
                     MIGRATION_31_32,
+                    MIGRATION_32_33,
             ).build().also { instance = it }
         }
+    }
+}
+
+/**
+ * 期限の時刻と知らせ（#785）: 写しと競合の端末側に欄を足すだけ。既存の行・欄（送信の列の未送信の入力も）は変えない。
+ * 前の版が積んだ日程の変更は時刻の欄を持たないまま送られ、Desktop は省いた欄を保存済みの値のまま残す。
+ */
+internal val MIGRATION_32_33 = object : Migration(32, 33) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN scheduleEndTime TEXT")
+        db.execSQL("ALTER TABLE task_cache ADD COLUMN scheduleNotifyBeforeMinutes INTEGER")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localScheduleEndTime TEXT")
+        db.execSQL("ALTER TABLE task_conflict ADD COLUMN localScheduleNotifyBeforeMinutes INTEGER")
     }
 }
 
@@ -2582,6 +2613,8 @@ fun TaskCacheWithConflict.toMobileTask(activeServerId: String? = null): MobileTa
                     startDate = it.localScheduleStartDate,
                     endDate = it.localScheduleEndDate,
                     rangeSemantics = it.localScheduleRangeSemantics,
+                    endTime = it.localScheduleEndTime,
+                    notifyBeforeMinutes = it.localScheduleNotifyBeforeMinutes,
                 )
             } else {
                 null
@@ -2633,6 +2666,8 @@ fun TaskCacheEntity.toMobileTaskSchedule(): MobileTaskSchedule? {
         rangeSemantics = scheduleRangeSemantics,
         confidence = scheduleConfidence ?: "fixed",
         granularity = scheduleGranularity ?: "day",
+        endTime = readableEnd().first,
+        notifyBeforeMinutes = readableEnd().second,
     )
 }
 
