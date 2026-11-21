@@ -2425,3 +2425,24 @@ test("別の OS のパスに結び付いた Note は、ファイルに触らず 
     closeFixture(fixture);
   }
 });
+
+test("PDF の書き出しダイアログの初期位置を決められない失敗は、OS の既定に任せて止めない（#810）", () => {
+  const fixture = createFixture("tasken-export-dialog-error");
+  try {
+    // 外れたネットワークドライブのように、ENOENT ではない失敗で stat が投げる場合。
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const originalStat = fs.statSync;
+    fs.statSync = (target, ...rest) => {
+      if (path.resolve(String(target)) === path.resolve(fixture.syncRoot))
+        throw Object.assign(new Error("network path unavailable"), { code: "EIO" });
+      return originalStat(target, ...rest);
+    };
+    try {
+      assert.deepEqual(service.exportDialogDefaultPath(null), {});
+    } finally {
+      fs.statSync = originalStat;
+    }
+  } finally {
+    closeFixture(fixture);
+  }
+});

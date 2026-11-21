@@ -3431,16 +3431,22 @@ export class WorkspaceService {
    * 作り直さないため）。作れなければ、いちばん近い既存の親で開く。
    */
   private exportDialogDefaultPath(themeId: string | null | undefined): { defaultPath?: string } {
-    const root = String(this.repository.getPreference("artifactDirectory") || "").trim();
-    if (!root || !fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) return {};
-    const location = this.resolveThemeContentDirectory(themeId, "exports");
-    if (location.kind !== "ok") return {};
+    // 初期位置を決められないとき（ネットワークドライブが外れている、権限が無いなど）は、
+    // どんな失敗でも OS の既定で開き、書き出しそのものは止めない。
     try {
-      fs.mkdirSync(location.directory, { recursive: true });
+      const root = String(this.repository.getPreference("artifactDirectory") || "").trim();
+      if (!root || !fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) return {};
+      const location = this.resolveThemeContentDirectory(themeId, "exports");
+      if (location.kind !== "ok") return {};
+      try {
+        fs.mkdirSync(location.directory, { recursive: true });
+      } catch {
+        // 作れなくても、いちばん近い既存の親で開く。
+      }
+      return existingDefaultPath(location.directory);
     } catch {
-      // 作れなくても書き出しは止めない。
+      return {};
     }
-    return existingDefaultPath(location.directory);
   }
 
   /** Main-owned Media sessionがmanaged Artifactの確定先を共有する。 */
