@@ -43,7 +43,11 @@ export function artifactFileTypeOf(fileName) {
 }
 
 export function artifactMimeTypeOf(fileName) {
-  return ARTIFACT_MIME_TYPES[artifactFileTypeOf(fileName)] || audioMimeTypeOf(fileName) || "application/octet-stream";
+  return (
+    ARTIFACT_MIME_TYPES[artifactFileTypeOf(fileName)] ||
+    audioMimeTypeOf(fileName) ||
+    "application/octet-stream"
+  );
 }
 
 export function safeArtifactFileName(fileName) {
