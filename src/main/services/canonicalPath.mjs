@@ -93,3 +93,18 @@ export function assertConfiguredCanonicalPath(directory, filePath) {
     throw new Error("Markdownの保存先が実際の設定Rootの外へ解決されます。");
   }
 }
+
+/**
+ * この OS では解けない絶対パスか（#810。#803 の段 2）。同期される記録（Note の正本 Markdown の
+ * 結び付けなど）には、書いた端末の絶対パスが入っている。NAS（Linux）の上の C:\… や \\server\…、
+ * Windows の上の /srv/… がそれに当たる。path.resolve に渡すと作業フォルダの下の名前として
+ * 解かれ、関係の無い場所に書いてしまうので、書く前にこれで見分けて書かない（直すのは段 6）。
+ * @param {unknown} value
+ * @param {NodeJS.Platform} [platform]
+ */
+export function isForeignAbsolutePath(value, platform = process.platform) {
+  const candidate = String(value ?? "").trim();
+  if (!candidate) return false;
+  if (platform === "win32") return candidate.startsWith("/") && !candidate.startsWith("//");
+  return /^[A-Za-z]:[\\/]/.test(candidate) || /^\\\\/.test(candidate);
+}

@@ -10,6 +10,7 @@ import {
   assertConfiguredCanonicalPath,
   assertExplicitCanonicalPath,
   assertGeneratedCanonicalPath,
+  isForeignAbsolutePath,
 } from "../src/main/services/canonicalPath.mjs";
 
 import {
@@ -374,4 +375,19 @@ test("保存経路が正本Markdownの状態を持ち、外部変更を確認す
   assert.match(serviceSource, /remaining\.push\(receipt\)/);
   assert.match(serviceSource, /quarantineCorruptCanonicalRecovery/);
   assert.match(serviceSource, /canonical-markdown-recovery-warning\.json/);
+});
+
+test("別の OS の端末が書いた絶対パスを見分ける（#810）", () => {
+  // NAS（Linux）から見た Desktop のパス
+  assert.equal(isForeignAbsolutePath("C:\\Users\\me\\Tasken\\Notes\\a.md", "linux"), true);
+  assert.equal(isForeignAbsolutePath("D:/Tasken/Notes/a.md", "linux"), true);
+  assert.equal(isForeignAbsolutePath("\\\\nas\\share\\Notes\\a.md", "linux"), true);
+  assert.equal(isForeignAbsolutePath("/srv/tasken/Notes/a.md", "linux"), false);
+  // Desktop（Windows）から見た NAS のパス
+  assert.equal(isForeignAbsolutePath("/srv/tasken/Notes/a.md", "win32"), true);
+  assert.equal(isForeignAbsolutePath("C:\\Users\\me\\Tasken\\Notes\\a.md", "win32"), false);
+  assert.equal(isForeignAbsolutePath("\\\\nas\\share\\Notes\\a.md", "win32"), false);
+  assert.equal(isForeignAbsolutePath("//nas/share/Notes/a.md", "win32"), false);
+  assert.equal(isForeignAbsolutePath("", "linux"), false);
+  assert.equal(isForeignAbsolutePath(null, "win32"), false);
 });

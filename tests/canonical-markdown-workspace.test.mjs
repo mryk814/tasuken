@@ -2280,3 +2280,47 @@ test("Theme の storage_root があっても、新しい Note の正本は Taske
     closeFixture(fixture);
   }
 });
+
+test("別の OS のパスに結び付いた Note は、例外にせず DB だけ保存し、結び付けを残す（#810）", () => {
+  const fixture = createFixture("tasken-canonical-foreign-path");
+  const previousCwd = process.cwd();
+  // path.resolve が作業フォルダの下に解くと、ここにファイルができる。できないことを確かめる。
+  const workingDirectory = path.join(fixture.userDataPath, "cwd");
+  fs.mkdirSync(workingDirectory);
+  try {
+    process.chdir(workingDirectory);
+    const foreignPath =
+      process.platform === "win32"
+        ? "/srv/tasken/Themes/A/Notes/foreign.md"
+        : "C:\\Users\\me\\Tasken\\Themes\\A\\Notes\\foreign.md";
+    fixture.database.save("note", {
+      id: "note-foreign-path",
+      title: "ほかの端末のメモ",
+      body_markdown: "前の本文",
+      properties_json: {
+        canonical_markdown: {
+          binding_id: "note:note-foreign-path",
+          canonical_path: foreignPath,
+          directory: foreignPath.replace(/[\\/][^\\/]+$/, ""),
+          file_name: "foreign.md",
+          file_signature: markdownSignature("前の本文"),
+          sync_state: "in_sync",
+        },
+      },
+    });
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const saved = service.saveCanonicalNote(
+      saveRequest(fixture.database.get("note", "note-foreign-path"), "この端末で直した本文"),
+    );
+    assert.equal(saved.body_markdown, "この端末で直した本文");
+    const binding = canonicalBinding(fixture.database.get("note", "note-foreign-path"));
+    assert.equal(binding.canonical_path, foreignPath);
+    assert.equal(binding.sync_state, "unavailable");
+    assert.match(binding.last_error, /ほかのOSの端末/);
+    assert.deepEqual(readdirSync(workingDirectory), []);
+    assert.equal(fs.existsSync(fixture.syncRoot), false, "ルートの下にも作り直さない");
+  } finally {
+    process.chdir(previousCwd);
+    closeFixture(fixture);
+  }
+});
