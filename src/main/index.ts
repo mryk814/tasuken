@@ -2074,6 +2074,8 @@ async function startDesktopApp(): Promise<void> {
     log: (level, message) => logMain(level, "tasken-root", message),
   });
   taskenRoot.ensureMarker();
+  // 段 2（#810）の知らせ。この版の最初の起動で知らせることが無ければ、ここで済ませる。
+  taskenRoot.settleOutsideRootNotice();
   sharedFolderSyncService = new SharedFolderSyncService(
     workspaceRepository,
     notifyMainWindowRefresh,

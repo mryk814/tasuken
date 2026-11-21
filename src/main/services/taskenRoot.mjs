@@ -134,7 +134,7 @@ export function rewriteTaskenRootMarkerWorkspace({ root, fromWorkspaceId, toWork
 
 /**
  * Settings に出す Tasken ルートの状態を組み立てる。
- * repository は端末ごとの設定と Theme を読むだけで、ここからは書かない。
+ * repository は端末ごとの設定と Theme を読む。書くのは、段 2 の知らせを済ませた印だけ。
  */
 export class TaskenRootService {
   /**
@@ -143,6 +143,8 @@ export class TaskenRootService {
    *     workspaceId: string,
    *     getPreference(key: string): unknown,
    *     list(type: string, includeDeleted?: boolean): Array<Record<string, unknown>>,
+   *     readOutsideRootNoticeDoneAt(): string | null,
+   *     markOutsideRootNoticeDone(at?: string): void,
    *   },
    *   backupDirectory: () => string,
    *   env?: Record<string, string | undefined>,
@@ -246,5 +248,43 @@ export class TaskenRootService {
       candidate: taskenRootCandidate({ root, syncDirectory }),
       syncDefaultPath: syncFolderDefaultPath(root),
     };
+  }
+
+  /**
+   * 段 2（#810）で新しい保存に使わなくなった、ルートの外の指定。storage_root を持つ Theme と、
+   * {root}/Activity 以外の日誌の個別指定。前に置いたファイルはそこに残っている。
+   */
+  retiredOutsideEntries() {
+    return listTaskenRootExceptions({
+      root: this.root(),
+      themes: this.repository.list("theme"),
+      activityLogDirectory: text(this.repository.getPreference("activityLogDirectory")),
+    }).filter((entry) => entry.kind === "theme" || entry.kind === "activity");
+  }
+
+  /**
+   * この版の最初の起動で一度だけ出す知らせ（#810）。まだ済んでいなくて該当があれば一覧、無ければ null。
+   * ファイルは動かさないので、知らせるだけにする。
+   */
+  outsideRootNotice() {
+    if (this.repository.readOutsideRootNoticeDoneAt()) return null;
+    const entries = this.retiredOutsideEntries();
+    return entries.length ? { entries } : null;
+  }
+
+  /**
+   * 起動時に呼ぶ。知らせることが無ければ、ここで済んだ印を付ける。この版の最初の起動のときの
+   * 該当だけを知らせ、後から同期で届いた Theme などで改めて出さないため。
+   */
+  settleOutsideRootNotice() {
+    if (this.repository.readOutsideRootNoticeDoneAt()) return;
+    if (this.retiredOutsideEntries().length === 0) {
+      this.repository.markOutsideRootNoticeDone(this.now().toISOString());
+    }
+  }
+
+  /** 本人が知らせを閉じたとき。 */
+  dismissOutsideRootNotice() {
+    this.repository.markOutsideRootNoticeDone(this.now().toISOString());
   }
 }

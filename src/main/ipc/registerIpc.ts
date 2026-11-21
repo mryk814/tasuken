@@ -640,6 +640,10 @@ export function registerIpc(
     if (!taskenRoot) throw new Error("Tasken ルートの状態を読めません。");
     return taskenRoot.status();
   });
+  ipcMain.handle(IPC.taskenRootOutsideNotice, () => taskenRoot?.outsideRootNotice() ?? null);
+  ipcMain.handle(IPC.taskenRootDismissOutsideNotice, () => {
+    taskenRoot?.dismissOutsideRootNotice();
+  });
   ipcMain.handle(IPC.sharedSyncStatus, () => sharedSync.status());
   ipcMain.handle(IPC.sharedSyncConfigure, (_event, directory) =>
     sharedSync.configure(requireText(directory, "同期フォルダ")),

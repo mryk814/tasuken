@@ -53,10 +53,12 @@ const TASKEN_ROOT_KIND_LABELS: Record<TaskenRootKind, string> = {
 };
 
 // ルートの外にある場所の呼び名。控えだけは、外にある理由を名前に含める（同期の事故と一緒に壊れないため）。
+// Theme の保存先と日誌の個別指定は #810 から新しい保存に使わない。前に置いたファイルの場所として出す。
 function taskenRootExceptionLabel(entry: TaskenRootStatus["exceptions"][number]): string {
   if (entry.kind === "sync") return "同期フォルダ";
-  if (entry.kind === "theme") return `Theme「${entry.themeName || entry.themeId || ""}」`;
-  if (entry.kind === "activity") return "日誌";
+  if (entry.kind === "theme")
+    return `Theme「${entry.themeName || entry.themeId || ""}」（前の保存先。新しい保存はルートへ）`;
+  if (entry.kind === "activity") return "日誌（前の出力先。新しい日誌はルートの Activity へ）";
   return "控え（ルートの外。同期と独立させるため）";
 }
 
@@ -1232,8 +1234,9 @@ export function SettingsPage({
                   <p className="field-help">
                     OneDrive等のTasken ルート配下に <code>Inbox/</code> と{" "}
                     <code>Themes/識別子/</code>、その中の <code>Notes|Artifacts|Exports/</code>{" "}
-                    を必要時だけ自動生成します。Theme専用ルート、PDF等の明示Export、linked
-                    Artifactはそれぞれ既存の導線で扱います。
+                    を必要時だけ自動生成します。日誌は <code>Activity/</code>{" "}
+                    に出します。PDFは書き出すたびに場所を選び、linked
+                    Artifactは元の場所のまま扱います。
                   </p>
                 </div>
               </details>
