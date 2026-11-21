@@ -2324,3 +2324,33 @@ test("別の OS のパスに結び付いた Note は、例外にせず DB だけ
     closeFixture(fixture);
   }
 });
+
+test("PDF の書き出しダイアログは Theme の Exports/（Theme なしは Inbox/Exports）で開く（#810）", () => {
+  const fixture = createFixture("tasken-export-dialog-default");
+  try {
+    fixture.database.save("theme", {
+      id: "theme-export",
+      name: "書き出す Theme",
+      code: "EXP-A",
+      storage_root: path.join(fixture.userDataPath, "LegacyFolder"),
+    });
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    // ルートのフォルダが無いときは作らず、OS の既定に任せる。
+    assert.deepEqual(service.exportDialogDefaultPath("theme-export"), {});
+    assert.equal(fs.existsSync(fixture.syncRoot), false);
+
+    fs.mkdirSync(fixture.syncRoot);
+    assert.deepEqual(service.exportDialogDefaultPath("theme-export"), {
+      defaultPath: path.join(fixture.syncRoot, "Themes", "EXP-A", "Exports"),
+    });
+    assert.deepEqual(service.exportDialogDefaultPath(null), {
+      defaultPath: path.join(fixture.syncRoot, "Inbox", "Exports"),
+    });
+    assert.deepEqual(service.exportDialogDefaultPath(PERSONAL_DEFAULT_THEME_ID), {
+      defaultPath: path.join(fixture.syncRoot, "Inbox", "Exports"),
+    });
+    assert.equal(fs.existsSync(path.join(fixture.userDataPath, "LegacyFolder")), false);
+  } finally {
+    closeFixture(fixture);
+  }
+});
