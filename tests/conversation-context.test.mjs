@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   CONVERSATION_CONTEXT_PUBLICATION_SCHEMA,
   buildConversationContextPlan,
+  conversationContextPathParts,
+  normalizeConversationContextPublication,
   parseConversationContextMessages,
 } from "../src/shared/conversationContext.mjs";
 
@@ -101,6 +103,8 @@ test("first publication binds a stable path and title rename only changes conten
     status: "published",
     scope: initial.scope,
     selected_message_indexes: initial.selected_message_indexes,
+    theme_id: theme.id,
+    storage_root_id: initial.storage_root_id,
     relative_path: initial.relative_path,
     content_hash: initial.content_hash,
     source_revision: initial.source_revision,
@@ -130,6 +134,8 @@ test("unchanged published projection is current", () => {
       status: "published",
       scope: initial.scope,
       selected_message_indexes: initial.selected_message_indexes,
+      theme_id: theme.id,
+      storage_root_id: initial.storage_root_id,
       relative_path: initial.relative_path,
       content_hash: initial.content_hash,
       source_revision: initial.source_revision,
@@ -153,7 +159,7 @@ test("publish-time Theme binding blocks reassignment until explicit removal", ()
     scope: initial.scope,
     selected_message_indexes: initial.selected_message_indexes,
     theme_id: theme.id,
-    storage_root_id: `theme:${theme.id}`,
+    storage_root_id: initial.storage_root_id,
     relative_path: initial.relative_path,
     content_hash: initial.content_hash,
     source_revision: initial.source_revision,
@@ -199,4 +205,75 @@ test("oversized Conversation and turns are bounded with explicit exclusions", ()
   assert.ok(plan.warnings.includes("source_truncated"));
   assert.ok(plan.warnings.includes("turn_truncated"));
   assert.match(plan.content, /文字数上限により除外/);
+});
+
+test("公開先の参照: 新しくは Tasken ルートの sync、前の版の theme:<id> は同じ場所のまま（#810）", () => {
+  const fresh = buildConversationContextPlan({
+    resource: conversation(),
+    theme: { ...theme, code: "MAT A/1" },
+    publishedAt: "2026-08-09T00:00:00.000Z",
+  });
+  assert.equal(fresh.storage_root_id, "sync");
+  assert.match(fresh.relative_path, /^Themes\/MAT A_1\/AI Context\/Conversations\/.+\.md$/);
+  const found = buildConversationContextPlan({
+    resource: conversation(),
+    theme,
+    publishedAt: "2026-08-09T00:00:00.000Z",
+    themeFolderPath: "Themes/Renamed",
+  });
+  assert.match(found.relative_path, /^Themes\/Renamed\/AI Context\/Conversations\//);
+  assert.deepEqual(conversationContextPathParts(found), {
+    themeFolderPath: "Themes/Renamed",
+    themeRelativePath: found.relative_path.slice("Themes/Renamed/".length),
+  });
+
+  const legacy = {
+    schema: CONVERSATION_CONTEXT_PUBLICATION_SCHEMA,
+    status: "published",
+    theme_id: theme.id,
+    storage_root_id: `theme:${theme.id}`,
+    relative_path: "AI Context/Conversations/old-name.md",
+    content_hash: "sha256:0:" + "0".repeat(64),
+  };
+  const kept = buildConversationContextPlan({
+    resource: conversation({ conversation_context_publication: legacy }),
+    theme,
+    themeFolderPath: "Themes/Ignored",
+  });
+  assert.equal(kept.storage_root_id, `theme:${theme.id}`);
+  assert.equal(kept.relative_path, "AI Context/Conversations/old-name.md");
+  // 解除した後に公開し直すときは、新しい参照にする（ファイル名は前と同じ）。
+  const republished = buildConversationContextPlan({
+    resource: conversation({ conversation_context_publication: { ...legacy, status: "removed" } }),
+    theme,
+    themeFolderPath: "Themes/MAT",
+  });
+  assert.equal(republished.storage_root_id, "sync");
+  assert.equal(republished.relative_path, "Themes/MAT/AI Context/Conversations/old-name.md");
+
+  // sync の参照はルートからの相対パスだけを受け、Theme folder の無いパスや外へ出るパスは捨てる。
+  const syncBinding = { ...legacy, storage_root_id: "sync" };
+  assert.equal(normalizeConversationContextPublication(syncBinding), null);
+  assert.equal(
+    normalizeConversationContextPublication({
+      ...syncBinding,
+      relative_path: "../AI Context/Conversations/x.md",
+    }),
+    null,
+  );
+  assert.equal(
+    normalizeConversationContextPublication({
+      ...syncBinding,
+      relative_path: "Themes/MAT/AI Context/Conversations/x.md",
+    })?.relative_path,
+    "Themes/MAT/AI Context/Conversations/x.md",
+  );
+  assert.equal(
+    normalizeConversationContextPublication({
+      ...syncBinding,
+      theme_id: "",
+      relative_path: "Themes/MAT/AI Context/Conversations/x.md",
+    }),
+    null,
+  );
 });

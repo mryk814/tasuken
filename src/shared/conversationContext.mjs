@@ -1,5 +1,6 @@
 import { markdownSignature } from "./canonicalMarkdown.mjs";
 import { buildAiEntityHeader } from "./aiMetadata.mjs";
+import { safeFolderSegment } from "./storageResolver.mjs";
 
 export const CONVERSATION_CONTEXT_SCHEMA = "tasken-conversation-context/v1";
 export const CONVERSATION_CONTEXT_PUBLICATION_SCHEMA = "tasken-conversation-context-publication/v1";
@@ -7,6 +8,17 @@ export const CONVERSATION_CONTEXT_PUBLICATION_SCHEMA = "tasken-conversation-cont
 // 出力済みのフォルダー "AI Pack" が同期先に残っていても、そこには触れない。
 export const CONVERSATION_CONTEXT_DIRECTORY = "AI Context/Conversations";
 export const CONVERSATION_CONTEXT_SCOPES = ["full", "selected_turns"];
+// 公開先の参照（storage_root_id + relative_path）は 2 種類ある（#810）。
+// - "sync"（activityRootRegistry の ACTIVITY_SYNC_ROOT_ID と同じ）: Tasken ルートからの相対パス
+//   （Themes/<folder>/AI Context/Conversations/<file>.md）。#810 から新しく公開するものはこれ。
+// - "theme:<id>"（前の版）: Theme folder からの相対パス（AI Context/Conversations/<file>.md）。
+//   Theme に storage_root があれば、その下を指す。公開済みの物はこの参照のまま同じ場所で更新・解除し、
+//   別の場所にもう 1 つ作らない。
+export const CONVERSATION_CONTEXT_ROOT_ID = "sync";
+
+export function legacyConversationContextRootId(themeId) {
+  return `theme:${text(themeId)}`;
+}
 
 const ROLE_HEADING = /^(#{2,3})\s+(.+)$/;
 const USER_ROLE = /^(?:you|user|human|ユーザー)(?:\s|$)/i;
@@ -33,15 +45,49 @@ function yaml(value) {
   return JSON.stringify(value == null ? "" : String(value));
 }
 
-function safeRelativePath(value) {
+function safeSegments(value) {
   const normalized = text(value).replace(/\\/g, "/").replace(/^\/+/, "");
   if (
     !normalized ||
     normalized.split("/").some((segment) => !segment || segment === "." || segment === "..")
   )
     return "";
+  return normalized;
+}
+
+/** Theme folder からの相対パス（AI Context/Conversations/<file>.md）。 */
+function safeRelativePath(value) {
+  const normalized = safeSegments(value);
   if (!normalized.startsWith(`${CONVERSATION_CONTEXT_DIRECTORY}/`)) return "";
   return normalized;
+}
+
+/** Tasken ルートからの相対パス（<theme folder>/AI Context/Conversations/<file>.md）。 */
+function safeRootRelativePath(value) {
+  const normalized = safeSegments(value);
+  const index = normalized.indexOf(`/${CONVERSATION_CONTEXT_DIRECTORY}/`);
+  if (index <= 0) return "";
+  return safeRelativePath(normalized.slice(index + 1)) ? normalized : "";
+}
+
+/**
+ * 公開先の参照を、Theme folder（ルートからの相対。前の版の参照なら null）と、
+ * Theme folder の中のパスに分ける。ファイルの読み書きは Theme folder の中のパスで行う。
+ * @returns {{ themeFolderPath: string | null, themeRelativePath: string } | null}
+ */
+export function conversationContextPathParts(binding) {
+  const input = record(binding);
+  if (text(input.storage_root_id) === CONVERSATION_CONTEXT_ROOT_ID) {
+    const relativePath = safeRootRelativePath(input.relative_path);
+    if (!relativePath) return null;
+    const index = relativePath.indexOf(`/${CONVERSATION_CONTEXT_DIRECTORY}/`);
+    return {
+      themeFolderPath: relativePath.slice(0, index),
+      themeRelativePath: relativePath.slice(index + 1),
+    };
+  }
+  const relativePath = safeRelativePath(input.relative_path);
+  return relativePath ? { themeFolderPath: null, themeRelativePath: relativePath } : null;
 }
 
 function safeFileStem(value) {
@@ -127,11 +173,21 @@ export function normalizeConversationContextPublication(value) {
         ),
       ].sort((a, b) => a - b)
     : [];
-  const relativePath = safeRelativePath(input.relative_path);
-  if (!relativePath) return null;
   const themeId = text(input.theme_id);
   const storageRootId = text(input.storage_root_id);
-  if ((themeId || storageRootId) && (!themeId || storageRootId !== `theme:${themeId}`)) return null;
+  const rootBound = storageRootId === CONVERSATION_CONTEXT_ROOT_ID;
+  const relativePath = rootBound
+    ? safeRootRelativePath(input.relative_path)
+    : safeRelativePath(input.relative_path);
+  if (!relativePath) return null;
+  if (rootBound) {
+    if (!themeId) return null;
+  } else if (
+    (themeId || storageRootId) &&
+    (!themeId || storageRootId !== legacyConversationContextRootId(themeId))
+  ) {
+    return null;
+  }
   return {
     schema: CONVERSATION_CONTEXT_PUBLICATION_SCHEMA,
     status: [
@@ -159,10 +215,44 @@ export function normalizeConversationContextPublication(value) {
   };
 }
 
+/** Theme folder の中のパス。前に公開したことがあれば、そのファイル名を使い続ける。 */
 export function conversationContextRelativePath(resource, publication = null) {
   const existing = normalizeConversationContextPublication(publication);
-  if (existing?.relative_path) return existing.relative_path;
+  const parts = existing ? conversationContextPathParts(existing) : null;
+  if (parts) return parts.themeRelativePath;
   return `${CONVERSATION_CONTEXT_DIRECTORY}/${safeFileStem(resource?.title)}-${shortId(resource?.id)}.md`;
+}
+
+/**
+ * 公開先の参照（storage_root_id と relative_path）を決める。
+ * 公開中（解除していない）の参照は、前の版の theme:<id> でも同じ場所のまま使い続ける。
+ * 新しく公開するときは Tasken ルートの sync で、themeFolderPath（ルートからの Theme folder。
+ * 呼び出し側が marker で見つけた物）の下にする。
+ */
+function conversationContextBinding({ entity, themeEntity, publication, themeFolderPath }) {
+  const active = publication && publication.status !== "removed" ? publication : null;
+  const themeRelativePath = conversationContextRelativePath(entity, publication);
+  // 前の Theme に公開したまま Theme を変えた会話は、解除するまで前の参照をそのまま見せる。
+  if (active?.theme_id && active.theme_id !== text(themeEntity.id)) {
+    return {
+      storage_root_id: active.storage_root_id || legacyConversationContextRootId(active.theme_id),
+      relative_path: active.relative_path,
+    };
+  }
+  if (active && active.storage_root_id !== CONVERSATION_CONTEXT_ROOT_ID) {
+    return {
+      storage_root_id: legacyConversationContextRootId(active.theme_id || themeEntity.id),
+      relative_path: themeRelativePath,
+    };
+  }
+  const folder =
+    safeSegments(themeFolderPath) ||
+    conversationContextPathParts(active || {})?.themeFolderPath ||
+    `Themes/${safeFolderSegment(text(themeEntity.code) || text(themeEntity.id))}`;
+  return {
+    storage_root_id: CONVERSATION_CONTEXT_ROOT_ID,
+    relative_path: `${folder}/${themeRelativePath}`,
+  };
 }
 
 function redactMessage(message) {
@@ -270,6 +360,7 @@ export function buildConversationContextPlan({
   scope,
   selectedMessageIndexes,
   publishedAt,
+  themeFolderPath,
 } = {}) {
   const entity = record(resource);
   if (!text(entity.id) || text(entity.resource_scope) !== "chat_ref") {
@@ -373,7 +464,12 @@ export function buildConversationContextPlan({
   ];
   const effectivePublishedAt =
     text(publishedAt) || publication?.published_at || new Date(0).toISOString();
-  const relativePath = conversationContextRelativePath(entity, publication);
+  const binding = conversationContextBinding({
+    entity,
+    themeEntity,
+    publication,
+    themeFolderPath,
+  });
   const header = buildAiEntityHeader("resource", entity);
   const content = renderConversationContext({
     resource: entity,
@@ -410,8 +506,8 @@ export function buildConversationContextPlan({
     schema: CONVERSATION_CONTEXT_SCHEMA,
     conversation_id: text(entity.id),
     theme_id: text(themeEntity.id),
-    storage_root_id: `theme:${text(themeEntity.id)}`,
-    relative_path: relativePath,
+    storage_root_id: binding.storage_root_id,
+    relative_path: binding.relative_path,
     scope: normalizedScope,
     selected_message_indexes: selected.map((message) => message.index),
     message_count: selected.length,

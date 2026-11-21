@@ -153,7 +153,8 @@ test("Viewer previewから明示公開し、stable path・selected turns・uncha
     });
     assert.equal(preview.publicationState, "not_published");
     assert.equal(preview.allowed, true);
-    assert.match(preview.relativePath, /^AI Context\/Conversations\//);
+    assert.equal(preview.storageRootId, "sync");
+    assert.match(preview.relativePath, /^Themes\/CONV\/AI Context\/Conversations\//);
     assert.doesNotMatch(preview.content, /Answer one|Question two|raw output/);
     assert.match(preview.content, /Question one/);
     assert.match(preview.content, /Answer two/);
@@ -171,12 +172,7 @@ test("Viewer previewから明示公開し、stable path・selected turns・uncha
     assert.equal(saved.body_markdown, before.body_markdown, "Conversation body is not rewritten");
     assert.equal(item.database.list("artifact").length, 0, "raw Artifact collection is untouched");
     assert.equal(publication.published_at, now);
-    const filePath = path.join(
-      item.syncRoot,
-      "Themes",
-      "CONV",
-      ...publication.relative_path.split("/"),
-    );
+    const filePath = path.join(item.syncRoot, ...publication.relative_path.split("/"));
     assert.equal(fs.existsSync(filePath), true);
     const fileBody = fs.readFileSync(filePath, "utf8");
     assert.match(fileBody, /schema: tasken-conversation-context\/v1/);
@@ -271,8 +267,8 @@ test("通常Resource保存は公開bindingを保持し、Theme変更後は旧公
     const published = item.database.get("resource", "conversation-context");
     const binding = structuredClone(published.conversation_context_publication);
     assert.equal(binding.theme_id, "theme-context");
-    assert.equal(binding.storage_root_id, "theme:theme-context");
-    const oldFile = path.join(item.syncRoot, "Themes", "CONV", ...binding.relative_path.split("/"));
+    assert.equal(binding.storage_root_id, "sync");
+    const oldFile = path.join(item.syncRoot, ...binding.relative_path.split("/"));
     assert.equal(fs.existsSync(oldFile), true);
 
     item.database.save("resource", {
@@ -297,7 +293,8 @@ test("通常Resource保存は公開bindingを保持し、Theme変更後は旧公
     const dirty = service.getConversationContextPreview({ conversationId: "conversation-context" });
     assert.equal(dirty.publicationState, "dirty");
     assert.equal(dirty.allowed, false);
-    assert.equal(dirty.storageRootId, "theme:theme-context");
+    assert.equal(dirty.storageRootId, "sync");
+    assert.equal(dirty.relativePath, binding.relative_path);
     assert.match(dirty.blockingReasons.join("\n"), /先にAI Contextから外して/);
     assert.throws(
       () => service.publishConversationContext(publishRequest(dirty)),
@@ -319,7 +316,8 @@ test("通常Resource保存は公開bindingを保持し、Theme変更後は旧公
       conversationId: "conversation-context",
     });
     assert.equal(nextPreview.allowed, true);
-    assert.equal(nextPreview.storageRootId, "theme:theme-next");
+    assert.equal(nextPreview.storageRootId, "sync");
+    assert.match(nextPreview.relativePath, /^Themes\/NEXT\/AI Context\/Conversations\//);
     const republished = service.publishConversationContext(publishRequest(nextPreview));
     assert.equal(republished.themeId, "theme-next");
     const rebound = item.database.get(
@@ -327,7 +325,7 @@ test("通常Resource保存は公開bindingを保持し、Theme変更後は旧公
       "conversation-context",
     ).conversation_context_publication;
     assert.equal(rebound.theme_id, "theme-next");
-    assert.equal(rebound.storage_root_id, "theme:theme-next");
+    assert.equal(rebound.storage_root_id, "sync");
   } finally {
     item.close();
   }
@@ -349,12 +347,7 @@ test("公開先Themeを削除した後もbindingから旧AI Contextファイル�
       "resource",
       "conversation-context",
     ).conversation_context_publication;
-    const publishedFile = path.join(
-      item.syncRoot,
-      "Themes",
-      "CONV",
-      ...publication.relative_path.split("/"),
-    );
+    const publishedFile = path.join(item.syncRoot, ...publication.relative_path.split("/"));
     assert.equal(fs.existsSync(publishedFile), true);
 
     item.database.remove("theme", "theme-context");
@@ -404,9 +397,17 @@ test("Theme folder rename後もID markerで再発見し、AI Context bindingを�
       "dirty",
       "Theme display metadata changed but the same file is rediscovered",
     );
-    assert.equal(current.relativePath, initial.relativePath);
+    assert.equal(
+      current.relativePath,
+      initial.relativePath.replace(/^Themes\/CONV\//, "Themes/RENAMED/"),
+    );
     restarted.publishConversationContext(publishRequest(current));
-    assert.equal(fs.existsSync(path.join(renamedFolder, ...current.relativePath.split("/"))), true);
+    assert.equal(fs.existsSync(path.join(item.syncRoot, ...current.relativePath.split("/"))), true);
+    assert.equal(
+      item.database.get("resource", "conversation-context").conversation_context_publication
+        .relative_path,
+      current.relativePath,
+    );
     assert.equal(fs.existsSync(path.join(item.syncRoot, "Themes", "NEW")), false);
   } finally {
     item.close();
@@ -578,12 +579,7 @@ test("planned receiptはfile未完了をfailedへ確定し、再起動ごとの�
     service.publishConversationContext(publishRequest(preview));
     const resource = item.database.get("resource", "conversation-context");
     const publication = resource.conversation_context_publication;
-    const filePath = path.join(
-      item.syncRoot,
-      "Themes",
-      "CONV",
-      ...publication.relative_path.split("/"),
-    );
+    const filePath = path.join(item.syncRoot, ...publication.relative_path.split("/"));
     fs.unlinkSync(filePath);
     const operationId = "planned-incomplete";
     item.database.save(
@@ -609,7 +605,7 @@ test("planned receiptはfile未完了をfailedへ確定し、再起動ごとの�
         phase: "planned",
         conversationId: "conversation-context",
         themeId: "theme-context",
-        relativePath: publication.relative_path,
+        relativePath: publication.relative_path.replace(/^Themes\/CONV\//, ""),
         contentHash: publication.content_hash,
       })}\n`,
     );
@@ -738,5 +734,113 @@ test("recovery directory/receipt symlinkと不正identity/pathをfollowしない
     assert.equal(receiptLink[0].receipt, null);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Theme に storage_root があっても、新しい公開は Tasken ルートの Themes/{code} の下に置く（#810）", () => {
+  const item = createFixture("tasken-conversation-context-new-under-root");
+  try {
+    const legacyRoot = path.join(item.userDataPath, "CustomerFolder");
+    fs.mkdirSync(legacyRoot);
+    const theme = item.database.get("theme", "theme-context");
+    item.database.save("theme", { ...theme, storage_root: legacyRoot });
+    const service = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-09T03:00:00.000Z",
+    );
+    const preview = service.getConversationContextPreview({
+      conversationId: "conversation-context",
+    });
+    assert.equal(preview.storageRootId, "sync");
+    assert.match(preview.relativePath, /^Themes\/CONV\/AI Context\/Conversations\//);
+    service.publishConversationContext(publishRequest(preview));
+    const publication = item.database.get(
+      "resource",
+      "conversation-context",
+    ).conversation_context_publication;
+    assert.equal(publication.storage_root_id, "sync");
+    assert.equal(
+      fs.existsSync(path.join(item.syncRoot, ...publication.relative_path.split("/"))),
+      true,
+    );
+    assert.deepEqual(fs.readdirSync(legacyRoot), [], "前の版の保存先には何も作らない");
+  } finally {
+    item.close();
+  }
+});
+
+test("前の版が storage_root の下に公開した AI Context（theme:<id>）は、同じ場所で更新・解除する（#810）", () => {
+  const item = createFixture("tasken-conversation-context-legacy-binding");
+  try {
+    const legacyRoot = path.join(item.userDataPath, "CustomerFolder");
+    const legacyRelativePath = "AI Context/Conversations/original-title-conversati.md";
+    const legacyFile = path.join(legacyRoot, ...legacyRelativePath.split("/"));
+    fs.mkdirSync(path.dirname(legacyFile), { recursive: true });
+    fs.writeFileSync(
+      path.join(legacyRoot, THEME_FOLDER_MANIFEST),
+      `${JSON.stringify(buildThemeFolderManifest({ themeId: "theme-context", displayName: "Conversation Theme" }))}\n`,
+    );
+    const oldContent = "# 前の版が公開した中身\n";
+    fs.writeFileSync(legacyFile, oldContent);
+    const theme = item.database.get("theme", "theme-context");
+    item.database.save("theme", { ...theme, storage_root: legacyRoot });
+    const resource = item.database.get("resource", "conversation-context");
+    item.database.save(
+      "resource",
+      {
+        ...resource,
+        conversation_context_publication: {
+          schema: "tasken-conversation-context-publication/v1",
+          status: "published",
+          scope: "full",
+          selected_message_indexes: [],
+          theme_id: "theme-context",
+          storage_root_id: "theme:theme-context",
+          relative_path: legacyRelativePath,
+          content_hash: markdownSignature(oldContent),
+          source_revision: "previous-version",
+          published_at: "2026-08-01T00:00:00.000Z",
+          updated_at: "2026-08-01T00:00:00.000Z",
+          removed_at: null,
+          operation_id: null,
+          last_error: null,
+        },
+      },
+      { __conversationContextPublicationWrite: true },
+    );
+    const service = new WorkspaceService(
+      item.database,
+      item.userDataPath,
+      () => "2026-08-09T03:00:00.000Z",
+    );
+
+    const preview = service.getConversationContextPreview({
+      conversationId: "conversation-context",
+    });
+    assert.equal(preview.storageRootId, "theme:theme-context");
+    assert.equal(preview.relativePath, legacyRelativePath);
+    assert.equal(preview.publicationState, "dirty");
+    const published = service.publishConversationContext(publishRequest(preview));
+    assert.equal(published.written, true);
+    assert.match(fs.readFileSync(legacyFile, "utf8"), /schema: tasken-conversation-context\/v1/);
+    assert.equal(
+      fs.existsSync(path.join(item.syncRoot, "Themes")),
+      false,
+      "ルートの下にもう 1 つ作らない",
+    );
+    const rebound = item.database.get(
+      "resource",
+      "conversation-context",
+    ).conversation_context_publication;
+    assert.equal(rebound.storage_root_id, "theme:theme-context");
+    assert.equal(rebound.relative_path, legacyRelativePath);
+
+    const removed = service.removeConversationContext({ conversationId: "conversation-context" });
+    assert.equal(removed.publicationState, "removed");
+    assert.equal(fs.existsSync(legacyFile), false);
+    assert.equal(fs.existsSync(path.join(item.syncRoot, "Themes")), false);
+  } finally {
+    item.close();
   }
 });

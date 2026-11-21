@@ -50,6 +50,11 @@ export const CONVERSATION_CONTEXT_SCHEMA: "tasken-conversation-context/v1";
 export const CONVERSATION_CONTEXT_PUBLICATION_SCHEMA: "tasken-conversation-context-publication/v1";
 export const CONVERSATION_CONTEXT_DIRECTORY: "AI Context/Conversations";
 export const CONVERSATION_CONTEXT_SCOPES: readonly ConversationContextScope[];
+export const CONVERSATION_CONTEXT_ROOT_ID: "sync";
+export function legacyConversationContextRootId(themeId: unknown): string;
+export function conversationContextPathParts(
+  binding: unknown,
+): { themeFolderPath: string | null; themeRelativePath: string } | null;
 export function parseConversationContextMessages(body: unknown): Array<{
   role: "user" | "assistant" | "system" | "tool";
   displayName: string;
@@ -69,4 +74,5 @@ export function buildConversationContextPlan(input: {
   scope?: ConversationContextScope;
   selectedMessageIndexes?: number[];
   publishedAt?: string;
+  themeFolderPath?: string | null;
 }): ConversationContextPlan;
