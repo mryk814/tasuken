@@ -53,7 +53,7 @@ import {
   localDateAndTime,
   runActivityAutoExport,
 } from "./lib/activityAutoExport";
-import { resolveActivityLogDirectory } from "./lib/activityLogDirectory";
+import { activityLogDirectoryFor } from "./lib/activityLogDirectory";
 import { buildActivityPublication } from "./lib/activityLog";
 import { buildAgentWorkProjection } from "./domain-model/agentSessionProjection";
 import {
@@ -722,15 +722,14 @@ export function WorkspaceApp() {
       let activeDirectory = "";
       activityAutoExportRunning.current = true;
       try {
-        const [time, directory, artifactDirectory, lastExportDate, lastFinalizedDate] =
-          await Promise.all([
-            workspaceApi.getPreference("activityLogAutoExportTime"),
-            workspaceApi.getPreference("activityLogDirectory"),
-            workspaceApi.getPreference("artifactDirectory"),
-            workspaceApi.getPreference("activityLogLastAutoExportDate"),
-            workspaceApi.getPreference("activityLogLastFinalizedDate"),
-          ]);
-        activeDirectory = resolveActivityLogDirectory(directory, artifactDirectory);
+        const [time, artifactDirectory, lastExportDate, lastFinalizedDate] = await Promise.all([
+          workspaceApi.getPreference("activityLogAutoExportTime"),
+          workspaceApi.getPreference("artifactDirectory"),
+          workspaceApi.getPreference("activityLogLastAutoExportDate"),
+          workspaceApi.getPreference("activityLogLastFinalizedDate"),
+        ]);
+        // 日誌はいつも Tasken ルートの Activity に出す（#810）。前の版の個別指定は使わない。
+        activeDirectory = activityLogDirectoryFor(artifactDirectory);
         const targetDates = activityDatesToAutoExport({
           now,
           time,

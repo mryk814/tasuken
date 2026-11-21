@@ -13,7 +13,7 @@ import { activitySessionInterval } from "../lib/activityTimeline";
 import type { BaseRecord } from "../types";
 import { THEME_NONE_VALUE } from "../../../../../shared/themeRef.mjs";
 import { collectActivityLogEntries, buildActivityPublication } from "../lib/activityLog";
-import { resolveActivityLogDirectory } from "../lib/activityLogDirectory";
+import { activityLogDirectoryFor } from "../lib/activityLogDirectory";
 import { useActivityEvents } from "../lib/useActivityEvents";
 import {
   activitySessionTimeLabel,
@@ -469,12 +469,11 @@ export function ActivityLogPanel({
 
   useEffect(() => {
     void Promise.all([
-      workspaceApi.getPreference("activityLogDirectory"),
       workspaceApi.getPreference("artifactDirectory"),
       workspaceApi.getPreference("activityLogAutoExportTime"),
     ])
-      .then(([savedDirectory, artifactDirectory, savedTime]) => {
-        setDirectory(resolveActivityLogDirectory(savedDirectory, artifactDirectory));
+      .then(([artifactDirectory, savedTime]) => {
+        setDirectory(activityLogDirectoryFor(artifactDirectory));
         if (typeof savedTime === "string" && savedTime) return setAutoExportTime(savedTime);
         const legacyTime = normalizeReminderSettings(
           findReminderSettingsView(data.views || []),
@@ -684,21 +683,6 @@ export function ActivityLogPanel({
     requestAnimationFrame(() => activityDetailRef.current?.focus());
   }, [expandedTimelineItemId, isNarrowActivity]);
 
-  async function chooseDirectory() {
-    try {
-      const result = await workspaceApi.chooseDirectory("Activity Logの出力先を変更");
-      if (result.canceled || !result.path) return;
-      setDirectory(result.path);
-      await workspaceApi.setPreference("activityLogDirectory", result.path);
-      setToast("Activity Logの出力先を変更しました。", "success");
-    } catch (error) {
-      setToast(
-        `出力先を設定できませんでした。${error instanceof Error ? error.message : String(error)}`,
-        "danger",
-      );
-    }
-  }
-
   async function updateAutoExportTime(value: string) {
     setAutoExportTime(value);
     try {
@@ -765,13 +749,7 @@ export function ActivityLogPanel({
         chooseDirectory: choose,
       });
       if (result.canceled) return setToast("Activity Log出力をキャンセルしました。");
-      if (result.directory) {
-        setDirectory(result.directory);
-        if (choose)
-          void workspaceApi
-            .setPreference("activityLogDirectory", result.directory)
-            .catch(() => undefined);
-      }
+      // ルートが無いときに選んだ場所は、その 1 回だけに使う。出力先の設定にはしない（#810）。
       if (result.filePath) setFilePath(result.filePath);
       setToast(`Activity Logを出力しました。${result.filePath || ""}`, "success");
     } catch (error) {
@@ -1630,18 +1608,11 @@ export function ActivityLogPanel({
               ? `最新の手動出力: ${filePath}`
               : directory
                 ? `出力先: ${directory}`
-                : "Rootを設定すると自動で出力先を作ります。"}
+                : "Tasken ルートを設定すると、その中の Activity に出力します。"}
           </span>
-          <Button
-            variant="secondary"
-            compact
-            disabled={exporting}
-            onClick={() => void chooseDirectory()}
-          >
-            出力先を変更
-          </Button>
           <small>
-            指定したフォルダに日誌を出力します。当日分は翌日に再出力し、定時後の作業も反映します。停止中の分は次回起動時に補完します。
+            Tasken ルートの Activity
+            に日誌を出力します。当日分は翌日に再出力し、定時後の作業も反映します。停止中の分は次回起動時に補完します。
           </small>
         </div>
       )}
