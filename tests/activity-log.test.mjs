@@ -203,16 +203,16 @@ test("activity auto export catches up yesterday when the app starts before today
   );
 });
 
-test("Activity Log follows the Root directory unless the user selected an override", () => {
+test("Activity Log always goes to the Tasken root Activity folder (#810)", () => {
   assert.equal(
-    activityLogDirectory.resolveActivityLogDirectory("", "C:\\Tasken Root\\"),
+    activityLogDirectory.activityLogDirectoryFor("C:\\Tasken Root\\"),
     "C:\\Tasken Root\\Activity",
   );
-  assert.equal(
-    activityLogDirectory.resolveActivityLogDirectory("/tmp/custom-log", "/workspace"),
-    "/tmp/custom-log",
-  );
-  assert.equal(activityLogDirectory.defaultActivityLogDirectory("/"), "/Activity");
+  assert.equal(activityLogDirectory.activityLogDirectoryFor("/workspace"), "/workspace/Activity");
+  assert.equal(activityLogDirectory.activityLogDirectoryFor("/"), "/Activity");
+  assert.equal(activityLogDirectory.activityLogDirectoryFor(""), "");
+  // 前の版の個別指定（activityLogDirectory）を受け取る口は無い。新しい書き出しに使わない。
+  assert.equal(activityLogDirectory.resolveActivityLogDirectory, undefined);
 });
 
 test("activity auto export catches up every missing date in calendar order", () => {
