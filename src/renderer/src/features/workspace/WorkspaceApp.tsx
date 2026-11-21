@@ -100,8 +100,12 @@ import type {
 import { collectionKeyForEntityType } from "../../../../shared/entityRegistry.mjs";
 import { flushPendingNoteDraftSaves } from "./lib/noteDraftFlushRegistry";
 import { IconCheck } from "@tabler/icons-react";
-import { DECISION_HOLD_MS } from "./lib/heldDecisions";
-import { startProposalDecisions } from "./lib/proposalDecisions";
+import { DECISION_HOLD_MS } from "../../utils/heldDecisions";
+import {
+  dismissDecisionNotice,
+  startProposalDecisions,
+  useProposalDecisionStore,
+} from "./lib/proposalDecisions";
 import { projectWorkspaceData } from "./lib/workspaceProjection";
 import {
   buildDerivedFromDocumentCompanion,
@@ -211,6 +215,7 @@ export function WorkspaceApp() {
   const toastUndo = useUiStore((state) => state.toastUndo);
   const toastMark = useUiStore((state) => state.toastMark);
   const toastKey = useUiStore((state) => state.toastKey);
+  const decisionNotices = useProposalDecisionStore((state) => state.notices);
   const setToast = useUiStore((state) => state.setToast);
   const themeMode = useUiStore((state) => state.themeMode);
   const setThemeMode = useUiStore((state) => state.setThemeMode);
@@ -462,9 +467,8 @@ export function WorkspaceApp() {
 
   // 5 秒の間に窓を閉じて送れなかった提案の決定を、本体の窓で読み込んだ後に送る（#774）。
   useEffect(() => {
-    if (loadState === "success" && windowMode.kind === "main")
-      startProposalDecisions((message, tone) => setToast(message, tone));
-  }, [loadState, windowMode.kind, setToast]);
+    if (loadState === "success" && windowMode.kind === "main") startProposalDecisions();
+  }, [loadState, windowMode.kind]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
@@ -2493,6 +2497,27 @@ export function WorkspaceApp() {
                 setToast={setToast}
               />
             </Suspense>
+          )}
+          {/*
+            提案の決定が断られた・完了できなかった知らせ（#774）。帯（トースト）とは別の場所に積み、
+            帯の「取り消す」を消さず、帯に隠されもしない。本人が閉じるまで残す。
+          */}
+          {decisionNotices.length > 0 && (
+            <div className={`decision-notices${toast ? " has-toast" : ""}`}>
+              {decisionNotices.map((notice) => (
+                <div
+                  key={notice.id}
+                  className={`toast is-${notice.tone}`}
+                  role={notice.tone === "danger" ? "alert" : "status"}
+                >
+                  <span className="toast-icon" aria-hidden="true">
+                    {toastIcon(notice.tone)}
+                  </span>
+                  <span className="toast-message">{notice.message}</span>
+                  <button onClick={() => dismissDecisionNotice(notice.id)}>閉じる</button>
+                </div>
+              ))}
+            </div>
           )}
           {toast && (
             <div
