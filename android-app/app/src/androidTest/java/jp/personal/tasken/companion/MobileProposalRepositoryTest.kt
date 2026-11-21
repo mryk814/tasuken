@@ -5,6 +5,8 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.IOException
+import java.time.Duration
+import java.time.Instant
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -91,7 +93,7 @@ class MobileProposalRepositoryTest {
 
         online = true
         val result = repository.reviewTaskWorkProposal(remote, "accept")
-        assertEquals(MobileProposalReviewResult.Queued(remote.id, "accept"), result)
+        assertQueued(remote.id, "accept", result)
         // 答えは列に積むだけで、送るのは列の送り手。
         assertEquals(null, postedDecision)
         repository.synchronizeIfPaired()
@@ -133,7 +135,7 @@ class MobileProposalRepositoryTest {
         assertEquals(0, postCount)
 
         val rejected = repository.reviewTaskWorkProposal(proposal, "reject")
-        assertEquals(MobileProposalReviewResult.Queued(proposal.id, "reject"), rejected)
+        assertQueued(proposal.id, "reject", rejected)
         repository.synchronizeIfPaired()
         assertEquals(1, postCount)
     }
@@ -151,8 +153,14 @@ class MobileProposalRepositoryTest {
     private val desktopDecisions = linkedMapOf<String, String>()
     private val postedDecisionBodies = mutableListOf<String>()
     private var scheduled = 0
+    /** 取り消しの待ちが明けた後に送り手を起こすよう頼まれた答え（commandId と待ち）。 */
+    private val scheduledAfter = mutableListOf<Pair<String, Duration>>()
 
-    private fun outboxRepository(): AndroidMobileTaskRepository = AndroidMobileTaskRepository(
+    /**
+     * [held] が false なら、答えを 5 秒前に積んだことにする（取り消しの待ちを越えた答えとして、すぐ送れる）。
+     * true なら今の時刻で積み、待ちの間の答えになる（#774）。
+     */
+    private fun outboxRepository(held: Boolean = false): AndroidMobileTaskRepository = AndroidMobileTaskRepository(
         context = context,
         store = store,
         database = database,
@@ -173,6 +181,8 @@ class MobileProposalRepositoryTest {
             }
         },
         scheduleOutbox = { scheduled += 1 },
+        scheduleOutboxAfter = { key, delay -> scheduledAfter += key to delay },
+        proposalDecisionNow = { if (held) Instant.now() else Instant.now().minusMillis(PROPOSAL_DECISION_HOLD_MILLIS) },
     )
 
     private fun desktopDecision(body: String): GatewayHttpResponse {
@@ -215,12 +225,12 @@ class MobileProposalRepositoryTest {
         val proposal = cachedProposal(repository)
         desktopOnline = false
 
-        assertEquals(MobileProposalReviewResult.Queued(proposal.id, "accept"), repository.reviewTaskWorkProposal(proposal, "accept"))
+        assertQueued(proposal.id, "accept", repository.reviewTaskWorkProposal(proposal, "accept"))
         val queued = repository.observeProposalDecisions().first().single()
         assertEquals(proposal.id to "accept", queued.proposalId to queued.decision)
         assertEquals(OutboxState.Pending, queued.state)
         assertEquals(1, dao.pendingCount())
-        assertEquals(1, scheduled)
+        assertEquals(listOf(queued.commandId to Duration.ofMillis(PROPOSAL_DECISION_HOLD_MILLIS)), scheduledAfter)
 
         // つながらない間は、送ろうとしても端末に残る。
         assertFalse(repository.synchronizeIfPaired())
@@ -309,7 +319,7 @@ class MobileProposalRepositoryTest {
         val renewed = repository.observeCachedTaskWorkProposals().first().single()
         assertEquals(2, renewed.version)
 
-        assertEquals(MobileProposalReviewResult.Queued(renewed.id, "accept"), repository.reviewTaskWorkProposal(renewed, "accept"))
+        assertQueued(renewed.id, "accept", repository.reviewTaskWorkProposal(renewed, "accept"))
         val replacing = repository.observeProposalDecisions().first().single()
         assertFalse(replacing.returned)
         assertTrue(replacing.commandId != returned.commandId)
@@ -363,6 +373,60 @@ class MobileProposalRepositoryTest {
         assertEquals(listOf("replacement"), dao.proposalDecisions().map { it.commandId })
     }
 
+    // ---- 積んでから 5 秒は送らず、その間の「取り消す」で何も送らずに消せる（#774）。 ----
+
+    @Test
+    fun aJustPressedAnswerIsNotSentAndAWakeIsScheduledForWhenTheWaitEnds() = runBlocking {
+        val repository = outboxRepository(held = true)
+        val proposal = cachedProposal(repository)
+
+        assertQueued(proposal.id, "accept", repository.reviewTaskWorkProposal(proposal, "accept"))
+        val queued = repository.observeProposalDecisions().first().single()
+        assertEquals(listOf(queued.commandId to Duration.ofMillis(PROPOSAL_DECISION_HOLD_MILLIS)), scheduledAfter)
+
+        // つながっていても、待ちの間は送り手が取らない。
+        repository.synchronizeIfPaired()
+        assertTrue(postedDecisionBodies.isEmpty())
+        val waiting = requireNotNull(dao.outbox(queued.commandId))
+        assertEquals(OutboxState.Pending to 0, waiting.state to waiting.attemptCount)
+    }
+
+    @Test
+    fun undoWithinTheWaitRemovesTheAnswerAndNothingIsSent() = runBlocking {
+        val repository = outboxRepository(held = true)
+        val proposal = cachedProposal(repository)
+        repository.reviewTaskWorkProposal(proposal, "reject")
+        val queued = repository.observeProposalDecisions().first().single()
+
+        assertTrue(repository.undoProposalDecision(queued.commandId))
+        repository.synchronizeIfPaired()
+
+        assertTrue(postedDecisionBodies.isEmpty())
+        assertTrue(desktopDecisions.isEmpty())
+        assertEquals(0, dao.outboxCount())
+        // 提案は未決のまま残り、もう一度答えられる。
+        assertEquals(proposal.id, repository.observeCachedTaskWorkProposals().first().single().id)
+    }
+
+    @Test
+    fun undoAfterTheSenderTookTheAnswerFailsAndKeepsIt() = runBlocking {
+        val repository = outboxRepository()
+        val proposal = cachedProposal(repository)
+        repository.reviewTaskWorkProposal(proposal, "accept")
+        val queued = repository.observeProposalDecisions().first().single()
+        // Desktop は決めたが応答を失った。答えは送り直しを待つ。
+        dropNextDecisionReceipt = true
+        repository.synchronizeIfPaired()
+        assertEquals(OutboxState.RetryWait, repository.observeProposalDecisions().first().single().state)
+
+        assertFalse(repository.undoProposalDecision(queued.commandId))
+        assertEquals(queued.commandId, repository.observeProposalDecisions().first().single().commandId)
+
+        repository.synchronizeIfPaired()
+        assertEquals(1, desktopDecisions.size)
+        assertEquals(0, dao.outboxCount())
+    }
+
     private fun metaJson(): String =
         """{"apiVersion":1,"schemaVersion":$TASKEN_MOBILE_SCHEMA_VERSION,"serverId":"server-1",""" +
             """"serverRevision":43,"generatedAt":"2026-08-22T02:01:00Z","truncated":false}"""
@@ -381,7 +445,15 @@ class MobileProposalRepositoryTest {
             assertEquals("p".repeat(43), token)
             response(path, method, body)
         },
+        // 答えは取り消しの待ちを越えた物として積み、試験の中の送り手ですぐ送る。
+        scheduleOutboxAfter = { _, _ -> },
+        proposalDecisionNow = { Instant.now().minusMillis(PROPOSAL_DECISION_HOLD_MILLIS) },
     )
+
+    private fun assertQueued(proposalId: String, decision: String, result: MobileProposalReviewResult) {
+        val queued = result as MobileProposalReviewResult.Queued
+        assertEquals(proposalId to decision, queued.proposalId to queued.decision)
+    }
 
     private fun proposalsResponse(proposals: List<String>): String =
         """

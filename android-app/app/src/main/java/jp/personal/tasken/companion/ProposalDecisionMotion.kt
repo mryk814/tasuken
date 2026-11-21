@@ -310,11 +310,11 @@ internal fun DecisionBand(
                         Text("取り消す", fontWeight = FontWeight.Bold)
                     }
                 }
-                val left = remember(current.key) {
+                val left = remember(current.commandId) {
                     val elapsed = (System.currentTimeMillis() - current.pressedAtMillis).coerceIn(0L, holdMillis)
                     Animatable(1f - elapsed.toFloat() / holdMillis)
                 }
-                LaunchedEffect(current.key, reduceMotion) {
+                LaunchedEffect(current.commandId, reduceMotion) {
                     if (!reduceMotion) left.animateTo(0f, tween((left.value * holdMillis).toInt(), easing = LinearEasing))
                 }
                 val ink = LocalContentColor.current

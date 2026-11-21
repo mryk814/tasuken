@@ -831,7 +831,7 @@ internal fun TodayApp(
             ) {
                 DecisionBand(
                     band = decisionBand,
-                    onUndo = { todayViewModel.undoProposalDecision(it.key) },
+                    onUndo = todayViewModel::undoProposalDecision,
                 )
                 SnackbarHost(snackbarHostState, modifier = Modifier.testTag("top-snackbar-host"))
             }
@@ -2926,43 +2926,32 @@ private fun TaskWorkProposalReviewCard(
                     fontSize = 12.sp,
                 )
             }
-            // 答えは端末の送信の列に積むので、圏外でも押せる。届くまでは押した答えを割印（未送信）と並べて出し、
+            // 答えは端末の送信の列に積むので、圏外でも押せる。積んだ答えのカードは判・流れの動きで外れ（#774）、
             // 届けば提案ごと消える。受け取られなかった答えは戻りの印と理由を出し、提案がまだ答えを待っていれば
             // もう一度答えられる（その時に前の答えを置き換える）。
-            if (decision != null && !decision.returned) {
-                Row(
-                    modifier = Modifier.testTag("proposal-decision-pending-${proposal.id}"),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+            // 外れていく動きの間はボタンの見た目を変えず、押しても答えを重ねない。
+            val queued = decision != null && !decision.returned
+            decision?.takeIf { it.returned }?.let { ReturnedProposalDecisionNote(it, onDiscard) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                // 古い提案は採れない（見送ることはできる）。
+                Button(
+                    onClick = { if (!queued) onDecision(proposal, "accept") },
+                    enabled = !proposal.stale && !reviewing,
+                    modifier = Modifier.widthIn(min = 88.dp).testTag("proposal-approve-${proposal.id}"),
                 ) {
-                    OflWari()
-                    Text(proposalDecisionLabel(decision.decision), fontWeight = FontWeight.SemiBold)
+                    Text(if (reviewing && reviewState.decision == "accept") "処理中" else "採る")
                 }
-            } else {
-                decision?.let { ReturnedProposalDecisionNote(it, onDiscard) }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    // 古い提案は採れない（見送ることはできる）。
-                    Button(
-                        onClick = { onDecision(proposal, "accept") },
-                        enabled = !proposal.stale && !reviewing,
-                        modifier = Modifier.widthIn(min = 88.dp).testTag("proposal-approve-${proposal.id}"),
-                    ) {
-                        Text(if (reviewing && reviewState.decision == "accept") "処理中" else "採る")
-                    }
-                    TextButton(
-                        onClick = { onDecision(proposal, "reject") },
-                        enabled = !reviewing,
-                        modifier = Modifier.widthIn(min = 88.dp).testTag("proposal-reject-${proposal.id}"),
-                    ) {
-                        Text(if (reviewing && reviewState.decision == "reject") "処理中" else "見送る")
-                    }
+                TextButton(
+                    onClick = { if (!queued) onDecision(proposal, "reject") },
+                    enabled = !reviewing,
+                    modifier = Modifier.widthIn(min = 88.dp).testTag("proposal-reject-${proposal.id}"),
+                ) {
+                    Text(if (reviewing && reviewState.decision == "reject") "処理中" else "見送る")
                 }
             }
         }
     }
 }
-
-private fun proposalDecisionLabel(decision: String): String = if (decision == "accept") "採る" else "見送る"
 
 /** 受け取られなかった答え。戻りの印と、何が届かなかったか・理由を出し、本人が閉じられる。 */
 @Composable

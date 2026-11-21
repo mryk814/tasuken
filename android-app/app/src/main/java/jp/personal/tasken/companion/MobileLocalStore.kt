@@ -691,6 +691,16 @@ abstract class MobileLocalDao {
     abstract suspend fun discardReturnedProposalDecision(commandId: String): Int
 
     /**
+     * 帯の「取り消す」（#774）。送り手がまだ一度も取っていない答え（pending で試した回数 0）だけを消す。
+     * 条件と削除が 1 文なので、送り手の claimNext（同じ行を sending にする UPDATE）とは、どちらか一方だけが効く。
+     */
+    @Query(
+        "DELETE FROM outbox_command WHERE commandId = :commandId AND commandName = 'ApplyTaskWorkProposal' " +
+            "AND state = 'pending' AND attemptCount = 0",
+    )
+    abstract suspend fun undoUnsentProposalDecision(commandId: String): Int
+
+    /**
      * 答えを積む。同じ提案への、受け取られなかった前の答え（[replacing]）は同じ取引で置き換える。
      * 前の答えを本人がちょうど閉じていた時は、もう無いのでそのまま積む（置き換える物が無いだけ）。
      */
@@ -2112,7 +2122,12 @@ abstract class MobileLocalDao {
         skipped: Set<String> = emptySet(),
     ): OutboxCommandEntity? {
         require(serverId.isNotBlank())
-        val chosen = nextSendableCommand(unfinishedOutboxForOrdering(), serverId, skipped) ?: return null
+        val chosen = nextSendableCommand(
+            unfinishedOutboxForOrdering(),
+            serverId,
+            skipped,
+            now = java.time.Instant.parse(attemptedAt),
+        ) ?: return null
         val command = outbox(chosen.commandId) ?: return null
         return if (markSending(command.commandId, serverId, attemptedAt) == 1) {
             command.copy(

@@ -21,8 +21,8 @@ import org.junit.Rule
 import org.junit.Test
 
 /**
- * 提案への答えの見え方（#816）。答えは送信の列に積むので、圏外でも元のボタンのまま押せる。押した後の送る途中
- * （未送信の印）、受け取られなかった答え（戻りの印と理由）、提案が無くなった後に Task に残る答えを撮る。
+ * 提案への答えの見え方（#816）。答えは送信の列に積むので、圏外でも元のボタンのまま押せる。押す前、
+ * 受け取られなかった答え（戻りの印と理由）、提案が無くなった後に Task に残る答えを撮る。
  * 撮った物は `files/offline-look` に残る（取り出し方は OfflineLookCaptureTest の頭）。
  */
 class ProposalOfflineLookCaptureTest {
@@ -53,10 +53,7 @@ class ProposalOfflineLookCaptureTest {
         composeRule.onNodeWithTag("proposal-reject-${proposal.id}").performScrollTo()
         capture("proposal-answer-ready-$suffix")
 
-        decisions.value = listOf(decision(proposal, OutboxState.Pending))
-        composeRule.onNodeWithTag("proposal-decision-pending-${proposal.id}").performScrollTo().assertIsDisplayed()
-        capture("proposal-answer-pending-$suffix")
-
+        // 送る途中の答えのカードは外れて見えない（#774。動きは ProposalDecisionLookCaptureTest で撮る）。
         val returned = decision(proposal, OutboxState.Rejected)
         decisions.value = listOf(returned)
         composeRule.onNodeWithTag("proposal-decision-returned-${returned.commandId}").performScrollTo().assertIsDisplayed()
