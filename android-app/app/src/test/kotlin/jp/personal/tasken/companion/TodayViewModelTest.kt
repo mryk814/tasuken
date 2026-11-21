@@ -824,7 +824,7 @@ class TodayViewModelTest {
                 decision: String,
             ): MobileProposalReviewResult {
                 received = proposal.id to decision
-                return MobileProposalReviewResult.Queued(proposal.id, decision)
+                return MobileProposalReviewResult.Queued(proposal.id, decision, "command-1")
             }
         }
         val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)
@@ -836,54 +836,71 @@ class TodayViewModelTest {
         }
 
         assertEquals(proposal.id to "accept", received)
-        // 積んだ答えは提案の札の印で見せるので、言葉の知らせは出さない。
+        // 積んだ答えは帯が言うので、知らせ（snackbar）は出さない（#774）。
+        assertEquals(ProposalReviewUiState.Idle, viewModel.proposalReviewState.value)
+        val band = requireNotNull(viewModel.decisionBand.value)
+        assertEquals(Triple("command-1", proposal.id, "accept"), Triple(band.commandId, band.proposalId, band.decision))
+    }
+
+    /** 列の答えを試験が持つ Desktop 窓口。取り消しは [undoable] の時だけ列から消せる。 */
+    private class QueueingGateway(private val undoable: Boolean) : MobileGatewayRepository {
+        val rows = MutableStateFlow<List<MobileProposalDecision>>(emptyList())
+        val undone = mutableListOf<String>()
+        override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-23T00:00:00Z")
+        override fun configuration() = MobileGatewayConfiguration("https://gateway.test", paired = true)
+        override fun pair(origin: String, pairingCode: String) = loadToday()
+        override fun retryPairing() = MobileTodayResult.PairingRequired()
+        override suspend fun reviewTaskWorkProposal(
+            proposal: MobileTaskWorkProposal,
+            decision: String,
+        ): MobileProposalReviewResult {
+            rows.value = listOf(MobileProposalDecision("command-1", proposal.id, proposal.taskId, decision, OutboxState.Pending, null))
+            return MobileProposalReviewResult.Queued(proposal.id, decision, "command-1")
+        }
+        override fun observeProposalDecisions(): Flow<List<MobileProposalDecision>> = rows
+        override suspend fun undoProposalDecision(commandId: String): Boolean {
+            if (!undoable) return false
+            undone += commandId
+            rows.value = emptyList()
+            return true
+        }
+    }
+
+    private suspend fun waitUntil(condition: () -> Boolean) = withTimeout(3_000) { while (!condition()) delay(10) }
+
+    /** 押した答えはカードを外し、5 秒の間の「取り消す」で列から消えてカードが戻る（#774）。 */
+    @Test
+    fun undoWithinTheHoldRemovesTheAnswerAndBringsTheCardBack() = runBlocking {
+        val gateway = QueueingGateway(undoable = true)
+        val viewModel = TodayViewModel(gateway, Dispatchers.Default)
+        val proposal = sampleProposal()
+
+        viewModel.reviewTaskWorkProposalNow(proposal, "reject")
+        waitUntil { viewModel.decidedProposals.value == mapOf(proposal.id to "reject") }
+        val band = requireNotNull(viewModel.decisionBand.value)
+
+        assertTrue(viewModel.undoProposalDecisionNow(band))
+        waitUntil { viewModel.decidedProposals.value.isEmpty() }
+        assertEquals(listOf("command-1"), gateway.undone)
+        assertNull(viewModel.decisionBand.value)
         assertEquals(ProposalReviewUiState.Idle, viewModel.proposalReviewState.value)
     }
 
-    /**
-     * 採るを押した後の 5 秒の間に読み直し（引いて更新・回転・画面に戻る）が起きても、決定は捨てずに送る（#774）。
-     * 読み直しの間は「つながっていない」の値になるが、切れたのではない。
-     */
+    /** 送り手がもう取った答えは取り消せない。取り消したふりをせず、そう知らせ、カードは外したまま（#774）。 */
     @Test
-    fun aReloadDuringTheHoldStillSendsTheDecision() = runBlocking {
-        val reviewed = AtomicInteger()
-        val reloads = AtomicInteger()
-        val reloadAnswer = CompletableDeferred<Boolean>()
-        val repository = object : MobileGatewayRepository {
-            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-23T00:00:00Z")
-            override fun configuration() = MobileGatewayConfiguration("https://gateway.test", paired = true)
-            override fun pair(origin: String, pairingCode: String) = loadToday()
-            override fun retryPairing() = MobileTodayResult.PairingRequired()
-            override suspend fun refreshTaskWorkProposals(): Boolean =
-                if (reloads.incrementAndGet() == 1) true else reloadAnswer.await()
-            override suspend fun reviewTaskWorkProposal(
-                proposal: MobileTaskWorkProposal,
-                decision: String,
-            ): MobileProposalReviewResult {
-                reviewed.incrementAndGet()
-                return MobileProposalReviewResult.Applied(proposal.id, decision)
-            }
-        }
-        val viewModel = TodayViewModel(
-            repository,
-            Dispatchers.Default,
-            proposalHoldMillis = 300,
-            decisionContext = Dispatchers.Default,
-        )
-        viewModel.loadNow()
-        withTimeout(3_000) { viewModel.proposalReviewOnline.first { it } }
+    fun undoAfterTheSendStartedSaysItWasAlreadySent() = runBlocking {
+        val gateway = QueueingGateway(undoable = false)
+        val viewModel = TodayViewModel(gateway, Dispatchers.Default)
+        val proposal = sampleProposal()
 
-        viewModel.decideTaskWorkProposal(sampleProposal(), "accept")
-        val reload = launch(Dispatchers.Default) { viewModel.loadNow() }
-        withTimeout(3_000) { viewModel.proposalRefreshing.first { it } }
-        delay(500)
-        reloadAnswer.complete(true)
-        reload.join()
-        withTimeout(3_000) { while (reviewed.get() == 0) delay(10) }
+        viewModel.reviewTaskWorkProposalNow(proposal, "accept")
+        waitUntil { viewModel.decidedProposals.value == mapOf(proposal.id to "accept") }
 
-        assertEquals(1, reviewed.get())
-        assertEquals(ProposalReviewUiState.Applied(sampleProposal().id, "accept"), viewModel.proposalReviewState.value)
-        assertEquals(mapOf(sampleProposal().id to "accept"), viewModel.decidedProposals.value)
+        assertEquals(false, viewModel.undoProposalDecisionNow(requireNotNull(viewModel.decisionBand.value)))
+        val error = viewModel.proposalReviewState.value as ProposalReviewUiState.Error
+        assertTrue(error.message.contains("取り消せませんでした"))
+        assertNull(viewModel.decisionBand.value)
+        assertEquals(mapOf(proposal.id to "accept"), viewModel.decidedProposals.value)
     }
 
     @Test
@@ -900,7 +917,7 @@ class TodayViewModelTest {
                 decision: String,
             ): MobileProposalReviewResult {
                 calls += 1
-                return MobileProposalReviewResult.Queued(proposal.id, decision)
+                return MobileProposalReviewResult.Queued(proposal.id, decision, "command-1")
             }
         }
         val viewModel = TodayViewModel(repository, Dispatchers.Unconfined)

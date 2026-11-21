@@ -1571,6 +1571,28 @@ object MobileOutboxScheduler {
     }
 
     /**
+     * [delay] の後に送り手を起こす（提案への答えの取り消しの待ちが明けた時。#774）。答えごとに別の名前にするのは、
+     * 同じ名前だと KEEP では後の答えの起こしが捨てられ、REPLACE では送っている最中の送り手を止めてしまうため。
+     * つながっていなければ、待ちが明けた後のつながった時に動く。
+     */
+    fun enqueueAfter(context: Context, key: String, delay: Duration) {
+        val request = OneTimeWorkRequestBuilder<MobileOutboxWorker>()
+            .setInitialDelay(delay.plus(HeldWakeMargin))
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(10))
+            .build()
+        WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+            "$HeldWorkNamePrefix$key",
+            ExistingWorkPolicy.KEEP,
+            request,
+        )
+    }
+
+    private const val HeldWorkNamePrefix = "tasken-mobile-outbox-held-"
+    /** 待ちの終わりちょうどに起きると、時計の差で答えがまだ待ちに見えることがあるので、少し遅らせる。 */
+    private val HeldWakeMargin: Duration = Duration.ofMillis(500)
+
+    /**
      * 次に自動で送る時刻（エポックのミリ秒。分からなければ null）。同期の画面の「次は 12:45」に使う。
      * 命令ごとの次の時刻は DB に持たず、送信を動かしている WorkManager の予定（失敗の後の待ちと、15 分ごとの定期）から読む。
      * 通信の条件が満たされない間は、この時刻が来ても動かない。過ぎた時刻は画面の側で出さない。

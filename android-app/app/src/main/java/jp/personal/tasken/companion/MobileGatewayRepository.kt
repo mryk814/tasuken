@@ -227,6 +227,12 @@ class AndroidMobileTaskRepository(
     private val processInstanceId: String = MOBILE_PROCESS_INSTANCE_ID,
     /** 列に積んだ後に送り手を起こす。試験では止めて、送る時を試験が決める。 */
     private val scheduleOutbox: () -> Unit = { MobileOutboxScheduler.enqueue(context) },
+    /** 提案への答えの取り消しの待ちが明けた後に送り手を起こす（#774）。試験では止めて、送る時を試験が決める。 */
+    private val scheduleOutboxAfter: (key: String, delay: java.time.Duration) -> Unit = { key, delay ->
+        MobileOutboxScheduler.enqueueAfter(context, key, delay)
+    },
+    /** 提案への答えを積む時刻。試験は過去にずらして、取り消しの待ちを越えた答えにできる。 */
+    private val proposalDecisionNow: () -> Instant = Instant::now,
 ) : MobileGatewayRepository, MobileOfflineTaskRepository, MobileWorkLogRepository, MobileRecallRepository, MobileRelatedDocumentsRepository, MobileThemeContextRepository, MobileLocalSearchRepository {
     private val json = Json { ignoreUnknownKeys = false }
     private val dao = database.mobileDao()
@@ -237,7 +243,8 @@ class AndroidMobileTaskRepository(
     private val photoStore = MobileCapturePhotoStore(context.applicationContext)
     private val workLogOutbox = MobileWorkLogOutbox(dao, store::deviceId, { MobileOutboxScheduler.enqueue(context) })
     private val routineOutbox = MobileRoutineOutbox(dao, store::deviceId, scheduleOutbox)
-    private val proposalDecisionOutbox = MobileProposalDecisionOutbox(dao, store::deviceId, scheduleOutbox)
+    private val proposalDecisionOutbox =
+        MobileProposalDecisionOutbox(dao, store::deviceId, scheduleOutboxAfter, proposalDecisionNow)
     private val recallReader = MobileRecallReader(dao) { path ->
         val configuration = store.configuration()
         val token = requireNotNull(store.readToken()) { "Desktopへの接続を確認してください。端末の記録を表示しています。" }
@@ -624,6 +631,16 @@ class AndroidMobileTaskRepository(
         combine(dao.observeProposalDecisions(), dao.observeSyncState()) { rows, syncState ->
             rows.filter { it.serverId == syncState?.serverId }.mapNotNull { it.toProposalDecision() }
         }.distinctUntilChanged()
+
+    override suspend fun undoProposalDecision(commandId: String): Boolean = try {
+        proposalDecisionOutbox.undo(commandId)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        // 消せたか分からない時は「取り消せなかった」と言う（答えは列に残り、送られる）。
+        Log.w(MOBILE_GATEWAY_LOG_TAG, "Proposal decision could not be undone", error)
+        false
+    }
 
     override suspend fun discardProposalDecision(commandId: String): Boolean = try {
         proposalDecisionOutbox.discard(commandId)

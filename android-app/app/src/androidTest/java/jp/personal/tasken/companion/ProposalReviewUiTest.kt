@@ -1,6 +1,7 @@
 package jp.personal.tasken.companion
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -66,10 +67,15 @@ class ProposalReviewUiTest {
         assertEquals(listOf("reject"), decisions)
     }
 
-    /** 送る途中の答えは、押した答えを未送信の印と並べて出し、もう一度は押させない（#816）。 */
+    /**
+     * 送る途中の答え（取り消しの待ちの間も、届くまでも）のカードは外れて見えない（#774）。
+     * 外れていく動きの間に押しても、答えを重ねない。
+     */
     @Test
-    fun aQueuedAnswerShowsTheUnsentMarkInsteadOfTheButtons() {
+    fun aQueuedAnswerTakesTheCardOutAndCannotBePressedAgain() {
+        val decisions = mutableListOf<String>()
         val proposal = proposal()
+        val decided = mutableStateOf<Map<String, String>>(emptyMap())
         composeRule.setContent {
             MaterialTheme {
                 TodayDetailPane(
@@ -77,15 +83,22 @@ class ProposalReviewUiTest {
                     actionState = TaskActionUiState.Idle,
                     taskWorkProposals = listOf(proposal),
                     proposalDecisions = listOf(decision(proposal, state = OutboxState.Pending)),
+                    decidedProposals = decided.value,
                     onStateAction = {},
+                    onProposalDecision = { _, decision -> decisions += decision },
                 )
             }
         }
 
-        composeRule.onNodeWithTag("proposal-decision-pending-${proposal.id}").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("採る").assertIsDisplayed()
-        composeRule.onNodeWithTag("proposal-approve-${proposal.id}").assertDoesNotExist()
-        composeRule.onNodeWithTag("proposal-reject-${proposal.id}").assertDoesNotExist()
+        // 列の答えが画面に届く前（外す前）でも、もう一度は押させない。
+        composeRule.onNodeWithTag("proposal-approve-${proposal.id}").performScrollTo().performClick()
+        assertEquals(emptyList<String>(), decisions)
+
+        decided.value = mapOf(proposal.id to "accept")
+        // 判が降りて止まり、薄れて詰まるまで（動きを減らす設定でも 500ms 置く）。
+        composeRule.mainClock.advanceTimeBy(2_000)
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("proposal-detail-${proposal.id}").assertDoesNotExist()
     }
 
     /** 受け取られなかった答えは理由と一緒に残り、提案がまだ待っていれば、もう一度答えられ、閉じられる。 */

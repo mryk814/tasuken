@@ -20,11 +20,16 @@ private val sendableStates = setOf(OutboxState.Pending, OutboxState.RetryWait)
  *
  * Among commands free to go, the least recently tried goes first: never-tried commands keep creation
  * order, and a command that failed last time no longer opens every round.
+ *
+ * A proposal decision is not taken during its undo window (isHeldProposalDecision, measured against [now]).
+ * It has no target, so while it waits it holds nothing else back. claimNext always passes the attempt time;
+ * without [now] nothing is held.
  */
 internal fun nextSendableCommand(
     unfinished: List<OutboxCommandEntity>,
     serverId: String,
     skipped: Set<String> = emptySet(),
+    now: java.time.Instant? = null,
 ): OutboxCommandEntity? {
     val open = unfinished.filter { it.state in unfinishedStates }
     val byId = open.associateBy(OutboxCommandEntity::commandId)
@@ -67,7 +72,8 @@ internal fun nextSendableCommand(
 
     return open.filter { command ->
         command.serverId == serverId && command.state in sendableStates && command.dependsOnCommandId == null &&
-            command.commandId !in skipped && !heldBack(command)
+            command.commandId !in skipped && !heldBack(command) &&
+            (now == null || !command.isHeldProposalDecision(now))
     }.minWithOrNull(
         compareBy<OutboxCommandEntity, String?>(nullsFirst()) { it.lastAttemptAt }
             .thenBy { it.createdAt }

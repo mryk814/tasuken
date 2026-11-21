@@ -49,13 +49,12 @@ class ProposalDecisionLookCaptureTest {
                             task = task(),
                             actionState = TaskActionUiState.Idle,
                             taskWorkProposals = listOf(proposal),
-                            proposalReviewOnline = true,
                             decidedProposals = decided.value,
                             onStateAction = {},
                             onProposalDecision = { target, decision ->
                                 pressed += decision
                                 decided.value = decided.value + (target.id to decision)
-                                band.value = HeldProposalDecision(pressed.size.toLong(), target.id, decision, System.currentTimeMillis())
+                                band.value = HeldProposalDecision("command-${pressed.size}", target.id, decision, System.currentTimeMillis())
                             },
                         )
                         DecisionBand(
