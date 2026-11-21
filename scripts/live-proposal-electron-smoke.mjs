@@ -371,6 +371,9 @@ try {
     { timeout: 15_000 },
   );
   await captureWorkReport(page, "report-conflict");
+  // 採れなかった知らせは本人が閉じるまで残る（#774）。読んだので閉じ、後の確かめに混ぜない。
+  for (const close of await page.locator(".decision-notices button").all()) await close.click();
+  await page.locator(".decision-notices").waitFor({ state: "detached" });
   await page.evaluate(async (summary) => {
     const proposals = await window.api.entities.list("ai_proposal");
     const proposal = proposals.find(
