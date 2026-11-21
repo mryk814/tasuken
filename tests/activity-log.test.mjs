@@ -211,6 +211,12 @@ test("Activity Log always goes to the Tasken root Activity folder (#810)", () =>
   assert.equal(activityLogDirectory.activityLogDirectoryFor("/workspace"), "/workspace/Activity");
   assert.equal(activityLogDirectory.activityLogDirectoryFor("/"), "/Activity");
   assert.equal(activityLogDirectory.activityLogDirectoryFor(""), "");
+  // 前の版の個別指定は、ルートを設定していない端末でだけ使う（自動出力を止めないため）。
+  assert.equal(activityLogDirectory.activityLogDirectoryFor("", "D:\\Journal"), "D:\\Journal");
+  assert.equal(
+    activityLogDirectory.activityLogDirectoryFor("D:\\Tasken", "D:\\Journal"),
+    "D:\\Tasken\\Activity",
+  );
   // 前の版の個別指定（activityLogDirectory）を受け取る口は無い。新しい書き出しに使わない。
   assert.equal(activityLogDirectory.resolveActivityLogDirectory, undefined);
 });

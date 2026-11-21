@@ -384,3 +384,23 @@ test("段 2 の知らせ: 最初の起動で該当が無ければ済ませ、後
   database.save("theme", { id: "theme-late", name: "後から", storage_root: "D:\\Late" });
   assert.equal(service.outsideRootNotice(), null);
 });
+
+test("段 2 の知らせ: ルートが未設定の端末では、まだ使う日誌の個別指定を知らせない（#810）", (t) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-root-notice-noroot-"));
+  const database = new WorkspaceDatabase(path.join(base, "tasken.sqlite"));
+  t.after(() => {
+    if (database.db.open) database.db.close();
+    fs.rmSync(base, { recursive: true, force: true });
+  });
+  database.setPreference("activityLogDirectory", "D:\\Journal");
+  database.save("theme", { id: "theme-a", name: "案件A", storage_root: "D:\\Projects\\A" });
+  const service = new TaskenRootService({
+    repository: database,
+    backupDirectory: () => "",
+    env: {},
+  });
+  assert.deepEqual(
+    service.outsideRootNotice().entries.map((entry) => entry.kind),
+    ["theme"],
+  );
+});

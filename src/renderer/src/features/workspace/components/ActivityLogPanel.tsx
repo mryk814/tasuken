@@ -470,10 +470,11 @@ export function ActivityLogPanel({
   useEffect(() => {
     void Promise.all([
       workspaceApi.getPreference("artifactDirectory"),
+      workspaceApi.getPreference("activityLogDirectory"),
       workspaceApi.getPreference("activityLogAutoExportTime"),
     ])
-      .then(([artifactDirectory, savedTime]) => {
-        setDirectory(activityLogDirectoryFor(artifactDirectory));
+      .then(([artifactDirectory, legacyDirectory, savedTime]) => {
+        setDirectory(activityLogDirectoryFor(artifactDirectory, legacyDirectory));
         if (typeof savedTime === "string" && savedTime) return setAutoExportTime(savedTime);
         const legacyTime = normalizeReminderSettings(
           findReminderSettingsView(data.views || []),

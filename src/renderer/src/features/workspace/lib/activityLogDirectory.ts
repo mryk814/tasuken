@@ -3,13 +3,16 @@ function text(value: unknown): string {
 }
 
 /**
- * 日誌（Activity Log）はいつも Tasken ルートの Activity に出す（#810。#803 の決めの 6）。
- * 前の版の個別指定（activityLogDirectory）は新しい書き出しに使わない。前に出した日誌は動かさず、
- * 設定の値も読めるまま残す。
+ * 日誌（Activity Log）の出力先（#810。#803 の決めの 6）。ルートがあれば、いつもルートの Activity。
+ * 前の版の個別指定（activityLogDirectory）は、ルートを設定していない端末でだけ使う。ルートが無い
+ * だけで毎日の自動出力を止めないため。前に出した日誌は動かさず、設定の値も読めるまま残す。
  */
-export function activityLogDirectoryFor(artifactDirectory: unknown): string {
+export function activityLogDirectoryFor(
+  artifactDirectory: unknown,
+  legacyDirectory: unknown = "",
+): string {
   const root = text(artifactDirectory);
-  if (!root) return "";
+  if (!root) return text(legacyDirectory);
   const separator = root.includes("\\") ? "\\" : "/";
   return `${root.replace(/[\\/]+$/, "")}${separator}Activity`;
 }
