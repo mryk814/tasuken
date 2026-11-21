@@ -998,6 +998,104 @@ class MobileOutboxDatabaseTest {
     }
 
     @Test
+    fun anOfflineDeadlineTimeSurvivesARestartAndIsSentOnce() = runBlocking {
+        // #785: つながらない間に付けた期限の時刻は、端末に先に残り、アプリを開き直しても 1 回だけ送られる。
+        val name = "schedule-time-restart-test.db"
+        context.deleteDatabase(name)
+        fun open() = Room.databaseBuilder(context, MobileLocalDatabase::class.java, name).allowMainThreadQueries().build()
+        fun outboxOf(dao: MobileLocalDao) = MobileOutbox(
+            context = context,
+            dao = dao,
+            deviceId = { "android-test-device" },
+            now = { Instant.parse("2026-08-22T01:02:03Z") },
+            schedule = {},
+        )
+        val taskId = "10000000-0000-4000-8000-000000000046"
+        val first = open()
+        first.mobileDao().upsertSyncState(activeSyncState())
+        first.mobileDao().upsertTask(
+            canonicalCachedTask(taskId, version = 4, state = "todo").copy(
+                scheduleId = "schedule-46", scheduleVersion = 2, scheduleEndDate = "2026-08-24",
+                scheduleDateKind = "deadline", scheduleConfidence = "fixed", scheduleGranularity = "day",
+            ),
+        )
+        val commandId = outboxOf(first.mobileDao()).enqueueUpdateSchedule(
+            taskId,
+            MobileTaskScheduleDraft(null, "2026-08-24", null, endTime = "02:00", notifyBeforeMinutes = 30),
+        )
+        first.close()
+
+        val second = open()
+        try {
+            val dao = second.mobileDao()
+            val cached = requireNotNull(dao.task(taskId))
+            assertEquals("02:00", cached.scheduleEndTime)
+            assertEquals(30, cached.scheduleNotifyBeforeMinutes)
+            // 知らせは写しだけから組む（つながらなくても 01:30 に鳴る）。
+            assertEquals(
+                java.time.LocalDateTime.of(2026, 8, 24, 1, 30),
+                TaskNotificationPlan.nextTriggerAt(listOf(cached.toNotifiableTask()), TaskNotificationPlan.DefaultDueTimes, java.time.LocalDateTime.of(2026, 8, 23, 12, 0), java.time.ZoneId.of("Asia/Tokyo")),
+            )
+            val sent = mutableListOf<String>()
+            val restarted = outboxOf(dao)
+            restarted.drain("server-1") { envelopeJson ->
+                sent += envelopeJson
+                MobileCommandSendResult.Applied(
+                    receipt(
+                        commandId, taskId, version = 5,
+                        schedule = scheduleDto("schedule-46", 3, null, "2026-08-24", null).copy(endTime = "02:00", notifyBeforeMinutes = 30),
+                    ),
+                )
+            }
+            restarted.drain("server-1") { envelopeJson -> sent += envelopeJson; error("送り直さない") }
+            assertEquals(1, sent.size)
+            val command = MobileTaskCommandContract.decodeUpdateEnvelope(sent.single()).command
+            assertEquals(2, command.expectedScheduleVersion)
+            assertEquals("02:00", command.changes.getValue("schedule").jsonObject.getValue("endTime").jsonPrimitive.content)
+            assertEquals(30, command.changes.getValue("schedule").jsonObject.getValue("notifyBeforeMinutes").jsonPrimitive.content.toInt())
+            assertEquals(JsonNull, command.base.getValue("schedule").jsonObject.getValue("endTime"))
+            assertNull(dao.outbox(commandId))
+            assertEquals("02:00", dao.task(taskId)?.scheduleEndTime)
+            assertEquals(3, dao.task(taskId)?.scheduleVersion)
+        } finally {
+            second.close()
+            context.deleteDatabase(name)
+        }
+    }
+
+    @Test
+    fun anOldDesktopRejectingTheTimeKeepsTheLocalTimeAndTheCommand() = runBlocking {
+        val taskId = "10000000-0000-4000-8000-000000000047"
+        dao.upsertTask(
+            canonicalCachedTask(taskId, version = 4, state = "todo").copy(
+                scheduleId = "schedule-47", scheduleVersion = 2, scheduleEndDate = "2026-08-24",
+                scheduleDateKind = "deadline", scheduleConfidence = "fixed", scheduleGranularity = "day",
+            ),
+        )
+        val commandId = outbox.enqueueUpdateSchedule(
+            taskId,
+            MobileTaskScheduleDraft(null, "2026-08-24", null, endTime = "23:59", notifyBeforeMinutes = 0),
+        )
+        outbox.drain("server-1") { MobileCommandSendResult.Rejected("capability_unavailable", SCHEDULE_TIME_UPDATE_REQUIRED) }
+        val command = requireNotNull(dao.outbox(commandId))
+        assertEquals(OutboxState.Rejected, command.state)
+        assertTrue(requireNotNull(command.lastError).contains("時刻の同期にはDesktopの更新が必要です"))
+        // 端末の入力は消さない（本人が Desktop を更新してから送り直せる）。
+        assertEquals("23:59", dao.task(taskId)?.scheduleEndTime)
+        assertEquals(0, dao.task(taskId)?.scheduleNotifyBeforeMinutes)
+        // 日付だけの変更（時刻が前にも後にも無い）は、時刻の欄を載せない（古い Desktop にも通る）。
+        val plainId = "10000000-0000-4000-8000-000000000048"
+        dao.upsertTask(canonicalCachedTask(plainId, version = 4, state = "todo").copy(
+            scheduleId = "schedule-48", scheduleVersion = 2, scheduleEndDate = "2026-08-24",
+            scheduleDateKind = "deadline", scheduleConfidence = "fixed", scheduleGranularity = "day",
+        ))
+        val plain = outbox.enqueueUpdateSchedule(plainId, MobileTaskScheduleDraft(null, "2026-08-25", null))
+        val envelope = MobileTaskCommandContract.decodeUpdateEnvelope(requireNotNull(dao.outbox(plain)).envelopeJson)
+        assertEquals(setOf("startDate", "endDate", "rangeSemantics"), envelope.command.changes.getValue("schedule").jsonObject.keys)
+        assertEquals(setOf("startDate", "endDate", "rangeSemantics"), envelope.command.base.getValue("schedule").jsonObject.keys)
+    }
+
+    @Test
     fun scheduleConflictSupportsAcceptServerThenKeepLocalWithLatestScheduleVersion() = runBlocking {
         val taskId = "10000000-0000-4000-8000-000000000045"
         dao.upsertTask(

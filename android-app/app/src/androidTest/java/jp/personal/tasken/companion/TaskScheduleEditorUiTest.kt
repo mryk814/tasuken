@@ -360,6 +360,92 @@ class TaskScheduleEditorUiTest {
         composeRule.onNodeWithTag("schedule-start-time").assertDoesNotExist()
     }
 
+    @Test
+    fun settingADeadlineTimePreselectsThirtyMinutesAndSavesBothInOneChange() {
+        var submitted: MobileTaskScheduleDraft? = null
+        val task = sampleTask(schedule(startDate = null, endDate = "2026-11-19", dateKind = "deadline"))
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = task,
+                    actionState = TaskActionUiState.Idle,
+                    onStateAction = {},
+                    onScheduleUpdate = { _, draft -> submitted = draft },
+                )
+            }
+        }
+        openScheduleEditor()
+        composeRule.onNodeWithTag("schedule-notify-before").assertDoesNotExist()
+        composeRule.onNodeWithTag("schedule-end-time").performScrollTo().performClick()
+        composeRule.onNodeWithTag("schedule-end-time-picker").assertExists()
+        composeRule.onNodeWithTag("schedule-end-time-confirm").performClick()
+        composeRule.waitUntil(timeoutMillis = 2_000) { submitted != null }
+        composeRule.runOnIdle {
+            assertEquals(MobileTaskScheduleDraft(null, "2026-11-19", null, endTime = "17:00", notifyBeforeMinutes = 30), submitted)
+        }
+        composeRule.onNodeWithTag("schedule-end-time").assertTextContains("17:00", substring = true)
+        composeRule.onNodeWithTag("schedule-notify-30").performScrollTo().assertIsSelected()
+        capture("deadline-time-set")
+    }
+
+    @Test
+    fun aStoredCustomLeadIsShownSelectedAndKeptWhenNothingChanges() {
+        var submitted: MobileTaskScheduleDraft? = null
+        val task = sampleTask(
+            schedule(startDate = null, endDate = "2026-11-19", dateKind = "deadline")
+                .copy(endTime = "02:00", notifyBeforeMinutes = 45),
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = task,
+                    actionState = TaskActionUiState.Idle,
+                    onStateAction = {},
+                    onScheduleUpdate = { _, draft -> submitted = draft },
+                )
+            }
+        }
+        composeRule.onNodeWithTag("schedule-summary").assertTextContains("02:00まで・知らせ 45分前", substring = true)
+        openScheduleEditor()
+        composeRule.onNodeWithTag("schedule-notify-45").performScrollTo().assertIsSelected()
+        composeRule.onNodeWithTag("schedule-notify-30").assertIsNotSelected()
+        capture("deadline-time-custom-lead")
+        composeRule.mainClock.advanceTimeBy(500)
+        composeRule.waitForIdle()
+        composeRule.runOnIdle { assertEquals(null, submitted) }
+        // 前日を選ぶと、その分だけが変わって送られる。
+        composeRule.onNodeWithTag("schedule-notify-1440").performScrollTo().performClick()
+        composeRule.waitUntil(timeoutMillis = 2_000) { submitted != null }
+        composeRule.runOnIdle {
+            assertEquals(MobileTaskScheduleDraft(null, "2026-11-19", null, endTime = "02:00", notifyBeforeMinutes = 1440), submitted)
+        }
+    }
+
+    @Test
+    fun clearingTheDatesClearsTheTimeAndTheTimeNeedsADate() {
+        var submitted: MobileTaskScheduleDraft? = null
+        val task = sampleTask(
+            schedule(startDate = null, endDate = "2026-11-19", dateKind = "deadline")
+                .copy(endTime = "23:59", notifyBeforeMinutes = 30),
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = task,
+                    actionState = TaskActionUiState.Idle,
+                    onStateAction = {},
+                    onScheduleUpdate = { _, draft -> submitted = draft },
+                )
+            }
+        }
+        openScheduleEditor()
+        composeRule.onNodeWithTag("schedule-end-clear").performScrollTo().performClick()
+        composeRule.waitUntil(timeoutMillis = 2_000) { submitted != null }
+        composeRule.runOnIdle { assertEquals(MobileTaskScheduleDraft(null, null, null), submitted) }
+        composeRule.onNodeWithTag("schedule-end-time").assertIsNotEnabled()
+        composeRule.onNodeWithTag("schedule-notify-before").assertDoesNotExist()
+    }
+
     private fun capture(name: String) {
         composeRule.waitForIdle()
         val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()

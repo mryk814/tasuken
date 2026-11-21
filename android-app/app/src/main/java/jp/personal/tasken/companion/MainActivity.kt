@@ -95,6 +95,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
@@ -3220,9 +3223,12 @@ private fun TaskScheduleEditor(
         schedule?.startDate,
         schedule?.endDate,
         schedule?.rangeSemantics,
+        schedule?.endTime,
+        schedule?.notifyBeforeMinutes,
         task.plannedStartTime,
         task.plannedDurationMinutes,
     ).joinToString("|")
+    var timeDialogOpen by rememberSaveable(task.id) { mutableStateOf(false) }
     var dateTarget by rememberSaveable(task.id) { mutableStateOf<ScheduleDateTarget?>(null) }
     var editing by rememberSaveable(task.id) { mutableStateOf(false) }
 
@@ -3241,6 +3247,13 @@ private fun TaskScheduleEditor(
     var durationDraft by rememberSaveable(task.id, scheduleFingerprint) {
         mutableStateOf(task.plannedDurationMinutes?.toString().orEmpty())
     }
+    // 期限の時刻と知らせ（#785）。空 = なし。知らせは分（0 = ちょうど）。
+    var endTimeDraft by rememberSaveable(task.id, scheduleFingerprint) {
+        mutableStateOf(schedule?.endTime.orEmpty())
+    }
+    var notifyDraft by rememberSaveable(task.id, scheduleFingerprint) {
+        mutableStateOf(schedule?.notifyBeforeMinutes?.toString().orEmpty())
+    }
     var dirtyByUser by rememberSaveable(task.id, scheduleFingerprint) {
         mutableStateOf(false)
     }
@@ -3251,6 +3264,9 @@ private fun TaskScheduleEditor(
     val durationValid = durationDraft.isBlank() || durationDraft.toIntOrNull()?.let(::isPlannedDurationMinutes) == true
     val isValid = datesValid && durationValid
     val isTrueRange = isTrueScheduleRange(startDate, endDate)
+    val hasDate = startDate != null || endDate != null
+    val endTime = endTimeDraft.takeIf { hasDate && isScheduleEndTime(it) }
+    val notifyBeforeMinutes = notifyDraft.toIntOrNull()?.takeIf { endTime != null }
     val draft = MobileTaskScheduleDraft(
         startDate = startDate?.toString(),
         endDate = endDate?.toString(),
@@ -3258,6 +3274,8 @@ private fun TaskScheduleEditor(
         // 開始時刻の欄はスマホから外した（#755 束9a）。Desktop が持つ値は変えずにそのまま送り返す。
         plannedStartTime = task.plannedStartTime,
         plannedDurationMinutes = durationDraft.toIntOrNull(),
+        endTime = endTime,
+        notifyBeforeMinutes = notifyBeforeMinutes,
     )
     val original = MobileTaskScheduleDraft(
         startDate = schedule?.startDate,
@@ -3265,6 +3283,8 @@ private fun TaskScheduleEditor(
         rangeSemantics = schedule?.rangeSemantics,
         plannedStartTime = task.plannedStartTime,
         plannedDurationMinutes = task.plannedDurationMinutes,
+        endTime = schedule?.endTime,
+        notifyBeforeMinutes = schedule?.notifyBeforeMinutes,
     )
     val hasChanges = draft != original
     val latestOnSave by rememberUpdatedState(onSave)
@@ -3274,6 +3294,11 @@ private fun TaskScheduleEditor(
         val becomesTrueRange = isTrueScheduleRange(newStart, newEnd)
         startDraft = newStart?.toString().orEmpty()
         endDraft = newEnd?.toString().orEmpty()
+        // 日付が無くなったら時刻と知らせも外す（Desktop の Core と同じ）。日付を動かすだけなら時刻は保つ。
+        if (newStart == null && newEnd == null) {
+            endTimeDraft = ""
+            notifyDraft = ""
+        }
         rangeSemanticsDraft = when {
             !becomesTrueRange -> ""
             wasTrueRange -> rangeSemanticsDraft
@@ -3327,6 +3352,8 @@ private fun TaskScheduleEditor(
                     startDate = startDate,
                     endDate = endDate,
                     plannedDurationMinutes = durationDraft.toIntOrNull()?.takeIf { durationValid },
+                    endTime = endTime,
+                    notifyBeforeMinutes = notifyBeforeMinutes,
                 ),
                 modifier = Modifier.testTag("schedule-summary")
                     .clickable(enabled = enabled, onClickLabel = "予定を編集") { editing = true },
@@ -3355,6 +3382,21 @@ private fun TaskScheduleEditor(
             onOpen = { dateTarget = ScheduleDateTarget.End },
             onClear = { updateDates(startDate, null) },
             onPick = { updateDates(startDate, it) },
+        )
+        ScheduleEndTimeRow(
+            endTime = endTime,
+            notifyBeforeMinutes = notifyBeforeMinutes,
+            enabled = enabled && hasDate,
+            onPickTime = { timeDialogOpen = true },
+            onClearTime = {
+                endTimeDraft = ""
+                notifyDraft = ""
+                dirtyByUser = true
+            },
+            onPickLead = { minutes ->
+                notifyDraft = minutes?.toString().orEmpty()
+                dirtyByUser = true
+            },
         )
         if (!datesValid) {
             Text(
@@ -3425,11 +3467,34 @@ private fun TaskScheduleEditor(
         ) {
             TextButton(
                 onClick = { updateDates(null, null); durationDraft = "" },
-                enabled = enabled && (startDate != null || endDate != null || rangeSemanticsDraft.isNotEmpty() || durationDraft.isNotEmpty()),
+                enabled = enabled && (hasDate || rangeSemanticsDraft.isNotEmpty() || durationDraft.isNotEmpty()),
                 modifier = Modifier.testTag("schedule-clear"),
             ) { Text("予定をクリア") }
         }
         }
+    }
+
+    if (timeDialogOpen) {
+        val initial = endTime?.let(java.time.LocalTime::parse) ?: DefaultScheduleEndTime
+        val timeState = rememberTimePickerState(initialHour = initial.hour, initialMinute = initial.minute, is24Hour = true)
+        AlertDialog(
+            onDismissRequest = { timeDialogOpen = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        // 初めて時刻を付けた時は「30分前」を選んでおく（Desktop の引き出しと同じ）。
+                        if (endTime == null) notifyDraft = DEFAULT_NOTIFY_BEFORE_MINUTES.toString()
+                        endTimeDraft = "%02d:%02d".format(timeState.hour, timeState.minute)
+                        dirtyByUser = true
+                        timeDialogOpen = false
+                    },
+                    modifier = Modifier.testTag("schedule-end-time-confirm"),
+                ) { Text("決定") }
+            },
+            dismissButton = { TextButton(onClick = { timeDialogOpen = false }) { Text("キャンセル") } },
+            title = { Text("期限の時刻") },
+            text = { TimePicker(state = timeState, modifier = Modifier.testTag("schedule-end-time-picker")) },
+        )
     }
 
     dateTarget?.let { target ->
@@ -3469,6 +3534,78 @@ private fun TaskScheduleEditor(
             )
         }
     }
+    }
+}
+
+/** 時刻を初めて付ける時の時計の初めの位置。 */
+private val DefaultScheduleEndTime: java.time.LocalTime = java.time.LocalTime.of(17, 0)
+
+/**
+ * 期限の時刻と、その何分前に知らせるか（#785）。時刻は期限の日（終了日、無ければ開始日）のもの。
+ * 時刻を付けている間だけ知らせの選択を出す。スマホは決まった候補だけ。Desktop で付けたほかの分（45分前など）は
+ * その分の印を選んだ状態で出し、そのまま保つ。
+ */
+@Composable
+private fun ScheduleEndTimeRow(
+    endTime: String?,
+    notifyBeforeMinutes: Int?,
+    enabled: Boolean,
+    onPickTime: () -> Unit,
+    onClearTime: () -> Unit,
+    onPickLead: (Int?) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.testTag("schedule-end-time-row")) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(
+                painterResource(R.drawable.ic_tabler_clock),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text("時刻", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
+            InputChip(
+                selected = endTime != null,
+                onClick = onPickTime,
+                enabled = enabled,
+                label = { Text(endTime ?: "＋ 時刻", fontWeight = if (endTime != null) FontWeight.SemiBold else null) },
+                trailingIcon = if (endTime != null) {
+                    {
+                        Icon(
+                            painterResource(R.drawable.ic_tabler_x),
+                            contentDescription = "時刻を外す",
+                            modifier = Modifier.size(18.dp).clickable(enabled = enabled, onClick = onClearTime)
+                                .testTag("schedule-end-time-clear"),
+                        )
+                    }
+                } else null,
+                modifier = Modifier.heightIn(min = 44.dp).testTag("schedule-end-time"),
+            )
+        }
+        if (endTime != null) {
+            val leads = if (notifyBeforeMinutes == null || notifyBeforeMinutes in notifyBeforePresets) notifyBeforePresets
+            else notifyBeforePresets + notifyBeforeMinutes
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(
+                    painterResource(R.drawable.ic_tabler_bell),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text("知らせ", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelLarge)
+            }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.testTag("schedule-notify-before"),
+            ) {
+                leads.forEach { minutes ->
+                    FilterChip(
+                        selected = notifyBeforeMinutes == minutes,
+                        onClick = { onPickLead(minutes) },
+                        enabled = enabled,
+                        label = { Text(notifyBeforeLabel(minutes)) },
+                        modifier = Modifier.testTag("schedule-notify-${minutes ?: "none"}"),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -3562,23 +3699,30 @@ private fun scheduleConflictLabel(schedule: MobileTaskSchedule?): String = sched
     startDate = schedule?.startDate,
     endDate = schedule?.endDate,
     rangeSemantics = schedule?.rangeSemantics,
+    endTime = schedule?.endTime,
+    notifyBeforeMinutes = schedule?.notifyBeforeMinutes,
 )
 
 private fun scheduleConflictLabel(schedule: MobileTaskScheduleDraft?): String = scheduleConflictLabel(
     startDate = schedule?.startDate,
     endDate = schedule?.endDate,
     rangeSemantics = schedule?.rangeSemantics,
+    endTime = schedule?.endTime,
+    notifyBeforeMinutes = schedule?.notifyBeforeMinutes,
 )
 
 private fun scheduleConflictLabel(
     startDate: String?,
     endDate: String?,
     rangeSemantics: String?,
+    endTime: String? = null,
+    notifyBeforeMinutes: Int? = null,
 ): String {
     if (startDate == null && endDate == null) return "未設定"
     return buildList {
         startDate?.let { add("開始 $it") }
         endDate?.let { add("期限 $it") }
+        endTime?.let { add("時刻 $it・知らせ ${notifyBeforeLabel(notifyBeforeMinutes)}") }
         if (startDate != null && endDate != null && endDate > startDate) {
             add(
                 when (rangeSemantics) {
