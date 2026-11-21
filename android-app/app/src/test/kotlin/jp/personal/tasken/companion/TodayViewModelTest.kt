@@ -7,6 +7,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flow
@@ -836,6 +838,52 @@ class TodayViewModelTest {
         assertEquals(true, viewModel.proposalReviewOnline.value)
         assertEquals(proposal.id to "accept", received)
         assertEquals(ProposalReviewUiState.Applied(proposal.id, "accept"), viewModel.proposalReviewState.value)
+    }
+
+    /**
+     * 採るを押した後の 5 秒の間に読み直し（引いて更新・回転・画面に戻る）が起きても、決定は捨てずに送る（#774）。
+     * 読み直しの間は「つながっていない」の値になるが、切れたのではない。
+     */
+    @Test
+    fun aReloadDuringTheHoldStillSendsTheDecision() = runBlocking {
+        val reviewed = AtomicInteger()
+        val reloads = AtomicInteger()
+        val reloadAnswer = CompletableDeferred<Boolean>()
+        val repository = object : MobileGatewayRepository {
+            override fun loadToday() = MobileTodayResult.Available(emptyList(), "2026-08-23T00:00:00Z")
+            override fun configuration() = MobileGatewayConfiguration("https://gateway.test", paired = true)
+            override fun pair(origin: String, pairingCode: String) = loadToday()
+            override fun retryPairing() = MobileTodayResult.PairingRequired()
+            override suspend fun refreshTaskWorkProposals(): Boolean =
+                if (reloads.incrementAndGet() == 1) true else reloadAnswer.await()
+            override suspend fun reviewTaskWorkProposal(
+                proposal: MobileTaskWorkProposal,
+                decision: String,
+            ): MobileProposalReviewResult {
+                reviewed.incrementAndGet()
+                return MobileProposalReviewResult.Applied(proposal.id, decision)
+            }
+        }
+        val viewModel = TodayViewModel(
+            repository,
+            Dispatchers.Default,
+            proposalHoldMillis = 300,
+            decisionContext = Dispatchers.Default,
+        )
+        viewModel.loadNow()
+        withTimeout(3_000) { viewModel.proposalReviewOnline.first { it } }
+
+        viewModel.decideTaskWorkProposal(sampleProposal(), "accept")
+        val reload = launch(Dispatchers.Default) { viewModel.loadNow() }
+        withTimeout(3_000) { viewModel.proposalRefreshing.first { it } }
+        delay(500)
+        reloadAnswer.complete(true)
+        reload.join()
+        withTimeout(3_000) { while (reviewed.get() == 0) delay(10) }
+
+        assertEquals(1, reviewed.get())
+        assertEquals(ProposalReviewUiState.Applied(sampleProposal().id, "accept"), viewModel.proposalReviewState.value)
+        assertEquals(mapOf(sampleProposal().id to "accept"), viewModel.decidedProposals.value)
     }
 
     @Test
