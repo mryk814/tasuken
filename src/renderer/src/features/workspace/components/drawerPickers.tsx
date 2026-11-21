@@ -27,19 +27,39 @@ export function ThemeColorPicker({ value }: { value?: string }) {
   );
 }
 
-export function ThemeGroupPicker({ value, themes }: { value?: string; themes: WorkspaceData["themes"] }) {
+export function ThemeGroupPicker({
+  value,
+  themes,
+}: {
+  value?: string;
+  themes: WorkspaceData["themes"];
+}) {
   const [selected, setSelected] = useState(value || "");
   const groups = [...new Set(themes.map((theme) => str(theme.group).trim()).filter(Boolean))];
   return (
     <Field label="グループ">
-      <input name="group" value={selected} onChange={(event) => setSelected(event.target.value)} placeholder="新しいグループ名" />
+      <input
+        name="group"
+        value={selected}
+        onChange={(event) => setSelected(event.target.value)}
+        placeholder="新しいグループ名"
+      />
       {groups.length > 0 && (
         <div className="group-chip-list">
-          <button type="button" className={`theme-chip ${!selected ? "is-selected" : ""}`} onClick={() => setSelected("")}>
+          <button
+            type="button"
+            className={`theme-chip ${!selected ? "is-selected" : ""}`}
+            onClick={() => setSelected("")}
+          >
             なし
           </button>
           {groups.map((group) => (
-            <button key={group} type="button" className={`theme-chip ${selected === group ? "is-selected" : ""}`} onClick={() => setSelected(group)}>
+            <button
+              key={group}
+              type="button"
+              className={`theme-chip ${selected === group ? "is-selected" : ""}`}
+              onClick={() => setSelected(group)}
+            >
               {group}
             </button>
           ))}
@@ -63,7 +83,10 @@ export function ThemeStorageRootField({
       if (result.canceled || !result.path) return;
       setPathValue(result.path);
     } catch (error) {
-      setToast(`フォルダを選べませんでした。${error instanceof Error ? error.message : String(error)}`, "danger");
+      setToast(
+        `フォルダを選べませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
     }
   }
   async function openRoot() {
@@ -75,18 +98,33 @@ export function ThemeStorageRootField({
     <Field label="Artifact保存ルート">
       <input type="hidden" name="storage_root" value={pathValue} />
       <p className="field-help">
-        未設定なら 設定の共通保存先配下 <code>Themes/識別子/</code> に Artifacts・Notes・Exports を作ります。設定するとそのルート直下に同じ3フォルダを使います。
+        未設定なら 設定の共通保存先配下 <code>Themes/識別子/</code> に Artifacts・Notes・Exports
+        を作ります。設定するとそのルート直下に同じ3フォルダを使います。
       </p>
       <div className="theme-storage-root">
         <code className="theme-storage-root-path" title={pathValue || undefined}>
           {pathValue || "未設定（自動配置）"}
         </code>
         <div className="inline-actions">
-          <button type="button" className="secondary-button compact" onClick={() => void chooseRoot()}>フォルダを選ぶ</button>
+          <button
+            type="button"
+            className="secondary-button compact"
+            onClick={() => void chooseRoot()}
+          >
+            フォルダを選ぶ
+          </button>
           {pathValue && (
             <>
-              <button type="button" className="text-button compact" onClick={() => void openRoot()}>開く</button>
-              <button type="button" className="text-button compact" onClick={() => setPathValue("")}>クリア</button>
+              <button type="button" className="text-button compact" onClick={() => void openRoot()}>
+                開く
+              </button>
+              <button
+                type="button"
+                className="text-button compact"
+                onClick={() => setPathValue("")}
+              >
+                クリア
+              </button>
             </>
           )}
         </div>
@@ -95,7 +133,11 @@ export function ThemeStorageRootField({
   );
 }
 
-export function ChatGroupPicker({ value, resources, projectId }: {
+export function ChatGroupPicker({
+  value,
+  resources,
+  projectId,
+}: {
   value?: string;
   resources: {
     chat_group?: string | null;
@@ -109,14 +151,28 @@ export function ChatGroupPicker({ value, resources, projectId }: {
   const groups = listActiveChatGroupNames(resources, projectId);
   return (
     <Field label="グループ">
-      <input name="chat_group" value={selected} onChange={(event) => setSelected(event.target.value)} placeholder="例: 〇〇モデル改善検討" />
+      <input
+        name="chat_group"
+        value={selected}
+        onChange={(event) => setSelected(event.target.value)}
+        placeholder="例: 〇〇モデル改善検討"
+      />
       {groups.length > 0 && (
         <div className="group-chip-list">
-          <button type="button" className={`theme-chip ${!selected ? "is-selected" : ""}`} onClick={() => setSelected("")}>
+          <button
+            type="button"
+            className={`theme-chip ${!selected ? "is-selected" : ""}`}
+            onClick={() => setSelected("")}
+          >
             なし
           </button>
           {groups.map((group) => (
-            <button key={group} type="button" className={`theme-chip ${selected === group ? "is-selected" : ""}`} onClick={() => setSelected(group)}>
+            <button
+              key={group}
+              type="button"
+              className={`theme-chip ${selected === group ? "is-selected" : ""}`}
+              onClick={() => setSelected(group)}
+            >
               {group}
             </button>
           ))}
