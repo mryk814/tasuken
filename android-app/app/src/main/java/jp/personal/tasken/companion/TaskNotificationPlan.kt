@@ -20,11 +20,14 @@ import kotlinx.serialization.json.jsonPrimitive
  *
  * - 時刻を付けた Task（reminderAt）は、その時刻に知らせる。逃した時刻は 24 時間まで後から出す。
  * - 期限の日は、本人が決めた時刻（既定 09:00、2 回目を足せる）に知らせる。期限の日のうちだけ出す。
+ *   期限に時刻（#785）があり、決まった時刻がそれより前でなければ、前の日に「明日が期限」として出す。
+ * - 期限の時刻の N 分前（Task ごとに選ぶ）に知らせる。逃した分は 24 時間まで後から出す。
  * - 完了・中止した Task は知らせない。
  *
  * 通知は端末に落としてある写しだけから組む（つながらなくても鳴る）。
  */
-internal enum class TaskNoticeKind { Time, Due }
+/** Time = リマインダー、Due = 期限の日の決まった時刻、End = 期限の時刻の N 分前（#785）。 */
+internal enum class TaskNoticeKind { Time, Due, End }
 
 internal data class TaskNotice(
     /** 同じ知らせを 2 度出さないための鍵。時刻や期限を変えると鍵も変わり、もう一度知らせる。 */
@@ -33,6 +36,10 @@ internal data class TaskNotice(
     val taskId: String,
     val title: String,
     val at: LocalDateTime,
+    /** Due と End だけ。期限の時刻。時刻の無い期限は null。 */
+    val endAt: LocalDateTime? = null,
+    /** Due だけ。期限が明日（時刻の早い期限を前の日に知らせる時）。 */
+    val dueTomorrow: Boolean = false,
 )
 
 /** 知らせを決めるのに要る Task の欄だけ。 */
@@ -42,6 +49,10 @@ internal data class NotifiableTask(
     val state: String,
     val reminderAt: String?,
     val dueDate: LocalDate?,
+    /** 期限の時刻（#785）。期限の日の現地の時刻。 */
+    val endTime: LocalTime? = null,
+    /** 期限の時刻の何分前に知らせるか（#785）。無ければ End の知らせは出さない。 */
+    val notifyBeforeMinutes: Int? = null,
 )
 
 internal enum class SnoozeChoice { Hour, Tomorrow }
@@ -88,7 +99,8 @@ internal object TaskNotificationPlan {
      * （その時刻がそのまま鳴る）。時刻の通知の「後で」は、その時刻を先へ送るので、いつも書く。
      */
     fun snoozeWritesReminder(kind: TaskNoticeKind?, reminderAt: String?, now: LocalDateTime, zone: ZoneId): Boolean {
-        if (kind != TaskNoticeKind.Due) return true
+        // 期限の時刻の知らせ（End）の「後で」も、期限の日の知らせと同じ（#785）。
+        if (kind != TaskNoticeKind.Due && kind != TaskNoticeKind.End) return true
         val current = parseReminderAt(reminderAt, zone) ?: return true
         return !current.isAfter(now.truncatedTo(ChronoUnit.MINUTES))
     }
@@ -100,6 +112,25 @@ internal object TaskNotificationPlan {
     private fun key(kind: TaskNoticeKind, taskId: String, at: LocalDateTime): String =
         "${if (kind == TaskNoticeKind.Time) "time" else "due"}:$taskId:${at.format(minute)}"
 
+    /** 期限の時刻（#785）。時刻の無い期限は null。 */
+    fun endAt(task: NotifiableTask): LocalDateTime? = task.endTime?.let { time -> task.dueDate?.atTime(time) }
+
+    /** 期限の時刻の知らせ（End）を出す時刻。時刻と知らせの両方がある時だけ。 */
+    fun endNoticeAt(task: NotifiableTask): LocalDateTime? {
+        val minutes = task.notifyBeforeMinutes ?: return null
+        return endAt(task)?.minusMinutes(minutes.toLong())
+    }
+
+    /**
+     * 期限の日の知らせを、決まった時刻 [time] に出す日。時刻の無い期限と、決まった時刻が期限の時刻より前の時は
+     * 期限の日。そうでなければ前の日（02:00 の期限を、過ぎた後の 09:00 に知らせない。#785）。
+     */
+    fun dueNoticeDate(task: NotifiableTask, time: LocalTime): LocalDate? {
+        val date = task.dueDate ?: return null
+        val end = task.endTime
+        return if (end == null || time.isBefore(end)) date else date.minusDays(1)
+    }
+
     /** Task ごとの、知らせる時刻の全部（過ぎたものも先のものも）。 */
     private fun triggers(task: NotifiableTask, dueTimes: List<LocalTime>, zone: ZoneId): List<TaskNotice> {
         if (!isOpen(task.state)) return emptyList()
@@ -108,10 +139,33 @@ internal object TaskNotificationPlan {
         parseReminderAt(task.reminderAt, zone)?.let {
             notices += TaskNotice(key(TaskNoticeKind.Time, task.id, it), TaskNoticeKind.Time, task.id, title, it)
         }
-        task.dueDate?.let { date ->
+        val endAt = endAt(task)
+        endNoticeAt(task)?.let { at ->
+            notices += TaskNotice(
+                "end:${task.id}:${requireNotNull(endAt).format(minute)}:${task.notifyBeforeMinutes}",
+                TaskNoticeKind.End,
+                task.id,
+                title,
+                at,
+                endAt = endAt,
+            )
+        }
+        task.dueDate?.let { dueDate ->
             dueTimes.ifEmpty { DefaultDueTimes }.forEach { time ->
+                val date = requireNotNull(dueNoticeDate(task, time))
                 val at = date.atTime(time)
-                notices += TaskNotice(key(TaskNoticeKind.Due, task.id, at), TaskNoticeKind.Due, task.id, title, at)
+                val tomorrow = date != dueDate
+                notices += TaskNotice(
+                    // 前の日に出す「明日が期限」の鍵には期限の日を足す。その後で期限を同じ日へ動かしても、
+                    // 同じ時刻の「今日が期限」が鍵の重なりで消えないように（Desktop と同じ）。
+                    if (tomorrow) "${key(TaskNoticeKind.Due, task.id, at)}:$dueDate" else key(TaskNoticeKind.Due, task.id, at),
+                    TaskNoticeKind.Due,
+                    task.id,
+                    title,
+                    at,
+                    endAt = endAt,
+                    dueTomorrow = tomorrow,
+                )
             }
         }
         return notices
@@ -127,7 +181,7 @@ internal object TaskNotificationPlan {
         val current = now.truncatedTo(ChronoUnit.MINUTES)
         return tasks.flatMap { triggers(it, dueTimes, zone) }.filter { notice ->
             !notice.at.isAfter(current) && when (notice.kind) {
-                TaskNoticeKind.Time -> notice.at.isAfter(current.minus(MissedWindow))
+                TaskNoticeKind.Time, TaskNoticeKind.End -> notice.at.isAfter(current.minus(MissedWindow))
                 TaskNoticeKind.Due -> notice.at.toLocalDate() == current.toLocalDate()
             }
         }.sortedBy { it.at }
@@ -157,6 +211,29 @@ internal object TaskNotificationPlan {
         return local.atZone(zone).toOffsetDateTime().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
     }
 
+    /**
+     * 期限の時刻の知らせ（End）の見出し。出す時の時刻で決める（後から出す時に「あと 30 分」と言わない）。
+     * 時刻の前は「あとN分で期限」（1 時間以上は時間・日で言う）か「まもなく期限」、時刻を過ぎたら「期限を過ぎました」。
+     * Desktop の endNoticeTitle と同じ。
+     */
+    fun endNoticeTitle(endAt: LocalDateTime?, now: LocalDateTime): String {
+        if (endAt == null) return "期限"
+        val current = now.truncatedTo(ChronoUnit.MINUTES)
+        if (!endAt.isAfter(current)) return "期限を過ぎました"
+        val remaining = ChronoUnit.MINUTES.between(current, endAt)
+        return when {
+            remaining <= 1 -> "まもなく期限"
+            remaining < 60 -> "あと${remaining}分で期限"
+            remaining < 24 * 60 && remaining % 60 == 0L -> "あと${remaining / 60}時間で期限"
+            remaining < 24 * 60 -> "あと${remaining / 60}時間${remaining % 60}分で期限"
+            else -> "あと${Math.round(remaining / (24.0 * 60))}日で期限"
+        }
+    }
+
+    /** 期限の知らせの本文の 1 行。時刻つきの期限は先頭に HH:mm を付ける（Desktop の dueNoticeLine と同じ）。 */
+    fun dueNoticeLine(notice: TaskNotice): String =
+        notice.endAt?.let { "${it.format(DateTimeFormatter.ofPattern("HH:mm"))} ${notice.title}" } ?: notice.title
+
     /** 出した知らせの控え（鍵 → 出した日）から、2 日より前のものを落とす。 */
     fun pruneFired(fired: Map<String, String>, today: LocalDate): Map<String, String> {
         val keepFrom = today.minusDays(2).toString()
@@ -166,11 +243,22 @@ internal object TaskNotificationPlan {
     /** ウィジェットの「期限が近い」に入れる日数（今日を含めて 3 日先まで。過ぎた期限も入れる）。 */
     const val WidgetDueSoonDays = 3L
 
-    /** 期限のラベル（ウィジェットの行）。過ぎた・今日・明日は言葉で、ほかは月/日。 */
-    fun dueLabel(due: LocalDate, today: LocalDate): String = when (val days = ChronoUnit.DAYS.between(today, due)) {
-        0L -> "今日"
-        1L -> "明日"
-        else -> if (days < 0) "${-days}日超過" else "${due.monthValue}/${due.dayOfMonth}"
+    /**
+     * 期限のラベル（ウィジェットの行）。過ぎた・今日・明日は言葉で、ほかは月/日。
+     * 期限の時刻（#785）があれば後ろに付け、期限の日のうちに時刻を過ぎたら「23:59 超過」にする。
+     */
+    fun dueLabel(due: LocalDate, today: LocalDate, endTime: String? = null, now: LocalTime? = null): String {
+        val days = ChronoUnit.DAYS.between(today, due)
+        val time = endTime?.takeIf(::isScheduleEndTime)
+        if (days == 0L && time != null && now != null && !LocalTime.parse(time).isAfter(now.truncatedTo(ChronoUnit.MINUTES))) {
+            return "$time 超過"
+        }
+        val day = when (days) {
+            0L -> "今日"
+            1L -> "明日"
+            else -> if (days < 0) return "${-days}日超過" else "${due.monthValue}/${due.dayOfMonth}"
+        }
+        return if (time != null) "$day $time" else day
     }
 }
 
@@ -233,10 +321,15 @@ internal fun isUnsupportedReminderAt(
  */
 internal fun serverReportsReminderAt(body: String): Boolean = body.contains("\"reminderAt\"")
 
-internal fun TaskCacheEntity.toNotifiableTask(): NotifiableTask = NotifiableTask(
-    id = id,
-    title = title,
-    state = state,
-    reminderAt = reminderAt,
-    dueDate = TaskNotificationPlan.dueDate(scheduleStartDate, scheduleEndDate),
-)
+internal fun TaskCacheEntity.toNotifiableTask(): NotifiableTask {
+    val (endTime, notifyBeforeMinutes) = readableEnd()
+    return NotifiableTask(
+        id = id,
+        title = title,
+        state = state,
+        reminderAt = reminderAt,
+        dueDate = TaskNotificationPlan.dueDate(scheduleStartDate, scheduleEndDate),
+        endTime = endTime?.let(LocalTime::parse),
+        notifyBeforeMinutes = notifyBeforeMinutes,
+    )
+}

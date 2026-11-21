@@ -1,6 +1,7 @@
 package jp.personal.tasken.companion
 
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.TextStyle
 import java.util.Locale
 
@@ -41,15 +42,22 @@ internal fun scheduleSummaryText(
     endDate: LocalDate?,
     plannedDurationMinutes: Int?,
     today: LocalDate = LocalDate.now(),
+    endTime: String? = null,
+    notifyBeforeMinutes: Int? = null,
 ): String {
+    // 期限の時刻（#785）は期限の日（終了日、無ければ開始日）の後ろに付ける。「11月19日（水） 02:00まで」。
+    val time = endTime?.let { " $it" }.orEmpty()
     val dates = when {
         startDate == null && endDate == null -> null
-        startDate == null -> "${scheduleDateLabel(endDate!!, today)}まで"
-        endDate == null || endDate == startDate -> scheduleDateLabel(startDate, today)
-        else -> "${scheduleDateLabel(startDate, today)} 〜 ${scheduleDateLabel(endDate, today)}"
+        startDate == null -> "${scheduleDateLabel(endDate!!, today)}${time}まで"
+        endDate == null || endDate == startDate -> "${scheduleDateLabel(startDate, today)}$time"
+        else -> "${scheduleDateLabel(startDate, today)} 〜 ${scheduleDateLabel(endDate, today)}$time"
     }
+    val notice = if (dates != null && endTime != null && notifyBeforeMinutes != null) {
+        "知らせ ${notifyBeforeLabel(notifyBeforeMinutes)}"
+    } else null
     val duration = plannedDurationMinutes?.let(::durationLabel)
-    return listOfNotNull(dates, duration).joinToString("・").ifEmpty { "予定なし" }
+    return listOfNotNull(dates, notice, duration).joinToString("・").ifEmpty { "予定なし" }
 }
 
 /** 一覧の行に出す短い日付。「11/21」。年が今日と違う時だけ年を付ける。 */
@@ -65,11 +73,21 @@ internal fun scheduleRowLabel(
     startDate: LocalDate?,
     endDate: LocalDate?,
     today: LocalDate = LocalDate.now(),
-): String? = when {
-    startDate == null && endDate == null -> null
-    startDate == null -> "期限 ${shortDateLabel(endDate!!, today)}"
-    endDate == null || endDate == startDate -> shortDateLabel(startDate, today)
-    else -> "${shortDateLabel(startDate, today)}〜${shortDateLabel(endDate, today)}"
+    endTime: String? = null,
+    now: LocalTime = LocalTime.now(),
+): String? {
+    // 期限の日のうちに時刻を過ぎたら「23:59 超過」（#785。Desktop の一覧と同じく、その分から超過）。
+    val dueDate = endDate ?: startDate
+    if (endTime != null && dueDate == today && isScheduleEndTime(endTime) && !LocalTime.parse(endTime).isAfter(now.withSecond(0).withNano(0))) {
+        return "$endTime 超過"
+    }
+    val time = endTime?.let { " $it" }.orEmpty()
+    return when {
+        startDate == null && endDate == null -> null
+        startDate == null -> "期限 ${shortDateLabel(endDate!!, today)}$time"
+        endDate == null || endDate == startDate -> "${shortDateLabel(startDate, today)}$time"
+        else -> "${shortDateLabel(startDate, today)}〜${shortDateLabel(endDate, today)}$time"
+    }
 }
 
 /** 日付欄の下に出す近い候補。今日・明日・次の月曜。 */

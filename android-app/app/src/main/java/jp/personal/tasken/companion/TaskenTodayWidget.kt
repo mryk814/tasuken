@@ -15,6 +15,7 @@ import android.util.SizeF
 import android.view.View
 import android.widget.RemoteViews
 import java.time.LocalDate
+import java.time.LocalTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -109,15 +110,18 @@ internal fun orderWidgetTasks(
     todayDates: Map<String, String?>,
     dueDates: Map<String, LocalDate?> = emptyMap(),
     ongoingRangeIds: Set<String> = emptySet(),
+    /** 期限の時刻（#785。HH:mm）。同じ期限の日の中で、時刻の早い順（時刻の無いものは後ろ）。 */
+    endTimes: Map<String, String?> = emptyMap(),
 ): List<TaskenWidgetTask> {
     val rank = mapOf("今日" to 0, WidgetDueSoonSection to 1, "持ち越し" to 2, "今後" to 3, "日付なし" to 4)
-    // 見出しの中は、期限の近い順（期限の無いものは後ろ）、同じなら題名の順。
+    // 見出しの中は、期限の近い順（期限の無いものは後ろ）、同じ日なら時刻の早い順、同じなら題名の順。
     return tasks.sortedWith(
         compareBy<TaskenWidgetTask>({
             val ongoing = it.id in ongoingRangeIds
             rank[widgetSectionFor(todayDates[it.id], today, dueDates[it.id], ongoing)] ?: 9
         })
             .thenBy(nullsLast()) { if (it.id in ongoingRangeIds) null else dueDates[it.id] }
+            .thenBy(nullsLast()) { if (it.id in ongoingRangeIds) null else endTimes[it.id] }
             .thenBy { it.title },
     )
 }
@@ -278,6 +282,8 @@ class TaskenTodayWidget : AppWidgetProvider() {
             val dueDates = openTasks.associate {
                 it.id to scheduleDueDateForToday(it.scheduleStartDate, it.scheduleEndDate, it.scheduleRangeSemantics)
             }
+            val endTimes = openTasks.associate { it.id to it.readableEnd().first }
+            val nowTime = LocalTime.now()
             val ordered = orderWidgetTasks(
                 openTasks.map {
                     val theme = it.themeId?.let(themesById::get)
@@ -295,7 +301,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
                         hasConflict = it.conflictCommandId != null,
                         requiresWorkReceipt = requiresWorkReceipt,
                         canToggleState = canToggleTaskState(dao, it),
-                        dueLabel = dueDate?.let { due -> TaskNotificationPlan.dueLabel(due, todayDate) },
+                        dueLabel = dueDate?.let { due -> TaskNotificationPlan.dueLabel(due, todayDate, endTimes[it.id], nowTime) },
                         dueNow = dueDate != null && !dueDate.isAfter(todayDate),
                     )
                 },
@@ -303,6 +309,7 @@ class TaskenTodayWidget : AppWidgetProvider() {
                 openTasks.associate { it.id to it.todayDate },
                 dueDates,
                 ongoingIds,
+                endTimes,
             )
             return TaskenWidgetSnapshot(
                 tasks = ordered,

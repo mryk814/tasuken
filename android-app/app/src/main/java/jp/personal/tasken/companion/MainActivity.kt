@@ -2060,6 +2060,7 @@ internal fun TodayTaskList(
                                     task.schedule?.startDate?.toLocalDateOrNull(),
                                     task.schedule?.endDate?.toLocalDateOrNull(),
                                     today,
+                                    task.schedule?.endTime,
                                 )?.let { label ->
                                     TaskRowTimeMeta(
                                         icon = R.drawable.ic_tabler_calendar,
@@ -2426,7 +2427,7 @@ internal fun TodayDetailPane(
                     val end = schedule.endDate?.let(LocalDate::parse)
                     if (start != null || end != null) {
                         TaskDetailChip(
-                            text = scheduleSummaryText(start, end, null, today),
+                            text = scheduleSummaryText(start, end, null, today, schedule.endTime, schedule.notifyBeforeMinutes),
                             icon = R.drawable.ic_tabler_clock,
                         )
                     }

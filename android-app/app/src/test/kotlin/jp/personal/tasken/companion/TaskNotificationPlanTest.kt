@@ -249,6 +249,114 @@ class TaskNotificationPlanTest {
         assertEquals("明日", TaskNotificationPlan.dueLabel(day.plusDays(1), day))
         assertEquals("11/19", TaskNotificationPlan.dueLabel(day.plusDays(3), day))
         assertEquals("2日超過", TaskNotificationPlan.dueLabel(day.minusDays(2), day))
+        // 期限の時刻（#785）: 後ろに時刻を付け、期限の日のうちに時刻を過ぎたらその分から超過。
+        assertEquals("今日 23:59", TaskNotificationPlan.dueLabel(day, day, "23:59", LocalTime.of(23, 58)))
+        assertEquals("23:59 超過", TaskNotificationPlan.dueLabel(day, day, "23:59", LocalTime.of(23, 59)))
+        assertEquals("明日 02:00", TaskNotificationPlan.dueLabel(day.plusDays(1), day, "02:00", LocalTime.of(23, 0)))
+        assertEquals("2日超過", TaskNotificationPlan.dueLabel(day.minusDays(2), day, "02:00", LocalTime.of(9, 0)))
+        // 同じ期限の日の中は、時刻の早い順（時刻の無いものは後ろ）。
+        val sameDay = listOf("late", "plain", "early").map { TaskenWidgetTask(id = it, title = it, isDone = false) }
+        assertEquals(
+            listOf("early", "late", "plain"),
+            orderWidgetTasks(
+                sameDay,
+                today,
+                sameDay.associate { it.id to null },
+                sameDay.associate { it.id to day },
+                endTimes = mapOf("late" to "23:59", "plain" to null, "early" to "02:00"),
+            ).map { it.id },
+        )
+    }
+
+    private fun timed(time: String?, lead: Int?, due: LocalDate = LocalDate.of(2026, 11, 19), id: String = "kabu") =
+        NotifiableTask(id, "株の申込み", "todo", null, due, time?.let(LocalTime::parse), lead)
+
+    private fun endKeys(task: NotifiableTask, now: LocalDateTime) =
+        TaskNotificationPlan.dueNotices(listOf(task), nine, now, tokyo).filter { it.kind == TaskNoticeKind.End }.map { it.key }
+
+    @Test
+    fun theDeadlineTimeNotifiesNMinutesBeforeAndRefiresWhenChanged() {
+        // tests/task-notifications.test.mjs の「#785 期限の時刻の N 分前に知らせ…」と同じ場面。
+        val task = timed("02:00", 30)
+        assertEquals(emptyList<String>(), endKeys(task, at(19, 1, 29)))
+        assertEquals(listOf("end:kabu:2026-11-19T02:00:30"), endKeys(task, at(19, 1, 30)))
+        // 逃した分は 24 時間まで。
+        assertEquals(listOf("end:kabu:2026-11-19T02:00:30"), endKeys(task, at(20, 1, 29)))
+        assertEquals(emptyList<String>(), endKeys(task, at(20, 1, 30)))
+        // 日をまたぐ前の知らせ（1日前）と、ちょうど（0）。
+        assertEquals(listOf("end:kabu:2026-11-19T02:00:1440"), endKeys(timed("02:00", 1440), at(18, 2)))
+        assertEquals(listOf("end:kabu:2026-11-19T02:00:0"), endKeys(timed("02:00", 0), at(19, 2)))
+        // 知らせの無い時刻・時刻の無い期限は End を出さない。
+        assertEquals(emptyList<String>(), endKeys(timed("02:00", null), at(19, 1, 45)))
+        assertEquals(emptyList<String>(), endKeys(timed(null, 30), at(19, 1, 45)))
+        // 変えると鍵が変わる（もう一度知らせる）。
+        assertFalse(endKeys(timed("01:50", 30), at(19, 1, 45)) == endKeys(task, at(19, 1, 45)))
+        // アラームは End の時刻にも掛かる（つながらなくても鳴る）。
+        assertEquals(at(19, 1, 30), TaskNotificationPlan.nextTriggerAt(listOf(task), nine, at(19, 0, 10), tokyo))
+        // 見出しは出す時の時刻で決め、本文の先頭に時刻を付ける。
+        val endAt = at(19, 2)
+        assertEquals("あと30分で期限", TaskNotificationPlan.endNoticeTitle(endAt, at(19, 1, 30)))
+        assertEquals("まもなく期限", TaskNotificationPlan.endNoticeTitle(endAt, at(19, 1, 59)))
+        assertEquals("期限を過ぎました", TaskNotificationPlan.endNoticeTitle(endAt, at(19, 2)))
+        assertEquals("あと1時間で期限", TaskNotificationPlan.endNoticeTitle(endAt, at(19, 1)))
+        assertEquals("あと1時間15分で期限", TaskNotificationPlan.endNoticeTitle(endAt, at(19, 0, 45)))
+        assertEquals("あと1日で期限", TaskNotificationPlan.endNoticeTitle(endAt, at(18, 2)))
+        val notice = TaskNotificationPlan.dueNotices(listOf(task), nine, at(19, 1, 30), tokyo).single { it.kind == TaskNoticeKind.End }
+        assertEquals("02:00 株の申込み", TaskNotificationPlan.dueNoticeLine(notice))
+        assertEquals("書類を出す", TaskNotificationPlan.dueNoticeLine(notice.copy(endAt = null, title = "書類を出す")))
+        // 「後で」は期限の知らせと同じく、本人が付けた先のリマインダーを上書きしない。
+        assertFalse(TaskNotificationPlan.snoozeWritesReminder(TaskNoticeKind.End, "2026-11-19T21:00", at(19, 1, 30), tokyo))
+        assertTrue(TaskNotificationPlan.snoozeWritesReminder(TaskNoticeKind.End, null, at(19, 1, 30), tokyo))
+        // 時刻・知らせを変えたら、出ている End の通知は理由が無くなる。
+        assertTrue(TaskNotificationScheduler.isStillCurrent(task, TaskNoticeKind.End, at(19, 1, 30), tokyo))
+        assertFalse(TaskNotificationScheduler.isStillCurrent(timed("02:00", 10), TaskNoticeKind.End, at(19, 1, 30), tokyo))
+    }
+
+    private fun dues(time: String?, now: LocalDateTime, dueTimes: List<LocalTime> = nine, due: LocalDate = LocalDate.of(2026, 11, 19)) =
+        TaskNotificationPlan.dueNotices(listOf(timed(time, null, due, "a")), dueTimes, now, tokyo)
+            .filter { it.kind == TaskNoticeKind.Due }
+            .map { it.key to if (it.dueTomorrow) "tomorrow" else "today" }
+
+    @Test
+    fun anEarlyDeadlineMovesTheDueDayNoticeToThePreviousDay() {
+        // tests/task-notifications.test.mjs の「#785 期限の日の知らせ…」と同じ場面。
+        assertEquals(listOf("due:a:2026-11-19T09:00" to "today"), dues("23:59", at(19, 9)))
+        assertEquals(emptyList<Pair<String, String>>(), dues("23:59", at(18, 9)))
+        // 02:00 の期限: 前の日の 09:00 に「明日が期限」。当日 09:00（過ぎた後）には出さない。
+        assertEquals(listOf("due:a:2026-11-18T09:00:2026-11-19" to "tomorrow"), dues("02:00", at(18, 9)))
+        assertEquals(emptyList<Pair<String, String>>(), dues("02:00", at(19, 9)))
+        // ちょうど同じ時刻も前の日。
+        assertEquals(listOf("due:a:2026-11-18T09:00:2026-11-19" to "tomorrow"), dues("09:00", at(18, 9)))
+        // 2 回目の時刻は、それぞれで決める。
+        val twice = listOf(LocalTime.of(9, 0), LocalTime.of(17, 0))
+        assertEquals(listOf("due:a:2026-11-19T09:00" to "today"), dues("12:00", at(19, 18), twice))
+        assertEquals(listOf("due:a:2026-11-18T17:00:2026-11-19" to "tomorrow"), dues("12:00", at(18, 18), twice))
+        // 「明日が期限」の後で期限をその日に移すと、同じ時刻の「今日が期限」は別の鍵で出る。
+        assertEquals(listOf("due:a:2026-11-18T09:00" to "today"), dues("23:59", at(18, 9, 30), due = LocalDate.of(2026, 11, 18)))
+        // 時刻の無い期限は今までどおり。
+        assertEquals(listOf("due:a:2026-11-19T09:00" to "today"), dues(null, at(19, 9)))
+        // 前の日の知らせはアラームの時刻にも入り、出ている通知は前の日の分として残る。
+        val early = timed("02:00", null, id = "a")
+        assertEquals(at(18, 9), TaskNotificationPlan.nextTriggerAt(listOf(early), nine, at(18, 8), tokyo))
+        assertTrue(TaskNotificationScheduler.isStillCurrent(early, TaskNoticeKind.Due, at(18, 9), tokyo))
+        assertFalse(TaskNotificationScheduler.isStillCurrent(early, TaskNoticeKind.Due, at(19, 9), tokyo))
+        // 通知の文。
+        val notice = TaskNotificationPlan.dueNotices(listOf(early), nine, at(18, 9), tokyo).single()
+        assertEquals("明日 02:00 が期限", TaskNotificationScheduler.privateText(notice, at(18, 9)))
+        assertEquals("Task の期限 2 件", TaskNotificationScheduler.summaryText(listOf(TaskNoticeKind.Due, TaskNoticeKind.End)))
+    }
+
+    @Test
+    fun theCachedTimeIsReadOnlyWhenTheScheduleHasADay() {
+        val row = TaskCacheEntity(
+            id = "a", serverVersion = 1, title = "提出", themeId = null, state = "todo", workState = null, todayDate = null,
+            updatedAt = "2026-11-18T00:00:00Z", optimisticCommandId = null, scheduleEndDate = "2026-11-19",
+            scheduleGranularity = "day", scheduleEndTime = "02:00", scheduleNotifyBeforeMinutes = 30,
+        )
+        assertEquals(LocalTime.of(2, 0), row.toNotifiableTask().endTime)
+        assertEquals(30, row.toNotifiableTask().notifyBeforeMinutes)
+        assertNull(row.copy(scheduleGranularity = "week").toNotifiableTask().endTime)
+        assertNull(row.copy(scheduleEndTime = "25:00").toNotifiableTask().notifyBeforeMinutes)
     }
 
     @Test

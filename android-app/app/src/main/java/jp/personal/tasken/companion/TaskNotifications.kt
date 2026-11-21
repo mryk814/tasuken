@@ -203,9 +203,9 @@ internal object TaskNotificationScheduler {
         )
     }
 
-    /** まとめの文。種類ごとの件数だけ（例: Task の期限 2 件・時刻 1 件）。 */
+    /** まとめの文。種類ごとの件数だけ（例: Task の期限 2 件・時刻 1 件）。期限の時刻の知らせ（End）も期限に数える。 */
     internal fun summaryText(kinds: List<TaskNoticeKind?>): String {
-        val due = kinds.count { it == TaskNoticeKind.Due }
+        val due = kinds.count { it == TaskNoticeKind.Due || it == TaskNoticeKind.End }
         val time = kinds.count { it == TaskNoticeKind.Time }
         val parts = listOfNotNull(
             if (due > 0) "期限 $due 件" else null,
@@ -214,8 +214,19 @@ internal object TaskNotificationScheduler {
         return if (parts.isEmpty() || due + time < kinds.size) "Task の知らせ ${kinds.size} 件" else "Task の${parts.joinToString("・")}"
     }
 
+    /** 通知の見出し。期限の時刻の知らせ（End）は「あと30分で期限」など、ほかは Task の題名（#785）。 */
+    internal fun titleText(notice: TaskNotice, now: LocalDateTime): String = when (notice.kind) {
+        TaskNoticeKind.End -> TaskNotificationPlan.endNoticeTitle(notice.endAt, now)
+        else -> notice.title
+    }
+
     internal fun privateText(notice: TaskNotice, now: LocalDateTime): String = when (notice.kind) {
-        TaskNoticeKind.Due -> "今日が期限"
+        TaskNoticeKind.Due -> {
+            val day = if (notice.dueTomorrow) "明日" else "今日"
+            notice.endAt?.let { "$day ${it.format(DateTimeFormatter.ofPattern("HH:mm"))} が期限" } ?: "${day}が期限"
+        }
+        // 本文は「HH:mm 題名」（Desktop の dueNoticeLine と同じ）。
+        TaskNoticeKind.End -> TaskNotificationPlan.dueNoticeLine(notice)
         TaskNoticeKind.Time -> notice.at.format(
             DateTimeFormatter.ofPattern(if (notice.at.toLocalDate() == now.toLocalDate()) "HH:mm" else "M/d HH:mm"),
         )
@@ -223,7 +234,7 @@ internal object TaskNotificationScheduler {
 
     /** ロック画面に出す文。題名は出さず、種類と件数だけ。 */
     internal fun publicText(kind: TaskNoticeKind): String = when (kind) {
-        TaskNoticeKind.Due -> "Task の期限 1 件"
+        TaskNoticeKind.Due, TaskNoticeKind.End -> "Task の期限 1 件"
         TaskNoticeKind.Time -> "Task の時刻 1 件"
     }
 
@@ -246,7 +257,7 @@ internal object TaskNotificationScheduler {
             .build()
         return NotificationCompat.Builder(context, ChannelId)
             .setSmallIcon(R.drawable.ic_tasken_notification)
-            .setContentTitle(notice.title)
+            .setContentTitle(titleText(notice, now))
             .setContentText(privateText(notice, now))
             .setSubText(staleNote)
             .setContentIntent(open)
@@ -310,7 +321,7 @@ internal object TaskNotificationScheduler {
 
     /**
      * 出ている通知のうち、理由の無くなったものを消す: 完了・中止・削除した Task、時刻を先へ送った（後で）Task、
-     * 期限の日が変わった Task。時刻が過ぎただけでは消さない（見ていない知らせを勝手に片付けない）。
+     * 期限の日・期限の時刻・知らせを変えた Task。時刻が過ぎただけでは消さない（見ていない知らせを勝手に片付けない）。
      */
     private fun cancelNoLongerCurrent(context: Context, tasks: List<NotifiableTask>, zone: ZoneId) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -333,7 +344,9 @@ internal object TaskNotificationScheduler {
         if (kind == null || at == null) return true
         return when (kind) {
             TaskNoticeKind.Time -> TaskNotificationPlan.parseReminderAt(task.reminderAt, zone) == at
-            TaskNoticeKind.Due -> task.dueDate == at.toLocalDate()
+            // 時刻の早い期限は前の日に知らせる（#785）ので、その時刻に出す日と比べる。
+            TaskNoticeKind.Due -> TaskNotificationPlan.dueNoticeDate(task, at.toLocalTime()) == at.toLocalDate()
+            TaskNoticeKind.End -> TaskNotificationPlan.endNoticeAt(task) == at
         }
     }
 
