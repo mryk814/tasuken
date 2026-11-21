@@ -1,6 +1,7 @@
 import { buildAiEntityHeader } from "../../../shared/aiMetadata.mjs";
 
 import { collectionKeyForEntityType, entityTypes } from "../../../shared/entityRegistry.mjs";
+import { scheduleEnd } from "../../../shared/scheduleSemantics.mjs";
 import {
   contextGraphMcpShape,
   getContextSubgraph,
@@ -154,6 +155,9 @@ export class TaskContextQueryService {
         ? {
             start_date: taskSchedule.start_date ?? null,
             end_date: taskSchedule.end_date ?? null,
+            // 予定終了の日の時刻とその何分前に知らせるか（#785）。
+            end_time: scheduleEnd(taskSchedule)?.time ?? null,
+            notify_before_minutes: scheduleEnd(taskSchedule)?.notifyBeforeMinutes ?? null,
           }
         : null,
       reminder_at: task.reminder_at ?? null,

@@ -806,3 +806,84 @@ test("前の版で委任したTaskは、本人の言葉で自分に戻せる。�
     "DELEGATION_RETIRED",
   );
 });
+
+test("期限の時刻（#785）: 新しい時刻は30分前を既定にし、日付だけの変更は時刻を残し、時刻の変更の取り消しで前の時刻に戻る", async (t) => {
+  const { db, core } = await desktop(t);
+  const task = humanTask(db, "task-end-time");
+  const scheduleOf = () => db.list("schedule").find((entry) => entry.owner_id === task.id);
+  const timed = await core.changeTask(
+    change(task, {
+      changes: { schedule: { end_date: "2026-11-19", end_time: "23:59" } },
+      said: "19日の23:59までにして",
+    }),
+  );
+  assert.equal(timed.status, "applied");
+  assert.equal(timed.task.schedule.end_time, "23:59");
+  assert.equal(timed.task.schedule.notify_before_minutes, 30, "新しく付けた時刻は30分前");
+
+  // 時刻を知らない AI の日付だけの変更は、本人の時刻と知らせを消さない。
+  const moved = await core.changeTask(
+    change(timed.task, {
+      changes: { schedule: { end_date: "2026-11-20" } },
+      said: "20日に延ばして",
+    }),
+  );
+  assert.equal(moved.task.schedule.end_date, "2026-11-20");
+  assert.equal(moved.task.schedule.end_time, "23:59");
+  assert.equal(moved.task.schedule.notify_before_minutes, 30);
+
+  // 既にある時刻を変えるだけなら、選んだ知らせはそのまま。
+  const retimed = await core.changeTask(
+    change(moved.task, {
+      changes: { schedule: { end_date: "2026-11-20", end_time: "02:00" } },
+      said: "2時までにして",
+    }),
+  );
+  assert.equal(retimed.task.schedule.end_time, "02:00");
+  assert.equal(retimed.task.schedule.notify_before_minutes, 30);
+
+  // 時刻の変更を取り消すと、前の時刻に戻る（省いた欄は保存値のまま、の決まりで新しい時刻が残らない）。
+  const undone = await core.undoChange({
+    change_id: retimed.change_id,
+    said: "時刻を戻して",
+    idempotency_key: "undo-end-time",
+    caller: "Claude Code",
+    source_session: "conversation-a",
+  });
+  assert.equal(undone.undone.length, 1);
+  assert.equal(scheduleOf().end_time, "23:59");
+  assert.equal(scheduleOf().notify_before_minutes, 30);
+
+  // 日程を外すと時刻と知らせも外れ、その取り消しで戻る。
+  const current = db.get("task", task.id);
+  const cleared = await core.changeTask(
+    change(current, { changes: { schedule: null }, said: "期限は無しで" }),
+  );
+  assert.equal(cleared.task.schedule.end_time, null);
+  assert.equal(cleared.task.schedule.notify_before_minutes, null);
+  await core.undoChange({
+    change_id: cleared.change_id,
+    said: "戻して",
+    idempotency_key: "undo-end-time-clear",
+    caller: "Claude Code",
+    source_session: "conversation-a",
+  });
+  assert.equal(scheduleOf().end_date, "2026-11-20");
+  assert.equal(scheduleOf().end_time, "23:59");
+});
+
+test("期限の時刻（#785）: 時刻だけの知らせや日単位でない時刻は入口で断る", async (t) => {
+  const { db, core } = await desktop(t);
+  const task = humanTask(db, "task-end-time-invalid");
+  for (const schedule of [
+    { end_date: "2026-11-19", end_time: null, notify_before_minutes: 30 },
+    { end_date: "2026-11-30", granularity: "month", end_time: "09:00" },
+    { end_date: "2026-11-19", end_time: "25:00" },
+  ]) {
+    await assert.rejects(
+      core.changeTask(change(task, { changes: { schedule }, said: "期限を変えて" })),
+      JSON.stringify(schedule),
+    );
+  }
+  assert.equal(db.list("schedule").filter((entry) => entry.owner_id === task.id).length, 0);
+});

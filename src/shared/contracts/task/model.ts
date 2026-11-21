@@ -49,6 +49,20 @@ export const taskReminderAtSchema = z.union([
   z.string().regex(/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d$/),
 ]);
 
+/**
+ * 予定終了の日の時刻（#785）。終了日（無ければ開始日）のその時刻で、日付と同じく時差を持たない
+ * 現地の時刻（各端末の現地として読む）。期限の知らせ（notify_before_minutes）はこの時刻の何分前か。
+ * どちらも省いた欄は「保存済みの値のまま」、null は「外す」。読む決まりは shared/scheduleSemantics.mjs の scheduleEnd。
+ */
+export const taskScheduleEndTimeSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+/** 0 = その時刻ちょうど。上限は 7 日前。 */
+export const TASK_SCHEDULE_NOTIFY_BEFORE_MAX_MINUTES = 10080;
+export const taskScheduleNotifyBeforeSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(TASK_SCHEDULE_NOTIFY_BEFORE_MAX_MINUTES);
+
 function expectedScheduleDateKind(startDate: string | null, endDate: string | null) {
   if (!startDate && !endDate) return "unknown" as const;
   if (!startDate && endDate) return "deadline" as const;
@@ -66,6 +80,8 @@ const taskScheduleFields = {
   range_semantics: taskScheduleRangeSemanticsSchema.nullable(),
   confidence: taskScheduleConfidenceSchema,
   granularity: taskScheduleGranularitySchema,
+  end_time: taskScheduleEndTimeSchema.nullable().optional(),
+  notify_before_minutes: taskScheduleNotifyBeforeSchema.nullable().optional(),
 };
 
 function validateTaskScheduleDates(
@@ -101,6 +117,35 @@ function validateTaskSchedule(
       message: "date_kindはstart_date/end_dateから導出した値と一致する必要があります。",
     });
   }
+  // 時刻の組（#785）。コマンドの入力だけで見る（読み出しの検査に入れると、保存済みの値 1 つで
+  // Task の一覧全体が読めなくなる）。省いた欄は保存済みの値と合わせた後に Core がそろえる。
+  if (value.end_time) {
+    if (!value.start_date && !value.end_date) {
+      context.addIssue({
+        code: "custom",
+        path: ["end_time"],
+        message: "end_timeは開始日か終了日のある日程にだけ指定できます。",
+      });
+    }
+    if (value.granularity !== "day") {
+      context.addIssue({
+        code: "custom",
+        path: ["end_time"],
+        message: "end_timeは日単位（granularity: day）の日程にだけ指定できます。",
+      });
+    }
+  }
+  if (
+    value.notify_before_minutes !== null &&
+    value.notify_before_minutes !== undefined &&
+    value.end_time === null
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["notify_before_minutes"],
+      message: "notify_before_minutesはend_timeのある日程にだけ指定できます。",
+    });
+  }
 }
 
 /** Canonical Schedule write carried beside the Task aggregate. */
@@ -116,6 +161,8 @@ const taskScheduleEditFields = {
   range_semantics: taskScheduleRangeSemanticsSchema.nullable(),
   confidence: taskScheduleConfidenceSchema,
   granularity: taskScheduleGranularitySchema,
+  end_time: taskScheduleEndTimeSchema.nullable().optional(),
+  notify_before_minutes: taskScheduleNotifyBeforeSchema.nullable().optional(),
 };
 
 export const taskScheduleEditSchema = z
@@ -137,6 +184,9 @@ export const taskScheduleEditSchema = z
 export const taskScheduleReadModelSchema = z
   .object({
     ...taskScheduleFields,
+    // 欄の無い古い保存値・受領も読める（無い = null）。読めない値は読み出しで null にする。
+    end_time: taskScheduleEndTimeSchema.nullable().default(null),
+    notify_before_minutes: taskScheduleNotifyBeforeSchema.nullable().default(null),
     version: entityVersionSchema,
     source: z.string().trim().min(1).max(100),
     created_at: isoTimestampSchema,

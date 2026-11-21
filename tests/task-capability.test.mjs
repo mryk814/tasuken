@@ -478,6 +478,9 @@ test("Task capability creates, edits, clears, and projects the separately versio
     range_semantics: null,
     confidence: "fixed",
     granularity: "day",
+    // #785: the read model always carries the time pair (null when unset).
+    end_time: null,
+    notify_before_minutes: null,
     version: 1,
     source: "manual",
     created_at: now,
@@ -1166,4 +1169,159 @@ test("Renderer Task client reports a failed gap resync instead of swallowing it"
   const error = await reported;
   assert.equal(error.message, "resync unavailable");
   assert.equal(delivered, false);
+});
+
+test("#785 期限の時刻を守る: 日付だけの変更は時刻を残し、日付を外すと時刻も外れ、読めない保存値は書き換えない", () => {
+  const { application, repository, service } = capability();
+  assert.equal(service.executeCommand(createCommand("mobile", "end-time")).ok, true);
+  const taskId = "task-end-time";
+  const schedule = (overrides = {}) => ({
+    start_date: null,
+    end_date: "2026-11-19",
+    date_kind: "deadline",
+    range_semantics: null,
+    confidence: "fixed",
+    granularity: "day",
+    ...overrides,
+  });
+  const update = (command_id, expected, scheduleVersion, changes, base) =>
+    service.executeCommand({
+      schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+      command_id,
+      name: "UpdateTask",
+      actor: { kind: "user", id: "mobile-device" },
+      source: "mobile",
+      issued_at: now,
+      payload: {
+        task_id: taskId,
+        expected_version: expected,
+        schedule_change: { expected_version: scheduleVersion, changes, base },
+      },
+    });
+  const timed = update(
+    "end-time-set",
+    1,
+    null,
+    schedule({ end_time: "02:00", notify_before_minutes: 30 }),
+    null,
+  );
+  assert.equal(timed.ok, true, JSON.stringify(timed.error));
+  assert.equal(timed.value.task.schedule.end_time, "02:00");
+  assert.equal(timed.value.task.schedule.notify_before_minutes, 30);
+
+  // 日付しか知らない古いスマホ（欄を省いた変更）は、時刻と知らせを消さない。
+  const moved = update("end-time-move", 2, 1, schedule({ end_date: "2026-11-20" }), schedule());
+  assert.equal(moved.ok, true, JSON.stringify(moved.error));
+  assert.equal(moved.value.task.schedule.end_date, "2026-11-20");
+  assert.equal(moved.value.task.schedule.end_time, "02:00");
+  assert.equal(moved.value.task.schedule.notify_before_minutes, 30);
+
+  // Desktop の画面の経路（日程の Entity をまるごと送る）でも、欄の無い保存は時刻を残す。
+  const stored = repository.get("schedule", "end-time-set");
+  const currentTask = repository.get("task", taskId);
+  const { end_time: _t, notify_before_minutes: _n, ...withoutTime } = stored;
+  const desktop = application.execute({
+    commandId: "end-time-desktop-move",
+    name: "UpdateTask",
+    actor: { kind: "user" },
+    source: "main_ui",
+    issuedAt: now,
+    payload: { task: currentTask, schedule: { ...withoutTime, end_date: "2026-11-21" } },
+    expectedVersions: [
+      { type: "task", id: taskId, version: currentTask.version },
+      { type: "schedule", id: stored.id, version: stored.version },
+    ],
+  });
+  assert.equal(desktop.status, "applied");
+  assert.equal(repository.get("schedule", stored.id).end_time, "02:00");
+  assert.equal(repository.get("schedule", stored.id).notify_before_minutes, 30);
+
+  // 日付を外すと（古いスマホでも）、見えない時刻のせいで断らずに時刻と知らせも外す。
+  const afterDesktop = repository.get("schedule", stored.id);
+  const taskVersion = repository.get("task", taskId).version;
+  const cleared = update(
+    "end-time-clear",
+    taskVersion,
+    afterDesktop.version,
+    schedule({ end_date: null, date_kind: "unknown" }),
+    schedule({ end_date: "2026-11-21" }),
+  );
+  assert.equal(cleared.ok, true, JSON.stringify(cleared.error));
+  assert.equal(cleared.value.task.schedule.end_time, null);
+  assert.equal(cleared.value.task.schedule.notify_before_minutes, null);
+  assert.equal(repository.get("schedule", stored.id).end_time, null);
+});
+
+test("#785 読めない保存値は null として読み、関係ない更新でも DB の値を変えない", () => {
+  const { repository, service } = capability();
+  assert.equal(service.executeCommand(createCommand("mobile", "broken-time")).ok, true);
+  const taskId = "task-broken-time";
+  repository.saveMany([
+    {
+      action: "save",
+      type: "schedule",
+      entity: {
+        id: "schedule-broken-time",
+        owner_type: "task",
+        owner_id: taskId,
+        start_date: null,
+        end_date: "2026-11-19",
+        date_kind: "deadline",
+        range_semantics: null,
+        confidence: "fixed",
+        granularity: "day",
+        end_time: "25:99",
+        notify_before_minutes: "soon",
+      },
+    },
+  ]);
+  const renamed = service.executeCommand({
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+    command_id: "broken-time-rename",
+    name: "UpdateTask",
+    actor: { kind: "user", id: "desktop-user" },
+    source: "desktop",
+    issued_at: now,
+    payload: { task_id: taskId, expected_version: 1, changes: { title: "別の題名" } },
+  });
+  assert.equal(renamed.ok, true, JSON.stringify(renamed.error));
+  assert.equal(renamed.value.task.schedule.end_time, null);
+  assert.equal(renamed.value.task.schedule.notify_before_minutes, null);
+  // 日付だけ動かしても、読めない値はそのまま（書き換えない）。
+  const moved = service.executeCommand({
+    schemaVersion: TASK_CONTRACT_SCHEMA_VERSION,
+    command_id: "broken-time-move",
+    name: "UpdateTask",
+    actor: { kind: "user", id: "mobile-device" },
+    source: "mobile",
+    issued_at: now,
+    payload: {
+      task_id: taskId,
+      expected_version: 2,
+      schedule_change: {
+        expected_version: 1,
+        changes: {
+          start_date: null,
+          end_date: "2026-11-20",
+          date_kind: "deadline",
+          range_semantics: null,
+          confidence: "fixed",
+          granularity: "day",
+        },
+        base: {
+          start_date: null,
+          end_date: "2026-11-19",
+          date_kind: "deadline",
+          range_semantics: null,
+          confidence: "fixed",
+          granularity: "day",
+        },
+      },
+    },
+  });
+  assert.equal(moved.ok, true, JSON.stringify(moved.error));
+  const raw = repository.get("schedule", "schedule-broken-time");
+  assert.equal(raw.end_date, "2026-11-20");
+  assert.equal(raw.end_time, "25:99");
+  assert.equal(raw.notify_before_minutes, "soon");
 });

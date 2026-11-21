@@ -11,6 +11,7 @@ import {
   sanitizePublicValue,
 } from "../../../shared/publicProjection.ts";
 import { noteProjectId } from "../../../shared/themeRef.mjs";
+import { scheduleEnd } from "../../../shared/scheduleSemantics.mjs";
 import { createTextSearch, orderByTextMatch } from "../../../shared/searchdict/searchSpellings.ts";
 import { publicAiHeader } from "../../../shared/taskContext.mjs";
 import {
@@ -155,6 +156,7 @@ const ITEM_FIELDS = [
   "next_action",
   "planned_start",
   "planned_end",
+  "planned_end_time",
   "due_date",
   "source_record_id",
   "created_at",
@@ -295,6 +297,8 @@ export class KnowledgeQueryService {
         description: task.description || "",
         planned_start: schedule?.start_date || null,
         planned_end: schedule?.end_date || null,
+        // 予定終了の日の時刻（#785。HH:mm、無ければ null）。
+        planned_end_time: scheduleEnd(schedule)?.time ?? null,
         due_date: null,
         source_record_id: task.source_record_id,
         created_at: task.created_at,

@@ -8,6 +8,8 @@ import {
   readStoredPlaceReminder,
   taskReadModelSchema,
   taskScheduleReadModelSchema,
+  taskScheduleEndTimeSchema,
+  taskScheduleNotifyBeforeSchema,
   taskChecklistItemSchema,
   type TaskCommand,
   type TaskCommandOutcome,
@@ -91,7 +93,23 @@ function projectSchedule(entity: Entity | null): TaskScheduleReadModel | null {
     start_date: entity.start_date || null,
     end_date: entity.end_date || null,
     range_semantics: entity.range_semantics || null,
+    // 時刻の組（#785）。読めない保存値は無い（null）として返し、DB の値は書き換えない
+    // （省いた欄は保存済みの値のまま、の決まりで、他の更新でも残る）。
+    end_time: readableScheduleValue(taskScheduleEndTimeSchema, entity.end_time),
+    notify_before_minutes: readableScheduleValue(
+      taskScheduleNotifyBeforeSchema,
+      entity.notify_before_minutes,
+    ),
   });
+}
+
+function readableScheduleValue<T>(
+  schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } },
+  value: unknown,
+): T | null {
+  if (value === null || value === undefined) return null;
+  const parsed = schema.safeParse(value);
+  return parsed.success ? parsed.data : null;
 }
 
 function normalizeChecklistItemsForReadModel(value: unknown): unknown {

@@ -12,6 +12,7 @@ import {
 } from "../../../../shared/applicationCommand.ts";
 import type { TaskEntityAccess } from "../ports/taskRepository.ts";
 import { normalizeTaskAssignment } from "../domain/taskAssignment.ts";
+import { normalizeScheduleEndFields } from "../../../../shared/scheduleSemantics.mjs";
 
 const taskDefinition = entityDefinition("task");
 const referenceDefinition = entityDefinition("reference");
@@ -192,7 +193,25 @@ export function validateTaskScheduleWrite(
     }
     assertExpectedVersion("schedule", schedule.id, existing);
   }
-  return { ...schedule, owner_type: "task", owner_id: taskId };
+  return normalizeScheduleEndFields({
+    ...keepStoredScheduleEndFields(schedule, existing),
+    owner_type: "task",
+    owner_id: taskId,
+  });
+}
+
+/**
+ * 時刻の組（#785）を省いた書き込みは、保存済みの値のまま残す。Desktop の画面は日程の Entity を
+ * まるごと送るので、欄を知らない経路（今日へ寄せる・古い版の画面）が時刻を黙って消さないように、
+ * キーが無い時だけ保存済みの値を写す。外すときは null を明示する。
+ */
+function keepStoredScheduleEndFields(schedule: Entity, existing: Entity | null): Entity {
+  if (!existing || existing.deleted_at) return schedule;
+  const kept: Entity = { ...schedule };
+  for (const key of ["end_time", "notify_before_minutes"] as const) {
+    if (!Object.hasOwn(kept, key) && Object.hasOwn(existing, key)) kept[key] = existing[key];
+  }
+  return kept;
 }
 
 export function taskReferenceOperations(

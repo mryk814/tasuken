@@ -908,3 +908,40 @@ test("create_note with file_path image + task_id works over stdio MCP and syncs 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("期限の時刻（#785）: 作る時の時刻は知らせを省くと30分前、明示すればその値で、日程に載る", () => {
+  const dir = temporary();
+  const db = open(dir);
+  const workspace = new WorkspaceService(db, dir, undefined, undefined, () => {
+    throw Error("no images");
+  });
+  const service = new AiItemCreationService(
+    db,
+    createAiItemCreationPort(new ApplicationCommandService(db), workspace),
+  );
+  try {
+    const scheduleOf = (result) =>
+      db.list("schedule").find((entry) => entry.owner_id === result.entity.id);
+    const defaulted = service.execute({
+      ...request("task", "end-time-default"),
+      schedule: { end_date: "2026-11-19", end_time: "02:00" },
+    });
+    assert.equal(scheduleOf(defaulted).end_time, "02:00");
+    assert.equal(scheduleOf(defaulted).notify_before_minutes, 30);
+    const explicit = service.execute({
+      ...request("task", "end-time-none"),
+      schedule: { end_date: "2026-11-19", end_time: "23:59", notify_before_minutes: null },
+    });
+    assert.equal(scheduleOf(explicit).end_time, "23:59");
+    assert.equal(scheduleOf(explicit).notify_before_minutes, null);
+    const dateOnly = service.execute({
+      ...request("task", "end-time-date-only"),
+      schedule: { end_date: "2026-11-19" },
+    });
+    assert.equal(scheduleOf(dateOnly).end_time ?? null, null);
+    assert.equal(scheduleOf(dateOnly).notify_before_minutes ?? null, null);
+  } finally {
+    db.db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

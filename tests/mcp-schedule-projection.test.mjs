@@ -104,9 +104,68 @@ test("get_task_context: the task carries its schedule and reminder_at", async ()
     loadTaskContextThemes: () => workspace.themes,
   });
   const got = service.execute({ task_id: "task-1" });
-  assert.deepEqual(got.task.schedule, { start_date: "2026-11-24", end_date: "2026-11-24" });
+  // #785: the time and its notice lead always ride along (null when unset).
+  assert.deepEqual(got.task.schedule, {
+    start_date: "2026-11-24",
+    end_date: "2026-11-24",
+    end_time: null,
+    notify_before_minutes: null,
+  });
   assert.equal(got.task.reminder_at, "2026-11-24T20:00:00+09:00");
   const gotBare = service.execute({ task_id: "task-2" });
   assert.equal(gotBare.task.schedule, null, "no schedule reads back as null");
   assert.equal(gotBare.task.reminder_at, null, "no reminder reads back as null");
+});
+
+test("#785: the end time and its notice lead ride the read projections", async () => {
+  const { ItemQueryService } = await importTs("src/main/core/services/itemQueryService.ts", [
+    "ItemQueryService",
+  ]);
+  const { TaskContextQueryService } = await importTs(
+    "src/main/core/services/taskContextQueryService.ts",
+    ["TaskContextQueryService"],
+  );
+  const timedSchedule = {
+    id: "s-timed",
+    owner_type: "task",
+    owner_id: "t-timed",
+    start_date: null,
+    end_date: "2026-11-19",
+    granularity: "day",
+    end_time: "02:00",
+    notify_before_minutes: 30,
+  };
+  const brokenSchedule = {
+    id: "s-broken",
+    owner_type: "task",
+    owner_id: "t-broken",
+    start_date: null,
+    end_date: "2026-11-19",
+    granularity: "day",
+    end_time: "25:99",
+  };
+  const snapshot = {
+    items: [],
+    tasks: [fakeTask("t-timed"), fakeTask("t-broken")],
+    planNodes: [],
+    schedules: [timedSchedule, brokenSchedule],
+    themes: [],
+  };
+  const items = new ItemQueryService({ readItemQuerySnapshot: () => snapshot });
+  const byId = new Map(items.listOpenItems({}).items.map((i) => [i.id, i]));
+  assert.equal(byId.get("t-timed").planned_end_time, "02:00");
+  assert.equal(byId.get("t-broken").planned_end_time, null, "unreadable value reads as null");
+
+  const workspace = {
+    themes: [],
+    tasks: [fakeTask("t-timed", { version: 1 })],
+    schedules: [timedSchedule],
+  };
+  const context = new TaskContextQueryService({
+    loadTaskContextWorkspace: () => workspace,
+    loadTaskContextThemes: () => [],
+  });
+  const got = context.execute({ task_id: "t-timed" });
+  assert.equal(got.task.schedule.end_time, "02:00");
+  assert.equal(got.task.schedule.notify_before_minutes, 30);
 });

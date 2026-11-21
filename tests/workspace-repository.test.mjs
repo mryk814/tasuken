@@ -1098,3 +1098,81 @@ test("直接の書き込みが既に有効なら、最初の起動でも値を�
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("#785 期限の時刻と知らせは再起動と共有フォルダの同期を往復し、欄の無い日程もそのまま取り込める", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-end-time-"));
+  const filename = path.join(root, "first.sqlite");
+  let first = new WorkspaceDatabase(filename);
+  const second = new WorkspaceDatabase(path.join(root, "second.sqlite"));
+  const schedule = (id, ownerId, extra = {}) => ({
+    id,
+    owner_type: "task",
+    owner_id: ownerId,
+    start_date: null,
+    end_date: "2026-11-19",
+    date_kind: "deadline",
+    range_semantics: null,
+    confidence: "fixed",
+    granularity: "day",
+    ...extra,
+  });
+  try {
+    first.save("task", {
+      id: "timed-task",
+      title: "株の申込み",
+      state: "todo",
+      priority: "normal",
+    });
+    first.save("task", { id: "plain-task", title: "書類", state: "todo", priority: "normal" });
+    first.save(
+      "schedule",
+      schedule("timed-schedule", "timed-task", { end_time: "02:00", notify_before_minutes: 30 }),
+    );
+    first.save("schedule", schedule("plain-schedule", "plain-task"));
+    // 保存の検査は型だけ（先の版が範囲を広げても同期が止まらないように）。
+    assert.throws(
+      () => validateEntity("schedule", schedule("bad", "x", { end_time: 200 })),
+      /end_time/,
+    );
+    assert.throws(
+      () => validateEntity("schedule", schedule("bad", "x", { notify_before_minutes: "30" })),
+      /notify_before_minutes/,
+    );
+    assert.doesNotThrow(() =>
+      validateEntity(
+        "schedule",
+        schedule("wide", "x", { end_time: "24:30", notify_before_minutes: 99999 }),
+      ),
+    );
+
+    first.db.close();
+    first = new WorkspaceDatabase(filename);
+    assert.equal(first.get("schedule", "timed-schedule").end_time, "02:00");
+    assert.equal(first.get("schedule", "timed-schedule").notify_before_minutes, 30);
+    assert.equal(Object.hasOwn(first.get("schedule", "plain-schedule"), "end_time"), false);
+
+    const firstSync = new SharedFolderSyncService(first, () => {}, path.join(root, "a-images"));
+    const secondSync = new SharedFolderSyncService(second, () => {}, path.join(root, "b-images"));
+    const shared = path.join(root, "shared");
+    await firstSync.configure(shared);
+    await secondSync.configure(shared);
+    assert.equal(second.get("schedule", "timed-schedule").end_time, "02:00");
+    assert.equal(second.get("schedule", "timed-schedule").notify_before_minutes, 30);
+    assert.equal(second.get("schedule", "plain-schedule").end_date, "2026-11-19");
+    assert.equal(Object.hasOwn(second.get("schedule", "plain-schedule"), "end_time"), false);
+
+    // 向こうで時刻を変えると、こちらへ戻ってくる。
+    second.save("schedule", {
+      ...second.get("schedule", "timed-schedule"),
+      end_time: "01:30",
+      notify_before_minutes: 0,
+    });
+    await secondSync.syncNow();
+    await firstSync.syncNow();
+    assert.equal(first.get("schedule", "timed-schedule").end_time, "01:30");
+    assert.equal(first.get("schedule", "timed-schedule").notify_before_minutes, 0);
+  } finally {
+    for (const database of [first, second]) if (database.db.open) database.db.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -144,6 +144,7 @@ const publicItemSchema = z
     next_action: z.string().optional(),
     planned_start: z.string().nullable().optional(),
     planned_end: z.string().nullable().optional(),
+    planned_end_time: z.string().nullable().optional(),
     due_date: z.string().nullable().optional(),
     source_record_id: z.string().nullable().optional(),
     created_at: z.string().nullable().optional(),

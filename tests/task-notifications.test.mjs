@@ -498,3 +498,89 @@ test("控えを使い始める最初の回は、今より前の知らせを鳴�
   assert.equal(pruneFiredNotices(first.fired, nextWeek).started, "2026-11-16");
   assert.equal(unfiredNotices(first.fired, [], nextWeek).started, false);
 });
+
+test("#785 期限の時刻の N 分前に知らせ、逃した分は 24 時間まで出し、日付・時刻・分を変えるともう一度知らせる", async () => {
+  const { endNoticeTitle, dueNoticeLine } = await import("../src/shared/taskNotifications.ts");
+  const tasks = [{ id: "kabu", title: "株の申込み", state: "todo" }];
+  const end = (overrides = {}) =>
+    new Map([
+      ["kabu", { date: "2026-11-19", time: "02:00", notifyBeforeMinutes: 30, ...overrides }],
+    ]);
+  const endKeys = (dueDates, now) =>
+    dueTaskNotices({ tasks, dueDates, dueTimes: ["09:00"], now })
+      .filter((notice) => notice.kind === "end")
+      .map((notice) => notice.key);
+  // 30 分前（日をまたいで前の日の 01:30 ではなく、当日 01:30）。
+  assert.deepEqual(endKeys(end(), local(2026, 11, 19, 1, 29)), []);
+  assert.deepEqual(endKeys(end(), local(2026, 11, 19, 1, 30)), ["end:kabu:2026-11-19T02:00:30"]);
+  // 逃した分は 24 時間まで。
+  assert.deepEqual(endKeys(end(), local(2026, 11, 20, 1, 29)), ["end:kabu:2026-11-19T02:00:30"]);
+  assert.deepEqual(endKeys(end(), local(2026, 11, 20, 1, 30)), []);
+  // 日をまたぐ前の知らせ（1日前）と、ちょうど（0）。
+  assert.deepEqual(endKeys(end({ notifyBeforeMinutes: 1440 }), local(2026, 11, 18, 2, 0)), [
+    "end:kabu:2026-11-19T02:00:1440",
+  ]);
+  assert.deepEqual(endKeys(end({ notifyBeforeMinutes: 0 }), local(2026, 11, 19, 2, 0)), [
+    "end:kabu:2026-11-19T02:00:0",
+  ]);
+  // 知らせの無い時刻・時刻の無い期限は end を出さない。
+  assert.deepEqual(endKeys(end({ notifyBeforeMinutes: null }), local(2026, 11, 19, 1, 45)), []);
+  assert.deepEqual(endKeys(end({ time: null }), local(2026, 11, 19, 1, 45)), []);
+  // 変えると鍵が変わる（もう一度知らせる）。
+  assert.notDeepEqual(
+    endKeys(end({ time: "01:50" }), local(2026, 11, 19, 1, 45)),
+    endKeys(end(), local(2026, 11, 19, 1, 45)),
+  );
+  // 見出しは出す時の時刻で決め、本文の先頭に時刻を付ける。
+  const notice = { endAt: "2026-11-19T02:00", title: "株の申込み" };
+  assert.equal(endNoticeTitle(notice, local(2026, 11, 19, 1, 30)), "あと30分で期限");
+  assert.equal(endNoticeTitle(notice, local(2026, 11, 19, 1, 59)), "まもなく期限");
+  assert.equal(endNoticeTitle(notice, local(2026, 11, 19, 2, 0)), "期限を過ぎました");
+  assert.equal(endNoticeTitle(notice, local(2026, 11, 19, 1, 0)), "あと1時間で期限");
+  assert.equal(endNoticeTitle(notice, local(2026, 11, 18, 2, 0)), "あと1日で期限");
+  assert.equal(dueNoticeLine(notice), "02:00 株の申込み");
+  assert.equal(dueNoticeLine({ title: "書類を出す" }), "書類を出す");
+});
+
+test("#785 期限の日の知らせ: 時刻が決まった時刻より後なら当日、そうでなければ前の日に「明日が期限」で出す", () => {
+  const tasks = [{ id: "a", title: "提出", state: "todo" }];
+  const dues = (time, now, dueTimes = ["09:00"]) =>
+    dueTaskNotices({
+      tasks,
+      dueDates: new Map([["a", { date: "2026-11-19", time, notifyBeforeMinutes: null }]]),
+      dueTimes,
+      now,
+    })
+      .filter((notice) => notice.kind === "due")
+      .map((notice) => [notice.key, notice.dueDay]);
+  // 23:59 の期限: 当日 09:00。
+  assert.deepEqual(dues("23:59", local(2026, 11, 19, 9, 0)), [["due:a:2026-11-19T09:00", "today"]]);
+  assert.deepEqual(dues("23:59", local(2026, 11, 18, 9, 0)), []);
+  // 02:00 の期限: 前の日の 09:00 に「明日が期限」。当日 09:00（過ぎた後）には出さない。
+  assert.deepEqual(dues("02:00", local(2026, 11, 18, 9, 0)), [
+    ["due:a:2026-11-18T09:00", "tomorrow"],
+  ]);
+  assert.deepEqual(dues("02:00", local(2026, 11, 19, 9, 0)), []);
+  // ちょうど同じ時刻も前の日（時刻ちょうどに「今日が期限」は遅い）。
+  assert.deepEqual(dues("09:00", local(2026, 11, 18, 9, 0)), [
+    ["due:a:2026-11-18T09:00", "tomorrow"],
+  ]);
+  // 2 回目の時刻は、それぞれで決める。
+  assert.deepEqual(dues("12:00", local(2026, 11, 19, 18, 0), ["09:00", "17:00"]), [
+    ["due:a:2026-11-19T09:00", "today"],
+  ]);
+  assert.deepEqual(dues("12:00", local(2026, 11, 18, 18, 0), ["09:00", "17:00"]), [
+    ["due:a:2026-11-18T17:00", "tomorrow"],
+  ]);
+  // 時刻の無い期限は今までどおり（文字列の日付を渡しても、時刻なしの組を渡しても同じ）。
+  assert.deepEqual(dues(null, local(2026, 11, 19, 9, 0)), [["due:a:2026-11-19T09:00", "today"]]);
+  assert.deepEqual(
+    dueTaskNotices({
+      tasks,
+      dueDates: new Map([["a", "2026-11-19"]]),
+      dueTimes: ["09:00"],
+      now: local(2026, 11, 19, 9, 0),
+    }).map((notice) => notice.key),
+    ["due:a:2026-11-19T09:00"],
+  );
+});

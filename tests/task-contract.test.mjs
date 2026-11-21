@@ -252,3 +252,75 @@ test("Task schedule change rejects reversed dates, stray range semantics, and an
   ])
     assert.equal(parseTaskCommand(scheduleCommand(schedule_change)).ok, false);
 });
+
+test("#785 予定終了の時刻と知らせ: コマンド入力の組を検べ、読み出しは欄の無い保存値も読む", async () => {
+  const { taskScheduleEditSchema, taskScheduleReadModelSchema } =
+    await import("../src/shared/contracts/task/public.ts");
+  const base = {
+    start_date: null,
+    end_date: "2026-11-19",
+    date_kind: "deadline",
+    range_semantics: null,
+    confidence: "fixed",
+    granularity: "day",
+  };
+  const accepts = (value) => taskScheduleEditSchema.safeParse({ ...base, ...value }).success;
+  // 受ける: 時刻と知らせ、ちょうど（0）、7 日前、外す（null）、省く（保存済みのまま）、開始日だけの一日。
+  assert.equal(accepts({ end_time: "02:00", notify_before_minutes: 30 }), true);
+  assert.equal(accepts({ end_time: "23:59", notify_before_minutes: 0 }), true);
+  assert.equal(accepts({ end_time: "00:00", notify_before_minutes: 10080 }), true);
+  assert.equal(accepts({ end_time: null, notify_before_minutes: null }), true);
+  assert.equal(accepts({}), true);
+  assert.equal(
+    accepts({ notify_before_minutes: 10 }),
+    true,
+    "時刻を省いた知らせは保存値と合わせて Core がそろえる",
+  );
+  assert.equal(
+    accepts({ start_date: "2026-11-19", end_date: null, date_kind: "point", end_time: "09:30" }),
+    true,
+  );
+  assert.equal(
+    accepts({
+      start_date: "2026-11-17",
+      end_date: "2026-11-19",
+      date_kind: "range",
+      range_semantics: "ongoing",
+      end_time: "18:00",
+    }),
+    true,
+  );
+  // 断る: 読めない時刻・範囲外の分・日程の無い時刻・週単位の時刻・時刻を外して知らせだけ。
+  for (const broken of ["24:00", "9:00", "09:60", "0900", ""])
+    assert.equal(accepts({ end_time: broken }), false, broken);
+  for (const minutes of [-1, 10081, 1.5])
+    assert.equal(
+      accepts({ end_time: "09:00", notify_before_minutes: minutes }),
+      false,
+      String(minutes),
+    );
+  assert.equal(accepts({ end_date: null, date_kind: "unknown", end_time: "09:00" }), false);
+  assert.equal(accepts({ granularity: "week", end_time: "09:00" }), false);
+  assert.equal(accepts({ end_time: null, notify_before_minutes: 30 }), false);
+
+  // 欄の無い古い保存値（受領・写し）も読め、無い = null。
+  const stored = {
+    ...base,
+    id: "schedule-old",
+    owner_type: "task",
+    owner_id: "task-old",
+    version: 2,
+    source: "manual",
+    created_at: now,
+    updated_at: now,
+    deleted_at: null,
+  };
+  const parsed = taskScheduleReadModelSchema.parse(stored);
+  assert.equal(parsed.end_time, null);
+  assert.equal(parsed.notify_before_minutes, null);
+  assert.equal(
+    taskScheduleReadModelSchema.parse({ ...stored, end_time: "23:59", notify_before_minutes: 30 })
+      .end_time,
+    "23:59",
+  );
+});

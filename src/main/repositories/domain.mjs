@@ -709,6 +709,12 @@ export function validateEntity(type, input) {
     ) {
       throw new Error("schedule.range_semanticsは開始日と終了日が異なる範囲にだけ設定できます。");
     }
+    // 予定終了の時刻と知らせ（#785）。同期・取り込みの経路でも通るので、型だけを見る
+    // （place_reminder と同じ。形と組はコマンド入力の zod が断り、読み出しは読めない値を null にする）。
+    if (input.end_time != null && typeof input.end_time !== "string")
+      throw new Error("schedule.end_timeが不正です。");
+    if (input.notify_before_minutes != null && typeof input.notify_before_minutes !== "number")
+      throw new Error("schedule.notify_before_minutesが不正です。");
   }
   if (type === "reference") {
     // normalizeReferenceAssertion owns the complete assertion validation.

@@ -298,3 +298,124 @@ test("範囲でなくなったscheduleに古い意味を残さない（#309）",
   );
   assert.equal(narrowed.range_semantics, null);
 });
+
+test("#785 scheduleEnd は期限の日と時刻と知らせを読み、日単位でない日程と時刻の無い知らせを無いものにする", async () => {
+  const shared = await importBundled("src/shared/scheduleSemantics.mjs");
+  assert.equal(shared.scheduleEnd(null), null);
+  assert.equal(shared.scheduleEnd({ start_date: null, end_date: null }), null);
+  // 開始日だけの一日も、その日の時刻を持てる。
+  assert.deepEqual(
+    shared.scheduleEnd({
+      start_date: "2026-11-19",
+      end_date: null,
+      granularity: "day",
+      end_time: "09:30",
+      notify_before_minutes: 10,
+    }),
+    {
+      date: "2026-11-19",
+      time: "09:30",
+      notifyBeforeMinutes: 10,
+    },
+  );
+  // 期間は終了日の時刻。
+  assert.equal(
+    shared.scheduleEnd({
+      start_date: "2026-11-17",
+      end_date: "2026-11-19",
+      granularity: "day",
+      end_time: "18:00",
+    }).date,
+    "2026-11-19",
+  );
+  // 月単位の日程の時刻は無いものとして読む。
+  assert.deepEqual(
+    shared.scheduleEnd({
+      start_date: null,
+      end_date: "2026-11-30",
+      granularity: "month",
+      end_time: "09:00",
+      notify_before_minutes: 30,
+    }),
+    {
+      date: "2026-11-30",
+      time: null,
+      notifyBeforeMinutes: null,
+    },
+  );
+  // 読めない時刻・時刻の無い知らせ・範囲外の分。
+  assert.equal(
+    shared.scheduleEnd({ end_date: "2026-11-19", granularity: "day", end_time: "25:99" }).time,
+    null,
+  );
+  assert.equal(
+    shared.scheduleEnd({
+      end_date: "2026-11-19",
+      granularity: "day",
+      end_time: null,
+      notify_before_minutes: 30,
+    }).notifyBeforeMinutes,
+    null,
+  );
+  assert.equal(
+    shared.scheduleEnd({
+      end_date: "2026-11-19",
+      granularity: "day",
+      end_time: "09:00",
+      notify_before_minutes: 10081,
+    }).notifyBeforeMinutes,
+    null,
+  );
+  assert.equal(
+    shared.scheduleEndTime({ end_date: "2026-11-19", granularity: "day", end_time: "09:00" }),
+    "09:00",
+  );
+});
+
+test("#785 isScheduleOverdueAt は期限の日のうちでも時刻を過ぎたら超過、時刻の無い日程は日付だけで決める", async () => {
+  const shared = await importBundled("src/shared/scheduleSemantics.mjs");
+  const timed = {
+    start_date: null,
+    end_date: "2026-11-19",
+    date_kind: "deadline",
+    granularity: "day",
+    end_time: "23:59",
+  };
+  assert.equal(shared.isScheduleOverdueAt(timed, "2026-11-19T23:58"), false);
+  assert.equal(shared.isScheduleOverdueAt(timed, "2026-11-19T23:59"), true, "その分から超過");
+  assert.equal(shared.isScheduleOverdueAt(timed, "2026-11-18T23:59"), false);
+  assert.equal(shared.isScheduleOverdueAt(timed, "2026-11-20T00:00"), true);
+  const untimed = { ...timed, end_time: null };
+  assert.equal(shared.isScheduleOverdueAt(untimed, "2026-11-19T23:59"), false);
+  assert.equal(shared.isScheduleOverdueAt(untimed, "2026-11-20T00:00"), true);
+  assert.equal(
+    shared.isScheduleOverdueAt({ ...timed, granularity: "month" }, "2026-11-19T23:59"),
+    false,
+  );
+  assert.equal(shared.isScheduleOverdueAt(null, "2026-11-19T23:59"), false);
+});
+
+test("#785 normalizeScheduleEndFields は日程の無い・日単位でない時刻と、時刻の無い知らせを外し、欄を足さない", async () => {
+  const shared = await importBundled("src/shared/scheduleSemantics.mjs");
+  const base = { start_date: null, end_date: "2026-11-19", granularity: "day" };
+  assert.deepEqual(shared.normalizeScheduleEndFields(base), base, "欄の無い日程に欄を足さない");
+  assert.deepEqual(
+    shared.normalizeScheduleEndFields({
+      ...base,
+      end_date: null,
+      end_time: "09:00",
+      notify_before_minutes: 30,
+    }),
+    { ...base, end_date: null, end_time: null, notify_before_minutes: null },
+  );
+  assert.deepEqual(
+    shared.normalizeScheduleEndFields({ ...base, granularity: "week", end_time: "09:00" }),
+    { ...base, granularity: "week", end_time: null },
+  );
+  assert.deepEqual(
+    shared.normalizeScheduleEndFields({ ...base, end_time: null, notify_before_minutes: 30 }),
+    { ...base, end_time: null, notify_before_minutes: null },
+  );
+  // 読めない保存値は書き換えない（日程があれば残る）。
+  assert.equal(shared.normalizeScheduleEndFields({ ...base, end_time: "25:99" }).end_time, "25:99");
+});

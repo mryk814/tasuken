@@ -4,11 +4,14 @@ import type { WorkspaceDatabase } from "./repositories/workspaceRepository.mjs";
 import { localDateString } from "./dateTime";
 import type { Entity } from "../shared/types/workspace";
 import {
+  dueNoticeLine,
   dueTaskNotices,
-  scheduleDueDate,
+  endNoticeTitle,
   unfiredNotices,
   type TaskNotice,
+  type TaskNoticeEnd,
 } from "../shared/taskNotifications.ts";
+import { scheduleEnd } from "../shared/scheduleSemantics.mjs";
 
 const REMINDER_CHECK_INTERVAL_MS = 60000;
 
@@ -45,18 +48,25 @@ export function createReminderController(options: ReminderControllerOptions): Re
     notification.show();
   }
 
-  /** 期限の日の知らせは、件数が多い朝に通知を並べないよう 1 つにまとめる（1 件ならその Task を開く）。 */
+  /**
+   * 期限の日の知らせは、件数が多い朝に通知を並べないよう 1 つにまとめる（1 件ならその Task を開く）。
+   * 「今日が期限」と、時刻の早い期限を前の日に知らせる「明日が期限」（#785）は別にまとめる。
+   */
   function showDueNotices(notices: TaskNotice[]): void {
-    if (notices.length === 0) return;
-    const taskIds = [...new Set(notices.map((notice) => notice.taskId))];
-    const titles = [...new Set(notices.map((notice) => notice.title))];
-    showNotification({
-      id: notices.map((notice) => notice.key).join("|"),
-      title: taskIds.length === 1 ? "今日が期限" : `今日が期限 ${taskIds.length} 件`,
-      body:
-        titles.slice(0, 3).join("\n") + (titles.length > 3 ? `\nほか ${titles.length - 3} 件` : ""),
-      onClick: taskIds.length === 1 ? () => options.openTask(taskIds[0]) : options.showMainWindow,
-    });
+    for (const day of ["today", "tomorrow"] as const) {
+      const group = notices.filter((notice) => (notice.dueDay || "today") === day);
+      if (group.length === 0) continue;
+      const label = day === "today" ? "今日が期限" : "明日が期限";
+      const taskIds = [...new Set(group.map((notice) => notice.taskId))];
+      const lines = [...new Set(group.map(dueNoticeLine))];
+      showNotification({
+        id: group.map((notice) => notice.key).join("|"),
+        title: taskIds.length === 1 ? label : `${label} ${taskIds.length} 件`,
+        body:
+          lines.slice(0, 3).join("\n") + (lines.length > 3 ? `\nほか ${lines.length - 3} 件` : ""),
+        onClick: taskIds.length === 1 ? () => options.openTask(taskIds[0]) : options.showMainWindow,
+      });
+    }
   }
 
   /**
@@ -65,10 +75,10 @@ export function createReminderController(options: ReminderControllerOptions): Re
    */
   function checkTasks(): void {
     const now = new Date();
-    const dueDates = new Map<string, string>();
+    const dueDates = new Map<string, TaskNoticeEnd>();
     for (const schedule of options.repository.list("schedule") as Entity[]) {
-      const dueDate = schedule.owner_type === "task" ? scheduleDueDate(schedule) : "";
-      if (dueDate) dueDates.set(String(schedule.owner_id), dueDate);
+      const end = schedule.owner_type === "task" ? scheduleEnd(schedule) : null;
+      if (end) dueDates.set(String(schedule.owner_id), end);
     }
     const notices = dueTaskNotices({
       tasks: options.repository.list("task") as Entity[],
@@ -94,6 +104,15 @@ export function createReminderController(options: ReminderControllerOptions): Re
         id: notice.key,
         title: "Tasken リマインダー",
         body: notice.title,
+        onClick: () => options.openTask(notice.taskId),
+      });
+    }
+    // 期限の時刻の N 分前（#785）は、時刻と同じく 1 件ずつ出す（押すとその Task を開く）。
+    for (const notice of fresh.filter((entry) => entry.kind === "end")) {
+      showNotification({
+        id: notice.key,
+        title: endNoticeTitle(notice, now),
+        body: dueNoticeLine(notice),
         onClick: () => options.openTask(notice.taskId),
       });
     }

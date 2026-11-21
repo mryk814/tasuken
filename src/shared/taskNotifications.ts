@@ -4,6 +4,8 @@
  *
  * - 時刻を付けた Task（reminder_at）は、その時刻に知らせる。逃した時刻は 24 時間まで後から出す。
  * - 期限の日は、本人が決めた時刻（既定 09:00、2 回目を足せる）に知らせる。期限の日のうちだけ出す。
+ *   期限に時刻（#785）があり、決まった時刻がそれより前でなければ、前の日に「明日が期限」として出す。
+ * - 期限の時刻の N 分前（Task ごとに選ぶ）に知らせる。逃した分は 24 時間まで後から出す。
  * - 完了・中止・削除した Task は知らせない。
  *
  * 時刻は端末の現地時刻の分（YYYY-MM-DDTHH:mm）で比べる。文字の大小がそのまま前後になる。
@@ -80,24 +82,58 @@ export interface TaskNotificationTask {
   deleted_at?: unknown;
 }
 
+/**
+ * 期限の日と、その日の時刻（#785）。時刻と知らせは shared/scheduleSemantics.mjs の scheduleEnd が
+ * 読んだ値を渡す（日単位でない日程・時刻の無い知らせは、そこで無いものになっている）。
+ */
+export interface TaskNoticeEnd {
+  date: string;
+  time: string | null;
+  notifyBeforeMinutes: number | null;
+}
+
 export interface TaskNotice {
   /** 同じ知らせを 2 度出さないための鍵。時刻や期限を変えると鍵も変わり、もう一度知らせる。 */
   key: string;
-  kind: "time" | "due";
+  /** time = リマインダー、due = 期限の日の決まった時刻、end = 期限の時刻の N 分前（#785）。 */
+  kind: "time" | "due" | "end";
   taskId: string;
   title: string;
   at: string;
+  /** due と end だけ。期限の時刻（YYYY-MM-DDTHH:mm）。時刻の無い期限は無い。 */
+  endAt?: string;
+  /** due だけ。期限が今日か明日か（時刻の早い期限は前の日に知らせる）。 */
+  dueDay?: "today" | "tomorrow";
 }
 
 function isOpen(task: TaskNotificationTask): boolean {
   return task.state !== "done" && task.state !== "cancelled" && !task.deleted_at;
 }
 
-/** いま出すべき知らせ（もう出したかどうかは見ない）。時刻の古い順。 */
+function shiftMinute(minute: string, deltaMinutes: number): string {
+  const [date, time] = minute.split("T");
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, min] = time.split(":").map(Number);
+  return localMinute(new Date(year, month - 1, day, hour, min + deltaMinutes));
+}
+
+function previousDay(date: string): string {
+  return shiftMinute(`${date}T00:00`, -24 * 60).slice(0, 10);
+}
+
+/**
+ * いま出すべき知らせ（もう出したかどうかは見ない）。時刻の古い順。
+ *
+ * 期限の時刻（#785）がある Task は:
+ * - end: 時刻の N 分前に知らせる（N は本人が Task ごとに選ぶ。無ければ出さない）。逃した分は time と同じく
+ *   24 時間まで後から出す。日付・時刻・N を変えると鍵が変わり、もう一度知らせる。
+ * - due: 期限の日の決まった時刻が期限の時刻より前なら、その日に今日どおり出す。そうでなければ
+ *   前の日のその時刻に「明日が期限」として出す（02:00 の期限を、過ぎた後の 09:00 に知らせない）。
+ */
 export function dueTaskNotices(input: {
   tasks: readonly TaskNotificationTask[];
-  /** Task の ID → 期限の日（YYYY-MM-DD）。 */
-  dueDates: ReadonlyMap<string, string>;
+  /** Task の ID → 期限の日（YYYY-MM-DD）か、時刻つきの期限。 */
+  dueDates: ReadonlyMap<string, string | TaskNoticeEnd>;
   dueTimes: readonly string[];
   now: Date;
 }): TaskNotice[] {
@@ -113,14 +149,81 @@ export function dueTaskNotices(input: {
     const at = normalizeReminderDateTime(task.reminder_at);
     if (at && at <= nowMinute && at > dayAgo)
       notices.push({ key: `time:${taskId}:${at}`, kind: "time", taskId, title, at });
-    if (input.dueDates.get(taskId) !== today) continue;
-    for (const time of dueTimes) {
-      const dueAt = `${today}T${time}`;
+    const entry = input.dueDates.get(taskId);
+    const end: TaskNoticeEnd | null =
+      typeof entry === "string"
+        ? { date: entry, time: null, notifyBeforeMinutes: null }
+        : entry && typeof entry.date === "string"
+          ? entry
+          : null;
+    if (!end?.date) continue;
+    const time = end.time && TIME_PATTERN.test(end.time) ? end.time : null;
+    const endAt = time ? `${end.date}T${time}` : undefined;
+    if (endAt && end.notifyBeforeMinutes !== null && Number.isInteger(end.notifyBeforeMinutes)) {
+      const noticeAt = shiftMinute(endAt, -end.notifyBeforeMinutes);
+      if (noticeAt <= nowMinute && noticeAt > dayAgo)
+        notices.push({
+          key: `end:${taskId}:${endAt}:${end.notifyBeforeMinutes}`,
+          kind: "end",
+          taskId,
+          title,
+          at: noticeAt,
+          endAt,
+        });
+    }
+    for (const dueTime of dueTimes) {
+      // 時刻の無い期限と、決まった時刻が期限の時刻より前の時は、期限の日に知らせる。
+      const sameDay = !time || dueTime < time;
+      const noticeDate = sameDay ? end.date : previousDay(end.date);
+      if (noticeDate !== today) continue;
+      const dueAt = `${today}T${dueTime}`;
       if (dueAt <= nowMinute)
-        notices.push({ key: `due:${taskId}:${dueAt}`, kind: "due", taskId, title, at: dueAt });
+        notices.push({
+          key: `due:${taskId}:${dueAt}`,
+          kind: "due",
+          taskId,
+          title,
+          at: dueAt,
+          ...(endAt ? { endAt } : {}),
+          dueDay: sameDay ? "today" : "tomorrow",
+        });
     }
   }
   return notices.sort((left, right) => left.at.localeCompare(right.at));
+}
+
+/**
+ * 期限の時刻の知らせ（end）の見出し。出す時の時刻で決める（後から出す時に「あと 30 分」と言わない）。
+ * 時刻の前は「あとN分で期限」（1 時間以上は時間・日で言う）か「まもなく期限」、時刻を過ぎたら「期限を過ぎました」。
+ */
+export function endNoticeTitle(notice: Pick<TaskNotice, "endAt">, now: Date): string {
+  if (!notice.endAt) return "期限";
+  const nowMinute = localMinute(now);
+  if (notice.endAt <= nowMinute) return "期限を過ぎました";
+  const [date, time] = notice.endAt.split("T");
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  const remaining = Math.round(
+    (new Date(year, month - 1, day, hour, minute).getTime() -
+      new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+        now.getHours(),
+        now.getMinutes(),
+      ).getTime()) /
+      60000,
+  );
+  if (remaining <= 1) return "まもなく期限";
+  if (remaining < 60) return `あと${remaining}分で期限`;
+  if (remaining < 24 * 60 && remaining % 60 === 0) return `あと${remaining / 60}時間で期限`;
+  if (remaining < 24 * 60) return `あと${Math.floor(remaining / 60)}時間${remaining % 60}分で期限`;
+  return `あと${Math.round(remaining / (24 * 60))}日で期限`;
+}
+
+/** 期限の知らせの本文の 1 行。時刻つきの期限は先頭に HH:mm を付ける。 */
+export function dueNoticeLine(notice: Pick<TaskNotice, "endAt" | "title">): string {
+  return notice.endAt ? `${notice.endAt.slice(11, 16)} ${notice.title}` : notice.title;
 }
 
 /**

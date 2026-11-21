@@ -16,6 +16,7 @@ import {
   type TaskReadModel,
 } from "../../../shared/contracts/task/public.ts";
 import type { Entity } from "../../../shared/types/workspace.ts";
+import { scheduleEnd } from "../../../shared/scheduleSemantics.mjs";
 import { CorePublicError, directWriteDisabled } from "./corePublicError.ts";
 
 /** 一つの会話（source_session）が、本人に確かめずに変えてよいTaskの数（本人の判断、2026-11-08）。 */
@@ -137,7 +138,13 @@ function parseJson(value: unknown): Entity | null {
   }
 }
 
+/**
+ * 日程の全欄（取り消しの元と戻す先に使う）。時刻の組（#785）も必ず明示する：省くと
+ * 「保存済みの値のまま」になり、AI が変えた時刻を取り消しても新しい時刻が残る。
+ * 欄の無い古い日程や読めない値は null（時刻なし）として扱う。
+ */
 function scheduleEdit(schedule: Record<string, unknown>) {
+  const end = scheduleEnd(schedule);
   return {
     start_date: (schedule.start_date as string | null) ?? null,
     end_date: (schedule.end_date as string | null) ?? null,
@@ -145,6 +152,8 @@ function scheduleEdit(schedule: Record<string, unknown>) {
     range_semantics: (schedule.range_semantics as string | null) ?? null,
     confidence: schedule.confidence,
     granularity: schedule.granularity,
+    end_time: end?.time ?? null,
+    notify_before_minutes: end?.notifyBeforeMinutes ?? null,
   } as never;
 }
 
@@ -517,13 +526,15 @@ export class AiTaskChangeService {
               end_date: null,
               date_kind: "unknown",
               range_semantics: null,
+              end_time: null,
+              notify_before_minutes: null,
             }),
             base: scheduleEdit(current),
             expected_version: current.version,
           };
       } else
         scheduleChange = {
-          changes: taskScheduleEditFromAiInput(edit.schedule),
+          changes: taskScheduleEditFromAiInput(edit.schedule, current),
           base: current ? scheduleEdit(current) : null,
           expected_version: current ? current.version : null,
         };
@@ -718,6 +729,8 @@ export class AiTaskChangeService {
                 end_date: null,
                 date_kind: "unknown",
                 range_semantics: null,
+                end_time: null,
+                notify_before_minutes: null,
               },
             ),
             base: scheduleEdit(schedule),
