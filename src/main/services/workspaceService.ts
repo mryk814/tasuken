@@ -1013,7 +1013,10 @@ export class WorkspaceService {
     const binding = canonicalMarkdownBindingFromProperties(objectValue(note.properties_json), {
       noteId: id,
     });
-    if (!binding?.canonical_path)
+    // 別の OS の端末が結び付けたファイル（#810）は、この端末では触れない。保存と同じく
+    // DB の側だけ消し（取り消せる）、ファイルはそのままにする。復旧記録も作らないので、
+    // 戻すときも DB の側だけ戻る。
+    if (!binding?.canonical_path || isForeignAbsolutePath(binding.canonical_path))
       return workLogCommit
         ? this.commitWorkLogLifecycle(id, workLogCommit)
         : this.repository.remove(type, id);

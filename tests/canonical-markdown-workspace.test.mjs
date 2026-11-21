@@ -2387,3 +2387,41 @@ test("managed Media の保存先: 新しくはルートの下、前の版の sto
     closeFixture(fixture);
   }
 });
+
+test("別の OS のパスに結び付いた Note は、ファイルに触らず DB の側で消せて、戻せる（#810）", () => {
+  const fixture = createFixture("tasken-canonical-foreign-delete");
+  const previousCwd = process.cwd();
+  const workingDirectory = path.join(fixture.userDataPath, "cwd");
+  fs.mkdirSync(workingDirectory);
+  try {
+    process.chdir(workingDirectory);
+    const foreignPath =
+      process.platform === "win32"
+        ? "/tasken-810-foreign/Notes/foreign-delete.md"
+        : "C:\\Users\\me\\Tasken\\Themes\\A\\Notes\\foreign-delete.md";
+    const binding = {
+      binding_id: "note:note-foreign-delete",
+      canonical_path: foreignPath,
+      directory: foreignPath.replace(/[\\/][^\\/]+$/, ""),
+      file_name: "foreign-delete.md",
+      file_signature: markdownSignature("本文"),
+      sync_state: "in_sync",
+    };
+    fixture.database.save("note", {
+      id: "note-foreign-delete",
+      title: "ほかの端末のメモ",
+      body_markdown: "本文",
+      properties_json: { canonical_markdown: binding },
+    });
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const removed = service.removeEntity("note", "note-foreign-delete");
+    assert.ok(removed.deleted_at);
+    const restored = service.restoreEntity("note", "note-foreign-delete");
+    assert.equal(restored.deleted_at, null);
+    assert.equal(canonicalBinding(restored).canonical_path, foreignPath);
+    assert.deepEqual(readdirSync(workingDirectory), []);
+  } finally {
+    process.chdir(previousCwd);
+    closeFixture(fixture);
+  }
+});
