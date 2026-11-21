@@ -25,6 +25,7 @@
     "test:behavior": "node scripts/run-electron-node.mjs --test tests/application-command.test.mjs tests/note-draft-identity.test.mjs tests/canonical-markdown.test.mjs tests/canonical-markdown-workspace.test.mjs tests/note-draft-flush-registry.test.mjs tests/note-draft-save-queue.test.mjs tests/document-publish.test.mjs tests/satellite-window-state.test.mjs tests/workspace-domain.test.mjs",
     "typecheck": "tsc -b",
     "search-dictionary:generate": "node scripts/generate-search-dictionary.mjs",
+    "animal:copy": "node scripts/copy-animal.mjs",
     "build": "electron-vite build",
     "build:mcp": "node scripts/build-mcp-bridge.mjs",
     "build:core:headless": "node scripts/build-core-headless.mjs",
