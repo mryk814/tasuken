@@ -237,6 +237,7 @@ class AndroidMobileTaskRepository(
     private val photoStore = MobileCapturePhotoStore(context.applicationContext)
     private val workLogOutbox = MobileWorkLogOutbox(dao, store::deviceId, { MobileOutboxScheduler.enqueue(context) })
     private val routineOutbox = MobileRoutineOutbox(dao, store::deviceId, scheduleOutbox)
+    private val proposalDecisionOutbox = MobileProposalDecisionOutbox(dao, store::deviceId, scheduleOutbox)
     private val recallReader = MobileRecallReader(dao) { path ->
         val configuration = store.configuration()
         val token = requireNotNull(store.readToken()) { "Desktopへの接続を確認してください。端末の記録を表示しています。" }
@@ -602,119 +603,35 @@ class AndroidMobileTaskRepository(
         }
     }
 
+    /**
+     * 提案への答えを送信の列に積む（圏外でも押せる）。送るのは列の送り手で、届くまでは
+     * [observeProposalDecisions] に送る途中として出る。詳しい決まりは [MobileProposalDecisionOutbox]。
+     */
     override suspend fun reviewTaskWorkProposal(
         proposal: MobileTaskWorkProposal,
         decision: String,
-    ): MobileProposalReviewResult {
-        require(decision in setOf("accept", "reject"))
-        val expectedServerId = dao.syncState()?.serverId
-            ?: return MobileProposalReviewResult.Unavailable(
-                proposal.id,
-                "Taskを同期してからProposalを判断してください。",
-            )
-        val cached = dao.taskWorkProposal(proposal.id, expectedServerId)?.toProposal()
-            ?: return MobileProposalReviewResult.Conflict(
-                proposal.id,
-                "Proposalが更新されています。再読み込みしてください。",
-            )
-        if (
-            cached.taskId != proposal.taskId ||
-            cached.version != proposal.version ||
-            cached.taskVersion != proposal.taskVersion
-        ) {
-            return MobileProposalReviewResult.Conflict(
-                proposal.id,
-                "Proposalが更新されています。再読み込みしてください。",
-            )
-        }
-        if (decision == "accept" && cached.stale) {
-            return MobileProposalReviewResult.Conflict(
-                proposal.id,
-                "Taskが更新されています。AIへ再報告を依頼してください。",
-            )
-        }
-        val configuration = store.configuration()
-        val token = store.readToken()
-        if (configuration.origin.isBlank() || token == null) {
-            return MobileProposalReviewResult.Unavailable(
-                proposal.id,
-                "Desktopへ接続してからProposalを判断してください。",
-            )
-        }
-        return try {
-            val commandId = UUID.randomUUID().toString()
-            val envelope = MobileTaskWorkProposalDecisionEnvelopeDto(
-                apiVersion = TASKEN_MOBILE_API_VERSION,
-                schemaVersion = TASKEN_MOBILE_SCHEMA_VERSION,
-                requestId = UUID.randomUUID().toString(),
-                commandId = commandId,
-                idempotencyKey = commandId,
-                clientDeviceId = store.deviceId(),
-                issuedAt = Instant.now().toString(),
-                proposalId = cached.id,
-                taskId = cached.taskId,
-                expectedProposalVersion = cached.version,
-                expectedTaskVersion = cached.taskVersion,
-                decision = decision,
-            )
-            val response = gatewayRequest(
-                origin = configuration.origin,
-                path = "/v1/proposal-decisions",
-                method = "POST",
-                body = MobileProposalContract.encodeDecision(envelope),
-                accessToken = token,
-            )
-            if (response.status == 401) {
-                val confirmed = isConfirmedGatewayUnauthorized(response, expectedServerId)
-                if (confirmed) store.clearTokenIfMatches(token)
-                return MobileProposalReviewResult.Unavailable(
-                    proposal.id,
-                    if (confirmed) {
-                        "接続が失効しました。新しいコードでつなぎ直してください。"
-                    } else {
-                        "Desktopへ接続できませんでした。接続を確認して再試行してください。"
-                    },
-                )
-            }
-            if (response.status == 409) {
-                val error = MobileTaskCommandContract.decodeError(response.body)
-                if (error.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-                refreshTaskWorkProposals(configuration.origin, token)
-                return MobileProposalReviewResult.Conflict(
-                    proposal.id,
-                    error.error.message,
-                )
-            }
-            require(response.status == 200) { "Task Work Proposal decision failed with HTTP ${response.status}" }
-            val decoded = MobileProposalContract.decodeDecision(response.body)
-            if (decoded.meta.serverId != expectedServerId) throw MobileOutboxServerMismatchException()
-            require(
-                decoded.data.commandId == commandId &&
-                    decoded.data.proposalId == cached.id &&
-                    decoded.data.taskId == cached.taskId &&
-                    decoded.data.decision == decision
-            ) { "Task Work Proposal decision identity does not match the request" }
-            dao.deleteTaskWorkProposal(cached.id, expectedServerId)
-            runCatching { synchronize(configuration.origin, token, expectedServerId) }
-                .onFailure { error ->
-                    Log.w(MOBILE_GATEWAY_LOG_TAG, "Task sync after Proposal decision failed", error)
-                }
-            refreshTaskWorkProposals(configuration.origin, token)
-            MobileProposalReviewResult.Applied(cached.id, decision)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: MobileOutboxServerMismatchException) {
-            MobileProposalReviewResult.Unavailable(
-                proposal.id,
-                "接続先Desktopが変わりました。再接続してください。",
-            )
-        } catch (error: Exception) {
-            Log.w(MOBILE_GATEWAY_LOG_TAG, "Mobile Task Work Proposal decision failed", error)
-            MobileProposalReviewResult.Unavailable(
-                proposal.id,
-                "Proposalを判断できませんでした。DesktopとTailscale接続を確認してください。",
-            )
-        }
+    ): MobileProposalReviewResult = try {
+        proposalDecisionOutbox.decide(proposal, decision)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        // 列に書けなかった（「閉じる」と重なった・DB の不調など）。押した答えは残っていないので、そう伝える。
+        Log.w(MOBILE_GATEWAY_LOG_TAG, "Proposal decision could not be queued", error)
+        MobileProposalReviewResult.Unavailable(proposal.id, "答えを端末に残せませんでした。もう一度押してください。")
+    }
+
+    override fun observeProposalDecisions(): Flow<List<MobileProposalDecision>> =
+        combine(dao.observeProposalDecisions(), dao.observeSyncState()) { rows, syncState ->
+            rows.filter { it.serverId == syncState?.serverId }.mapNotNull { it.toProposalDecision() }
+        }.distinctUntilChanged()
+
+    override suspend fun discardProposalDecision(commandId: String): Boolean = try {
+        proposalDecisionOutbox.discard(commandId)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Log.w(MOBILE_GATEWAY_LOG_TAG, "Returned proposal decision could not be closed", error)
+        false
     }
 
     private val feedActionMutex = Mutex()
@@ -1014,6 +931,73 @@ class AndroidMobileTaskRepository(
             }
         } catch (error: Exception) {
             Log.w(MOBILE_GATEWAY_LOG_TAG, "Routine record request failed", error)
+            if (answered?.let { namesServer(it.body, expectedServerId) } == true) {
+                MobileCommandSendResult.Retry("PC の応答を読み取れませんでした。", serverReached = true)
+            } else {
+                MobileCommandSendResult.Retry("PC につながりません。")
+            }
+        }
+    }
+
+    /**
+     * 列から送る提案への答え（/v1/proposal-decisions）。応答の読み方は /v1/commands と同じ：
+     * 断られた物は Rejected で列に残し、つながらない・相手が答えられない時は Retry で後で同じ commandId を送る。
+     * 先に決まった・変わった提案（proposal_conflict）と、無くなった提案（not_found）は、送り直しても届かないので Rejected。
+     */
+    private fun sendProposalDecision(
+        origin: String,
+        accessToken: String,
+        expectedServerId: String,
+        envelopeJson: String,
+    ): MobileCommandSendResult {
+        var answered: GatewayHttpResponse? = null
+        return try {
+            val response = gatewayRequest(origin, "/v1/proposal-decisions", "POST", envelopeJson, accessToken)
+            answered = response
+            when {
+                response.status == 200 -> {
+                    val decoded = MobileProposalContract.decodeDecision(response.body)
+                    if (decoded.meta.serverId != expectedServerId) {
+                        MobileCommandSendResult.Retry("PC の識別情報が送信前と一致しません。つなぎ直してください。")
+                    } else {
+                        // 送った答えと合うかは列の送り手が確かめる。
+                        MobileCommandSendResult.ProposalDecisionApplied(decoded)
+                    }
+                }
+                response.status == 401 -> {
+                    val confirmed = isConfirmedGatewayUnauthorized(response, expectedServerId)
+                    if (confirmed) store.clearTokenIfMatches(accessToken)
+                    MobileCommandSendResult.Retry(
+                        if (confirmed) "接続が失効しました。新しいコードでつなぎ直してください。" else "PC へ送れませんでした。",
+                    )
+                }
+                response.status == 429 -> MobileCommandSendResult.Retry("PC へ送れませんでした。")
+                response.status == 408 || response.status >= 500 ->
+                    MobileCommandSendResult.Retry(
+                        "PC が操作を処理できませんでした（HTTP ${response.status}）。",
+                        serverReached = true,
+                    )
+                else -> {
+                    val error = runCatching { MobileTaskCommandContract.decodeError(response.body) }.getOrNull()
+                    if (error != null && error.meta.serverId != expectedServerId) {
+                        MobileCommandSendResult.Retry("PC の識別情報が送信前と一致しません。つなぎ直してください。")
+                    } else {
+                        val code = error?.error?.code ?: "http_${response.status}"
+                        MobileCommandSendResult.Rejected(
+                            code = code,
+                            message = when (code) {
+                                "proposal_conflict" -> PROPOSAL_DECISION_CONFLICT
+                                "not_found" -> PROPOSAL_DECISION_GONE
+                                "forbidden" -> "この権限では答えられません。新しいコードでつなぎ直してから、もう一度答えてください。"
+                                else -> error?.error?.message ?: "PC が答えを受け取りませんでした。"
+                            },
+                            retryable = error?.error?.retryable ?: false,
+                        )
+                    }
+                }
+            }
+        } catch (error: Exception) {
+            Log.w(MOBILE_GATEWAY_LOG_TAG, "Proposal decision request failed", error)
             if (answered?.let { namesServer(it.body, expectedServerId) } == true) {
                 MobileCommandSendResult.Retry("PC の応答を読み取れませんでした。", serverReached = true)
             } else {
@@ -1527,11 +1511,16 @@ class AndroidMobileTaskRepository(
         expectedServerId: String,
         envelopeJson: String,
     ): MobileCommandSendResult {
-        // 続けることの記録は command ではなく action を持ち、別の受け口へ送る。
+        // 続けることの記録は command ではなく action を持ち、提案への答えは proposalId と decision を直に持つ。
+        // どちらも別の受け口へ送る。
+        val envelope = runCatching { Json.parseToJsonElement(envelopeJson).jsonObject }.getOrNull()
         val routineRecord = runCatching {
-            Json.parseToJsonElement(envelopeJson).jsonObject["action"]?.jsonObject?.get("name")?.jsonPrimitive?.content
+            envelope?.get("action")?.jsonObject?.get("name")?.jsonPrimitive?.content
         }.getOrNull() == ROUTINE_RECORD_COMMAND
         if (routineRecord) return sendRoutineRecord(origin, accessToken, expectedServerId, envelopeJson)
+        if (envelope != null && "proposalId" in envelope && "decision" in envelope && "command" !in envelope) {
+            return sendProposalDecision(origin, accessToken, expectedServerId, envelopeJson)
+        }
         var answered: GatewayHttpResponse? = null
         return try {
             val commandName = Json.parseToJsonElement(envelopeJson)

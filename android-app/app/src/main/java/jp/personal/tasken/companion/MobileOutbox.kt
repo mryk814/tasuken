@@ -197,6 +197,8 @@ sealed interface MobileCommandSendResult {
         /** The habit's counts after saving, for the device copy. Absent from an older Desktop. */
         val counts: MobileRoutineCountsDto? = null,
     ) : MobileCommandSendResult
+    /** The confirmed Desktop applied the proposal decision (or answered a resend of the same command with its receipt). */
+    data class ProposalDecisionApplied(val response: MobileTaskWorkProposalDecisionResponseDto) : MobileCommandSendResult
     data class Conflict(val response: MobileTaskCommandErrorResponseDto) : MobileCommandSendResult
     /**
      * The command stays in the outbox and is sent again later. serverReached is true when the confirmed
@@ -1150,6 +1152,23 @@ class MobileOutbox(
                         continue
                     }
                     if (dao.completeRoutineRecord(command, serverId, result.counts) != 1) return stopped()
+                }
+                is MobileCommandSendResult.ProposalDecisionApplied -> {
+                    val receipt = result.response
+                    val sent = if (command.commandName == PROPOSAL_DECISION_COMMAND) {
+                        runCatching { MobileProposalContract.decodeDecisionEnvelope(command.envelopeJson) }.getOrNull()
+                    } else {
+                        null
+                    }
+                    val valid = sent != null && receipt.meta.serverId == serverId &&
+                        receipt.data.commandId == command.commandId && receipt.data.proposalId == sent.proposalId &&
+                        receipt.data.taskId == sent.taskId && receipt.data.decision == sent.decision
+                    if (sent == null || !valid) {
+                        dao.markRetry(command.commandId, structuredCommandError("invalid_command_receipt", "提案への答えの送信結果が一致しません。答えは端末に残しています。", true))
+                        setAside()
+                        continue
+                    }
+                    if (dao.completeProposalDecision(command, serverId, sent.proposalId) != 1) return stopped()
                 }
                 is MobileCommandSendResult.Applied -> {
                     val response = result.response

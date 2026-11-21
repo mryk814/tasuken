@@ -72,6 +72,9 @@ class MobileProposalRepositoryTest {
                     GatewayHttpResponse(200, decisionResponse(requireNotNull(postedDecision)))
                 }
                 path.startsWith("/v1/sync?") -> GatewayHttpResponse(200, syncResponse())
+                // 答えは列の送り手が送る。その前に Desktop を確かめ、後で Theme を読む。
+                path.startsWith("/v1/bootstrap") -> GatewayHttpResponse(200, bootstrapResponse())
+                path.startsWith("/v1/themes") -> GatewayHttpResponse(404, "")
                 else -> error("Unexpected Mobile Gateway path: $path")
             }
         }
@@ -88,7 +91,10 @@ class MobileProposalRepositoryTest {
 
         online = true
         val result = repository.reviewTaskWorkProposal(remote, "accept")
-        assertTrue(result is MobileProposalReviewResult.Applied)
+        assertEquals(MobileProposalReviewResult.Queued(remote.id, "accept"), result)
+        // 答えは列に積むだけで、送るのは列の送り手。
+        assertEquals(null, postedDecision)
+        repository.synchronizeIfPaired()
         assertEquals("accept", postedDecision?.decision)
         assertEquals(remote.id, postedDecision?.proposalId)
         assertEquals(remote.version, postedDecision?.expectedProposalVersion)
@@ -113,6 +119,9 @@ class MobileProposalRepositoryTest {
                     GatewayHttpResponse(200, decisionResponse(envelope))
                 }
                 path.startsWith("/v1/sync?") -> GatewayHttpResponse(200, syncResponse())
+                // 答えは列の送り手が送る。その前に Desktop を確かめ、後で Theme を読む。
+                path.startsWith("/v1/bootstrap") -> GatewayHttpResponse(200, bootstrapResponse())
+                path.startsWith("/v1/themes") -> GatewayHttpResponse(404, "")
                 else -> error("Unexpected Mobile Gateway path: $path")
             }
         }
@@ -124,9 +133,242 @@ class MobileProposalRepositoryTest {
         assertEquals(0, postCount)
 
         val rejected = repository.reviewTaskWorkProposal(proposal, "reject")
-        assertTrue(rejected is MobileProposalReviewResult.Applied)
+        assertEquals(MobileProposalReviewResult.Queued(proposal.id, "reject"), rejected)
+        repository.synchronizeIfPaired()
         assertEquals(1, postCount)
     }
+
+    // ---- 提案への答えは送信の列に積む（#816）。圏外でも消えず、つながったら同じ commandId で送る。
+    //      PC で先に決まった・変わった提案への答えは「受け取られなかった」として残り、本人が閉じるまで消えない。 ----
+
+    /** Desktop の側の提案。答えは commandId ごとに一度だけ決まる。 */
+    private var desktopProposalVersion = 1
+    private var desktopProposalOpen = true
+    /** false の時は、PC で Task（と提案）が消されている（受け口は not_found を返す）。 */
+    private var desktopTaskExists = true
+    private var desktopOnline = false
+    private var dropNextDecisionReceipt = false
+    private val desktopDecisions = linkedMapOf<String, String>()
+    private val postedDecisionBodies = mutableListOf<String>()
+    private var scheduled = 0
+
+    private fun outboxRepository(): AndroidMobileTaskRepository = AndroidMobileTaskRepository(
+        context = context,
+        store = store,
+        database = database,
+        scheduleOutboxOnStart = false,
+        httpClient = MobileGatewayHttpClient { _, path, method, body, _ ->
+            if (!desktopOnline) throw IOException("offline")
+            when {
+                path.startsWith("/v1/bootstrap") -> GatewayHttpResponse(200, bootstrapResponse())
+                path.startsWith("/v1/proposals?") -> GatewayHttpResponse(
+                    200,
+                    proposalsResponse(
+                        if (desktopProposalOpen) listOf(proposalJson(version = desktopProposalVersion)) else emptyList(),
+                    ),
+                )
+                path == "/v1/proposal-decisions" && method == "POST" -> desktopDecision(requireNotNull(body))
+                path.startsWith("/v1/sync?") -> GatewayHttpResponse(200, syncResponse())
+                else -> GatewayHttpResponse(404, "")
+            }
+        },
+        scheduleOutbox = { scheduled += 1 },
+    )
+
+    private fun desktopDecision(body: String): GatewayHttpResponse {
+        postedDecisionBodies += body
+        val envelope = Json.decodeFromString<MobileTaskWorkProposalDecisionEnvelopeDto>(body)
+        // 同じ命令の送り直しには、前の受領を返す（Core の commandId の扱い）。
+        if (!desktopTaskExists) {
+            return GatewayHttpResponse(
+                404,
+                """{"ok":false,"meta":${metaJson()},"error":{"code":"not_found","message":"not found","retryable":false}}""",
+            )
+        }
+        if (envelope.commandId !in desktopDecisions) {
+            if (!desktopProposalOpen || envelope.expectedProposalVersion != desktopProposalVersion) {
+                return GatewayHttpResponse(
+                    409,
+                    """{"ok":false,"meta":${metaJson()},"error":{"code":"proposal_conflict",""" +
+                        """"message":"Proposalまたは対象Taskが更新されています。再読み込みしてください。","retryable":false}}""",
+                )
+            }
+            desktopDecisions[envelope.commandId] = envelope.decision
+            desktopProposalOpen = false
+        }
+        if (dropNextDecisionReceipt) {
+            dropNextDecisionReceipt = false
+            throw IOException("receipt lost after the Desktop decided")
+        }
+        return GatewayHttpResponse(200, decisionResponse(envelope))
+    }
+
+    private suspend fun cachedProposal(repository: AndroidMobileTaskRepository): MobileTaskWorkProposal {
+        desktopOnline = true
+        assertTrue(repository.refreshTaskWorkProposals())
+        return repository.observeCachedTaskWorkProposals().first().single()
+    }
+
+    @Test
+    fun anOfflineAnswerStaysOnTheDeviceAndIsSentWhenTheDesktopIsReachable() = runBlocking {
+        val repository = outboxRepository()
+        val proposal = cachedProposal(repository)
+        desktopOnline = false
+
+        assertEquals(MobileProposalReviewResult.Queued(proposal.id, "accept"), repository.reviewTaskWorkProposal(proposal, "accept"))
+        val queued = repository.observeProposalDecisions().first().single()
+        assertEquals(proposal.id to "accept", queued.proposalId to queued.decision)
+        assertEquals(OutboxState.Pending, queued.state)
+        assertEquals(1, dao.pendingCount())
+        assertEquals(1, scheduled)
+
+        // つながらない間は、送ろうとしても端末に残る。
+        assertFalse(repository.synchronizeIfPaired())
+        assertEquals(queued.commandId, repository.observeProposalDecisions().first().single().commandId)
+        assertTrue(desktopDecisions.isEmpty())
+
+        desktopOnline = true
+        repository.synchronizeIfPaired()
+
+        assertEquals(mapOf(queued.commandId to "accept"), desktopDecisions)
+        val sent = Json.decodeFromString<MobileTaskWorkProposalDecisionEnvelopeDto>(postedDecisionBodies.single())
+        assertEquals(proposal.version, sent.expectedProposalVersion)
+        assertEquals(proposal.taskVersion, sent.expectedTaskVersion)
+        assertTrue(repository.observeProposalDecisions().first().isEmpty())
+        assertTrue(repository.observeCachedTaskWorkProposals().first().isEmpty())
+        assertEquals(0, dao.outboxCount())
+    }
+
+    @Test
+    fun aResendAfterALostReceiptKeepsTheSameCommandAndDecidesOnce() = runBlocking {
+        val repository = outboxRepository()
+        val proposal = cachedProposal(repository)
+        repository.reviewTaskWorkProposal(proposal, "reject")
+        dropNextDecisionReceipt = true
+
+        repository.synchronizeIfPaired()
+        // Desktop は決めたが、応答が届かなかった。答えは列に残る。
+        assertEquals(1, desktopDecisions.size)
+        assertEquals(OutboxState.RetryWait, repository.observeProposalDecisions().first().single().state)
+
+        repository.synchronizeIfPaired()
+
+        assertEquals(2, postedDecisionBodies.size)
+        assertEquals(postedDecisionBodies[0], postedDecisionBodies[1])
+        assertEquals(1, desktopDecisions.size)
+        assertTrue(repository.observeProposalDecisions().first().isEmpty())
+        assertEquals(0, dao.outboxCount())
+    }
+
+    @Test
+    fun anAnswerToAProposalAlreadyDecidedOnThePcStaysReturnedUntilClosed() = runBlocking {
+        val repository = outboxRepository()
+        val proposal = cachedProposal(repository)
+        desktopOnline = false
+        repository.reviewTaskWorkProposal(proposal, "accept")
+        val queued = repository.observeProposalDecisions().first().single()
+        // 送る前の答えは閉じられない（黙って落とさない）。
+        assertFalse(repository.discardProposalDecision(queued.commandId))
+
+        // 圏外の間に、PC で先に決まった。
+        desktopProposalOpen = false
+        desktopOnline = true
+        repository.synchronizeIfPaired()
+
+        val returned = repository.observeProposalDecisions().first().single()
+        assertEquals(queued.commandId, returned.commandId)
+        assertTrue(returned.returned)
+        assertEquals(PROPOSAL_DECISION_CONFLICT, returned.reason)
+        assertEquals(0, dao.pendingCount())
+        // 提案は読み直しで消え、答えだけが Task の詳細に残る。
+        assertTrue(repository.observeCachedTaskWorkProposals().first().isEmpty())
+        assertEquals(proposal.taskId, returned.taskId)
+
+        // 版が古いので自動では送り直さない。
+        repository.synchronizeIfPaired()
+        assertEquals(1, postedDecisionBodies.size)
+        assertTrue(desktopDecisions.isEmpty())
+
+        assertTrue(repository.discardProposalDecision(returned.commandId))
+        assertEquals(0, dao.outboxCount())
+    }
+
+    @Test
+    fun answeringAChangedProposalAgainReplacesTheReturnedAnswer() = runBlocking {
+        val repository = outboxRepository()
+        val proposal = cachedProposal(repository)
+        desktopOnline = false
+        repository.reviewTaskWorkProposal(proposal, "accept")
+
+        // 圏外の間に、提案が新しい版になった。
+        desktopProposalVersion = 2
+        desktopOnline = true
+        repository.synchronizeIfPaired()
+        val returned = repository.observeProposalDecisions().first().single()
+        assertTrue(returned.returned)
+        val renewed = repository.observeCachedTaskWorkProposals().first().single()
+        assertEquals(2, renewed.version)
+
+        assertEquals(MobileProposalReviewResult.Queued(renewed.id, "accept"), repository.reviewTaskWorkProposal(renewed, "accept"))
+        val replacing = repository.observeProposalDecisions().first().single()
+        assertFalse(replacing.returned)
+        assertTrue(replacing.commandId != returned.commandId)
+
+        repository.synchronizeIfPaired()
+        assertEquals(listOf("accept"), desktopDecisions.values.toList())
+        assertTrue(repository.observeProposalDecisions().first().isEmpty())
+        assertEquals(0, dao.outboxCount())
+    }
+
+    /**
+     * 答えを積んだ後に PC で Task が消された。答えは「確かめられなかった」として残り（届かなかったとは言わない）、
+     * Task に依らずに閉じられ、閉じれば別の PC へのつなぎ直しを止める行が残らない。
+     */
+    @Test
+    fun anAnswerForATaskDeletedOnThePcCanBeClosedWithoutTheTask() = runBlocking {
+        val repository = outboxRepository()
+        val proposal = cachedProposal(repository)
+        desktopOnline = false
+        repository.reviewTaskWorkProposal(proposal, "accept")
+
+        desktopTaskExists = false
+        desktopProposalOpen = false
+        desktopOnline = true
+        repository.synchronizeIfPaired()
+
+        val returned = repository.observeProposalDecisions().first().single()
+        assertTrue(returned.returned)
+        assertEquals("not_found", returned.code)
+        assertEquals(PROPOSAL_DECISION_GONE, returned.reason)
+        assertEquals("「採る」を確かめられませんでした", returned.returnedTitle())
+        assertEquals(1, dao.incompatibleOutboxCount("server-2"))
+
+        assertTrue(repository.discardProposalDecision(returned.commandId))
+        assertEquals(0, dao.incompatibleOutboxCount("server-2"))
+    }
+
+    /** 「閉じる」と答え直しがほぼ同時でも、置き換える前の答えがもう無いことで落ちない。 */
+    @Test
+    fun answeringAgainAfterTheReturnedAnswerWasClosedDoesNotThrow() = runBlocking {
+        val repository = outboxRepository()
+        val proposal = cachedProposal(repository)
+        desktopOnline = false
+        repository.reviewTaskWorkProposal(proposal, "accept")
+        val first = requireNotNull(dao.outbox(repository.observeProposalDecisions().first().single().commandId))
+        dao.markRejected(first.commandId, "refused")
+        assertEquals(1, dao.discardReturnedProposalDecision(first.commandId))
+
+        dao.enqueueProposalDecision(first.copy(commandId = "replacement", state = OutboxState.Pending), replacing = listOf(first.commandId))
+
+        assertEquals(listOf("replacement"), dao.proposalDecisions().map { it.commandId })
+    }
+
+    private fun metaJson(): String =
+        """{"apiVersion":1,"schemaVersion":$TASKEN_MOBILE_SCHEMA_VERSION,"serverId":"server-1",""" +
+            """"serverRevision":43,"generatedAt":"2026-08-22T02:01:00Z","truncated":false}"""
+
+    private fun bootstrapResponse(): String =
+        """{"ok":true,"meta":${metaJson()},"data":{"tasks":[],"nextCursor":"cursor-1","hasMore":false}}"""
 
     private fun repositoryWith(
         response: (path: String, method: String, body: String?) -> GatewayHttpResponse,
@@ -157,11 +399,11 @@ class MobileProposalRepositoryTest {
         }
         """.trimIndent()
 
-    private fun proposalJson(stale: Boolean = false, expectedTaskVersion: Int = 3): String =
+    private fun proposalJson(stale: Boolean = false, expectedTaskVersion: Int = 3, version: Int = 1): String =
         """
         {
           "id": "11111111-1111-5111-8111-111111111111",
-          "version": 1,
+          "version": $version,
           "status": "pending",
           "task": {
             "id": "task-proposal-review",

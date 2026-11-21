@@ -108,6 +108,45 @@ class SyncSummaryTest {
         assertEquals(2, summary.routineReturned)
     }
 
+    /**
+     * 受け取られなかった提案への答えは、Task の詳細だけでなく同期の一覧にも出し、そこで閉じられる（#816）。
+     * Task が写しから消えていても辿れる。閉じないと、別の PC へのつなぎ直しが止まる。
+     */
+    @Test
+    fun returnedProposalAnswersAreListedAndCanBeClosedEvenWithoutTheTask() {
+        val decisions = listOf(
+            MobileProposalDecision("p1", "proposal-1", "a", "accept", OutboxState.Rejected, PROPOSAL_DECISION_CONFLICT, "proposal_conflict"),
+            MobileProposalDecision("p2", "proposal-2", "gone", "reject", OutboxState.Rejected, PROPOSAL_DECISION_GONE, "not_found"),
+            MobileProposalDecision("p3", "proposal-3", "a", "accept", OutboxState.Pending, null, null),
+        )
+        val tasks = listOf(task("a"))
+        val summary = syncSummary(
+            TodayUiState.Success(tasks, syncedAt),
+            pending = 1, tasks = tasks, captures = emptyList(), recoveredInputs = 0,
+            proposalDecisions = decisions,
+        )
+        assertEquals(
+            listOf(
+                SyncReturned("Task a", "「採る」は届きませんでした。$PROPOSAL_DECISION_CONFLICT", "a", proposalCommandId = "p1"),
+                SyncReturned("AIの提案", "「見送る」を確かめられませんでした。$PROPOSAL_DECISION_GONE", null, proposalCommandId = "p2"),
+            ),
+            summary.returned,
+        )
+        assertEquals(3, summary.unsent)
+    }
+
+    /**
+     * PC で提案か Task が無くなっていた時は、答えが PC で使われた後に応答だけ失った場合もあるので、
+     * 「届きませんでした」とは言わない。
+     */
+    @Test
+    fun aMissingProposalDoesNotClaimTheAnswerNeverArrived() {
+        val gone = MobileProposalDecision("p", "proposal", "t", "accept", OutboxState.Rejected, PROPOSAL_DECISION_GONE, "not_found")
+        assertEquals("「採る」を確かめられませんでした", gone.returnedTitle())
+        val overtaken = gone.copy(code = "proposal_conflict", reason = PROPOSAL_DECISION_CONFLICT)
+        assertEquals("「採る」は届きませんでした", overtaken.returnedTitle())
+    }
+
     /** PC の版が古くて受け取れなかった入力は、捨てる・決めるではなく、本人が PC を新しくすれば送れる。 */
     @Test
     fun inputsRefusedByAnOldDesktopAreFixable() {

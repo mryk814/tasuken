@@ -670,6 +670,47 @@ abstract class MobileLocalDao {
         return removed
     }
 
+    /**
+     * 提案への答え（送信の列の ApplyTaskWorkProposal。名前は PROPOSAL_DECISION_COMMAND と同じ）。
+     * 届いて消えるまで、受け取られなかった物も含めて残る。
+     */
+    @Query("SELECT * FROM outbox_command WHERE commandName = 'ApplyTaskWorkProposal' ORDER BY createdAt ASC, commandId ASC")
+    abstract fun observeProposalDecisions(): Flow<List<OutboxCommandEntity>>
+
+    @Query("SELECT * FROM outbox_command WHERE commandName = 'ApplyTaskWorkProposal' ORDER BY createdAt ASC, commandId ASC")
+    abstract suspend fun proposalDecisions(): List<OutboxCommandEntity>
+
+    /** 届いた答えだけを列から消す。送っている最中に別の送り手が触った行（試した回数が違う）は消さない。 */
+    @Query(
+        "DELETE FROM outbox_command WHERE commandId = :commandId AND commandName = 'ApplyTaskWorkProposal' " +
+            "AND serverId = :serverId AND state = 'sending' AND attemptCount = :attemptCount",
+    )
+    abstract suspend fun applyProposalDecisionReceipt(commandId: String, serverId: String, attemptCount: Int): Int
+
+    @Query("DELETE FROM outbox_command WHERE commandId = :commandId AND commandName = 'ApplyTaskWorkProposal' AND state = 'rejected'")
+    abstract suspend fun discardReturnedProposalDecision(commandId: String): Int
+
+    /**
+     * 答えを積む。同じ提案への、受け取られなかった前の答え（[replacing]）は同じ取引で置き換える。
+     * 前の答えを本人がちょうど閉じていた時は、もう無いのでそのまま積む（置き換える物が無いだけ）。
+     */
+    @Transaction
+    open suspend fun enqueueProposalDecision(command: OutboxCommandEntity, replacing: List<String>) {
+        replacing.forEach { discardReturnedProposalDecision(it) }
+        insertOutbox(command)
+    }
+
+    /**
+     * 届いた答えを列から消し、同じ取引で答えた提案を写しから外す（読み直しを待たずに、答えた提案を出さない）。
+     * 消せなかった（別の送り手が触った）時は写しも変えず、0 を返す。
+     */
+    @Transaction
+    open suspend fun completeProposalDecision(command: OutboxCommandEntity, serverId: String, proposalId: String): Int {
+        val removed = applyProposalDecisionReceipt(command.commandId, serverId, command.attemptCount)
+        if (removed == 1) deleteTaskWorkProposal(proposalId, serverId)
+        return removed
+    }
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     abstract suspend fun upsertRoutineCache(cache: RoutineCacheEntity)
 

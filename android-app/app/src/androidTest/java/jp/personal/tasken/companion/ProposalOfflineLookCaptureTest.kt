@@ -14,7 +14,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
@@ -22,77 +21,60 @@ import org.junit.Rule
 import org.junit.Test
 
 /**
- * つながらない時の提案の「採る」「見送る」（共通の「使えない」の形）と、押した時の首振りと一言、つながった後を撮る。
+ * 提案への答えの見え方（#816）。答えは送信の列に積むので、圏外でも元のボタンのまま押せる。押した後の送る途中
+ * （未送信の印）、受け取られなかった答え（戻りの印と理由）、提案が無くなった後に Task に残る答えを撮る。
  * 撮った物は `files/offline-look` に残る（取り出し方は OfflineLookCaptureTest の頭）。
  */
 class ProposalOfflineLookCaptureTest {
     @get:Rule val composeRule = createComposeRule()
 
-    @Test fun light() = offlineThenOnline(dark = false)
+    @Test fun light() = answers(dark = false)
 
-    @Test fun dark() = offlineThenOnline(dark = true)
+    @Test fun dark() = answers(dark = true)
 
-    @Test fun checkingLight() = checking(dark = false)
-
-    @Test fun checkingDark() = checking(dark = true)
-
-    /** 読み直しの間。「使えない」の形にせず、元のボタンを押せない状態で出す。 */
-    private fun checking(dark: Boolean) {
+    private fun answers(dark: Boolean) {
         val suffix = if (dark) "dark" else "light"
         val proposal = proposal()
+        val proposals = mutableStateOf(listOf(proposal))
+        val decisions = mutableStateOf(emptyList<MobileProposalDecision>())
         composeRule.setContent {
             Themed(dark) {
                 Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     TodayDetailPane(
                         task = task(),
                         actionState = TaskActionUiState.Idle,
-                        taskWorkProposals = listOf(proposal),
-                        proposalReviewOnline = false,
-                        proposalReviewChecking = true,
+                        taskWorkProposals = proposals.value,
+                        proposalDecisions = decisions.value,
                         onStateAction = {},
                     )
                 }
             }
         }
         composeRule.onNodeWithTag("proposal-reject-${proposal.id}").performScrollTo()
-        capture("proposal-checking-$suffix")
+        capture("proposal-answer-ready-$suffix")
+
+        decisions.value = listOf(decision(proposal, OutboxState.Pending))
+        composeRule.onNodeWithTag("proposal-decision-pending-${proposal.id}").performScrollTo().assertIsDisplayed()
+        capture("proposal-answer-pending-$suffix")
+
+        val returned = decision(proposal, OutboxState.Rejected)
+        decisions.value = listOf(returned)
+        composeRule.onNodeWithTag("proposal-decision-returned-${returned.commandId}").performScrollTo().assertIsDisplayed()
+        capture("proposal-answer-returned-$suffix")
+
+        proposals.value = emptyList()
+        composeRule.onNodeWithTag("proposal-decision-card-${returned.commandId}").performScrollTo().assertIsDisplayed()
+        capture("proposal-answer-returned-gone-$suffix")
     }
 
-    private fun offlineThenOnline(dark: Boolean) {
-        val suffix = if (dark) "dark" else "light"
-        val online = mutableStateOf(false)
-        val proposal = proposal()
-        composeRule.setContent {
-            Themed(dark) {
-                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    TodayDetailPane(
-                        task = task(),
-                        actionState = TaskActionUiState.Idle,
-                        taskWorkProposals = listOf(proposal),
-                        proposalReviewOnline = online.value,
-                        onStateAction = {},
-                    )
-                }
-            }
-        }
-        composeRule.onNodeWithTag("proposal-reject-${proposal.id}").performScrollTo()
-        capture("proposal-offline-$suffix")
-
-        // 1 回押して一言を出し、見える所まで送る。止めた時計のままでは送りが待ち続けるので、ここは動かしたまま。
-        composeRule.onNodeWithTag("proposal-approve-${proposal.id}").performClick()
-        composeRule.onNodeWithTag("proposal-offline-hint-${proposal.id}").performScrollTo().assertIsDisplayed()
-        // もう一度押し、首を一番大きく振った所（-14°、押して 80ms）で止めて撮る。
-        composeRule.mainClock.autoAdvance = false
-        composeRule.onNodeWithTag("proposal-approve-${proposal.id}").performClick()
-        composeRule.mainClock.advanceTimeBy(80)
-        capture("proposal-offline-nudged-$suffix")
-        composeRule.mainClock.autoAdvance = true
-
-        online.value = true
-        composeRule.waitForIdle()
-        composeRule.onNodeWithTag("proposal-offline-hint-${proposal.id}").assertDoesNotExist()
-        capture("proposal-online-$suffix")
-    }
+    private fun decision(proposal: MobileTaskWorkProposal, state: String) = MobileProposalDecision(
+        commandId = "command-1",
+        proposalId = proposal.id,
+        taskId = proposal.taskId,
+        decision = "accept",
+        state = state,
+        reason = if (state == OutboxState.Rejected) PROPOSAL_DECISION_CONFLICT else null,
+    )
 
     @Composable
     private fun Themed(dark: Boolean, content: @Composable () -> Unit) {

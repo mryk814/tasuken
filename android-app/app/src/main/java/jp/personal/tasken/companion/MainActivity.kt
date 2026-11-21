@@ -261,8 +261,7 @@ internal fun TodayApp(
     val workReceiptDetailState by todayViewModel.workReceiptDetailState.collectAsState()
     val taskWorkProposals by todayViewModel.taskWorkProposals.collectAsState()
     val feedPosts by todayViewModel.feedPosts.collectAsState()
-    val proposalReviewOnline by todayViewModel.proposalReviewOnline.collectAsState()
-    val proposalRefreshing by todayViewModel.proposalRefreshing.collectAsState()
+    val proposalDecisions by todayViewModel.proposalDecisions.collectAsState()
     val proposalReviewState by todayViewModel.proposalReviewState.collectAsState()
     val themes = themeCatalogState.themes
     val context = LocalContext.current
@@ -557,12 +556,6 @@ internal fun TodayApp(
     }
     LaunchedEffect(proposalReviewState) {
         when (val state = proposalReviewState) {
-            is ProposalReviewUiState.Applied -> {
-                snackbarHostState.showSnackbar(
-                    if (state.decision == "accept") "提案を採りました。" else "提案を見送りました。",
-                )
-                todayViewModel.resetProposalReviewState()
-            }
             is ProposalReviewUiState.Error -> {
                 snackbarHostState.showSnackbar(state.message)
                 todayViewModel.resetProposalReviewState()
@@ -580,6 +573,7 @@ internal fun TodayApp(
         uiState, pendingCount, allTasks, pendingCaptures, recoveredInputs.size, sendRetry, nextSendAt,
         routineRecords = routineRecords,
         routineTitles = routineTitles,
+        proposalDecisions = proposalDecisions,
     )
     val selectSection: (AppSection) -> Unit = { section ->
         paneState.selectSection(section)
@@ -789,9 +783,7 @@ internal fun TodayApp(
                         actionState = taskActionState,
                         workReceiptDetailState = workReceiptDetailState,
                         taskWorkProposals = taskWorkProposals.filter { it.taskId == task?.id },
-                        proposalReviewOnline = proposalReviewOnline,
-                        proposalReviewChecking = proposalRefreshing,
-                        proposalReviewNeedsRepair = syncState.needsRepair,
+                        proposalDecisions = proposalDecisions.filter { it.taskId == task?.id },
                         proposalReviewState = proposalReviewState,
                         themes = themes,
                         themeCatalogState = themeCatalogState,
@@ -813,6 +805,7 @@ internal fun TodayApp(
                             todayViewModel.loadWorkReceipt(selectedTask.id, selectedReceiptId, force = true)
                         },
                         onProposalDecision = todayViewModel::reviewTaskWorkProposal,
+                        onProposalDecisionDiscard = todayViewModel::discardProposalDecision,
                         onNavigateBack = if (task != null) navigateToList else null,
                         completionFeedbackEventId = completionFeedback
                             ?.takeIf { it.taskId == task?.id }
@@ -847,6 +840,7 @@ internal fun TodayApp(
                 todayViewModel.discardRoutineRecord(commandId)
             },
             onRetryAllRoutines = todayViewModel::retryAllRoutineRecords,
+            onCloseProposalDecision = todayViewModel::discardProposalDecision,
             onOpenReturned = { item ->
                 syncSheetOpen = false
                 item.taskId?.let { taskId ->
@@ -2248,11 +2242,8 @@ internal fun TodayDetailPane(
     onReadThemeContext: ((String) -> Unit)? = null,
     workReceiptDetailState: WorkReceiptDetailUiState = WorkReceiptDetailUiState.Idle,
     taskWorkProposals: List<MobileTaskWorkProposal> = emptyList(),
-    proposalReviewOnline: Boolean = false,
-    /** つながっているかを確かめている（提案を読み直している）間。「使えない」の形にせず、押せないだけにする。 */
-    proposalReviewChecking: Boolean = false,
-    /** この端末の登録が切れて、つなぎ直しが要る時。 */
-    proposalReviewNeedsRepair: Boolean = false,
+    /** この Task の提案への、まだ届いていない（か、受け取られなかった）答え。 */
+    proposalDecisions: List<MobileProposalDecision> = emptyList(),
     proposalReviewState: ProposalReviewUiState = ProposalReviewUiState.Idle,
     themes: List<MobileTheme> = emptyList(),
     themeCatalogState: MobileThemeCatalogState = if (themes.isEmpty()) {
@@ -2273,6 +2264,8 @@ internal fun TodayDetailPane(
     onConflictResolution: (MobileTask, Boolean) -> Unit = { _, _ -> },
     onWorkReceiptRetry: (MobileTask, String) -> Unit = { _, _ -> },
     onProposalDecision: (MobileTaskWorkProposal, String) -> Unit = { _, _ -> },
+    /** 受け取られなかった答えを閉じる（commandId を渡す）。 */
+    onProposalDecisionDiscard: (String) -> Unit = {},
     onNavigateBack: (() -> Unit)? = null,
     displayZoneId: ZoneId = ZoneId.systemDefault(),
     completionFeedbackEventId: Long? = null,
@@ -2673,12 +2666,16 @@ internal fun TodayDetailPane(
             taskWorkProposals.forEach { proposal ->
                 TaskWorkProposalReviewCard(
                     proposal = proposal,
-                    online = proposalReviewOnline,
+                    decision = proposalDecisions.lastOrNull { it.proposalId == proposal.id },
                     reviewState = proposalReviewState,
                     onDecision = onProposalDecision,
-                    checking = proposalReviewChecking,
-                    needsRepair = proposalReviewNeedsRepair,
+                    onDiscard = onProposalDecisionDiscard,
                 )
+            }
+            // 提案がもう無い（PC で片付いた）のに受け取られなかった答えは、閉じるまでここに残す。
+            val shownProposals = taskWorkProposals.mapTo(HashSet()) { it.id }
+            proposalDecisions.filter { it.returned && it.proposalId !in shownProposals }.forEach { decision ->
+                ReturnedProposalDecisionCard(decision = decision, onDiscard = onProposalDecisionDiscard)
             }
             task.latestWorkReceipt?.let { receipt ->
                 Card(
@@ -2847,11 +2844,10 @@ internal fun formatLocalTimestamp(value: String, zoneId: ZoneId = ZoneId.systemD
 @Composable
 private fun TaskWorkProposalReviewCard(
     proposal: MobileTaskWorkProposal,
-    online: Boolean,
+    decision: MobileProposalDecision?,
     reviewState: ProposalReviewUiState,
     onDecision: (MobileTaskWorkProposal, String) -> Unit,
-    checking: Boolean = false,
-    needsRepair: Boolean = false,
+    onDiscard: (String) -> Unit,
 ) {
     val reviewing = reviewState is ProposalReviewUiState.Reviewing && reviewState.proposalId == proposal.id
     val uriHandler = LocalUriHandler.current
@@ -2909,59 +2905,79 @@ private fun TaskWorkProposalReviewCard(
                     fontSize = 12.sp,
                 )
             }
-            // 採否は Proposal と Task の版を Desktop で突き合わせるので、列にはためない。つながらない間は
-            // 共通の「使えない」の形にし、押す前に分かるようにする。押されたら絵が首を振り、その場に一言。
-            // 読み直しの間は「使えない」にせず、元のボタンを押せない状態で出す（つながっているかを確かめている途中）。
-            // 登録が切れてつなぎ直しが要る時は、電波なしの絵でなく「!」で、つなぎ直すと使えることを示す。
-            val unavailable = !online && !checking
-            var nudged by remember(proposal.id) { mutableStateOf(false) }
-            LaunchedEffect(unavailable) { if (!unavailable) nudged = false }
-            val reason = if (needsRepair) "つなぎ直すと使えます" else "つながると使えます"
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (!unavailable || proposal.stale) {
-                    // 古い Proposal はつながっても採れないので、「使えない」の形にはしない。
+            // 答えは端末の送信の列に積むので、圏外でも押せる。届くまでは押した答えを割印（未送信）と並べて出し、
+            // 届けば提案ごと消える。受け取られなかった答えは戻りの印と理由を出し、提案がまだ答えを待っていれば
+            // もう一度答えられる（その時に前の答えを置き換える）。
+            if (decision != null && !decision.returned) {
+                Row(
+                    modifier = Modifier.testTag("proposal-decision-pending-${proposal.id}"),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OflWari()
+                    Text(proposalDecisionLabel(decision.decision), fontWeight = FontWeight.SemiBold)
+                }
+            } else {
+                decision?.let { ReturnedProposalDecisionNote(it, onDiscard) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // 古い提案は採れない（見送ることはできる）。
                     Button(
                         onClick = { onDecision(proposal, "accept") },
-                        enabled = online && !proposal.stale && !reviewing,
+                        enabled = !proposal.stale && !reviewing,
                         modifier = Modifier.widthIn(min = 88.dp).testTag("proposal-approve-${proposal.id}"),
                     ) {
                         Text(if (reviewing && reviewState.decision == "accept") "処理中" else "採る")
                     }
-                } else {
-                    OflUnavailableButton(
-                        label = "採る",
-                        onNudge = { nudged = true },
-                        modifier = Modifier.testTag("proposal-approve-${proposal.id}"),
-                        reason = reason,
-                        needsRepair = needsRepair,
-                    )
-                }
-                if (!unavailable) {
                     TextButton(
                         onClick = { onDecision(proposal, "reject") },
-                        enabled = online && !reviewing,
+                        enabled = !reviewing,
                         modifier = Modifier.widthIn(min = 88.dp).testTag("proposal-reject-${proposal.id}"),
                     ) {
                         Text(if (reviewing && reviewState.decision == "reject") "処理中" else "見送る")
                     }
-                } else {
-                    OflUnavailableButton(
-                        label = "見送る",
-                        onNudge = { nudged = true },
-                        modifier = Modifier.testTag("proposal-reject-${proposal.id}"),
-                        reason = reason,
-                        needsRepair = needsRepair,
-                    )
                 }
             }
-            if (unavailable && nudged) {
-                Text(
-                    reason,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.testTag("proposal-offline-hint-${proposal.id}"),
-                )
+        }
+    }
+}
+
+private fun proposalDecisionLabel(decision: String): String = if (decision == "accept") "採る" else "見送る"
+
+/** 受け取られなかった答え。戻りの印と、何が届かなかったか・理由を出し、本人が閉じられる。 */
+@Composable
+private fun ReturnedProposalDecisionNote(decision: MobileProposalDecision, onDiscard: (String) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().testTag("proposal-decision-returned-${decision.commandId}"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        OflModo()
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(decision.returnedTitle(), fontWeight = FontWeight.SemiBold)
+            decision.reason?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+        }
+        TextButton(
+            onClick = { onDiscard(decision.commandId) },
+            modifier = Modifier.testTag("proposal-decision-discard-${decision.commandId}"),
+        ) { Text("閉じる") }
+    }
+}
+
+/** 答えた提案が PC で片付いて無くなった後も、受け取られなかった答えは閉じるまで Task の詳細に残す。 */
+@Composable
+private fun ReturnedProposalDecisionCard(decision: MobileProposalDecision, onDiscard: (String) -> Unit) {
+    val ai = taskenAiColors()
+    Card(
+        modifier = Modifier.fillMaxWidth().testTag("proposal-decision-card-${decision.commandId}")
+            .dashedOutline(ai.ai, cornerRadius = 7.dp),
+        shape = RoundedCornerShape(7.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("AIの提案", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = ai.ai)
+            ReturnedProposalDecisionNote(decision, onDiscard)
         }
     }
 }

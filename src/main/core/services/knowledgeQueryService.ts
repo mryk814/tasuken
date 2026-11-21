@@ -384,19 +384,16 @@ export class KnowledgeQueryService {
       .list("knowledge_node", Boolean(request.include_archived))
       .filter((node) => !request.theme_id || node.theme_id === request.theme_id);
     const filtered = this.withAiHeader("knowledge_node", scoped);
-    const query = text(request.query).toLowerCase();
     const nodeTypes = request.node_types ? new Set(request.node_types) : null;
-    const matched = sortUpdated(
-      filtered.records
-        .filter(
-          (node) =>
-            !query ||
-            [node.title, node.body, node.node_type].some((value) =>
-              text(value).toLowerCase().includes(query),
-            ),
-        )
-        .filter((node) => !nodeTypes || nodeTypes.has(text(node.node_type))),
+    const typed = sortUpdated(
+      filtered.records.filter((node) => !nodeTypes || nodeTypes.has(text(node.node_type))),
     );
+    // Item・Note と同じ共通の辞書で、ほかの書き方（引越し → 引っ越し）にも当てる。書いたままの問いで
+    // 当たったノードを先に、ほかの書き方でだけ当たったノードを後にする（それぞれの中は新しい順）。
+    const search = createTextSearch(request.query);
+    const matched = search
+      ? orderByTextMatch(typed, (node) => search.match([node.title, node.body, node.node_type]))
+      : typed;
     const nodes = matched.slice(0, limit).map((node) => publicKnowledgeNode(node, textLimit));
     const truncated = matched.length > nodes.length;
     return searchKnowledgeResponseSchema.parse({
