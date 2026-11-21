@@ -54,6 +54,7 @@ import {
   runActivityAutoExport,
 } from "./lib/activityAutoExport";
 import { activityLogDirectoryFor } from "./lib/activityLogDirectory";
+import { OutsideRootNotice } from "./components/OutsideRootNotice";
 import { buildActivityPublication } from "./lib/activityLog";
 import { buildAgentWorkProjection } from "./domain-model/agentSessionProjection";
 import {
@@ -2413,6 +2414,7 @@ export function WorkspaceApp() {
             />
           )}
           <main className="main-area" tabIndex={-1}>
+            {!detachedNoteId && <OutsideRootNotice />}
             <WorkspacePageRouter
               route={route}
               common={common}

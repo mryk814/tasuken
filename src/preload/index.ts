@@ -253,6 +253,8 @@ const api: ResearchDeskApi = {
   },
   taskenRoot: {
     status: () => ipcRenderer.invoke(IPC.taskenRootStatus),
+    outsideNotice: () => ipcRenderer.invoke(IPC.taskenRootOutsideNotice),
+    dismissOutsideNotice: () => ipcRenderer.invoke(IPC.taskenRootDismissOutsideNotice),
   },
   sharedSync: {
     status: () => ipcRenderer.invoke(IPC.sharedSyncStatus),

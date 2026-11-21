@@ -169,6 +169,8 @@ export const IPC = {
   backupLastRestore: "backup:last-restore",
   backupDismissLastRestore: "backup:dismiss-last-restore",
   taskenRootStatus: "tasken-root:status",
+  taskenRootOutsideNotice: "tasken-root:outside-notice",
+  taskenRootDismissOutsideNotice: "tasken-root:dismiss-outside-notice",
   sharedSyncStatus: "shared-sync:status",
   sharedSyncConfigure: "shared-sync:configure",
   sharedSyncDisable: "shared-sync:disable",
@@ -488,6 +490,19 @@ export interface TaskenRootStatus {
   syncDefaultPath: string | null;
 }
 
+/**
+ * この版の最初の起動で一度だけ出す知らせ（#810）。新しい保存に使わなくなったルートの外の指定
+ * （storage_root を持つ Theme と、日誌の個別指定）の一覧。ファイルは動かしていない。
+ */
+export interface TaskenRootOutsideNotice {
+  entries: Array<{
+    kind: "theme" | "activity";
+    path: string;
+    themeId?: string;
+    themeName?: string;
+  }>;
+}
+
 export interface SharedSyncRepublishResult {
   republished: number;
   status: SharedSyncStatus;
@@ -776,6 +791,8 @@ export interface ResearchDeskApi {
   };
   taskenRoot: {
     status(): Promise<TaskenRootStatus>;
+    outsideNotice(): Promise<TaskenRootOutsideNotice | null>;
+    dismissOutsideNotice(): Promise<void>;
   };
   sharedSync: {
     status(): Promise<SharedSyncStatus>;

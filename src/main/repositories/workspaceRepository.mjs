@@ -203,6 +203,9 @@ function normalizeImportedTask(input, previous, fallbackSource) {
 /** 直接の書き込みを一度だけ有効にした印（#755 束10a。enableAiDirectWriteOnce）。端末ごとで同期しない。 */
 const AI_DIRECT_WRITE_DEFAULT_MARK = "ai_direct_write_default_v1";
 
+/** ルートの外の指定（Theme の storage_root・日誌の個別指定）の知らせを済ませた印（#810）。端末ごとで同期しない。 */
+const OUTSIDE_ROOT_NOTICE_MARK = "outside_root_notice_v1";
+
 function retiredExportMarkKey(name) {
   if (!/^[a-z][a-z_]{0,40}$/.test(String(name))) throw new Error("切る前の控えの名前が不正です。");
   return `retired_export_${name}_v1`;
@@ -1024,6 +1027,25 @@ export class WorkspaceDatabase {
     const mark = readMeta(AI_DIRECT_WRITE_DEFAULT_MARK);
     if (mark === undefined) return null;
     return { mark: String(mark), enabled: readMeta("ai_direct_write_enabled") === "true" };
+  }
+
+  /**
+   * 「ルートの外の指定を新しい保存に使わない」知らせ（#810）を済ませた時刻。まだなら null。
+   * この版の最初の起動で一度だけ出すための印で、端末ごとに持ち、同期しない。
+   * @returns {string | null}
+   */
+  readOutsideRootNoticeDoneAt() {
+    const value = this.db
+      .prepare("SELECT value FROM workspace_meta WHERE key = ?")
+      .get(OUTSIDE_ROOT_NOTICE_MARK)?.value;
+    return value === undefined ? null : String(value);
+  }
+
+  /** 知らせを済ませた印を付ける（#810）。もう付いていれば変えない。 */
+  markOutsideRootNoticeDone(at = new Date().toISOString()) {
+    this.db
+      .prepare("INSERT INTO workspace_meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO NOTHING")
+      .run(OUTSIDE_ROOT_NOTICE_MARK, String(at));
   }
 
   setPreference(key, value) {

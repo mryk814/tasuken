@@ -191,6 +191,12 @@ export const workspaceApi = {
   taskenRootStatus() {
     return desktopApi().taskenRoot.status();
   },
+  taskenRootOutsideNotice() {
+    return desktopApi().taskenRoot.outsideNotice();
+  },
+  dismissTaskenRootOutsideNotice() {
+    return desktopApi().taskenRoot.dismissOutsideNotice();
+  },
   chooseFiles(title?: string) {
     return desktopApi().dialogs.chooseFiles(title);
   },

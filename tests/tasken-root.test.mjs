@@ -327,3 +327,60 @@ test("同期に参加して Workspace を引き継ぐと、ルートの目印も
   assert.equal(readTaskenRootMarker(secondRoot).marker.workspaceId, first.workspaceId);
   assert.equal(secondRootService.status().marker.state, "ok");
 });
+
+test("段 2 の知らせ: この版の最初の起動で、ルートの外の Theme と日誌の指定を一度だけ一覧で出す（#810）", (t) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-root-notice-"));
+  const database = new WorkspaceDatabase(path.join(base, "tasken.sqlite"));
+  t.after(() => {
+    if (database.db.open) database.db.close();
+    fs.rmSync(base, { recursive: true, force: true });
+  });
+  const root = path.join(base, "Tasken");
+  database.setPreference("artifactDirectory", root);
+  database.save("theme", { id: "theme-a", name: "案件A", storage_root: "D:\\Projects\\A" });
+  database.save("theme", { id: "theme-b", name: "ふつう" });
+  // ルートの Activity と同じ場所の指定は、例外ではないので知らせない。
+  database.setPreference("activityLogDirectory", path.join(root, "Activity"));
+  const service = new TaskenRootService({
+    repository: database,
+    backupDirectory: () => path.join(base, "Backups"),
+    env: {},
+    now: () => new Date("2026-11-22T00:00:00.000Z"),
+  });
+
+  service.settleOutsideRootNotice();
+  assert.deepEqual(service.outsideRootNotice(), {
+    entries: [{ kind: "theme", path: "D:\\Projects\\A", themeId: "theme-a", themeName: "案件A" }],
+  });
+  database.setPreference("activityLogDirectory", "D:\\Journal");
+  assert.deepEqual(
+    service.outsideRootNotice().entries.map((entry) => entry.kind),
+    ["theme", "activity"],
+  );
+  // 閉じたら二度と出さない。指定の値は消さずに残す。
+  service.dismissOutsideRootNotice();
+  assert.equal(service.outsideRootNotice(), null);
+  assert.equal(database.readOutsideRootNoticeDoneAt(), "2026-11-22T00:00:00.000Z");
+  assert.equal(database.get("theme", "theme-a").storage_root, "D:\\Projects\\A");
+  assert.equal(database.getPreference("activityLogDirectory"), "D:\\Journal");
+});
+
+test("段 2 の知らせ: 最初の起動で該当が無ければ済ませ、後から同期で届いた Theme では出さない（#810）", (t) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-root-notice-none-"));
+  const database = new WorkspaceDatabase(path.join(base, "tasken.sqlite"));
+  t.after(() => {
+    if (database.db.open) database.db.close();
+    fs.rmSync(base, { recursive: true, force: true });
+  });
+  database.setPreference("artifactDirectory", path.join(base, "Tasken"));
+  const service = new TaskenRootService({
+    repository: database,
+    backupDirectory: () => "",
+    env: {},
+  });
+  assert.equal(service.outsideRootNotice(), null);
+  service.settleOutsideRootNotice();
+  assert.ok(database.readOutsideRootNoticeDoneAt());
+  database.save("theme", { id: "theme-late", name: "後から", storage_root: "D:\\Late" });
+  assert.equal(service.outsideRootNotice(), null);
+});
