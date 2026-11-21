@@ -25,6 +25,7 @@ import { entityTitle } from "../lib/domain";
 import { Button, IntegrationStatus, PageHeader } from "../components/common";
 import { StampLine, UnsentRow } from "../components/OfflineMarks";
 import { RestoreBackupDialog } from "../components/RestoreBackupDialog";
+import { applyAnimalShown, isAnimalShown } from "../components/Kaeru";
 import {
   DEFAULT_DUE_NOTIFICATION_TIMES,
   normalizeDueNotificationTimes,
@@ -113,6 +114,20 @@ export function SettingsPage({
   allThemes,
   setToast,
 }: SettingsPageProps) {
+  // 画面のアマガエル（#776）。作業台を読んだ時に <html> へ当ててあるので、その値から始める。
+  const [animalShown, setAnimalShown] = useState(isAnimalShown);
+  const changeAnimalShown = (shown: boolean) => {
+    setAnimalShown(shown);
+    applyAnimalShown(shown);
+    workspaceApi.setPreference("animalShown", shown).catch((error) => {
+      setAnimalShown(!shown);
+      applyAnimalShown(!shown);
+      setToast(
+        `表示設定を保存できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    });
+  };
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateCheckResult | null>(null);
   const [artifactDirectory, setArtifactDirectory] = useState("");
@@ -929,6 +944,14 @@ export function SettingsPage({
                   <option value="light">ライト</option>
                   <option value="dark">ダーク</option>
                 </select>
+              </label>
+              <label className="toggle">
+                アマガエル
+                <input
+                  type="checkbox"
+                  checked={animalShown}
+                  onChange={(event) => changeAnimalShown(event.target.checked)}
+                />
               </label>
             </section>
             <section

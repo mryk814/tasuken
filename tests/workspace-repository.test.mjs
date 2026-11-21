@@ -331,6 +331,20 @@ test("automatic Snapshot preferences round-trip with bounded values", () => {
   assert.equal(repo.setPreference("automaticSnapshotBackupGenerations", 0), 1);
 });
 
+// 画面のアマガエル（#776）は既定で出し、設定で切れる。入・切のほかの値は受けない。
+test("the frog on the screen is shown by default and can be turned off", () => {
+  const repo = fakePreferenceRepository();
+
+  assert.equal(repo.getPreference("animalShown"), true);
+  assert.equal(repo.setPreference("animalShown", false), false);
+  assert.equal(repo.getPreference("animalShown"), false);
+  assert.equal(repo.setPreference("animalShown", true), true);
+  assert.equal(repo.getPreference("animalShown"), true);
+  assert.throws(() => repo.setPreference("animalShown", "off"), /アマガエル/);
+  assert.throws(() => repo.setPreference("animalShown", 0), /アマガエル/);
+  assert.equal(repo.getPreference("animalShown"), true);
+});
+
 test("link URL validation allows web and mailto but rejects file", () => {
   // Notes はタイトルだけで下書き作成でき、本文は中央エリアで後から書く。
   assert.doesNotThrow(() =>

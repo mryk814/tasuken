@@ -34,6 +34,7 @@ import { themeColor } from "../lib/domain";
 import { buildDailyDebriefEvidence, findDailyDebriefNote } from "../lib/taskenDebrief";
 import { preloadWorkspacePage } from "../workspacePageLoaders";
 import { useReminderNow } from "./common";
+import { KaeruWait } from "./Kaeru";
 import {
   focusSessionElapsedMs,
   isPausedFocusSession,
@@ -310,11 +311,13 @@ export function AppState({
 }) {
   return (
     <main className="standalone-state">
-      <div className={`state-box ${state}`}>
+      <div className={`state-box ${state}${state === "loading" ? " kaeru-edge" : ""}`}>
         {state === "loading" ? (
           <>
             <span className="spinner" />
             <strong>作業台を読み込んでいます</strong>
+            {/* 本人が縮められない待ち。枠の縁にアマガエルが止まる（#776。読み込めない時は出さない）。 */}
+            <KaeruWait />
           </>
         ) : (
           <>

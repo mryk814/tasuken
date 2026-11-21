@@ -555,6 +555,7 @@ export function InboxPage({
         ) : (
           <EmptyState
             title={query ? "検索に一致する付箋メモはありません" : "付箋メモはありません"}
+            animal={!query}
           />
         )}
       </section>

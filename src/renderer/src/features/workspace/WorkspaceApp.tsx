@@ -74,6 +74,7 @@ import {
   type TitleBarLauncherData,
 } from "./components/shell";
 import { ContextPane } from "./components/contextPane";
+import { applyAnimalShown } from "./components/Kaeru";
 import { WorkspacePageRouter } from "./components/WorkspacePageRouter";
 import { currentWindowMode } from "./lib/windowMode";
 import {
@@ -319,6 +320,11 @@ export function WorkspaceApp() {
     try {
       const loaded = await loadWorkspaceAction();
       setThemeMode((loaded.meta?.themeMode as "light" | "dark") || "light");
+      // 画面のアマガエル（#776）。読めなければ、最後に覚えた選びのまま。
+      workspaceApi
+        .getPreference("animalShown")
+        .then(applyAnimalShown)
+        .catch(() => {});
       const storedGroups = loaded.meta?.activeGroups;
       setActiveGroups(Array.isArray(storedGroups) ? (storedGroups as string[]) : []);
       if (!useUiStore.getState().activeThemeId) {

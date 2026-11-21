@@ -850,6 +850,8 @@ export class WorkspaceDatabase {
     if (key === "sharedSyncLastError") return this.ensureMeta("shared_sync_last_error", "");
     if (key === "automaticSnapshotBackupEnabled")
       return this.ensureMeta("automatic_snapshot_backup_enabled", "true") === "true";
+    // 画面のアマガエル（#776）。表示の好みなので端末ごとで、同期しない。値が無い時は出す。
+    if (key === "animalShown") return this.ensureMeta("animal_shown", "true") === "true";
     // ローカルのAIに直接の書き込みを許すか（#703）。端末ごとの設定で、同期しない。値が無い時は無効だが、
     // Desktopは新しい版の最初の起動で一度だけ有効にする（enableAiDirectWriteOnce。#755 束10a）。
     if (key === "aiDirectWriteEnabled")
@@ -1178,6 +1180,18 @@ export class WorkspaceDatabase {
         )
         .run(enabled ? "true" : "false");
       return enabled;
+    }
+    if (key === "animalShown") {
+      if (typeof value !== "boolean") throw new Error("アマガエルの表示の値が不正です。");
+      this.db
+        .prepare(
+          `
+        INSERT INTO workspace_meta(key, value) VALUES('animal_shown', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `,
+        )
+        .run(value ? "true" : "false");
+      return value;
     }
     if (key === "automaticSnapshotBackupDirectory") {
       const directory = typeof value === "string" ? value.trim() : "";

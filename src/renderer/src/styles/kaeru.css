@@ -1,0 +1,95 @@
+/* Tasken の動物（ニホンアマガエル、#776）: 言葉の縁に止まるカエル。置くのは components/Kaeru.tsx、いつ何をするかは
+ * lib/kaeru.ts（ここの動きの長さはその WAIT_TIMES に合わせる）。
+ *
+ * 色は控えめな文字の一色。アマガエルの緑（印の色）は使わない。絵の形には頼らず、頼るのは格子 100×100 と
+ * 止まる線 y=86（0.86）だけ（絵が描き直されても、写し直すだけで替わるように）。 */
+
+.kaeru {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  color: var(--color-text-muted);
+  pointer-events: none;
+  user-select: none;
+}
+/* 本人の設定（設定 > 表示 > アマガエル）。 */
+:root[data-animal="off"] .kaeru {
+  display: none;
+}
+.kaeru > span {
+  position: absolute;
+  inset: 0;
+  display: none;
+}
+.kaeru > span > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.kaeru[data-draw="suwaru"] > [data-pose="suwaru"],
+.kaeru[data-draw="miru"] > [data-pose="miru"],
+.kaeru[data-draw="haneru"] > [data-pose="haneru"],
+.kaeru[data-draw="nemuru"] > [data-pose="nemuru"] {
+  display: block;
+}
+
+/* ---------- 何も無い画面: 黙っている言葉の 1 行目の右端に座る ---------- */
+
+.kaeru-perch {
+  position: relative;
+}
+/* 空の欄（EmptyState）は言葉の上が詰まっていて、座ると頭が欄の見出しの線に触れる。その分だけ空ける。 */
+.empty-state > .kaeru-perch {
+  margin-top: 14px;
+}
+/* 置く所は言葉を測って決める（components/Kaeru.tsx）。測るまでは隠す。 */
+.kaeru.on-words {
+  visibility: hidden;
+}
+.kaeru.on-words.placed {
+  visibility: visible;
+}
+
+/* ---------- 待ち: 待ちの言葉の枠の上の縁に止まる ---------- */
+
+.kaeru-edge {
+  position: relative;
+}
+.kaeru.on-edge {
+  right: 14px;
+  /* 足（絵の 86% の高さ）を縁に 1px かける。 */
+  top: calc(1px - 32px * 0.86);
+}
+/* 現れる: 240ms で縁に降りる。 */
+.kaeru.on-edge[data-state="kuru"] > [data-pose="suwaru"] {
+  animation: kaeru-land 240ms ease-out;
+}
+/* 一度だけ: その場で跳ねて、同じ縁に戻る（560ms。降りた所で座る絵に替わる）。 */
+.kaeru.on-edge[data-state="haneru"] > [data-pose="haneru"] {
+  animation: kaeru-hop 560ms cubic-bezier(0.3, 0, 0.6, 1) both;
+}
+@keyframes kaeru-land {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@keyframes kaeru-hop {
+  0% {
+    transform: translateY(-8%);
+  }
+  45% {
+    transform: translateY(-60%);
+  }
+  100% {
+    transform: translateY(-12%);
+  }
+}
+
+/* 動きを減らす設定では座るだけ（lib/kaeru.ts もほかの状態を出さない）。動きの補間もしない。 */
+@media (prefers-reduced-motion: reduce) {
+  .kaeru.on-edge[data-state] > span[data-pose] {
+    animation: none;
+  }
+}

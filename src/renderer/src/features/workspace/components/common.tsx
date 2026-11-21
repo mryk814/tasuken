@@ -21,6 +21,7 @@ import { actionDefinition, type ActionId } from "../../../pages/semanticActions"
 import { routeDescription, routeIcon, routeLabel } from "../../../pages/routes";
 import type { BaseRecord, DrawerConfig, Theme } from "../types";
 import { statusTone, themeColor } from "../lib/domain";
+import { KaeruOnWords } from "./Kaeru";
 import {
   dueItemReminders,
   localDateTimeMinute,
@@ -342,14 +343,27 @@ export function EmptyState({
   title,
   action,
   onAction,
+  animal = false,
 }: {
   title: string;
   action?: string;
   onAction?: () => void;
+  /**
+   * 言葉の右端にアマガエルを座らせる（#776）。本人が毎日見る、本当に何も無い画面だけで付ける。
+   * 絞り込み・検索の結果 0 件（繰り返す操作）と、読み込めない時には付けない。
+   */
+  animal?: boolean;
 }) {
   return (
     <div className="empty-state">
-      <strong>{title}</strong>
+      {animal ? (
+        <strong className="kaeru-perch">
+          {title}
+          <KaeruOnWords words={title} />
+        </strong>
+      ) : (
+        <strong>{title}</strong>
+      )}
       {action && onAction && (
         <button className="secondary-button compact" onClick={onAction}>
           {action}

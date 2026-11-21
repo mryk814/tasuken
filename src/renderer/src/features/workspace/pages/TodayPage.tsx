@@ -148,6 +148,7 @@ function TodayRows({
   markDueToday = true,
   pendingIds,
   strikingIds,
+  animal = false,
 }: {
   rows: TodayRow[];
   themes: PageProps["themes"];
@@ -165,6 +166,8 @@ function TodayRows({
   pendingIds: ReadonlySet<string>;
   /** その場で完了にして、線を引いている Task（#738）。 */
   strikingIds?: ReadonlySet<string>;
+  /** 空の時の言葉にアマガエルを座らせる（#776。一つの画面に一匹だけ）。 */
+  animal?: boolean;
 }) {
   const [dateMenu, setDateMenu] = useState<{
     row: TodayRow;
@@ -175,7 +178,12 @@ function TodayRows({
   const reminderNow = useReminderNow();
   if (!rows.length)
     return (
-      <EmptyState title={empty} action={onAdd ? "タスクを追加" : undefined} onAction={onAdd} />
+      <EmptyState
+        title={empty}
+        action={onAdd ? "タスクを追加" : undefined}
+        onAction={onAdd}
+        animal={animal}
+      />
     );
   return (
     <div className="today-task-list">
@@ -1323,6 +1331,7 @@ export function TodayPage({
             rows={shownTodayRows}
             themes={themes}
             empty="今日のタスクはありません"
+            animal
             today={today}
             {...rowHandlers}
             onAdd={() => setShowAdd(true)}

@@ -108,6 +108,7 @@
         "src/renderer/src/features/workspace/components/FeedThreadPanel.tsx",
         "src/renderer/src/features/workspace/components/FocusSessionDialog.tsx",
         "src/renderer/src/features/workspace/components/HabitPanel.tsx",
+        "src/renderer/src/features/workspace/components/Kaeru.tsx",
         "src/renderer/src/features/workspace/components/MarkdownDiffMarkerRail.tsx",
         "src/renderer/src/features/workspace/components/MarkdownEditorPanel.tsx",
         "src/renderer/src/features/workspace/components/MarkdownHeadingIndex.tsx",
