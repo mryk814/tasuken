@@ -38,15 +38,21 @@ test("保存先は決まった優先順位で解決し、根拠も返す（#306�
     { status: "ok", root: "D:/tmp", segments: [], source: "explicit_export" },
   );
 
-  // 3. Theme専用ルート。配下の標準サブフォルダはTaskenが作る。
+  // 3. Theme の storage_root は新しい書き込みに使わない（#810）。渡されても Tasken ルートの下。
   assert.deepEqual(
     resolveStorageLocation({
       purpose: "notes",
       themeId: "t1",
+      themeCode: "MAT-A",
       themeStorageRoot: "D:/theme",
       syncRoot: "D:/sync",
     }),
-    { status: "ok", root: "D:/theme", segments: ["Notes"], source: "theme_override" },
+    {
+      status: "ok",
+      root: "D:/sync",
+      segments: ["Themes", "MAT-A", "Notes"],
+      source: "app_default",
+    },
   );
 
   // 4. アプリ共通sync root。
@@ -135,9 +141,11 @@ test("フォルダ名に使えない文字を落とし、空にならない（#3
 });
 
 test("解決の根拠を画面へ出すラベルがある（#306）", () => {
-  for (const source of ["canonical", "explicit_export", "theme_override", "app_default"]) {
+  for (const source of ["canonical", "explicit_export", "app_default"]) {
     assert.equal(typeof STORAGE_SOURCE_LABELS[source], "string");
   }
+  // Theme 専用ルートは #810 で新しい書き込みの根拠から外した。
+  assert.equal(STORAGE_SOURCE_LABELS.theme_override, undefined);
 });
 
 test("保存先解決の実装を一箇所に集約する（#306）", () => {

@@ -96,8 +96,7 @@ export function safeThemeFolderSegment(value) {
  * - notes → Notes/（Markdown 既定）
  * - exports → Exports/（PDF 等の既定候補）
  *
- * - Theme.storage_root あり → {storage_root}/{kind}
- * - Theme あり・未設定 → {artifactDirectory}/Themes/{code|id}/{kind}
+ * - Theme あり → {artifactDirectory}/Themes/{code|id}/{kind}（Theme の storage_root は #810 から使わない）
  * - Theme なし → {artifactDirectory}/Inbox または Inbox/{kind}
  *
  * @returns {{ kind: "needs_directory" } | { kind: "ok", root: string, segments: string[] }}
@@ -106,7 +105,6 @@ export function resolveThemeContentDirectoryParts({
   artifactDirectory,
   themeId,
   themeCode,
-  themeStorageRoot,
   contentKind = "artifacts",
   canonicalPath = null,
   explicitExportRoot = null,
@@ -117,7 +115,6 @@ export function resolveThemeContentDirectoryParts({
     purpose: contentKind,
     themeId,
     themeCode,
-    themeStorageRoot,
     syncRoot: artifactDirectory,
     canonicalPath,
     explicitExportRoot,

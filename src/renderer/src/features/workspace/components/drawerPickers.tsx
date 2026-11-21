@@ -76,57 +76,29 @@ export function ThemeStorageRootField({
   value?: string;
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void;
 }) {
-  const [pathValue, setPathValue] = useState(value || "");
-  async function chooseRoot() {
-    try {
-      const result = await workspaceApi.chooseDirectory("ThemeのArtifact保存ルートを選択");
-      if (result.canceled || !result.path) return;
-      setPathValue(result.path);
-    } catch (error) {
-      setToast(
-        `フォルダを選べませんでした。${error instanceof Error ? error.message : String(error)}`,
-        "danger",
-      );
-    }
-  }
+  // Theme ごとの保存先は #810 から新しい保存に使わない。前の版で指定した Theme だけ、場所を読むだけで出す。
+  // 値は hidden で持ち回して消さない（前に公開した AI Context を同じ場所で更新・解除するのに使うため）。
+  const pathValue = (value || "").trim();
+  if (!pathValue) return null;
   async function openRoot() {
-    if (!pathValue) return;
     const result = await workspaceApi.openPath(pathValue);
     if (!result.ok) setToast(`フォルダを開けませんでした。${result.error || ""}`, "danger");
   }
   return (
-    <Field label="Artifact保存ルート">
+    <Field label="Artifact保存ルート（前の版の指定）">
       <input type="hidden" name="storage_root" value={pathValue} />
       <p className="field-help">
-        未設定なら 設定の共通保存先配下 <code>Themes/識別子/</code> に Artifacts・Notes・Exports
-        を作ります。設定するとそのルート直下に同じ3フォルダを使います。
+        前に置いたファイルはここに残ります。新しい保存は Tasken ルートの <code>Themes/識別子/</code>{" "}
+        へ行きます。
       </p>
       <div className="theme-storage-root">
-        <code className="theme-storage-root-path" title={pathValue || undefined}>
-          {pathValue || "未設定（自動配置）"}
+        <code className="theme-storage-root-path" title={pathValue}>
+          {pathValue}
         </code>
         <div className="inline-actions">
-          <button
-            type="button"
-            className="secondary-button compact"
-            onClick={() => void chooseRoot()}
-          >
-            フォルダを選ぶ
+          <button type="button" className="text-button compact" onClick={() => void openRoot()}>
+            開く
           </button>
-          {pathValue && (
-            <>
-              <button type="button" className="text-button compact" onClick={() => void openRoot()}>
-                開く
-              </button>
-              <button
-                type="button"
-                className="text-button compact"
-                onClick={() => setPathValue("")}
-              >
-                クリア
-              </button>
-            </>
-          )}
         </div>
       </div>
     </Field>

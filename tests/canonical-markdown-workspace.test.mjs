@@ -2244,3 +2244,39 @@ test("legacy Markdown bindingの起動migrationを2回行っても同一path・�
     closeFixture(fixture);
   }
 });
+
+test("Theme の storage_root があっても、新しい Note の正本は Tasken ルートの Themes/{code}/Notes に書く（#810）", () => {
+  const fixture = createFixture("tasken-canonical-theme-storage-root");
+  try {
+    const legacyThemeRoot = path.join(fixture.userDataPath, "CustomerFolder");
+    fs.mkdirSync(legacyThemeRoot);
+    fixture.database.save("theme", {
+      id: "theme-legacy-root",
+      name: "前の版で保存先を指定した Theme",
+      code: "LEGACY-A",
+      storage_root: legacyThemeRoot,
+    });
+    fixture.database.save("note", {
+      id: "note-in-legacy-theme",
+      title: "新しいメモ",
+      body_markdown: "本文",
+      project_id: "theme-legacy-root",
+    });
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    const saved = service.saveCanonicalNote(
+      saveRequest(fixture.database.get("note", "note-in-legacy-theme"), "保存した本文"),
+    );
+    const binding = canonicalBinding(saved);
+    assert.equal(binding.sync_state, "in_sync");
+    assert.equal(
+      path.dirname(binding.canonical_path),
+      path.join(fixture.syncRoot, "Themes", "LEGACY-A", "Notes"),
+    );
+    assert.match(readFileSync(binding.canonical_path, "utf8"), /保存した本文/);
+    // 前の版の保存先には何も作らない。欄は読めるまま残す。
+    assert.deepEqual(readdirSync(legacyThemeRoot), []);
+    assert.equal(fixture.database.get("theme", "theme-legacy-root").storage_root, legacyThemeRoot);
+  } finally {
+    closeFixture(fixture);
+  }
+});

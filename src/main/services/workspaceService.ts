@@ -1145,7 +1145,7 @@ export class WorkspaceService {
   private resolveThemeFolder(theme: Record<string, unknown>) {
     return discoverThemeFolderLocation({
       syncRoot: String(this.repository.getPreference("artifactDirectory") || ""),
-      themeStorageRoot: typeof theme.storage_root === "string" ? theme.storage_root : "",
+      legacyThemeStorageRoot: typeof theme.storage_root === "string" ? theme.storage_root : "",
       themeId: String(theme.id || ""),
       themeCode: typeof theme.code === "string" ? theme.code : "",
       displayName: String(theme.name || theme.title || ""),
@@ -3315,7 +3315,6 @@ export class WorkspaceService {
     options: { writeThemeManifest?: boolean } = {},
   ): { kind: "needs_directory" } | { kind: "ok"; directory: string } {
     const baseDirectory = String(this.repository.getPreference("artifactDirectory") || "").trim();
-    let themeStorageRoot: string | null = null;
     let themeCode: string | null = null;
     let themeId = themeIdValue ? String(themeIdValue).trim() : null;
     if (themeId) {
@@ -3323,8 +3322,7 @@ export class WorkspaceService {
         this.repository.get("theme", themeId) || this.repository.get("project", themeId);
       if (theme) {
         themeId = String(theme.id || themeId);
-        const root = typeof theme.storage_root === "string" ? theme.storage_root.trim() : "";
-        themeStorageRoot = root || null;
+        // Theme の storage_root は新しい書き込みに使わない（#810）。いつも Tasken ルートの下。
         const code = typeof theme.code === "string" ? theme.code.trim() : "";
         themeCode = code || null;
       }
@@ -3335,14 +3333,12 @@ export class WorkspaceService {
         artifactDirectory?: string | null;
         themeId?: string | null;
         themeCode?: string | null;
-        themeStorageRoot?: string | null;
         contentKind?: "artifacts" | "notes" | "exports";
       }) => { kind: "needs_directory" } | { kind: "ok"; root: string; segments: string[] }
     )({
       artifactDirectory: baseDirectory,
       themeId,
       themeCode,
-      themeStorageRoot,
       contentKind,
     });
     if (location.kind === "needs_directory") return { kind: "needs_directory" };
@@ -3369,16 +3365,13 @@ export class WorkspaceService {
     }
     const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
     if (!theme) throw new Error("音声CaptureのThemeが見つかりません。Themeを選び直してください。");
-    const syncRoot = String(this.repository.getPreference("artifactDirectory") || "").trim();
-    const themeStorageRoot =
-      typeof theme.storage_root === "string" ? theme.storage_root.trim() : "";
-    const root = themeStorageRoot || syncRoot;
+    // Theme の storage_root は新しい書き込みに使わない（#810）。
+    const root = String(this.repository.getPreference("artifactDirectory") || "").trim();
     if (!root) return { kind: "needs_directory" };
     let themeFolder: string;
     if (fs.existsSync(root)) {
       const discovered = discoverThemeFolderLocation({
-        syncRoot,
-        themeStorageRoot,
+        syncRoot: root,
         themeId,
         themeCode: typeof theme.code === "string" ? theme.code : "",
         displayName: String(theme.name || theme.title || ""),
@@ -3428,13 +3421,11 @@ export class WorkspaceService {
     themeId: string,
   ): void {
     try {
-      // Theme専用ルートはroot直下、共通ルートは Themes/<folder> がTheme単位のフォルダ。
+      // Theme単位のフォルダは Themes/<folder>。Inbox（Themeなし・個人業務）には置かない。
       const themeFolder =
-        location.segments[0] === "Themes"
-          ? path.join(location.root, location.segments[0], location.segments[1] || "")
-          : location.segments.length === 1
-            ? location.root
-            : "";
+        location.segments[0] === "Themes" && location.segments[1]
+          ? path.join(location.root, location.segments[0], location.segments[1])
+          : "";
       if (!themeFolder) return;
       const manifestPath = path.join(themeFolder, THEME_FOLDER_MANIFEST);
       if (fs.existsSync(manifestPath)) return;

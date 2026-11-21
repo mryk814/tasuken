@@ -295,7 +295,7 @@ test("managed Artifact 保存先は Theme あり/なし/storage_root で分岐�
       source: "app_default",
     },
   );
-  // Theme 専用ルートがあれば共通ルートは不要。
+  // Theme の storage_root は新しい書き込みに使わない（#810）。ルートが無ければ保留する。
   assert.deepEqual(
     resolveManagedArtifactDirectoryParts({
       artifactDirectory: "",
@@ -303,7 +303,7 @@ test("managed Artifact 保存先は Theme あり/なし/storage_root で分岐�
       themeCode: "MAT-A",
       themeStorageRoot: "D:/themes/mat-a",
     }),
-    { kind: "ok", root: "D:/themes/mat-a", segments: ["Artifacts"], source: "theme_override" },
+    { kind: "needs_directory" },
   );
   assert.equal(safeThemeFolderSegment('a/b:c*?"'), "a-b-c-");
 });
@@ -344,12 +344,21 @@ test("Note Markdown / PDF 既定も Theme 配下の Notes・Exports に乗る", 
     }),
     { kind: "ok", root: "C:/tasken", segments: ["Inbox", "Notes"], source: "app_default" },
   );
+  // Theme の storage_root があっても、新しい Note は Tasken ルートの Themes/{code}/Notes（#810）。
   assert.deepEqual(
     resolveThemeContentDirectoryParts({
+      artifactDirectory: "C:/tasken",
+      themeId: "theme-1",
+      themeCode: "MAT-A",
       themeStorageRoot: "D:/themes/mat-a",
       contentKind: "notes",
     }),
-    { kind: "ok", root: "D:/themes/mat-a", segments: ["Notes"], source: "theme_override" },
+    {
+      kind: "ok",
+      root: "C:/tasken",
+      segments: ["Themes", "MAT-A", "Notes"],
+      source: "app_default",
+    },
   );
 
   const notesSource = readFileSync(

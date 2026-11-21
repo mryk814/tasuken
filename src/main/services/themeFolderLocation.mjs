@@ -11,9 +11,12 @@ import {
 } from "../../shared/storageResolver.mjs";
 import { writeAtomicTextFile } from "./atomicText.mjs";
 
-// Theme folder（同期ルート/Themes/<code> または Theme ごとの保存先）を、Theme名ではなく
+// Theme folder（Tasken ルート/Themes/<code>）を、Theme名ではなく
 // marker（.tasken-theme.json）のTheme IDで見つけ、作る。添付・会話のAI Contextが使う。
 // もとはTheme AI Packの公開処理の一部だった（AI Packは #755 束2 で外した）。
+// Theme ごとの保存先（storage_root）は #810 から新しい書き込みに使わない。legacyThemeStorageRoot は、
+// 前の版が storage_root の下に公開した会話の AI Context（参照が theme:<id>）を、同じ場所で
+// 更新・解除するときだけ渡す（別の場所にもう 1 つ作らないため）。
 
 const WINDOWS_DIRECTORY_FSYNC_CODES = new Set(["EPERM", "ENOTSUP", "EINVAL", "EISDIR"]);
 
@@ -109,7 +112,7 @@ function fsyncDirectory(fileSystem, directory) {
 /** Theme名ではなくmarkerのTheme IDで既存folderを再発見する。 */
 export function discoverThemeFolderLocation({
   syncRoot,
-  themeStorageRoot,
+  legacyThemeStorageRoot,
   themeId,
   themeCode,
   displayName,
@@ -117,7 +120,7 @@ export function discoverThemeFolderLocation({
 } = {}) {
   const id = text(themeId);
   if (!id) throw new Error("Theme folderにはTheme IDが必要です。");
-  const override = text(themeStorageRoot);
+  const override = text(legacyThemeStorageRoot);
   const commonRoot = text(syncRoot);
   const root = override || commonRoot;
   if (!root) return { status: "needs_root" };
@@ -149,7 +152,7 @@ export function discoverThemeFolderLocation({
     } else {
       createManifest = true;
     }
-    source = "theme_override";
+    source = "legacy_theme_root";
   } else {
     const themesDirectory = path.join(path.resolve(root), "Themes");
     const matches = [];
