@@ -16,22 +16,35 @@ async function importBundled(relativePath, stubElectron = false) {
     format: "esm",
     write: false,
     logLevel: "silent",
-    plugins: stubElectron ? [{
-      name: "electron-stub",
-      setup(builder) {
-        builder.onResolve({ filter: /^electron$/ }, () => ({ path: "electron", namespace: "electron-stub" }));
-        builder.onLoad({ filter: /.*/, namespace: "electron-stub" }, () => ({
-          contents: "export const protocol = { registerSchemesAsPrivileged() {}, handle() {} };",
-          loader: "js",
-        }));
-      },
-    }] : [],
+    plugins: stubElectron
+      ? [
+          {
+            name: "electron-stub",
+            setup(builder) {
+              builder.onResolve({ filter: /^electron$/ }, () => ({
+                path: "electron",
+                namespace: "electron-stub",
+              }));
+              builder.onLoad({ filter: /.*/, namespace: "electron-stub" }, () => ({
+                contents:
+                  "export const protocol = { registerSchemesAsPrivileged() {}, handle() {} };",
+                loader: "js",
+              }));
+            },
+          },
+        ]
+      : [],
   });
-  return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+  return import(
+    `data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`
+  );
 }
 
 const { MediaCaptureService } = await importBundled("src/main/services/mediaCaptureService.ts");
-const { mediaResponse, parseMediaRange, parseMediaRequestTarget } = await importBundled("src/main/mediaProtocol.ts", true);
+const { mediaResponse, parseMediaRange, parseMediaRequestTarget } = await importBundled(
+  "src/main/mediaProtocol.ts",
+  true,
+);
 
 function hash(bytes) {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
@@ -58,8 +71,12 @@ function setup(t, bytes = Buffer.from("verified-original-audio")) {
   const onOpen = { callback: null };
   const service = new MediaCaptureService({
     userDataPath,
-    repository: { get: (type, id) => type === "artifact" && id === artifactId ? artifact : null },
-    commands: { executeMediaCapture: () => { throw new Error("unused"); } },
+    repository: { get: (type, id) => (type === "artifact" && id === artifactId ? artifact : null) },
+    commands: {
+      executeMediaCapture: () => {
+        throw new Error("unused");
+      },
+    },
     resolveManagedDirectory: () => ({ kind: "needs_directory" }),
     openPath: async (filePath) => {
       onOpen.callback?.(filePath);
@@ -69,7 +86,17 @@ function setup(t, bytes = Buffer.from("verified-original-audio")) {
     },
   });
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  return { root, linkedPath, artifact, artifactId, service, bytes, openedPaths, openedBytes, onOpen };
+  return {
+    root,
+    linkedPath,
+    artifact,
+    artifactId,
+    service,
+    bytes,
+    openedPaths,
+    openedBytes,
+    onOpen,
+  };
 }
 
 test("Range parser accepts bounded and suffix requests and rejects multi-range", () => {
@@ -80,8 +107,14 @@ test("Range parser accepts bounded and suffix requests and rejects multi-range",
 
 test("media URL accepts one exact UUID segment and rejects ambiguous authority or suffixes before resolution", () => {
   const id = "d8946cf2-290a-4f0f-88c4-cd78cfbf64d5";
-  assert.deepEqual(parseMediaRequestTarget(`tasken-media://artifact/${id}`), { scope: "artifact", id });
-  assert.deepEqual(parseMediaRequestTarget(`tasken-media://session/${id}`), { scope: "session", id });
+  assert.deepEqual(parseMediaRequestTarget(`tasken-media://artifact/${id}`), {
+    scope: "artifact",
+    id,
+  });
+  assert.deepEqual(parseMediaRequestTarget(`tasken-media://session/${id}`), {
+    scope: "session",
+    id,
+  });
   for (const candidate of [
     `tasken-media://user@artifact/${id}`,
     `tasken-media://artifact/${id}?download=1`,
@@ -93,7 +126,8 @@ test("media URL accepts one exact UUID segment and rejects ambiguous authority o
     `tasken-media://artifact/${id}%5cextra`,
     "tasken-media://artifact/not-a-uuid",
     `tasken-media://artifact//${id}`,
-  ]) assert.equal(parseMediaRequestTarget(candidate), null, candidate);
+  ])
+    assert.equal(parseMediaRequestTarget(candidate), null, candidate);
 });
 
 test("verified descriptor streams the verified inode even when linked path is replaced afterwards", async (t) => {
@@ -106,7 +140,8 @@ test("verified descriptor streams the verified inode even when linked path is re
     fs.writeFileSync(state.linkedPath, "unverified-replacement");
   } catch (error) {
     if (resolution.availability === "available") fs.closeSync(resolution.fileDescriptor);
-    if (["EPERM", "EACCES"].includes(error?.code)) return t.skip("open-file path replacement is unavailable in this environment");
+    if (["EPERM", "EACCES"].includes(error?.code))
+      return t.skip("open-file path replacement is unavailable in this environment");
     throw error;
   }
 
@@ -156,7 +191,8 @@ test("changed and symlinked linked media return zero bytes and no descriptor", a
   try {
     fs.symlinkSync(target, state.linkedPath, "file");
   } catch (error) {
-    if (error?.code === "EPERM") return t.skip("symlink creation is unavailable in this environment");
+    if (error?.code === "EPERM")
+      return t.skip("symlink creation is unavailable in this environment");
     throw error;
   }
   const unsafe = state.service.resolveArtifactMedia(state.artifactId);
@@ -201,7 +237,9 @@ test("stream read error closes the handed-off descriptor", async (t) => {
 test("ID-only external open permits verified unsupported codec bytes but rejects changed bytes", async (t) => {
   const state = setup(t);
   state.artifact.mime_type = "application/x-unknown-video-codec";
-  assert.deepEqual(state.service.inspectArtifactMedia(state.artifactId), { availability: "unsupported_codec" });
+  assert.deepEqual(state.service.inspectArtifactMedia(state.artifactId), {
+    availability: "unsupported_codec",
+  });
   assert.deepEqual(await state.service.openArtifactExternally(state.artifactId), { ok: true });
   assert.equal(state.openedPaths.length, 1);
   assert.notEqual(state.openedPaths[0], state.linkedPath);
@@ -220,7 +258,11 @@ test("ID-only external open permits verified unsupported codec bytes but rejects
   new MediaCaptureService({
     userDataPath: path.join(state.root, "user-data"),
     repository: { get: () => null },
-    commands: { executeMediaCapture: () => { throw new Error("unused"); } },
+    commands: {
+      executeMediaCapture: () => {
+        throw new Error("unused");
+      },
+    },
     resolveManagedDirectory: () => ({ kind: "needs_directory" }),
   });
   assert.equal(fs.existsSync(state.openedPaths[0]), false);
@@ -233,17 +275,29 @@ test("recent external-open snapshots survive restart and shell exceptions return
   new MediaCaptureService({
     userDataPath: path.join(state.root, "user-data"),
     repository: { get: () => null },
-    commands: { executeMediaCapture: () => { throw new Error("unused"); } },
+    commands: {
+      executeMediaCapture: () => {
+        throw new Error("unused");
+      },
+    },
     resolveManagedDirectory: () => ({ kind: "needs_directory" }),
   });
   assert.equal(fs.existsSync(snapshotPath), true);
 
   const throwing = new MediaCaptureService({
     userDataPath: path.join(state.root, "throwing-user-data"),
-    repository: { get: (type, id) => type === "artifact" && id === state.artifactId ? state.artifact : null },
-    commands: { executeMediaCapture: () => { throw new Error("unused"); } },
+    repository: {
+      get: (type, id) => (type === "artifact" && id === state.artifactId ? state.artifact : null),
+    },
+    commands: {
+      executeMediaCapture: () => {
+        throw new Error("unused");
+      },
+    },
     resolveManagedDirectory: () => ({ kind: "needs_directory" }),
-    openPath: async () => { throw new Error("shell unavailable"); },
+    openPath: async () => {
+      throw new Error("shell unavailable");
+    },
   });
   assert.deepEqual(await throwing.openArtifactExternally(state.artifactId), {
     ok: false,
