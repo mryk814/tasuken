@@ -2,6 +2,14 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-21 部品から CSS を読んだら、common.tsx を esbuild で束ねる試験が何本も落ちた
+
+- しようとしたこと: #776 のアマガエルの部品（`components/Kaeru.tsx`）で、自分の見た目の `Kaeru.css` を `import` し、`EmptyState`（`components/common.tsx`）から部品を使った。
+- 起きたこと: `npm run ci` の全試験で、`feed-selected-adoption`・`ai-proposal-acceptance-path` などが `Cannot import "...Kaeru.css" into a JavaScript file without an output path configured` で落ちた。型・lint・画面（vite の build）は通っていた。
+- 原因: 試験は renderer の module を esbuild の `write: false` で束ねて読む。`common.tsx` は多くの試験の束に入るので、そこから辿れる CSS の `import` が一つでもあると、束ねること自体が失敗する（`AgentWorkTimeline.css` などは試験が束ねない部品からしか読まれていない）。
+- 直し方: CSS は `styles/kaeru.css` に置き、`app.css` の `@import` で読んだ（`main.tsx` に足すと architecture-audit の composition の基準が増える）。部品の先頭のコメントに理由を書いた。
+- 再発防止: 記録だけ（全試験が機械的に止める）。`common.tsx` のように広く使われる部品から辿れる module では CSS を `import` しない。
+
 ## 2026-11-19 ai-document-creation の後始末の順で、Windows の CI 全体が 45 分止まった
 
 - しようとしたこと: #789 の `tests/ai-document-creation.test.mjs`（create-only headless の実証）で、後始末を `t.after` に分けて登録した（一時フォルダー削除 → Core 停止 → MCP 終了の順）。
