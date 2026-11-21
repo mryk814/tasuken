@@ -2354,3 +2354,36 @@ test("PDF の書き出しダイアログは Theme の Exports/（Theme なしは
     closeFixture(fixture);
   }
 });
+
+test("managed Media の保存先: 新しくはルートの下、前の版の storage_root/Artifacts は読む場所として残す（#810）", () => {
+  const fixture = createFixture("tasken-managed-media-legacy");
+  try {
+    const legacyRoot = path.join(fixture.userDataPath, "CustomerFolder");
+    fixture.database.save("theme", {
+      id: "theme-media",
+      name: "Media Theme",
+      code: "MEDIA",
+      storage_root: legacyRoot,
+    });
+    fixture.database.save("theme", { id: "theme-plain", name: "Plain", code: "PLAIN" });
+    const service = new WorkspaceService(fixture.database, fixture.userDataPath);
+    // ルートが未設定でも、前の保存先は読める場所として返す。
+    fixture.database.setPreference("artifactDirectory", "");
+    assert.deepEqual(service.resolveManagedArtifactDirectory("theme-media"), {
+      kind: "needs_directory",
+      legacyDirectories: [path.join(legacyRoot, "Artifacts")],
+    });
+    fixture.database.setPreference("artifactDirectory", fixture.syncRoot);
+    fs.mkdirSync(fixture.syncRoot);
+    const location = service.resolveManagedArtifactDirectory("theme-media");
+    assert.equal(location.kind, "ok");
+    assert.equal(location.directory, path.join(fixture.syncRoot, "Themes", "MEDIA", "Artifacts"));
+    assert.deepEqual(location.legacyDirectories, [path.join(legacyRoot, "Artifacts")]);
+    assert.equal(
+      service.resolveManagedArtifactDirectory("theme-plain").legacyDirectories,
+      undefined,
+    );
+  } finally {
+    closeFixture(fixture);
+  }
+});

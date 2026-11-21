@@ -107,11 +107,17 @@ interface AudioCommandExecutor {
 }
 
 type DirectoryResolution =
-  | { kind: "needs_directory" }
+  | { kind: "needs_directory"; legacyDirectories?: string[] }
   | {
       kind: "ok";
+      /** 新しく書く場所。 */
       directory: string;
       themeMarker?: { directory: string; themeId: string; displayName: string };
+      /**
+       * 新しくは書かないが、前に保存した物を読む・途中の session を確定するのに認める場所（#810）。
+       * Theme の storage_root の下の Artifacts/ など。
+       */
+      legacyDirectories?: string[];
     };
 export type MediaFileResolution =
   | { availability: Exclude<MediaAvailability, "available"> }
@@ -368,6 +374,27 @@ function resolveSafeExistingDirectory(
   if (own.isSymbolicLink() || !own.isDirectory())
     throw new Error(`${label}を安全なdirectoryとして解決できません。`);
   return { resolved, real: fs.realpathSync(resolved) };
+}
+
+/**
+ * 保存済みの managed Media が、読んでよい場所（新しい保存先か、前の版の保存先）の中にあるか（#810）。
+ * Theme の storage_root を新しい書き込みに使わなくなっても、前に保存した物は開けるようにする。
+ */
+function assertWithinManagedRoots(location: DirectoryResolution, candidate: string): void {
+  const directories = [
+    ...(location.kind === "ok" ? [location.directory] : []),
+    ...(location.legacyDirectories || []),
+  ];
+  for (const directory of directories) {
+    let managedRoot: { real: string };
+    try {
+      managedRoot = resolveSafeExistingDirectory(directory, "managed Media保存先");
+    } catch {
+      continue;
+    }
+    if (isWithin(path.resolve(managedRoot.real), path.resolve(candidate))) return;
+  }
+  throw new Error("managed Media fileが保存範囲の外です。");
 }
 
 function ensureThemeMarker(
@@ -2157,9 +2184,9 @@ export class MediaCaptureService {
         assertWithin(sessionDirectory, candidate, "音声temporary file");
       if (manifest.state !== "prepared" && manifest.storageMode !== "linked") {
         const location = this.options.resolveManagedDirectory(manifest.themeId);
-        if (location.kind === "needs_directory") return { availability: "missing" };
-        const managedRoot = resolveSafeExistingDirectory(location.directory, "managed Media保存先");
-        assertWithin(managedRoot.real, candidate, "managed Media file");
+        if (location.kind === "needs_directory" && !location.legacyDirectories?.length)
+          return { availability: "missing" };
+        assertWithinManagedRoots(location, candidate);
       }
       const expectedMime =
         manifest.mediaKind === "video"
@@ -2238,9 +2265,9 @@ export class MediaCaptureService {
         const location = this.options.resolveManagedDirectory(
           typeof artifact.theme_id === "string" ? artifact.theme_id : null,
         );
-        if (location.kind === "needs_directory") return { availability: "missing" };
-        const managedRoot = resolveSafeExistingDirectory(location.directory, "managed Media保存先");
-        assertWithin(managedRoot.real, filePath, "managed Media file");
+        if (location.kind === "needs_directory" && !location.legacyDirectories?.length)
+          return { availability: "missing" };
+        assertWithinManagedRoots(location, filePath);
       } catch {
         return { availability: "unsafe_source" };
       }
@@ -2669,15 +2696,20 @@ export class MediaCaptureService {
       return finalized;
     }
     const location = this.options.resolveManagedDirectory(manifest.themeId);
-    if (
-      location.kind === "needs_directory" ||
-      path.resolve(location.directory) !== path.resolve(manifest.managedRootPath!)
-    ) {
+    // session を作ったときの保存先で確定する。更新の前に始めた session は前の版の保存先
+    // （Theme の storage_root の下）を持っていることがあり、それも認める（#810）。
+    const sessionRoot =
+      location.kind === "ok"
+        ? [location.directory, ...(location.legacyDirectories || [])].find(
+            (directory) => path.resolve(directory) === path.resolve(manifest.managedRootPath!),
+          )
+        : undefined;
+    if (!sessionRoot) {
       throw new Error(
         "managed保存先がsession作成時から変更されています。原音を保持したまま復旧待ちにしました。",
       );
     }
-    const managedRoot = ensureSafeDirectory(location.directory, "managed Media保存先");
+    const managedRoot = ensureSafeDirectory(sessionRoot, "managed Media保存先");
     if (
       managedRoot.real !== manifest.managedRootRealPath ||
       managedRoot.device !== manifest.managedRootDevice ||

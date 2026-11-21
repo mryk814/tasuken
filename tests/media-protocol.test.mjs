@@ -318,3 +318,63 @@ test("external open hands shell a verified private snapshot when linked path is 
   assert.deepEqual(fs.readFileSync(state.openedPaths[0]), state.bytes);
   assert.equal(fs.readFileSync(state.linkedPath, "utf8"), "replacement-must-not-open");
 });
+
+test("前の版が Theme の storage_root の下に保存した managed Media も開ける（#810）", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-media-legacy-root-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const bytes = Buffer.from("legacy-managed-audio");
+  const legacyDirectory = path.join(root, "CustomerFolder", "Artifacts");
+  const newDirectory = path.join(root, "TaskenRoot", "Themes", "A", "Artifacts");
+  fs.mkdirSync(path.join(legacyDirectory, "2026", "10"), { recursive: true });
+  fs.mkdirSync(newDirectory, { recursive: true });
+  const storedPath = path.join(legacyDirectory, "2026", "10", "voice.wav");
+  fs.writeFileSync(storedPath, bytes);
+  const outside = path.join(root, "elsewhere.wav");
+  fs.writeFileSync(outside, bytes);
+  const artifactId = randomUUID();
+  const artifact = {
+    id: artifactId,
+    filename: "voice.wav",
+    mime_type: "audio/wav",
+    file_size: bytes.length,
+    content_hash: hash(bytes),
+    media_kind: "audio",
+    storage_mode: "managed",
+    stored_path: storedPath,
+    theme_id: "theme-a",
+  };
+  const make = (location) =>
+    new MediaCaptureService({
+      userDataPath: path.join(root, "user-data"),
+      repository: {
+        get: (type, id) => (type === "artifact" && id === artifactId ? artifact : null),
+      },
+      commands: {
+        executeMediaCapture: () => {
+          throw new Error("unused");
+        },
+      },
+      resolveManagedDirectory: () => location,
+    });
+
+  const withLegacy = make({
+    kind: "ok",
+    directory: newDirectory,
+    legacyDirectories: [legacyDirectory],
+  });
+  const available = withLegacy.resolveArtifactMedia(artifactId);
+  assert.equal(available.availability, "available");
+  fs.closeSync(available.fileDescriptor);
+  // ルートが未設定でも、前の保存先の物は開ける。
+  const noRoot = make({ kind: "needs_directory", legacyDirectories: [legacyDirectory] });
+  const availableWithoutRoot = noRoot.resolveArtifactMedia(artifactId);
+  assert.equal(availableWithoutRoot.availability, "available");
+  fs.closeSync(availableWithoutRoot.fileDescriptor);
+  // どちらの保存先の外にある物は、今までどおり開かない。
+  artifact.stored_path = outside;
+  assert.deepEqual(withLegacy.resolveArtifactMedia(artifactId), { availability: "unsafe_source" });
+  artifact.stored_path = storedPath;
+  assert.deepEqual(make({ kind: "ok", directory: newDirectory }).resolveArtifactMedia(artifactId), {
+    availability: "unsafe_source",
+  });
+});
