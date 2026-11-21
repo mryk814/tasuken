@@ -56,13 +56,22 @@ export function readTaskenRootMarker(root) {
   }
 }
 
-/** 一時ファイルに書いてから rename する。途中で落ちても壊れた目印を残さない。 */
-function writeMarkerAtomic(root, marker) {
+/**
+ * 一時ファイルに書いてから置く。途中で落ちても壊れた目印を残さない。
+ * replace=false のときは hard link で置き、確かめてから置くまでの間にクラウドの同期が
+ * 別の端末の目印を降ろしていても上書きしない（EEXIST で失敗する）。
+ */
+function writeMarkerAtomic(root, marker, { replace }) {
   const filePath = taskenRootMarkerPath(root);
   const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   try {
     fs.writeFileSync(temporaryPath, `${JSON.stringify(marker, null, 2)}\n`, "utf8");
-    fs.renameSync(temporaryPath, filePath);
+    if (replace) {
+      fs.renameSync(temporaryPath, filePath);
+    } else {
+      fs.linkSync(temporaryPath, filePath);
+      fs.rmSync(temporaryPath, { force: true });
+    }
   } catch (error) {
     fs.rmSync(temporaryPath, { force: true });
     throw error;
@@ -86,9 +95,13 @@ export function ensureTaskenRootMarker({ root, workspaceId, now = () => new Date
     writeMarkerAtomic(
       directory,
       buildTaskenRootMarker({ workspaceId, createdAt: now().toISOString() }),
+      { replace: false },
     );
     return { status: "written" };
   } catch (error) {
+    if (error && /** @type {NodeJS.ErrnoException} */ (error).code === "EEXIST") {
+      return { status: "present" };
+    }
     return { status: "failed", error: errorMessage(error) };
   }
 }
@@ -108,7 +121,11 @@ export function rewriteTaskenRootMarkerWorkspace({ root, fromWorkspaceId, toWork
     if (current.state !== "present" || current.marker.workspaceId !== fromWorkspaceId) {
       return { status: "unchanged" };
     }
-    writeMarkerAtomic(directory, { ...current.marker, workspaceId: toWorkspaceId });
+    writeMarkerAtomic(
+      directory,
+      { ...current.marker, workspaceId: toWorkspaceId },
+      { replace: true },
+    );
     return { status: "rewritten" };
   } catch (error) {
     return { status: "failed", error: errorMessage(error) };
@@ -172,7 +189,12 @@ export class TaskenRootService {
       toWorkspaceId,
     });
     if (result.status === "failed") {
+      // 書き換えに失敗すると目印は前の ID のまま残り、Settings には「別の Workspace」と出る。
+      // 本当の原因が分かるよう、書けなかった理由も Settings に出す。
+      this.lastWriteError = `参加後の書き換えに失敗しました: ${result.error || "理由不明"}`;
       this.log("warn", `Tasken ルートの目印を書き換えられませんでした: ${result.error}`);
+    } else if (result.status === "rewritten") {
+      this.lastWriteError = "";
     }
     return result;
   }

@@ -132,6 +132,13 @@ test("ルートが空で同期フォルダだけあれば、同期フォルダ�
   );
   assert.equal(taskenRootCandidate({ root: "C:\\Tasken", syncDirectory: "C:\\X\\Sync" }), null);
   assert.equal(taskenRootCandidate({ root: "", syncDirectory: "" }), null);
+  // ドライブの頭は候補にしない（ワンクリックでドライブ直下に Themes/ などを作らせない）。
+  assert.equal(taskenRootCandidate({ root: "", syncDirectory: "D:\\TaskenSync" }), null);
+  assert.equal(taskenRootCandidate({ root: "", syncDirectory: "/TaskenSync" }), null);
+  assert.equal(
+    taskenRootCandidate({ root: "", syncDirectory: "\\\\nas\\share\\Sync" }),
+    "\\\\nas\\share",
+  );
   assert.equal(parentDirectory("C:\\Sync"), "C:\\");
   assert.equal(parentDirectory("\\\\nas\\share\\Sync"), "\\\\nas\\share");
   assert.equal(parentDirectory("\\\\nas\\share"), "");

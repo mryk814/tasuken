@@ -240,11 +240,16 @@ export function listTaskenRootExceptions({
   return result;
 }
 
-/** ルートが空で同期フォルダだけある端末に出す候補（同期フォルダの親）。自動では決めない。 */
+/**
+ * ルートが空で同期フォルダだけある端末に出す候補（同期フォルダの親）。自動では決めない。
+ * 親がドライブの頭（C:\ や /）になるときは出さない。ワンクリックでドライブ直下に
+ * Themes/ や Inbox/ を作らせないため。共有の頭（\\nas\share）は NAS をルートにする意図がありうるので出す。
+ */
 export function taskenRootCandidate({ root = "", syncDirectory = "" } = {}) {
   if (text(root)) return null;
   const parent = parentDirectory(syncDirectory);
-  return parent || null;
+  if (!parent || /^[a-zA-Z]:[\\/]?$/.test(parent) || parent === "/") return null;
+  return parent;
 }
 
 /** 同期フォルダを選ぶダイアログの初期位置。ルートが無ければ null（OS の既定）。 */
