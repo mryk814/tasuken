@@ -24,6 +24,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -978,8 +980,14 @@ class MobileOutbox(
         return result
     }
 
-    suspend fun recoverInterruptedSending(): Int =
+    /**
+     * 前の送り手が送る途中で止まった命令を、送り直しの待ちに戻す。送り手の錠（[outboxDrainLock]）を取ってから
+     * 戻すので、同じプロセスで今まさに送っている命令は戻さない（送っている最中の命令を戻すと、同じ命令を
+     * 二度送り、先の受領が試した回数で合わず、送り手が止まる。#774 のレビュー）。
+     */
+    suspend fun recoverInterruptedSending(): Int = outboxDrainLock.withLock {
         dao.recoverInterruptedSending("送信の途中でアプリが止まりました。")
+    }
 
     private data class ReceiptExpectation(
         val taskId: String,
@@ -1114,7 +1122,10 @@ class MobileOutbox(
      * last reason and is retried on a later call. Several such failures in a row look like the Desktop
      * itself is in trouble, so the call stops there instead of trying every command against it.
      */
-    suspend fun send(serverId: String, sender: (String) -> MobileCommandSendResult): MobileOutboxDrainResult {
+    suspend fun send(serverId: String, sender: (String) -> MobileCommandSendResult): MobileOutboxDrainResult =
+        outboxDrainLock.withLock { sendLocked(serverId, sender) }
+
+    private suspend fun sendLocked(serverId: String, sender: (String) -> MobileCommandSendResult): MobileOutboxDrainResult {
         require(serverId.isNotBlank())
         val skipped = mutableSetOf<String>()
         var failuresInRow = 0
@@ -1551,6 +1562,14 @@ class MobileOutbox(
 
 }
 
+/**
+ * 送り手の錠。プロセスに 1 つ。送り手は画面の読み込み（loadToday）、一回きりの仕事、15 分ごとの仕事、
+ * 提案への答えの待ち明けの起こし（答えごと）から動き、それぞれが別の MobileOutbox を作るので、
+ * 錠は MobileOutbox の外に置く。二つの送り手が同時に命令を取り合わず、途中で止まった命令を戻す処理が
+ * 送っている最中の命令を戻さないようにする（WorkManager の仕事はアプリと同じプロセスで動く）。
+ */
+private val outboxDrainLock = Mutex()
+
 /** Retries in a row, within one drain, after which the Desktop is treated as unwell for this round. */
 internal const val MOBILE_OUTBOX_FAILURES_IN_ROW_LIMIT = 3
 
@@ -1573,13 +1592,15 @@ object MobileOutboxScheduler {
     /**
      * [delay] の後に送り手を起こす（提案への答えの取り消しの待ちが明けた時。#774）。答えごとに別の名前にするのは、
      * 同じ名前だと KEEP では後の答えの起こしが捨てられ、REPLACE では送っている最中の送り手を止めてしまうため。
-     * つながっていなければ、待ちが明けた後のつながった時に動く。
+     * つながっていなければ、待ちが明けた後のつながった時に動く。ほかの送り手と同時に起きても、送り手の錠
+     * （outboxDrainLock）で 1 つずつ送る。
      */
     fun enqueueAfter(context: Context, key: String, delay: Duration) {
         val request = OneTimeWorkRequestBuilder<MobileOutboxWorker>()
             .setInitialDelay(delay.plus(HeldWakeMargin))
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(10))
+            .addTag(HeldWakeTag)
             .build()
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             "$HeldWorkNamePrefix$key",
@@ -1588,7 +1609,13 @@ object MobileOutboxScheduler {
         )
     }
 
+    /** 取り消した答えの起こしを外す（起きても送る物が無いだけだが、同期の画面の「次は」に残さない）。 */
+    fun cancelAfter(context: Context, key: String) {
+        WorkManager.getInstance(context.applicationContext).cancelUniqueWork("$HeldWorkNamePrefix$key")
+    }
+
     private const val HeldWorkNamePrefix = "tasken-mobile-outbox-held-"
+    private const val HeldWakeTag = "tasken-mobile-outbox-held"
     /** 待ちの終わりちょうどに起きると、時計の差で答えがまだ待ちに見えることがあるので、少し遅らせる。 */
     private val HeldWakeMargin: Duration = Duration.ofMillis(500)
 
@@ -1602,7 +1629,9 @@ object MobileOutboxScheduler {
         combine(
             manager.getWorkInfosForUniqueWorkFlow(UniqueWorkName),
             manager.getWorkInfosForUniqueWorkFlow(PeriodicWorkName),
-        ) { outbox, periodic -> nextRunAt(outbox + periodic) }
+            // 提案への答えの待ち明けの起こし（答えごと）。
+            manager.getWorkInfosByTagFlow(HeldWakeTag),
+        ) { outbox, periodic, held -> nextRunAt(outbox + periodic + held) }
     }.getOrElse { flowOf(null) }
 
     internal fun nextRunAt(works: List<WorkInfo>): Long? = works

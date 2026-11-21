@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -441,6 +442,26 @@ class TodayViewModel(
     val decidedProposals: StateFlow<Map<String, String>> = mutableDecidedProposals.asStateFlow()
     /** 帯の「取り消す」で列から消した答え（commandId）。消した後に古い列の知らせが届いても、カードを戻したままにする。 */
     private val mutableUndoneDecisions = MutableStateFlow<Set<String>>(emptySet())
+    /** 列の答えを一度読んだ（読めずに終わった時も）。提案はこの後に出す。 */
+    private val proposalDecisionsLoaded = CompletableDeferred<Unit>()
+    private val decidedLock = Any()
+    private var decidedMemory = emptyMap<String, DecidedProposal>()
+
+    /**
+     * 外す提案を決め直す。列の答え・提案・取り消しのどれかが変わった時に、提案を画面に渡す前に呼ぶ
+     * （先に外す方を決めておけば、外すはずのカードが一瞬出ない）。
+     */
+    private fun recomputeDecidedProposals(proposals: List<MobileTaskWorkProposal> = mutableTaskWorkProposals.value) {
+        synchronized(decidedLock) {
+            decidedMemory = decidedProposals(
+                decidedMemory,
+                mutableProposalDecisions.value,
+                proposals.mapTo(HashSet()) { it.id },
+                mutableUndoneDecisions.value,
+            )
+            mutableDecidedProposals.value = decidedMemory.mapValues { it.value.decision }
+        }
+    }
     private val mutableDecisionBand = MutableStateFlow<HeldProposalDecision?>(null)
     /** 帯に出す答え（押してから 5 秒の間だけ「取り消す」を押せる）。 */
     val decisionBand: StateFlow<HeldProposalDecision?> = mutableDecisionBand.asStateFlow()
@@ -486,17 +507,22 @@ class TodayViewModel(
 
     init {
         (repository as? MobileGatewayRepository)?.let(::observeRoutineRecords)
-        (repository as? MobileGatewayRepository)?.let { gateway ->
+        val gatewayRepository = repository as? MobileGatewayRepository
+        if (gatewayRepository != null) {
             viewModelScope.launch(ioDispatcher) {
-                gateway.observeProposalDecisions().collect { mutableProposalDecisions.value = it }
+                try {
+                    gatewayRepository.observeProposalDecisions().collect {
+                        mutableProposalDecisions.value = it
+                        recomputeDecidedProposals()
+                        proposalDecisionsLoaded.complete(Unit)
+                    }
+                } finally {
+                    // 列を読めずに終わっても、提案を出さないままにはしない。
+                    proposalDecisionsLoaded.complete(Unit)
+                }
             }
-            viewModelScope.launch(ioDispatcher) {
-                var decided = emptyMap<String, DecidedProposal>()
-                combine(mutableProposalDecisions, mutableTaskWorkProposals, mutableUndoneDecisions) { decisions, proposals, undone ->
-                    decided = decidedProposals(decided, decisions, proposals.mapTo(HashSet()) { it.id }, undone)
-                    decided.mapValues { it.value.decision }
-                }.collect { mutableDecidedProposals.value = it }
-            }
+        } else {
+            proposalDecisionsLoaded.complete(Unit)
         }
         val offlineRepository = repository as? MobileOfflineTaskRepository
         if (offlineRepository != null) {
@@ -523,7 +549,11 @@ class TodayViewModel(
                 }
             }
             viewModelScope.launch(ioDispatcher) {
+                // 列の答えを一度読むまでは提案を出さない。先に出すと、待ちの間・送っている答えのカードが起動の
+                // 直後に一瞬出て、外れる動きをもう一度見せてしまう（#774）。外すかどうかも、提案を出す前に決める。
+                proposalDecisionsLoaded.await()
                 offlineRepository.observeCachedTaskWorkProposals().collect { proposals ->
+                    recomputeDecidedProposals(proposals)
                     mutableTaskWorkProposals.value = proposals.toList()
                 }
             }
@@ -911,6 +941,7 @@ class TodayViewModel(
         val undone = gateway.undoProposalDecision(held.commandId)
         if (undone) {
             mutableUndoneDecisions.update { it + held.commandId }
+            recomputeDecidedProposals()
         } else {
             mutableProposalReviewState.value = ProposalReviewUiState.Error(
                 held.proposalId,
