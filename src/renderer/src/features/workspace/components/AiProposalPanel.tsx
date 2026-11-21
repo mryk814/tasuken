@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { IconArchive, IconHistory, IconPencil, IconShieldCheck } from "@tabler/icons-react";
 
 import type { BaseRecord, PageProps, SaveOperation, Theme } from "../types";
@@ -27,6 +27,14 @@ import {
   buildRepositoryContextProposalOperations,
 } from "../../../../../shared/repositoryContextProposal.ts";
 import { ActionButton, Button } from "./common";
+import { decideAdopt, decideDismiss } from "../lib/decisionMotion";
+import {
+  holdProposalDecision,
+  setLeaving,
+  undoProposalDecision,
+  type DecisionKind,
+  type HeldProposalDecision,
+} from "../lib/proposalDecisions";
 import { MarkdownPreview } from "./MarkdownPreview";
 import {
   taskWorkEntry,
@@ -687,17 +695,8 @@ export function agentSessionAdoptionCommand(
 }
 
 export function ProposalDetail(props: ProposalDetailProps) {
-  const {
-    proposal,
-    data,
-    domain,
-    themes,
-    items,
-    saveEntities,
-    executeCommand,
-    setToast,
-    onDecided,
-  } = props;
+  const { proposal, data, domain, themes, items, saveEntities, setToast, onDecided } = props;
+  const rootRef = useRef<HTMLDivElement>(null);
   const [quarantineReason, setQuarantineReason] = useState("");
   /** 同じ作業の過去報告を見ている間だけ対象を差し替える。採否はこの1件へ効く。 */
   const [overrideId, setOverrideId] = useState("");
@@ -739,21 +738,71 @@ export function ProposalDetail(props: ProposalDetailProps) {
     onDecided?.(proposalId);
   }
 
-  async function rejectProposal() {
-    if (str(active.payload_type) === "task_work") {
-      await executeCommand({
-        commandId: `${active.id}:reject`,
-        name: "ApplyTaskWorkProposal",
-        payload: { proposalId: active.id, decision: "reject" },
-        actor: { kind: "user" },
-        source: "main_ui",
-        expectedVersions: [
-          { type: "ai_proposal", id: active.id, version: Number(active.version || 0) },
-        ],
-        issuedAt: new Date().toISOString(),
-      } as CommandEnvelope);
-      setToast("Work proposalを見送りました。", "success");
+  /**
+   * 押した決定を端末に 5 秒持ち、帯から取り消せるようにする（#774）。Core へは 5 秒後に届く。
+   * 採るはカードに判が降り、見送るはカードが右へ流れる。動き終わったら一覧から外す。
+   * 送って断られた時は、カードが戻って理由が出る（lib/proposalDecisions.ts）。
+   */
+  function holdDecision(
+    kind: DecisionKind,
+    decision: {
+      message: string;
+      failure: string;
+      commands: CommandEnvelope[];
+      completeTask?: HeldProposalDecision["completeTask"];
+    },
+  ) {
+    const root = rootRef.current;
+    // 一覧の 1 件（Feed の投稿）ごと外す。過去の報告を見ている時は、その報告の面だけを動かす。
+    const post =
+      active.id === proposal.id ? root?.closest<HTMLElement>(".feed-attention-post") : null;
+    const host = post ?? root;
+    const targets =
+      kind === "adopt" && root
+        ? [...root.querySelectorAll<HTMLElement>(".import-candidate:not(.is-skipped)")]
+        : [];
+    const held = holdProposalDecision({
+      proposalId: active.id,
+      kind,
+      failure: decision.failure,
+      commands: decision.commands,
+      ...(decision.completeTask ? { completeTask: decision.completeTask } : {}),
+    });
+    if (!held) return;
+    setToast(
+      decision.message,
+      "info",
+      { label: "取り消す", run: () => void undoProposalDecision(held.id) },
+      kind,
+    );
+    const gone =
+      kind === "adopt" ? decideAdopt(host, targets, held.signal) : decideDismiss(host, held.signal);
+    void gone.then(() => {
+      if (held.signal.cancelled) return;
+      setLeaving(active.id, false);
       afterDecision(active.id);
+    });
+  }
+
+  function rejectProposal() {
+    if (str(active.payload_type) === "task_work") {
+      holdDecision("dismiss", {
+        message: "作業報告を見送りました。",
+        failure: "作業報告を見送れませんでした。",
+        commands: [
+          {
+            commandId: `${active.id}:reject`,
+            name: "ApplyTaskWorkProposal",
+            payload: { proposalId: active.id, decision: "reject" },
+            actor: { kind: "user" },
+            source: "main_ui",
+            expectedVersions: [
+              { type: "ai_proposal", id: active.id, version: Number(active.version || 0) },
+            ],
+            issuedAt: new Date().toISOString(),
+          } as CommandEnvelope,
+        ],
+      });
       return;
     }
     try {
@@ -764,28 +813,32 @@ export function ProposalDetail(props: ProposalDetailProps) {
       const decisions = isContentProposal
         ? buildContentProposalDecisions(rejectedPreview, true)
         : undefined;
-      await executeCommand({
-        commandId: `${active.id}:accept:v${Number(active.version || 0)}`,
-        name: "ApplyAiProposal",
-        payload: {
-          proposal: { ...active, status: "rejected" },
-          ...(isContentProposal ? { decision: "reject" as const, decisions } : {}),
-          candidates: [],
-        },
-        actor: { kind: "user" },
-        source: "main_ui",
-        expectedVersions: [
-          { type: "ai_proposal", id: active.id, version: Number(active.version || 0) },
+      holdDecision("dismiss", {
+        message: "提案を見送りました。",
+        failure: "提案を見送れませんでした。",
+        commands: [
+          {
+            commandId: `${active.id}:accept:v${Number(active.version || 0)}`,
+            name: "ApplyAiProposal",
+            payload: {
+              proposal: { ...active, status: "rejected" },
+              ...(isContentProposal ? { decision: "reject" as const, decisions } : {}),
+              candidates: [],
+            },
+            actor: { kind: "user" },
+            source: "main_ui",
+            expectedVersions: [
+              { type: "ai_proposal", id: active.id, version: Number(active.version || 0) },
+            ],
+            issuedAt:
+              str(active.received_at || active.created_at || active.updated_at) ||
+              new Date(0).toISOString(),
+          } as CommandEnvelope,
         ],
-        issuedAt:
-          str(active.received_at || active.created_at || active.updated_at) ||
-          new Date(0).toISOString(),
-      } as CommandEnvelope);
-      setToast("Proposalを見送りました。", "success");
-      afterDecision(active.id);
+      });
     } catch (error) {
       setToast(
-        `Proposalを見送れませんでした。${error instanceof Error ? error.message : String(error)}`,
+        `提案を見送れませんでした。${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
@@ -810,19 +863,18 @@ export function ProposalDetail(props: ProposalDetailProps) {
     afterDecision(active.id);
   }
 
-  async function acceptProposal(options: { completeTask?: boolean } = {}) {
+  /** 採る。中身の確かめ（版・確認事項）は押した時に済ませ、通らなければ持たずに理由を出す。 */
+  function acceptProposal(options: { completeTask?: boolean } = {}) {
     if (!preview) return;
     if (active.payload_type === "agent_sessions") {
       try {
         const command = agentSessionAdoptionCommand(active, { data, themes, items }, preview);
-        await executeCommand(command);
-        setToast(
-          preview.candidates.some((candidate) => candidate.action !== "ignore")
-            ? "記録を採りました。"
-            : "記録を見送りました。",
-          "success",
-        );
-        afterDecision(active.id);
+        const adopted = preview.candidates.some((candidate) => candidate.action !== "ignore");
+        holdDecision(adopted ? "adopt" : "dismiss", {
+          message: adopted ? "記録を採りました。" : "記録を見送りました。",
+          failure: "記録を採れませんでした。",
+          commands: [command],
+        });
       } catch (error) {
         setToast(
           `記録を採れませんでした。${error instanceof Error ? error.message : String(error)}`,
@@ -834,7 +886,7 @@ export function ProposalDetail(props: ProposalDetailProps) {
       try {
         const candidate = preview.candidates.find((entry) => entry.action !== "ignore");
         if (!candidate) {
-          await rejectProposal();
+          rejectProposal();
           return;
         }
         if (preview.candidates.filter((entry) => entry.action !== "ignore").length !== 1)
@@ -857,59 +909,58 @@ export function ProposalDetail(props: ProposalDetailProps) {
           (requiresExactTaskVersion && proposalExpectedVersion !== currentVersion)
         )
           throw new Error(taskWorkStaleGuidance(proposalExpectedVersion, currentVersion));
-        const expectedVersions = [{ type: taskEntityType, id: task.id, version: currentVersion }];
-        const acceptReceipt = await executeCommand({
-          commandId: `${active.id}:accept`,
-          name: "ApplyTaskWorkProposal",
-          payload: {
-            proposalId: active.id,
-            decision: "accept",
-            coveredProposalIds: coveredReports.map((report) => report.id),
-          },
-          actor: { kind: "user" },
-          source: "main_ui",
-          expectedVersions: [
-            ...expectedVersions,
-            ...coveredReports.map((report) => ({
-              type: "ai_proposal" as const,
-              id: report.id,
-              version: Number(report.version || 0),
-            })),
-            { type: "ai_proposal", id: active.id, version: Number(active.version || 0) },
+        if (
+          options.completeTask &&
+          ["done", "cancelled"].includes(str((task as unknown as BaseRecord).state))
+        )
+          throw new Error("対象Taskは既に完了またはキャンセルされています。");
+        const issuedAt = new Date().toISOString();
+        holdDecision("adopt", {
+          message: options.completeTask
+            ? "作業報告を採り、Taskを完了しました。"
+            : "作業報告を採りました。",
+          failure: "Work proposalを採れませんでした。",
+          commands: [
+            {
+              commandId: `${active.id}:accept`,
+              name: "ApplyTaskWorkProposal",
+              payload: {
+                proposalId: active.id,
+                decision: "accept",
+                coveredProposalIds: coveredReports.map((report) => report.id),
+              },
+              actor: { kind: "user" },
+              source: "main_ui",
+              expectedVersions: [
+                { type: taskEntityType, id: task.id, version: currentVersion },
+                ...coveredReports.map((report) => ({
+                  type: "ai_proposal" as const,
+                  id: report.id,
+                  version: Number(report.version || 0),
+                })),
+                { type: "ai_proposal", id: active.id, version: Number(active.version || 0) },
+              ],
+              issuedAt,
+            } as CommandEnvelope,
           ],
-          issuedAt: new Date().toISOString(),
-        } as CommandEnvelope);
-        if (options.completeTask) {
-          const completed = acceptReceipt.saved.find(
-            (entry) => entry.type === taskEntityType && entry.id === task.id,
-          );
-          const completedVersion = completed
-            ? Number(completed.version || 0)
-            : Number(
-                acceptReceipt.changes.find(
-                  (entry) => entry.type === taskEntityType && entry.entity.id === task.id,
-                )?.entity.version || currentVersion,
-              );
-          const latestTask = domain.tasks.find((entry) => entry.id === task.id);
-          if (
-            !latestTask ||
-            ["done", "cancelled"].includes(str((latestTask as unknown as BaseRecord).state))
-          )
-            throw new Error("対象Taskは既に完了またはキャンセルされています。");
-          await executeCommand({
-            commandId: `${active.id}:accept:complete`,
-            name: "AcceptTaskWork",
-            payload: { taskId: task.id, receiptId: active.id, completeTask: true },
-            actor: { kind: "user" },
-            source: "main_ui",
-            expectedVersions: [{ type: taskEntityType, id: task.id, version: completedVersion }],
-            issuedAt: new Date().toISOString(),
-          } as CommandEnvelope);
-          setToast("作業報告を採り、Taskを完了しました。", "success");
-        } else {
-          setToast("作業報告を採りました。", "success");
-        }
-        afterDecision(active.id);
+          // 完了の版は採った答えから決める（送る時に埋める）。
+          ...(options.completeTask
+            ? {
+                completeTask: {
+                  taskId: task.id,
+                  command: {
+                    commandId: `${active.id}:accept:complete`,
+                    name: "AcceptTaskWork",
+                    payload: { taskId: task.id, receiptId: active.id, completeTask: true },
+                    actor: { kind: "user" },
+                    source: "main_ui",
+                    expectedVersions: [],
+                    issuedAt,
+                  } as CommandEnvelope,
+                },
+              }
+            : {}),
+        });
       } catch (error) {
         setToast(
           `Work proposalを採れませんでした。${error instanceof Error ? error.message : String(error)}`,
@@ -994,33 +1045,35 @@ export function ProposalDetail(props: ProposalDetailProps) {
         type: operation.type,
         entity: operation.entity,
       }));
-      await executeCommand({
-        commandId: `${active.id}:accept:v${Number(active.version || 0)}`,
-        name: "ApplyAiProposal",
-        payload: {
-          proposal: { ...active, status },
-          ...(isContentProposal ? { decision: contentDecision, decisions } : {}),
-          candidates,
-        },
-        actor: { kind: "user" },
-        source: "main_ui",
-        expectedVersions: [
-          { type: "ai_proposal", id: active.id, version: Number(active.version || 0) },
-          ...candidates.flatMap(({ type, entity }) =>
-            Number.isInteger(entity.version)
-              ? [{ type, id: entity.id, version: Number(entity.version) }]
-              : [],
-          ),
+      holdDecision(status === "rejected" ? "dismiss" : "adopt", {
+        message: status === "rejected" ? "提案を見送りました。" : "提案を採りました。",
+        failure:
+          status === "rejected" ? "提案を見送れませんでした。" : "Proposalを採れませんでした。",
+        commands: [
+          {
+            commandId: `${active.id}:accept:v${Number(active.version || 0)}`,
+            name: "ApplyAiProposal",
+            payload: {
+              proposal: { ...active, status },
+              ...(isContentProposal ? { decision: contentDecision, decisions } : {}),
+              candidates,
+            },
+            actor: { kind: "user" },
+            source: "main_ui",
+            expectedVersions: [
+              { type: "ai_proposal", id: active.id, version: Number(active.version || 0) },
+              ...candidates.flatMap(({ type, entity }) =>
+                Number.isInteger(entity.version)
+                  ? [{ type, id: entity.id, version: Number(entity.version) }]
+                  : [],
+              ),
+            ],
+            issuedAt:
+              str(active.received_at || active.created_at || active.updated_at) ||
+              new Date(0).toISOString(),
+          } as CommandEnvelope,
         ],
-        issuedAt:
-          str(active.received_at || active.created_at || active.updated_at) ||
-          new Date(0).toISOString(),
-      } as CommandEnvelope);
-      setToast(
-        status === "rejected" ? "Proposalを見送りました。" : "Proposalを採りました。",
-        "success",
-      );
-      afterDecision(active.id);
+      });
     } catch (error) {
       setToast(
         `Proposalを採れませんでした。${error instanceof Error ? error.message : String(error)}`,
@@ -1042,7 +1095,7 @@ export function ProposalDetail(props: ProposalDetailProps) {
   }
 
   return (
-    <div className="proposal-inline-preview" key={active.id}>
+    <div className="proposal-inline-preview" key={active.id} ref={rootRef}>
       <div className="section-heading">
         <h3>{activeWork ? "作業報告を確認" : "内容を確認"}</h3>
         <span>

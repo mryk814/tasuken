@@ -8536,6 +8536,91 @@ textarea:hover {
   border-color: var(--toast-bd);
   background: color-mix(in srgb, var(--toast-bg) 74%, var(--color-surface));
 }
+/* 提案を決めた帯（#774）: 押した印（採った＝判、見送った＝灰の横棒）と、5 秒で尽きる線。 */
+.toast.is-decision {
+  --toast-accent: var(--color-text);
+  padding-bottom: calc(var(--space-3) + 4px);
+}
+.toast > .toast-mark {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  margin-inline: 3px;
+  color: var(--toast-fg);
+  font-size: 14px;
+  font-weight: var(--weight-bold);
+  line-height: 1;
+}
+.toast-mark-adopt {
+  border: 2px solid currentColor;
+  border-radius: 6px;
+  transform: rotate(-13deg);
+}
+.toast > .toast-mark-dismiss {
+  height: 0;
+  align-self: center;
+  border-top: 3px solid var(--color-text-tertiary);
+  border-radius: 2px;
+}
+.toast-line {
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  bottom: 5px;
+  height: 2px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--toast-fg) 45%, transparent);
+  transform-origin: left;
+  animation-name: toast-line;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+@keyframes toast-line {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast-line {
+    animation: none;
+  }
+}
+/*
+ * 採った人の判（#774）。傾けた角丸四角の輪郭にチェック、色は文字の色（えんじと赤は別の意味を持つ）。
+ * 置くのと動かすのは lib/decisionMotion.ts。低いカードでは上下の中ほどに置く。
+ */
+[data-decision-seal-host] {
+  position: relative;
+}
+.decision-seal {
+  position: absolute;
+  z-index: 1;
+  top: min(10px, calc(50% - 22px));
+  right: 12px;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  border: 3px solid var(--color-text);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-surface) 85%, transparent);
+  color: var(--color-text);
+  transform: rotate(-13deg);
+}
+.decision-seal svg {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .empty-state {
   min-height: 100px;
   display: grid;
