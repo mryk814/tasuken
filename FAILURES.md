@@ -2,6 +2,14 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-22 画面の文を変えて試験を通してから commit したら、文の照合の試験が落ちた（#810）
+
+- しようとしたこと: 日誌の欄（ActivityLogPanel.tsx）の説明の文を変え、today-ia の文の照合を新しい文に書き換えて、試験を通してから commit した。
+- 起きたこと: commit の後に流し直すと today-ia が `did not match /Tasken ルートの Activity に日誌を出力します/` で落ちた。
+- 原因: commit の lint-staged の prettier が、JSX の長い文を「Tasken ルートの Activity」の後で折り返した。commit の前に流した試験は、折り返す前のファイルを読んでいた。
+- 直し方: 照合を `/Tasken ルートの Activity\s+に日誌を出力します/` にした。
+- 再発防止: 記録だけ（照合の試験は commit の後に流し直せば機械的に見つかる）。画面の文を照合する試験を変えたときは、commit の後にもう一度流す。照合は語の切れ目に `\s+` を許す形にしておく。
+
 ## 2026-11-21 部品から CSS を読んだら、common.tsx を esbuild で束ねる試験が何本も落ちた
 
 - しようとしたこと: #776 のアマガエルの部品（`components/Kaeru.tsx`）で、自分の見た目の `Kaeru.css` を `import` し、`EmptyState`（`components/common.tsx`）から部品を使った。
