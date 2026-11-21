@@ -34,7 +34,6 @@ class CaptureThemePickerUiTest {
                 CaptureTaskSheet(
                     draft = baseDraft.copy(projectId = selectedThemeId.value),
                     state = CaptureUiState.Idle,
-                    speechState = ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.OnDevice),
                     themes = themes,
                     themeCatalogState = MobileThemeCatalogState.Available(
                         themes = themes,
@@ -46,8 +45,6 @@ class CaptureThemePickerUiTest {
                     onThemeSelected = { selectedThemeId.value = it },
                     onKindSelected = {},
                     onSubmit = {},
-                    onStartVoice = {},
-                    onStopVoice = {},
                     onDismiss = {},
                 )
             }
@@ -149,7 +146,6 @@ class CaptureThemePickerUiTest {
                 CaptureTaskSheet(
                     draft = MobileCaptureDraft.fresh(text = "連続入力"),
                     state = CaptureUiState.Idle,
-                    speechState = ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.OnDevice),
                     themes = emptyList(),
                     themeCatalogState = MobileThemeCatalogState.Available(
                         themes = emptyList(),
@@ -161,8 +157,6 @@ class CaptureThemePickerUiTest {
                     onThemeSelected = {},
                     onKindSelected = {},
                     onSubmit = { submitted += it },
-                    onStartVoice = {},
-                    onStopVoice = {},
                     onDismiss = {},
                 )
             }
@@ -186,7 +180,6 @@ class CaptureThemePickerUiTest {
                 CaptureTaskSheet(
                     draft = MobileCaptureDraft.fresh(text = "下端操作を守る"),
                     state = CaptureUiState.Idle,
-                    speechState = ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.OnDevice),
                     themes = emptyList(),
                     themeCatalogState = MobileThemeCatalogState.Available(
                         themes = emptyList(),
@@ -198,8 +191,6 @@ class CaptureThemePickerUiTest {
                     onThemeSelected = {},
                     onKindSelected = {},
                     onSubmit = {},
-                    onStartVoice = {},
-                    onStopVoice = {},
                     onDismiss = {},
                     bottomContentInsets = WindowInsets(bottom = 96.dp),
                 )
@@ -228,7 +219,6 @@ class CaptureThemePickerUiTest {
                 CaptureTaskSheet(
                     draft = draft.value,
                     state = CaptureUiState.Idle,
-                    speechState = ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.OnDevice),
                     themes = emptyList(),
                     themeCatalogState = MobileThemeCatalogState.Available(
                         themes = emptyList(),
@@ -240,8 +230,6 @@ class CaptureThemePickerUiTest {
                     onThemeSelected = {},
                     onKindSelected = { draft.value = draft.value.withKind(it) },
                     onSubmit = { submitted = draft.value },
-                    onStartVoice = {},
-                    onStopVoice = {},
                     onDismiss = {},
                 )
             }

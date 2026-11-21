@@ -280,7 +280,6 @@
         </select>
       </label>
       <textarea id="input" aria-label="タスク・メモの入力" placeholder="タスク・メモ・アイデア" autofocus></textarea>
-      <p id="voice-help" class="input-help" hidden>この入力欄で <kbd>Win + H</kbd> を押すとWindowsの音声入力を使えます。</p>
       <span id="due-preview" class="due-preview" role="status" aria-live="polite"></span>
       <div id="range-choice" class="range-choice" hidden aria-label="日付範囲の意味"></div>
       <section id="attachments" class="attachments" hidden aria-label="成果物">
@@ -323,7 +322,6 @@
       const themeRow = document.getElementById("theme-row");
       const themeSelect = document.getElementById("theme-select");
       const hint = document.getElementById("hint");
-      const voiceHelp = document.getElementById("voice-help");
       const externalInput = document.getElementById("external-input");
       const externalResult = document.getElementById("external-result");
       const externalCopy = document.getElementById("external-copy");
@@ -378,7 +376,6 @@
         }
         submitButton.disabled = saving || Boolean(organization && count === 0);
         externalInput.hidden = mode !== "today-task" || Boolean(organization);
-        voiceHelp.hidden = mode !== "today-task" || Boolean(organization) || window.captureApi.platform !== "win32";
         externalCopy.disabled = locked;
         externalPreview.disabled = locked;
         focusButton.hidden = mode !== "today-task" || Boolean(organization);
@@ -542,7 +539,6 @@
         attachmentsSection.hidden = !isDoneTask;
         if (!isDoneTask) setAttachments([]);
         externalInput.hidden = !isTodayTask || organization !== null;
-        voiceHelp.hidden = !isTodayTask || organization !== null || window.captureApi.platform !== "win32";
       }
 
       function attachmentKey(item) {

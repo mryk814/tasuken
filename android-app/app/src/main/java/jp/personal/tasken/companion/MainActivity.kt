@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.os.Bundle
 import java.time.Instant
 import java.time.LocalDate
@@ -41,7 +40,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -311,7 +309,6 @@ internal fun TodayApp(
             aiLastSeen = aiSeenStore.lastSeenAt()
         }
     }
-    val speechRecognizer = remember(context) { AndroidShortSpeechRecognizer(context.applicationContext) }
     val photoStore = remember(context) { MobileCapturePhotoStore(context.applicationContext) }
     var pendingPhotoName by remember { mutableStateOf<String?>(null) }
     val takePictureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
@@ -325,71 +322,10 @@ internal fun TodayApp(
             photoStore.deletePhotos(listOf(fileName))
         }
     }
-    var speechState by remember(speechRecognizer) {
-        mutableStateOf<ShortSpeechUiState>(ShortSpeechUiState.Idle(speechRecognizer.availableMode()))
-    }
-    var speechRequestDraftId by remember { mutableStateOf<String?>(null) }
-    var speechAppendRequested by remember { mutableStateOf(false) }
-    val startSpeechRecognition = {
-        val draftId = speechRequestDraftId
-        val append = speechAppendRequested
-        if (paneState.captureOpen && draftId == paneState.captureDraft.draftId) {
-            val capturedAt = Instant.now().toString()
-            val timeZone = java.time.ZoneId.systemDefault().id
-            speechRecognizer.start(Locale.getDefault().toLanguageTag()) { nextState ->
-                if (paneState.captureOpen && draftId == paneState.captureDraft.draftId) {
-                    speechState = nextState
-                    if (nextState is ShortSpeechUiState.Result) {
-                        paneState.captureDraft = paneState.captureDraft.withSpeechResult(nextState.result, append, capturedAt, timeZone)
-                    }
-                }
-            }
-        }
-    }
-    val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) {
-            startSpeechRecognition()
-        } else {
-            speechState = ShortSpeechUiState.Error("マイク権限がありません。手入力はそのまま使えます。")
-        }
-    }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         notificationsEnabled = TaskenNotifications.canPost(context)
         notificationPermissionDenied = !granted
     }
-    val requestSpeechRecognition: (Boolean) -> Unit = { append ->
-        speechRequestDraftId = paneState.captureDraft.draftId
-        speechAppendRequested = append
-        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            startSpeechRecognition()
-        } else {
-            microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
-        }
-    }
-    // Feedへの返信を話して書く。認識した文字は下書きへ足すだけで、送信は本人が押す。
-    var replySpeechState by remember(speechRecognizer) {
-        mutableStateOf<ShortSpeechUiState>(ShortSpeechUiState.Idle(speechRecognizer.availableMode()))
-    }
-    val replyMicrophonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (!granted) replySpeechState = ShortSpeechUiState.Error("マイク権限がありません。文字で返信できます。")
-    }
-    val replyDictation = ReplyDictation(
-        state = replySpeechState,
-        start = { deliver ->
-            if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-                speechRecognizer.start(Locale.getDefault().toLanguageTag()) { next ->
-                    replySpeechState = next
-                    if (next is ShortSpeechUiState.Result) {
-                        deliver(next.result.text)
-                        replySpeechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
-                    }
-                }
-            } else {
-                replyMicrophonePermission.launch(Manifest.permission.RECORD_AUDIO)
-            }
-        },
-        stop = speechRecognizer::stop,
-    )
     val adaptiveInfo = currentWindowAdaptiveInfo()
     val windowWidthDp = LocalConfiguration.current.screenWidthDp.dp
     val scaffoldDirective = taskenPaneScaffoldDirective(
@@ -414,10 +350,6 @@ internal fun TodayApp(
     val keyboardController = LocalSoftwareKeyboardController.current
     var handledEntryToken by rememberSaveable { mutableLongStateOf(0L) }
     var draftPersistenceFailed by rememberSaveable { mutableStateOf(false) }
-
-    DisposableEffect(speechRecognizer) {
-        onDispose { speechRecognizer.destroy() }
-    }
 
     // 反応・返信が受け付けられなかったときだけ知らせる（保存できたときは画面に出るので黙る）。
     LaunchedEffect(todayViewModel) {
@@ -521,10 +453,8 @@ internal fun TodayApp(
                 paneState.openCapture(
                     source = entryRequest.source.toCaptureSource(),
                     initialText = entryRequest.draft,
-                    requestVoice = entryRequest.startVoice,
                     sharedMimeType = entryRequest.sharedMimeType,
                 )
-                speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
                 handledEntryToken = entryRequest.token
             }
             is MobileEntryRequest.Task -> {
@@ -554,12 +484,6 @@ internal fun TodayApp(
             navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, taskId)
         }
     }
-    LaunchedEffect(paneState.captureOpen, paneState.captureVoiceStartRequested) {
-        if (paneState.captureOpen && paneState.captureVoiceStartRequested) {
-            paneState.consumeVoiceStartRequest()
-            requestSpeechRecognition(true)
-        }
-    }
     LaunchedEffect(captureState) {
         if (captureState is CaptureUiState.Queued) {
             val queued = captureState as CaptureUiState.Queued
@@ -570,8 +494,6 @@ internal fun TodayApp(
             val undoTargetSaved = withContext(Dispatchers.IO) {
                 captureDraftStore.saveUndoTarget(undoTarget)
             }
-            speechRecognizer.cancel()
-            speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
             if (queued.completionBehavior == CaptureCompletionBehavior.Continue) {
                 paneState.continueCapture()
             } else {
@@ -666,11 +588,6 @@ internal fun TodayApp(
             requestInputFocus = true,
             replaceDraft = false,
         )
-        speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
-    }
-    val openVoiceCompose: () -> Unit = {
-        paneState.openVoiceCapture()
-        speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
     }
     val sectionBadge: @Composable (AppSection) -> Unit = { section ->
         // まだ見ていないAIの動きがある時だけ、点で知らせる。
@@ -746,7 +663,7 @@ internal fun TodayApp(
                 active = paneState.activeSection,
                 onSelect = selectSection,
                 badge = sectionBadge,
-                header = { ComposeFab(onWrite = openCompose, onSpeak = openVoiceCompose, modifier = Modifier.padding(vertical = 8.dp), vertical = true) },
+                header = { ComposeFab(onWrite = openCompose, modifier = Modifier.padding(vertical = 8.dp)) },
             )
         }
         Box(Modifier.weight(1f).fillMaxHeight()) {
@@ -823,7 +740,6 @@ internal fun TodayApp(
                                 refreshing = refreshing,
                                 onRefresh = todayViewModel::load,
                                 seenBefore = aiSeenBefore,
-                                replyDictation = replyDictation,
                             )
                             AppSection.Records -> RecordsListPane(
                                 repository = todayViewModel.recallRepository,
@@ -841,7 +757,7 @@ internal fun TodayApp(
                             ) + androidx.compose.animation.fadeIn(),
                             exit = androidx.compose.animation.scaleOut() + androidx.compose.animation.fadeOut(),
                         ) {
-                            ComposeFab(onWrite = openCompose, onSpeak = openVoiceCompose)
+                            ComposeFab(onWrite = openCompose)
                         }
                     }
                 }
@@ -1053,7 +969,6 @@ internal fun TodayApp(
             savedEventKey = captureSavedKey,
             draft = paneState.captureDraft,
             state = captureState,
-            speechState = speechState,
             themes = themes,
             themeCatalogState = themeCatalogState,
             onDraftChanged = { paneState.captureDraft = paneState.captureDraft.withText(it) },
@@ -1088,8 +1003,6 @@ internal fun TodayApp(
             onSwitchToWorkLog = if (todayViewModel.workLogRepository != null) {
                 {
                     if (captureState !is CaptureUiState.Saving) {
-                        speechRecognizer.cancel()
-                        speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
                         paneState.captureOpen = false
                         todayViewModel.resetCaptureState()
                         workLogTaskId = null
@@ -1100,12 +1013,8 @@ internal fun TodayApp(
             } else {
                 null
             },
-            onStartVoice = { requestSpeechRecognition(false) },
-            onStopVoice = speechRecognizer::stop,
             onDismiss = {
                 if (captureState !is CaptureUiState.Saving) {
-                    speechRecognizer.cancel()
-                    speechState = ShortSpeechUiState.Idle(speechRecognizer.availableMode())
                     paneState.captureOpen = false
                     todayViewModel.resetCaptureState()
                 }
@@ -1119,7 +1028,6 @@ internal fun TodayApp(
 internal fun CaptureTaskSheet(
     draft: MobileCaptureDraft,
     state: CaptureUiState,
-    speechState: ShortSpeechUiState,
     themes: List<MobileTheme>,
     themeCatalogState: MobileThemeCatalogState,
     onDraftChanged: (String) -> Unit,
@@ -1131,8 +1039,6 @@ internal fun CaptureTaskSheet(
     onTakePhoto: () -> Unit = {},
     onRemovePhoto: (String) -> Unit = {},
     loadPhotoThumbnail: (String) -> androidx.compose.ui.graphics.ImageBitmap? = { null },
-    onStartVoice: () -> Unit,
-    onStopVoice: () -> Unit,
     onDismiss: () -> Unit,
     /** 端末への保存が済んだ合図。続けて追加する時も、保存できたことを見せる。 */
     savedEventKey: Any? = null,
@@ -1166,12 +1072,9 @@ internal fun CaptureTaskSheet(
         },
     ) {
         val keyboardController = LocalSoftwareKeyboardController.current
-        val speechBusy = speechState is ShortSpeechUiState.Listening ||
-            speechState is ShortSpeechUiState.Partial || speechState is ShortSpeechUiState.Processing
-        val speechActive = speechState !is ShortSpeechUiState.Idle
         val overLimit = draft.text.length > MOBILE_CAPTURE_TEXT_MAX_LENGTH
         val taskOverLimit = draft.text.length > MOBILE_TASK_TITLE_MAX_LENGTH
-        val canSubmit = state !is CaptureUiState.Saving && !speechBusy && draft.text.isNotBlank() && !overLimit
+        val canSubmit = state !is CaptureUiState.Saving && draft.text.isNotBlank() && !overLimit
         val sheetWindow = LocalWindowInfo.current
         LaunchedEffect(draft.draftId, requestInputFocus) {
             if (!requestInputFocus) return@LaunchedEffect
@@ -1182,7 +1085,7 @@ internal fun CaptureTaskSheet(
             keyboardController?.show()
             onInputFocusHandled()
         }
-        val sheetEnabled = state !is CaptureUiState.Saving && !speechBusy
+        val sheetEnabled = state !is CaptureUiState.Saving
         val body: @Composable () -> Unit = {
             // 何を残すかを最初に選ぶ。Task・メモ・やったことの入口をこのシートへまとめる。
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1262,26 +1165,10 @@ internal fun CaptureTaskSheet(
                 enabled = sheetEnabled,
                 onThemeSelected = { themeId ->
                     onThemeSelected(themeId)
-                    if (draft.source != MobileCaptureSource.AndroidSpeech) {
-                        focusRequester.requestFocus()
-                        keyboardController?.show()
-                    }
+                    focusRequester.requestFocus()
+                    keyboardController?.show()
                 },
             )
-            if (speechActive) {
-                val speechStatusScroll = rememberScrollState()
-                LaunchedEffect(speechState, speechStatusScroll.maxValue) {
-                    speechStatusScroll.scrollTo(speechStatusScroll.maxValue)
-                }
-                Text(
-                    speechStatusText(speechState),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (speechState is ShortSpeechUiState.Error) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth().height(120.dp)
-                        .testTag("capture-speech-status").verticalScroll(speechStatusScroll),
-                )
-            }
             CapturePhotoStrip(
                 photos = draft.photos,
                 enabled = sheetEnabled,
@@ -1290,70 +1177,37 @@ internal fun CaptureTaskSheet(
             )
         }
         // キーボードのすぐ上に固定する道具と確定。親指の届く1段に集める。
-        val voiceListening = speechState is ShortSpeechUiState.Listening || speechState is ShortSpeechUiState.Partial
         val submitRow: @Composable () -> Unit = {
             Row(
                 modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("capture-submit-row"),
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (!voiceListening) {
-                    VoiceToolButton(
-                        speechState = speechState,
-                        hasText = draft.text.isNotBlank(),
-                        enabled = state !is CaptureUiState.Saving && speechState !is ShortSpeechUiState.Processing,
-                        onClick = {
-                            keyboardController?.hide()
-                            onStartVoice()
-                        },
-                        modifier = Modifier.testTag("capture-voice-action"),
-                    )
-                }
                 CapturePhotoButton(
                     photoCount = draft.photos.size,
-                    enabled = sheetEnabled && !voiceListening,
+                    enabled = sheetEnabled,
                     onTakePhoto = onTakePhoto,
                 )
                 Spacer(Modifier.weight(1f))
-                if (voiceListening) {
-                    // 録音中は親指の届く右寄りに大きな確定を置く。左端の小さな停止だけにしない。
-                    Button(
-                        onClick = {
-                            keyboardController?.hide()
-                            onStopVoice()
-                        },
-                        enabled = state !is CaptureUiState.Saving,
-                        contentPadding = PaddingValues(horizontal = 16.dp),
-                        modifier = Modifier.heightIn(min = 48.dp).testTag("capture-voice-action"),
-                    ) {
-                        Icon(
-                            painterResource(R.drawable.ic_tabler_player_stop),
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Text("音声を確定", modifier = Modifier.padding(start = 6.dp), maxLines = 1)
-                    }
-                } else {
-                    TextButton(
-                        onClick = { submit(CaptureCompletionBehavior.Continue) },
-                        enabled = canSubmit,
-                        modifier = Modifier.testTag("capture-submit-continue"),
-                    ) {
-                        Text("追加して次へ", maxLines = 1)
-                    }
-                    Button(
-                        onClick = { submit(CaptureCompletionBehavior.Close) },
-                        enabled = canSubmit,
-                        contentPadding = PaddingValues(start = 14.dp, end = 16.dp),
-                        modifier = Modifier.heightIn(min = 48.dp).testTag("capture-submit-close"),
-                    ) {
-                        Icon(painterResource(R.drawable.ic_tabler_send), contentDescription = null, modifier = Modifier.size(18.dp))
-                        Text(
-                            if (state is CaptureUiState.Saving) "保存中" else "追加",
-                            modifier = Modifier.padding(start = 6.dp),
-                            maxLines = 1,
-                        )
-                    }
+                TextButton(
+                    onClick = { submit(CaptureCompletionBehavior.Continue) },
+                    enabled = canSubmit,
+                    modifier = Modifier.testTag("capture-submit-continue"),
+                ) {
+                    Text("追加して次へ", maxLines = 1)
+                }
+                Button(
+                    onClick = { submit(CaptureCompletionBehavior.Close) },
+                    enabled = canSubmit,
+                    contentPadding = PaddingValues(start = 14.dp, end = 16.dp),
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("capture-submit-close"),
+                ) {
+                    Icon(painterResource(R.drawable.ic_tabler_send), contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text(
+                        if (state is CaptureUiState.Saving) "保存中" else "追加",
+                        modifier = Modifier.padding(start = 6.dp),
+                        maxLines = 1,
+                    )
                 }
             }
         }
@@ -1494,17 +1348,6 @@ private fun captureSourceLabel(source: MobileCaptureSource): String = when (sour
     MobileCaptureSource.AppShortcut -> "App Shortcut"
     MobileCaptureSource.ShareTarget -> "Share Target"
     MobileCaptureSource.AndroidSpeech -> "Android音声入力"
-}
-
-private fun speechStatusText(state: ShortSpeechUiState): String = when (state) {
-    is ShortSpeechUiState.Idle -> speechPrivacyDescription(state.availableMode)
-    is ShortSpeechUiState.Listening ->
-        "聞いています… 話し終えたらもう一度押してください。 ${speechModeLabel(state.mode)}"
-    is ShortSpeechUiState.Partial -> "認識中: ${state.text}（もう一度押すと確定）"
-    is ShortSpeechUiState.Processing -> "文字にしています… ${speechModeLabel(state.mode)}"
-    is ShortSpeechUiState.Result ->
-        state.result.warning ?: "${speechModeLabel(state.result.mode)}の結果です。内容を確認・修正してから追加してください。"
-    is ShortSpeechUiState.Error -> state.message
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1818,7 +1661,6 @@ internal fun FeedListPane(
     onRefresh: () -> Unit = {},
     /** 前回AIタブを見た時刻。これより新しい動きを新着として示す。 */
     seenBefore: java.time.Instant? = null,
-    replyDictation: ReplyDictation? = null,
 ) {
     var replyingToPostId by rememberSaveable { mutableStateOf<String?>(null) }
     feedPosts.firstOrNull { it.postId == replyingToPostId }?.let { target ->
@@ -1829,7 +1671,6 @@ internal fun FeedListPane(
                 replyingToPostId = null
             },
             onDismiss = { replyingToPostId = null },
-            dictation = replyDictation,
         )
     }
     Column(modifier = Modifier.fillMaxSize()) {

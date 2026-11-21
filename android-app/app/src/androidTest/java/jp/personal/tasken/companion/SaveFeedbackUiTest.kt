@@ -28,10 +28,10 @@ class SaveFeedbackUiTest {
             TaskenTheme {
                 CaptureTaskSheet(
                     draft = MobileCaptureDraft.fresh(), state = CaptureUiState.Idle,
-                    speechState = ShortSpeechUiState.Idle(null), themes = emptyList(),
+                    themes = emptyList(),
                     themeCatalogState = MobileThemeCatalogState.Loading(),
                     onDraftChanged = {}, onThemeSelected = {}, onKindSelected = {}, onSubmit = {},
-                    onStartVoice = {}, onStopVoice = {}, onDismiss = {},
+                    onDismiss = {},
                     savedEventKey = saved.value,
                 )
             }

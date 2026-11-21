@@ -36,11 +36,7 @@ class MobileCaptureDraftStore(
         PreferencesName,
         Context.MODE_PRIVATE,
     )
-    private val json = Json {
-        ignoreUnknownKeys = false
-        encodeDefaults = true
-        explicitNulls = true
-    }
+    private val json = CaptureDraftJson
 
     fun load(): MobileCaptureDraftSnapshot? = synchronized(StorageLock) {
         val encoded = preferences.getString(SnapshotKey, null) ?: return null
@@ -182,8 +178,16 @@ private data class StoredCaptureUndoTarget(
     val kind: String,
 )
 
+// 下書きの保存形式の読み書き。前の版が書いた下書き（音声入力の出どころ付きなど）が読めることを、
+// 端末なしの試験でも同じ設定で確かめられるよう、ファイルの外（モジュール内）から見えるようにしている。
+internal val CaptureDraftJson = Json {
+    ignoreUnknownKeys = false
+    encodeDefaults = true
+    explicitNulls = true
+}
+
 @Serializable
-private data class StoredCaptureDraftSnapshot(
+internal data class StoredCaptureDraftSnapshot(
     val schemaVersion: Int,
     val savedAt: String,
     val captureOpen: Boolean,
@@ -192,6 +196,8 @@ private data class StoredCaptureDraftSnapshot(
     val kind: String,
     val projectId: String? = null,
     val source: String,
+    // speech* は音声入力（#808 で外した）の出どころ。更新前に音声で作った下書きを元の出どころのまま開いて送れるよう、
+    // 読み書きを続ける。新しい下書きでは空になる。
     val speechRecognitionMode: String? = null,
     val speechLanguage: String? = null,
     val speechConfidence: Float? = null,

@@ -4,7 +4,7 @@
 データは端末内のElectronユーザープロファイルにあるSQLiteへ保存されます。
 任意でOneDriveまたは社内共有フォルダを使った端末間差分同期を有効にできます。外部サーバーは必須ではありません。
 
-WindowsはToday / ToDoのタスク追加にある「音声・AI整理から追加」から進み、入力欄で `Win + H` を使えます。外部AIへの依頼文をコピーし、返ってきた整理結果のJSONを貼り付けてTaskの候補にできます（[外部AIからの取り込み](docs/mobile-capture-organizer-providers.md)）。アプリの中からAIへ送る入力の整理と、その設定・ChatGPTの接続は外しました（#755）。
+WindowsはToday / ToDoのタスク追加にある「AI整理から追加」から進みます。外部AIへの依頼文をコピーし、返ってきた整理結果のJSONを貼り付けてTaskの候補にできます（[外部AIからの取り込み](docs/mobile-capture-organizer-providers.md)）。アプリの中からAIへ送る入力の整理と、その設定・ChatGPTの接続は外しました（#755）。
 
 ## 起動
 

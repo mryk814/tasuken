@@ -64,6 +64,7 @@ internal fun MobileCaptureDraft.toTaskCreationProvenanceDto(): MobileTaskCreatio
     MobileTaskCreationProvenanceDto(
         reportedVia = source.wireValue,
         capturedAt = createdAt,
+        // 音声入力は #808 で外したが、更新前に音声で作った下書きは元の出どころのまま送る（Desktop/NAS は今も受け付ける）。
         captureMethod = speech?.let { "android_speech" },
         recognitionMode = speech?.recognitionMode?.wireValue,
         language = speech?.language,

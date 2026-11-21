@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 場所のリマインダー（#727）。Task に場所を付けたときだけ求める。 -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -18,9 +17,6 @@
         android:name="android.permission.SCHEDULE_EXACT_ALARM"
         android:maxSdkVersion="32" />
     <queries>
-        <intent>
-            <action android:name="android.speech.RecognitionService" />
-        </intent>
         <intent>
             <action android:name="android.media.action.IMAGE_CAPTURE" />
         </intent>
@@ -56,12 +52,6 @@
                 android:name="android.app.shortcuts"
                 android:resource="@xml/tasken_shortcuts" />
         </activity>
-        <activity
-            android:name=".WidgetVoiceCaptureActivity"
-            android:excludeFromRecents="true"
-            android:exported="false"
-            android:noHistory="true"
-            android:theme="@style/Theme.TaskenCompanion.NotificationGate" />
         <receiver
             android:name=".TaskenTodayWidget"
             android:exported="false">

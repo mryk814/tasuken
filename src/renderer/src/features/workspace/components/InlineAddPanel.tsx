@@ -62,7 +62,7 @@ export function InlineAddPanel({
       </div>
       {onOrganize && (
         <Button variant="secondary" compact onClick={() => void onOrganize()}>
-          音声・AI整理から追加
+          AI整理から追加
         </Button>
       )}
     </section>

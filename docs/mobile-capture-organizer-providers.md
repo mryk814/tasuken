@@ -6,9 +6,8 @@
 
 ## Windowsのタスク追加と外部AIからの取り込み
 
-Today / ToDoの「タスクを追加」を開き、「音声・AI整理から追加」でQuick CaptureのTask入力へ進む。
-Windowsでは入力欄にカーソルを置いて `Win + H` を押すとOSの音声入力を使える。マイクとインターネット接続が必要で、音声認識はWindows側の設定に従う（[Microsoftの音声入力ガイド](https://support.microsoft.com/en-us/accessibility/windows/use-voice-typing-to-talk-instead-of-type-on-your-pc)）。
-Task入力は音声入力パネルへfocusが移っても閉じず、「閉じる」またはEscで閉じられる。
+Today / ToDoの「タスクを追加」を開き、「AI整理から追加」でQuick CaptureのTask入力へ進む。
+Task入力は別の窓へfocusが移っても閉じず（外部AIとのクリップボードの往復のため）、「閉じる」またはEscで閉じられる。
 
 「外部AIで整理した内容を取り込む」を開く。
 「依頼文をコピー」は入力原文・選択中のTheme・日時の基準・返答形式だけをクリップボードへ出し、外部サービスへ自動送信しない。

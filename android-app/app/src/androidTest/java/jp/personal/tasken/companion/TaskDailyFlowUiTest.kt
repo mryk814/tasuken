@@ -91,71 +91,9 @@ class TaskDailyFlowUiTest {
         }
     }
 
+    /** 更新前に音声で作った長い下書き（#808 で音声入力は外した）も、読めて送れる。 */
     @Test
-    fun speechRequiresConfirmationAndPreservesTitleAfterFailure() {
-        val mode = MobileSpeechRecognitionMode.OnDevice
-        val draft = mutableStateOf(MobileCaptureDraft.fresh(text = "牛乳を買う"))
-        val speech = mutableStateOf<ShortSpeechUiState>(ShortSpeechUiState.Idle(mode))
-        var voiceStarts = 0
-        val submitted = mutableListOf<String>()
-        composeRule.setContent {
-            TaskenTheme {
-                CaptureTaskSheet(
-                    draft = draft.value,
-                    state = CaptureUiState.Idle,
-                    speechState = speech.value,
-                    themes = listOf(MobileTheme("research", "研究")),
-                    themeCatalogState = MobileThemeCatalogState.Available(emptyList(), "fixture", 1, ""),
-                    onDraftChanged = { draft.value = draft.value.withText(it) },
-                    onThemeSelected = { draft.value = draft.value.withThemeId(it) },
-                    onKindSelected = { draft.value = draft.value.withKind(it) },
-                    onSubmit = { submitted += draft.value.text },
-                    onStartVoice = { voiceStarts++ },
-                    onStopVoice = {},
-                    onDismiss = {},
-                )
-            }
-        }
-        // Run on a compact S23 / phone AVD: the primary voice action must be visible without scrolling.
-        composeRule.onNodeWithTag("capture-voice-action").assertIsDisplayed().assertIsEnabled()
-        capture("04-title-and-voice")
-        composeRule.onNodeWithTag("capture-voice-action").performClick()
-        composeRule.runOnIdle { assertEquals(1, voiceStarts) }
-        listOf(
-            ShortSpeechUiState.Listening(mode),
-            ShortSpeechUiState.Partial(mode, "クリーニングを"),
-            ShortSpeechUiState.Processing(mode),
-        ).forEach { busy ->
-            composeRule.runOnIdle { speech.value = busy }
-            composeRule.onNodeWithTag("capture-submit-close").assertIsNotEnabled()
-            composeRule.onNodeWithTag("capture-submit-continue").assertIsNotEnabled()
-            composeRule.onNodeWithTag("capture-text-input").assertIsNotEnabled()
-            composeRule.runOnIdle { assertEquals(emptyList<String>(), submitted) }
-        }
-        composeRule.runOnIdle {
-            speech.value = ShortSpeechUiState.Error("音声を認識できませんでした。もう一度話してください。")
-        }
-        composeRule.onNodeWithText("牛乳を買う").assertIsDisplayed()
-        composeRule.onNodeWithTag("capture-text-input").assertIsEnabled()
-        composeRule.onNodeWithTag("capture-voice-action").assertIsDisplayed().assertIsEnabled().performClick()
-        composeRule.runOnIdle { assertEquals(2, voiceStarts) }
-        capture("05-speech-error-keeps-title")
-
-        val result = ShortSpeechRecognitionResult("クリーニングを受け取る", mode, "ja-JP", 0.9f)
-        composeRule.runOnIdle {
-            draft.value = draft.value.withSpeechResult(result)
-            speech.value = ShortSpeechUiState.Result(result)
-        }
-        composeRule.onNodeWithText("クリーニングを受け取る").assertIsDisplayed()
-        composeRule.onNodeWithTag("capture-submit-close").assertIsEnabled()
-        composeRule.runOnIdle { assertEquals(emptyList<String>(), submitted) }
-        capture("06-speech-title-confirmation")
-        composeRule.onNodeWithTag("capture-submit-close").performClick()
-        composeRule.runOnIdle { assertEquals(listOf("クリーニングを受け取る"), submitted) }
-    }
-
-    @Test
-    fun longSpokenCaptureStaysReadableAndThemeSelectionDoesNotOpenKeyboard() {
+    fun longSpokenCaptureStaysReadableAndKeepsFullDraftOverLimit() {
         val text = "映画のあとに考えたこと。\n今の案は操作が多いので、まず短い入力で残せる形を試したい。\n理由や迷いも、あとから読み返せるようにそのまま残しておく。"
         val draft = mutableStateOf(MobileCaptureDraft.fresh(
             text = text, source = MobileCaptureSource.AndroidSpeech, kind = MobileCaptureKind.Capture,
@@ -166,14 +104,13 @@ class TaskDailyFlowUiTest {
                 CaptureTaskSheet(
                     draft = draft.value,
                     state = CaptureUiState.Idle,
-                    speechState = ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.OnDevice),
                     themes = listOf(MobileTheme("ideas", "考えごと")),
                     themeCatalogState = MobileThemeCatalogState.Available(emptyList(), "fixture", 1, ""),
                     onDraftChanged = { draft.value = draft.value.withText(it) },
                     onThemeSelected = { draft.value = draft.value.withThemeId(it) },
                     onKindSelected = { draft.value = draft.value.withKind(it) },
                     onSubmit = { submitted = draft.value },
-                    onStartVoice = {}, onStopVoice = {}, onDismiss = {},
+                    onDismiss = {},
                 )
             }
         }
@@ -183,7 +120,7 @@ class TaskDailyFlowUiTest {
         assertTrue((bounds.bottom - bounds.top).value > 80f)
         capture("07-long-spoken-capture")
         composeRule.onNodeWithTag("capture-theme-option-ideas").performScrollTo().performClick()
-        input.assertIsNotFocused().assertTextContains(text)
+        input.assertTextContains(text)
         val overLimit = text + "補足".repeat(6000)
         composeRule.runOnIdle { draft.value = draft.value.withText(overLimit) }
         input.assertTextContains(overLimit)

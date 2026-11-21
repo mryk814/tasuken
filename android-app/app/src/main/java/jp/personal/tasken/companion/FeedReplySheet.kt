@@ -48,7 +48,6 @@ internal fun FeedReplySheet(
     post: MobileFeedPostDto,
     onSend: (String) -> Unit,
     onDismiss: () -> Unit,
-    dictation: ReplyDictation? = null,
 ) {
     var body by rememberSaveable(post.postId) { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
@@ -112,24 +111,6 @@ internal fun FeedReplySheet(
                     ),
                     modifier = Modifier.weight(1f).focusRequester(focusRequester).testTag("feed-reply-input"),
                 )
-                dictation?.let { voice ->
-                    val listening = voice.state is ShortSpeechUiState.Listening || voice.state is ShortSpeechUiState.Partial
-                    VoiceToolButton(
-                        speechState = voice.state,
-                        hasText = trimmed.isNotEmpty(),
-                        enabled = voice.state !is ShortSpeechUiState.Processing,
-                        onClick = {
-                            if (listening) {
-                                voice.stop()
-                            } else {
-                                voice.start { spoken ->
-                                    body = if (body.isBlank()) spoken else "${body.trimEnd()} $spoken"
-                                }
-                            }
-                        },
-                        modifier = Modifier.testTag("feed-reply-voice"),
-                    )
-                }
                 FilledIconButton(
                     onClick = { onSend(trimmed) },
                     enabled = trimmed.isNotEmpty() && !tooLong,

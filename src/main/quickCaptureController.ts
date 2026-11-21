@@ -114,7 +114,7 @@ export function createQuickCaptureController(
     }
 
     win.on("blur", () => {
-      // Windows voice typing and clipboard round trips move focus outside this window.
+      // 外部AIとのクリップボードの往復で focus が外の窓へ移っても閉じない。
       // 完了Taskは成果物をエクスプローラー等からドラッグしてくるので、同じく開いたままにする。
       if (
         win.isVisible() &&

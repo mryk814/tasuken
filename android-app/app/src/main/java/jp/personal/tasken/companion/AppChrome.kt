@@ -3,7 +3,6 @@ package jp.personal.tasken.companion
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -55,17 +54,18 @@ internal fun Modifier.pressScale(interactionSource: MutableInteractionSource, pr
 }
 
 /**
- * 追加の入口。「書く（＋）」と「話す（マイク）」を1つの面に並べ、押す時点でどちらかを選ぶ。
- * スマホでは横並び、Foldのレールでは縦並びにする。
+ * 追加の入口（書いて追加）。音声入力は別のアプリ（yamabiko）が受け持つので、ここには置かない（#808）。
+ * 押している間だけ少し沈み、押した瞬間に軽い触覚を返す。
  */
 @Composable
 internal fun ComposeFab(
     onWrite: () -> Unit,
-    onSpeak: () -> Unit,
     modifier: Modifier = Modifier,
-    vertical: Boolean = false,
 ) {
     val shape = RoundedCornerShape(20.dp)
+    val description = "書いて追加"
+    val interaction = remember { MutableInteractionSource() }
+    val haptics = LocalHapticFeedback.current
     Surface(
         shape = shape,
         color = MaterialTheme.colorScheme.primary,
@@ -73,69 +73,26 @@ internal fun ComposeFab(
         shadowElevation = 6.dp,
         modifier = modifier,
     ) {
-        val write: @Composable () -> Unit = {
-            ComposeFabHalf(
-                icon = R.drawable.ic_tabler_plus,
-                description = "書いて追加",
-                onClick = onWrite,
-                modifier = Modifier.testTag("open-capture-action"),
-            )
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .testTag("open-capture-action")
+                .size(60.dp)
+                .pressScale(interaction, pressed = 0.86f)
+                .clip(shape)
+                .clickable(
+                    interactionSource = interaction,
+                    indication = androidx.compose.material3.ripple(),
+                    role = Role.Button,
+                    onClickLabel = description,
+                ) {
+                    haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                    onWrite()
+                }
+                .semantics { contentDescription = description },
+        ) {
+            Icon(painterResource(R.drawable.ic_tabler_plus), contentDescription = null, modifier = Modifier.size(26.dp))
         }
-        val speak: @Composable () -> Unit = {
-            ComposeFabHalf(
-                icon = R.drawable.ic_tabler_microphone,
-                description = "話して追加",
-                onClick = onSpeak,
-                modifier = Modifier.testTag("open-voice-capture-action"),
-            )
-        }
-        val divider: @Composable () -> Unit = {
-            Box(
-                Modifier
-                    .then(if (vertical) Modifier.size(width = 32.dp, height = 1.dp) else Modifier.size(width = 1.dp, height = 32.dp))
-                    .background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.35f)),
-            )
-        }
-        if (vertical) {
-            androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                write(); divider(); speak()
-            }
-        } else {
-            androidx.compose.foundation.layout.Row(verticalAlignment = Alignment.CenterVertically) {
-                write(); divider(); speak()
-            }
-        }
-    }
-}
-
-/** 追加ボタンの片側。押している間だけ少し沈み、押した瞬間に軽い触覚を返す。 */
-@Composable
-private fun ComposeFabHalf(
-    icon: Int,
-    description: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val haptics = LocalHapticFeedback.current
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = modifier
-            .size(60.dp)
-            .pressScale(interaction, pressed = 0.86f)
-            .clip(RoundedCornerShape(20.dp))
-            .clickable(
-                interactionSource = interaction,
-                indication = androidx.compose.material3.ripple(),
-                role = Role.Button,
-                onClickLabel = description,
-            ) {
-                haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
-                onClick()
-            }
-            .semantics { contentDescription = description },
-    ) {
-        Icon(painterResource(icon), contentDescription = null, modifier = Modifier.size(26.dp))
     }
 }
 
@@ -198,68 +155,6 @@ internal fun InlineThemeLabel(theme: MobileTheme, modifier: Modifier = Modifier)
         )
     }
 }
-
-/**
- * 入力欄の下の音声ボタン。聞いている間だけ輪が脈打ち、音を拾っていることを示す。
- * 押すたびの意味（始める／確定する）は読み上げにも同じ言葉で伝える。
- */
-@Composable
-internal fun VoiceToolButton(
-    speechState: ShortSpeechUiState,
-    hasText: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val listening = speechState is ShortSpeechUiState.Listening || speechState is ShortSpeechUiState.Partial
-    val label = when {
-        speechState is ShortSpeechUiState.Processing -> "文字にしています…"
-        listening -> "音声を確定"
-        hasText -> "話し直す"
-        else -> "音声で入力"
-    }
-    val primary = MaterialTheme.colorScheme.primary
-    Box(contentAlignment = Alignment.Center, modifier = modifier.size(48.dp)) {
-        if (listening) {
-            val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "voice-pulse")
-            val t by pulse.animateFloat(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-                    androidx.compose.animation.core.tween<Float>(1100, easing = androidx.compose.animation.core.LinearOutSlowInEasing),
-                ),
-                label = "voice-pulse-t",
-            )
-            androidx.compose.foundation.Canvas(Modifier.matchParentSize()) {
-                drawCircle(primary.copy(alpha = 0.35f * (1f - t)), radius = size.minDimension / 2 * (0.6f + 0.5f * t))
-            }
-        }
-        androidx.compose.material3.FilledIconToggleButton(
-            checked = listening,
-            onCheckedChange = { onClick() },
-            enabled = enabled,
-            modifier = Modifier.size(40.dp).semantics { contentDescription = label },
-            colors = androidx.compose.material3.IconButtonDefaults.filledIconToggleButtonColors(
-                containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                checkedContainerColor = primary,
-                checkedContentColor = MaterialTheme.colorScheme.onPrimary,
-            ),
-        ) {
-            Icon(
-                painterResource(if (listening) R.drawable.ic_tabler_player_stop else R.drawable.ic_tabler_microphone),
-                contentDescription = null,
-            )
-        }
-    }
-}
-
-/** 返信欄で話して入力するための口。認識状態と開始・確定の操作を束ねる。 */
-internal class ReplyDictation(
-    val state: ShortSpeechUiState,
-    val start: ((String) -> Unit) -> Unit,
-    val stop: () -> Unit,
-)
 
 /**
  * 端末への保存が済んだ瞬間だけ出る小さな印。押印のように一度弾んで、少し経つと消える。

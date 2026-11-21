@@ -86,9 +86,12 @@ class MobileCaptureDraftStoreTest {
 
     @Test
     fun preservesOverLimitSpeechDraftForLaterEditing() {
-        val draft = MobileCaptureDraft.fresh(text = "あ".repeat(490)).withSpeechResult(
-            ShortSpeechRecognitionResult("追加した発話".repeat(10), MobileSpeechRecognitionMode.OnDevice, "ja-JP", null),
-            append = true,
+        // 音声入力は #808 で外した。更新前に音声で作った長い下書きが、出どころごと残ることを確かめる。
+        val draft = MobileCaptureDraft.fresh(
+            text = "あ".repeat(490) + " " + "追加した発話".repeat(10),
+            source = MobileCaptureSource.AndroidSpeech,
+        ).copy(
+            speech = MobileSpeechProvenance(recognitionMode = MobileSpeechRecognitionMode.OnDevice, language = "ja-JP"),
         )
         val store = MobileCaptureDraftStore(context)
         org.junit.Assert.assertTrue(store.save(MobileCaptureDraftSnapshot(draft, true)))

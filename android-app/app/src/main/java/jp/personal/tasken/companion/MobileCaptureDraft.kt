@@ -25,6 +25,8 @@ enum class MobileCaptureSource(val wireValue: String) {
     Widget("widget"),
     AppShortcut("app_shortcut"),
     ShareTarget("share_target"),
+    // アプリ内の音声入力は #808 で外した（音声入力は別のアプリ yamabiko が受け持つ）。新しいコードはこの値を作らないが、
+    // 更新前に音声で作った下書きと未送信の命令が、元の出どころのまま読めて Desktop/NAS へ届くように残す。
     AndroidSpeech("android_speech"),
     ;
 
@@ -34,6 +36,9 @@ enum class MobileCaptureSource(val wireValue: String) {
     }
 }
 
+// 音声の出どころ（認識の方式・言語など）。#808 で音声入力を外した後も、更新前に音声で作った下書きと
+// 未送信の命令を読み込み、元の出どころ（captureMethod = "android_speech"）のまま送り届けるために残す。
+// 新しいコードはこれを作らない。
 enum class MobileSpeechRecognitionMode(val wireValue: String) {
     OnDevice("on_device"),
     SystemService("system_service"),
@@ -81,6 +86,7 @@ data class MobileCaptureDraft(
     val kind: MobileCaptureKind,
     val projectId: String?,
     val source: MobileCaptureSource,
+    // 更新前に音声で作った下書きだけが持つ。#808 の後は読み込んで送るだけで、新しく付けない。
     val speech: MobileSpeechProvenance?,
     val share: MobileShareProvenance?,
     val createdAt: String,
@@ -103,25 +109,6 @@ data class MobileCaptureDraft(
     fun withKind(value: MobileCaptureKind): MobileCaptureDraft = if (value == kind) this else copy(kind = value)
 
     fun withThemeId(value: String?): MobileCaptureDraft = copy(projectId = value?.trim()?.takeIf(String::isNotEmpty))
-
-    fun withSpeechResult(
-        result: ShortSpeechRecognitionResult,
-        append: Boolean = false,
-        capturedAt: String = Instant.now().toString(),
-        timeZone: String = java.time.ZoneId.systemDefault().id,
-    ): MobileCaptureDraft = copy(
-        text = if (append && text.isNotBlank()) "$text ${result.text}" else result.text,
-        source = MobileCaptureSource.AndroidSpeech,
-        speech = MobileSpeechProvenance(
-            recognitionMode = result.mode,
-            language = result.language,
-            confidence = result.confidence,
-            sourceAudioAvailable = false,
-            capturedAt = capturedAt,
-            timeZone = timeZone,
-        ),
-        share = null,
-    )
 
     companion object {
         fun fresh(

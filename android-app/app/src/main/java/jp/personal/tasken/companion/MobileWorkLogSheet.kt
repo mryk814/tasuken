@@ -1,9 +1,5 @@
 package jp.personal.tasken.companion
 
-import android.Manifest
-import android.content.pm.PackageManager
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -55,27 +51,12 @@ internal fun MobileWorkLogSheet(
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val speech = remember(context) { AndroidShortSpeechRecognizer(context.applicationContext) }
-    var speechState by remember { mutableStateOf<ShortSpeechUiState>(ShortSpeechUiState.Idle(speech.availableMode())) }
     val changeDraft: (MobileWorkLogDraft) -> Unit = { next ->
         draft = next
         error = if (restored.isFailure || !runCatching { store.save(next) }.getOrDefault(false)) {
             "入力の保存に失敗しました。画面の本文を保持しています。閉じずに再試行してください。"
         } else null
     }
-    val startSpeech = {
-        speech.start { next ->
-            speechState = next
-            if (next is ShortSpeechUiState.Result) {
-                changeDraft(draft.copy(body = draft.body + (if (draft.body.isEmpty()) "" else "\n") + next.result.text))
-            }
-        }
-    }
-    val microphone = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) startSpeech() else error = "マイク権限がありません。手入力はそのまま使えます。"
-    }
-    DisposableEffect(speech) { onDispose { speech.cancel() } }
-    val speechBusy = speechState is ShortSpeechUiState.Listening || speechState is ShortSpeechUiState.Partial || speechState is ShortSpeechUiState.Processing
     fun action(block: suspend () -> Unit) {
         if (busy) return
         busy = true
@@ -86,31 +67,21 @@ internal fun MobileWorkLogSheet(
         }
     }
     ModalBottomSheet(
-        onDismissRequest = { if (!busy && !speechBusy) onDismiss() },
+        onDismissRequest = { if (!busy) onDismiss() },
         sheetState = sheetState,
         contentWindowInsets = { WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top) },
     ) {
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.94f).windowInsetsPadding(WindowInsets.safeDrawing.union(WindowInsets.ime).only(WindowInsetsSides.Bottom))) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(if (historyOpen) "保存した記録" else "やったことを残す", style = MaterialTheme.typography.titleLarge)
-                TextButton(onClick = { historyOpen = !historyOpen; selectedId = null; keyboard?.hide() }, enabled = !busy && !speechBusy) {
+                TextButton(onClick = { historyOpen = !historyOpen; selectedId = null; keyboard?.hide() }, enabled = !busy) {
                     Text(if (historyOpen) "入力へ" else "保存した記録")
                 }
             }
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("work-log-error")) }
                 if (!historyOpen) {
-                    MobileWorkLogEditor(draft, themes, tasks, !busy && !speechBusy, changeDraft)
-                    Text(speechPrivacyDescription(speech.availableMode()), style = MaterialTheme.typography.bodySmall)
-                    Row {
-                        TextButton(onClick = {
-                            if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startSpeech()
-                            else microphone.launch(Manifest.permission.RECORD_AUDIO)
-                        }, enabled = !busy && !speechBusy && speech.availableMode() != null) { Text("音声を文字にする") }
-                        if (speechBusy) TextButton(onClick = { speech.stop() }) { Text("音声を終了") }
-                    }
-                    (speechState as? ShortSpeechUiState.Partial)?.let { Text(it.text, style = MaterialTheme.typography.bodySmall) }
-                    (speechState as? ShortSpeechUiState.Error)?.let { Text(it.message, color = MaterialTheme.colorScheme.error) }
+                    MobileWorkLogEditor(draft, themes, tasks, !busy, changeDraft)
                 } else {
                     if (records.isEmpty()) Text("まだ記録がありません。やったことを一言残せます。")
                     records.sortedBy { if (it.record.id == initialRecordId) 0 else 1 }.forEach { item ->
@@ -158,10 +129,10 @@ internal fun MobileWorkLogSheet(
                 Spacer(Modifier.height(12.dp))
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(onClick = onDismiss, enabled = !busy && !speechBusy, modifier = Modifier.testTag("work-log-close")) { Text("閉じる") }
+                TextButton(onClick = onDismiss, enabled = !busy, modifier = Modifier.testTag("work-log-close")) { Text("閉じる") }
                 if (!historyOpen) Button(
                     modifier = Modifier.weight(1f).testTag("work-log-save"),
-                    enabled = !busy && !speechBusy && restored.isSuccess && runCatching { MobileWorkLogContract.validateDraft(draft) }.isSuccess,
+                    enabled = !busy && restored.isSuccess && runCatching { MobileWorkLogContract.validateDraft(draft) }.isSuccess,
                     onClick = {
                         val submitted = draft
                         action {

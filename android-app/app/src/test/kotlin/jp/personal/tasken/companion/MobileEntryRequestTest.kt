@@ -19,8 +19,12 @@ class MobileEntryRequestTest {
         assertEquals(MobileEntryRequest.Capture(1, MobileEntrySource.AppShortcut), result)
     }
 
+    /**
+     * 音声入力は #808 で外した。更新前に置いた「音声で追加」のショートカットのリンクは、ふつうの文字入力を開き、
+     * 音声を使っていない入力に音声の出どころを付けない。前の版の voice=1 も録音を始めない。
+     */
     @Test
-    fun resolves_voice_shortcut_to_confirmed_speech_capture() {
+    fun retired_voice_shortcut_opens_ordinary_text_capture() {
         val result = MobileEntryRequestResolver.resolve(
             action = Intent.ACTION_VIEW,
             data = "tasken://capture/new?source=android_speech",
@@ -29,13 +33,11 @@ class MobileEntryRequestTest {
             token = 7,
         )
 
+        assertEquals(MobileEntryRequest.Capture(token = 7, source = MobileEntrySource.AppShortcut), result)
+        assertEquals(MobileCaptureSource.AppShortcut, (result as MobileEntryRequest.Capture).source.toCaptureSource())
         assertEquals(
-            MobileEntryRequest.Capture(
-                token = 7,
-                source = MobileEntrySource.AndroidSpeech,
-                startVoice = true,
-            ),
-            result,
+            MobileEntryRequest.Capture(token = 8, source = MobileEntrySource.Widget),
+            MobileEntryRequestResolver.resolve(Intent.ACTION_VIEW, "tasken://capture/new?source=widget&voice=1", null, null, 8),
         )
     }
 

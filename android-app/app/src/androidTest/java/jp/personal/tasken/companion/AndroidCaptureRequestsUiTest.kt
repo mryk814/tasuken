@@ -51,66 +51,25 @@ class AndroidCaptureRequestsUiTest {
         screenshot("09-top-notification")
     }
 
-    @Test fun recognitionTextGrowsInsideFixedAreaAndConfirmStaysAbovePhotos() {
-        val speech = mutableStateOf<ShortSpeechUiState>(ShortSpeechUiState.Listening(MobileSpeechRecognitionMode.OnDevice))
-        val draft = mutableStateOf(MobileCaptureDraft.fresh())
-        var stopped = false
-        composeRule.setContent {
-            TaskenTheme {
-                CaptureTaskSheet(draft = draft.value, state = CaptureUiState.Idle, speechState = speech.value,
-                    themes = emptyList(), themeCatalogState = MobileThemeCatalogState.Loading(),
-                    onDraftChanged = { draft.value = draft.value.withText(it) }, onThemeSelected = {}, onKindSelected = {},
-                    onSubmit = {}, onStartVoice = {}, onStopVoice = { stopped = true }, onDismiss = {})
-            }
-        }
-        composeRule.onNodeWithTag("capture-voice-action").assertIsDisplayed()
-        val before = composeRule.onNodeWithTag("capture-voice-action").getBoundsInRoot()
-        val status = composeRule.onNodeWithTag("capture-speech-status").getBoundsInRoot()
-        assertTrue(status.bottom <= before.top)
-        // 音声と写真は同じ副操作行に並ぶ。
-        assertEquals(
-            before.top.value.toDouble(),
-            composeRule.onNodeWithTag("capture-photo-action").getBoundsInRoot().top.value.toDouble(),
-            1.0,
-        )
-        composeRule.onNodeWithTag("capture-submit-row").assertIsDisplayed()
-        val photo = composeRule.onNodeWithTag("capture-photo-action").getBoundsInRoot()
-        val submit = composeRule.onNodeWithTag("capture-submit-row").getBoundsInRoot()
-        // 音声・写真・確定はキーボード直上の同じ1段にある。
-        assertTrue(submit.top <= photo.top && photo.bottom <= submit.bottom)
-        screenshot("01-listening")
-        for ((name, state) in listOf(
-            "02-partial-short" to ShortSpeechUiState.Partial(MobileSpeechRecognitionMode.OnDevice, "明日の会議で"),
-            "03-partial-long" to ShortSpeechUiState.Partial(MobileSpeechRecognitionMode.OnDevice, "明日の会議で実験結果を報告して、次の条件を確認する。".repeat(90)),
-            "04-listening-again" to ShortSpeechUiState.Listening(MobileSpeechRecognitionMode.OnDevice),
-            "05-processing" to ShortSpeechUiState.Processing(MobileSpeechRecognitionMode.OnDevice),
-        )) {
-            composeRule.runOnIdle { speech.value = state }
-            composeRule.waitForIdle()
-            val after = composeRule.onNodeWithTag("capture-voice-action").getBoundsInRoot()
-            assertEquals(before.top.value, after.top.value, 1f)
-            composeRule.onNodeWithTag("capture-voice-action").assertIsDisplayed()
-            screenshot(name)
-        }
-        composeRule.runOnIdle { speech.value = ShortSpeechUiState.Listening(MobileSpeechRecognitionMode.OnDevice) }
-        composeRule.onNodeWithTag("capture-voice-action").performClick()
-        composeRule.runOnIdle { assertTrue(stopped) }
-    }
-
     @Test fun addSheetOffersNoAiOrganizing() {
         composeRule.setContent {
             TaskenTheme {
                 CaptureTaskSheet(draft = MobileCaptureDraft.fresh(text = "明日の会議で測定結果を報告する"),
-                    state = CaptureUiState.Idle, speechState = ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.OnDevice),
+                    state = CaptureUiState.Idle,
                     themes = emptyList(), themeCatalogState = MobileThemeCatalogState.Loading(),
                     onDraftChanged = {}, onThemeSelected = {}, onKindSelected = {},
-                    onSubmit = {}, onStartVoice = {}, onStopVoice = {}, onDismiss = {})
+                    onSubmit = {}, onDismiss = {})
             }
         }
         // 入力の AI 整理と、端末から直接の AI 設定はスマホから外した（#755 束9a）。
         composeRule.onNodeWithTag("capture-organize").assertDoesNotExist()
         composeRule.onNodeWithTag("capture-direct-ai-settings").assertDoesNotExist()
         composeRule.onNodeWithTag("capture-kind-capture").assertDoesNotExist()
+        // 音声入力はスマホから外した（#808）。写真と確定はキーボード直上の同じ1段にある。
+        composeRule.onNodeWithTag("capture-voice-action").assertDoesNotExist()
+        val photo = composeRule.onNodeWithTag("capture-photo-action").getBoundsInRoot()
+        val submit = composeRule.onNodeWithTag("capture-submit-row").getBoundsInRoot()
+        assertTrue(submit.top <= photo.top && photo.bottom <= submit.bottom)
         screenshot("12-add-sheet-without-ai-organizing")
     }
 

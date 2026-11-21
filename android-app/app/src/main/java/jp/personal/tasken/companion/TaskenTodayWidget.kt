@@ -405,7 +405,6 @@ class TaskenTodayWidget : AppWidgetProvider() {
         ): RemoteViews = RemoteViews(context.packageName, layoutId).apply {
             setOnClickPendingIntent(R.id.widget_open_today, openAppIntent(context, widgetId, "tasken://today?source=widget"))
             bindAddAction(context, widgetId)
-            bindVoiceAction(context, widgetId)
             setTextViewText(R.id.widget_open_today, progressTitle(snapshot))
             setViewVisibility(R.id.widget_progress, if (snapshot.todayTotalCount > 0) View.VISIBLE else View.GONE)
             setProgressBar(R.id.widget_progress, snapshot.todayTotalCount.coerceAtLeast(1), snapshot.todayDoneCount, false)
@@ -431,18 +430,6 @@ class TaskenTodayWidget : AppWidgetProvider() {
             setOnClickPendingIntent(
                 R.id.widget_add,
                 openAppIntent(context, widgetId + 10_000, "tasken://capture/new?source=widget"),
-            )
-        }
-
-        private fun RemoteViews.bindVoiceAction(context: Context, widgetId: Int) {
-            setOnClickPendingIntent(
-                R.id.widget_voice,
-                PendingIntent.getActivity(
-                    context,
-                    widgetId + 20_000,
-                    WidgetVoiceCaptureActivity.voiceCaptureIntent(context),
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                ),
             )
         }
 

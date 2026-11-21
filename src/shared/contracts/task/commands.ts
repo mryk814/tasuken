@@ -33,6 +33,8 @@ export const taskCreationReportedViaSchema = z.enum([
   "widget",
   "app_shortcut",
   "share_target",
+  // Android のアプリ内の音声入力は #808 で外したが、受け口は残す。更新前の端末と、更新前に
+  // 音声で作って未送信の列に残った命令が、この出どころのまま届く（断ると本人の入力が届かない）。
   "android_speech",
 ]);
 export const taskSpeechRecognitionModeSchema = z.enum(["on_device", "system_service", "unknown"]);

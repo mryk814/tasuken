@@ -132,8 +132,8 @@ class TodayOfflineUiTest {
         composeRule.onNodeWithText("今日やること").assertIsDisplayed()
         composeRule.onNodeWithText(task(0).title).assertIsDisplayed()
         composeRule.onNodeWithTag("open-capture-action").assertIsDisplayed()
-        // 追加の入口は「書く」と「話す」を並べ、押す時点で選ぶ。
-        composeRule.onNodeWithTag("open-voice-capture-action").assertIsDisplayed()
+        // 音声入力はスマホから外した（#808）。追加の入口は「書く」だけ。
+        composeRule.onNodeWithTag("open-voice-capture-action").assertDoesNotExist()
         composeRule.onNodeWithTag("nav-tasks").assertIsDisplayed()
         composeRule.onNodeWithTag("nav-feed").assertIsDisplayed()
         composeRule.onNodeWithTag("nav-records").assertIsDisplayed()

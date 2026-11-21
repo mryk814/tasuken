@@ -5,33 +5,8 @@ import org.junit.Test
 
 class TodayPaneStateTest {
     @Test
-    fun voiceCaptureStartsRecognitionForEmptyDraft() {
-        val state = TodayPaneState()
-        state.openVoiceCapture()
-        assertEquals(true, state.captureOpen)
-        assertEquals(true, state.captureVoiceStartRequested)
-        assertEquals(false, state.captureInputFocusRequested)
-    }
-
-    @Test
-    fun voiceCapturePreservesNonemptyDraftAndStartsRecognition() {
-        val draft = MobileCaptureDraft.fresh(
-            text = "残している音声メモ",
-            kind = MobileCaptureKind.Capture,
-            projectId = "home",
-            source = MobileCaptureSource.AndroidSpeech,
-            newId = { "existing-draft" },
-        )
-        val state = TodayPaneState(captureDraft = draft)
-        state.openVoiceCapture()
-        assertEquals(draft, state.captureDraft)
-        assertEquals(true, state.captureOpen)
-        assertEquals(true, state.captureVoiceStartRequested)
-        assertEquals(false, state.captureInputFocusRequested)
-    }
-
-    @Test
-    fun continuingSpeechCaptureDoesNotStartKeyboardOrRecognition() {
+    fun continuingAfterOldSpeechDraftOpensTypedInput() {
+        // 音声入力は #808 で外した。更新前の音声の下書きの後に続けて追加しても、ふつうの文字入力になる。
         val state = TodayPaneState(captureDraft = MobileCaptureDraft.fresh(
             text = "牛乳を買う",
             source = MobileCaptureSource.AndroidSpeech,
@@ -40,9 +15,9 @@ class TodayPaneStateTest {
         state.continueCapture()
         assertEquals("", state.captureDraft.text)
         assertEquals("home", state.captureDraft.projectId)
+        assertEquals(MobileCaptureSource.AndroidApp, state.captureDraft.source)
         assertEquals(true, state.captureOpen)
-        assertEquals(false, state.captureInputFocusRequested)
-        assertEquals(false, state.captureVoiceStartRequested)
+        assertEquals(true, state.captureInputFocusRequested)
     }
 
     @Test
@@ -98,14 +73,6 @@ class TodayPaneStateTest {
         assertEquals("保留中のTask", state.captureDraft.text)
         assertEquals(false, state.captureInputFocusRequested)
 
-        state.openCapture(MobileCaptureSource.AndroidApp, requestVoice = true)
-        assertEquals(false, state.captureInputFocusRequested)
-        assertEquals(true, state.captureVoiceStartRequested)
-
-        state.openCapture(MobileCaptureSource.AndroidSpeech, requestVoice = true)
-        assertEquals(false, state.captureInputFocusRequested)
-        assertEquals(true, state.captureVoiceStartRequested)
-
         state.openCapture(
             MobileCaptureSource.ShareTarget,
             initialText = "共有された内容",
@@ -136,7 +103,6 @@ class TodayPaneStateTest {
         )
         before.openCapture(
             source = MobileCaptureSource.AndroidSpeech,
-            requestVoice = true,
             replaceDraft = false,
         )
         before.activeSection = AppSection.Feed
@@ -159,7 +125,6 @@ class TodayPaneStateTest {
         assertEquals("ja-JP", restored.captureDraft.speech?.language)
         assertEquals(0.9f, restored.captureDraft.speech?.confidence)
         assertEquals(true, restored.captureOpen)
-        assertEquals(true, restored.captureVoiceStartRequested)
         assertEquals(false, restored.captureInputFocusRequested)
         assertEquals(AppSection.Feed, restored.activeSection)
         assertEquals("解析", restored.taskSearch)

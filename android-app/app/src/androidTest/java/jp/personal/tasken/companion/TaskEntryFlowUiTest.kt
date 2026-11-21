@@ -100,7 +100,6 @@ class TaskEntryFlowUiTest {
                     CaptureTaskSheet(
                         draft = pane.captureDraft,
                         state = CaptureUiState.Idle,
-                        speechState = ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.OnDevice),
                         themes = themes,
                         themeCatalogState = MobileThemeCatalogState.Available(themes, "fixture", 1, ""),
                         onDraftChanged = { pane.captureDraft = pane.captureDraft.withText(it) },
@@ -109,8 +108,6 @@ class TaskEntryFlowUiTest {
                         requestInputFocus = pane.captureInputFocusRequested,
                         onInputFocusHandled = pane::consumeInputFocusRequest,
                         onSubmit = onSubmit,
-                        onStartVoice = {},
-                        onStopVoice = {},
                         onDismiss = { pane.captureOpen = false },
                     )
                 }

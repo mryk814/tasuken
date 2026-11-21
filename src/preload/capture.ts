@@ -2,7 +2,6 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { IPC } from "../shared/ipc/contracts";
 
 contextBridge.exposeInMainWorld("captureApi", {
-  platform: process.platform,
   save: (
     text: string,
     mode: string,

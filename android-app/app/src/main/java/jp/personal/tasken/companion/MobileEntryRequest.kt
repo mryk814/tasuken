@@ -8,7 +8,6 @@ enum class MobileEntrySource {
     AppShortcut,
     ShareTarget,
     Widget,
-    AndroidSpeech,
     DeepLink,
 }
 
@@ -24,7 +23,6 @@ sealed interface MobileEntryRequest {
         override val token: Long,
         val source: MobileEntrySource,
         val draft: String = "",
-        val startVoice: Boolean = false,
         val sharedMimeType: String? = null,
     ) : MobileEntryRequest
 
@@ -70,7 +68,9 @@ object MobileEntryRequestResolver {
         val source = when (queryParameter(uri.rawQuery, "source")) {
             "app_shortcut" -> MobileEntrySource.AppShortcut
             "widget" -> MobileEntrySource.Widget
-            "android_speech" -> MobileEntrySource.AndroidSpeech
+            // 更新前にホーム画面へ置いた「音声で追加」のショートカットが送ってくる。音声入力は #808 で外したので、
+            // ふつうの文字入力を開く。音声を使っていない入力に音声の出どころを付けないよう、ショートカット扱いにする。
+            "android_speech" -> MobileEntrySource.AppShortcut
             else -> MobileEntrySource.DeepLink
         }
         return when {
@@ -78,7 +78,6 @@ object MobileEntryRequestResolver {
             uri.host == "capture" && uri.path.trim('/') == "new" -> MobileEntryRequest.Capture(
                 token = token,
                 source = source,
-                startVoice = source == MobileEntrySource.AndroidSpeech || queryParameter(uri.rawQuery, "voice") == "1",
             )
             taskId != null -> MobileEntryRequest.Task(
                 token,
@@ -102,6 +101,5 @@ internal fun MobileEntrySource.toCaptureSource(): MobileCaptureSource = when (th
     MobileEntrySource.AppShortcut -> MobileCaptureSource.AppShortcut
     MobileEntrySource.ShareTarget -> MobileCaptureSource.ShareTarget
     MobileEntrySource.Widget -> MobileCaptureSource.Widget
-    MobileEntrySource.AndroidSpeech -> MobileCaptureSource.AndroidSpeech
     MobileEntrySource.DeepLink -> MobileCaptureSource.AndroidApp
 }

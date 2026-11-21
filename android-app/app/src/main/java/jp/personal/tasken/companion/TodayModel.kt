@@ -1324,7 +1324,6 @@ class TodayPaneState(
     listScrollOffset: Int = 0,
     captureDraft: MobileCaptureDraft = MobileCaptureDraft.fresh(),
     captureOpen: Boolean = false,
-    captureVoiceStartRequested: Boolean = false,
     captureInputFocusRequested: Boolean = false,
     activeSection: AppSection = AppSection.Today,
     taskSearch: String = "",
@@ -1343,8 +1342,6 @@ class TodayPaneState(
         private set
     var captureDraft by mutableStateOf(captureDraft)
     var captureOpen by mutableStateOf(captureOpen)
-    var captureVoiceStartRequested by mutableStateOf(captureVoiceStartRequested)
-        private set
     var captureInputFocusRequested by mutableStateOf(captureInputFocusRequested)
         private set
     var activeSection by mutableStateOf(activeSection)
@@ -1399,7 +1396,6 @@ class TodayPaneState(
     fun openCapture(
         source: MobileCaptureSource,
         initialText: String = "",
-        requestVoice: Boolean = false,
         requestInputFocus: Boolean = false,
         sharedMimeType: String? = null,
         replaceDraft: Boolean = true,
@@ -1417,20 +1413,7 @@ class TodayPaneState(
             )
         }
         captureOpen = true
-        captureVoiceStartRequested = requestVoice
         captureInputFocusRequested = requestInputFocus
-    }
-
-    fun consumeVoiceStartRequest() {
-        captureVoiceStartRequested = false
-    }
-
-    fun openVoiceCapture() {
-        openCapture(
-            source = MobileCaptureSource.AndroidApp,
-            requestVoice = true,
-            replaceDraft = false,
-        )
     }
 
     fun continueCapture() {
@@ -1441,8 +1424,7 @@ class TodayPaneState(
             projectId = previous.projectId,
         )
         captureOpen = true
-        captureVoiceStartRequested = false
-        captureInputFocusRequested = previous.source != MobileCaptureSource.AndroidSpeech
+        captureInputFocusRequested = true
     }
 
     fun consumeInputFocusRequest() {
@@ -1452,7 +1434,6 @@ class TodayPaneState(
     fun resetCapture() {
         captureDraft = MobileCaptureDraft.fresh()
         captureOpen = false
-        captureVoiceStartRequested = false
         captureInputFocusRequested = false
     }
 
@@ -1477,7 +1458,8 @@ class TodayPaneState(
         captureDraft.speech?.language,
         captureDraft.speech?.confidence,
         captureDraft.createdAt,
-        captureVoiceStartRequested,
+        // 20 は音声入力の開始の依頼（#808 で音声入力ごと外した）が使っていた。並びを保つため空けておく。
+        null,
         captureDraft.speech?.sourceAudioAvailable,
         captureInputFocusRequested,
         captureDraft.share?.mimeType,
@@ -1520,7 +1502,6 @@ class TodayPaneState(
                 createdAt = saved.getOrNull(19) as? String ?: java.time.Instant.now().toString(),
             ),
             captureOpen = saved.getOrNull(4) as? Boolean ?: false,
-            captureVoiceStartRequested = saved.getOrNull(20) as? Boolean ?: false,
             captureInputFocusRequested = saved.getOrNull(22) as? Boolean ?: false,
             activeSection = (saved.getOrNull(5) as? String)
                 ?.let { runCatching { AppSection.valueOf(it) }.getOrNull() }

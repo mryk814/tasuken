@@ -38,10 +38,10 @@ class MobileLongCaptureUiTest {
         composeRule.setContent {
             TaskenTheme {
                 CaptureTaskSheet(
-                    draft.value, CaptureUiState.Idle, ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.Unknown),
+                    draft.value, CaptureUiState.Idle,
                     emptyList(), MobileThemeCatalogState.Available(emptyList(), "fixture", 1, ""),
                     onDraftChanged = { draft.value = draft.value.withText(it) }, onThemeSelected = {}, onKindSelected = {},
-                    onSubmit = { submitted = draft.value.text }, onStartVoice = {}, onStopVoice = {}, onDismiss = {},
+                    onSubmit = { submitted = draft.value.text }, onDismiss = {},
                 )
             }
         }
@@ -65,10 +65,10 @@ class MobileLongCaptureUiTest {
             clipboard = LocalClipboardManager.current
             TaskenTheme {
                 CaptureTaskSheet(
-                    draft.value, CaptureUiState.Idle, ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.Unknown),
+                    draft.value, CaptureUiState.Idle,
                     emptyList(), MobileThemeCatalogState.Available(emptyList(), "fixture", 1, ""),
                     onDraftChanged = { draft.value = draft.value.withText(it) }, onThemeSelected = {}, onKindSelected = {},
-                    onSubmit = {}, onStartVoice = {}, onStopVoice = {}, onDismiss = {},
+                    onSubmit = {}, onDismiss = {},
                 )
             }
         }
@@ -122,11 +122,11 @@ class MobileLongCaptureUiTest {
         composeRule.setContent {
             TaskenTheme {
                 CaptureTaskSheet(
-                    draft.value, CaptureUiState.Idle, ShortSpeechUiState.Idle(MobileSpeechRecognitionMode.Unknown),
+                    draft.value, CaptureUiState.Idle,
                     emptyList(), MobileThemeCatalogState.Available(emptyList(), "fixture", 1, ""),
                     onDraftChanged = { draft.value = draft.value.withText(it) }, onThemeSelected = {},
                     onKindSelected = { draft.value = draft.value.withKind(it) },
-                    onSubmit = { submitted = draft.value }, onStartVoice = {}, onStopVoice = {}, onDismiss = {},
+                    onSubmit = { submitted = draft.value }, onDismiss = {},
                 )
             }
         }
