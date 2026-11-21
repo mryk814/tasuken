@@ -49,6 +49,7 @@
         "sharedSync",
         "snapshots",
         "task",
+        "taskenRoot",
         "workLog",
         "workspace"
       ]
