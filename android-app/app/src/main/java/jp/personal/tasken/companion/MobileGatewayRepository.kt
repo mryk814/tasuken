@@ -231,6 +231,8 @@ class AndroidMobileTaskRepository(
     private val scheduleOutboxAfter: (key: String, delay: java.time.Duration) -> Unit = { key, delay ->
         MobileOutboxScheduler.enqueueAfter(context, key, delay)
     },
+    /** 取り消した答えの起こしを外す。 */
+    private val unscheduleOutboxAfter: (key: String) -> Unit = { key -> MobileOutboxScheduler.cancelAfter(context, key) },
     /** 提案への答えを積む時刻。試験は過去にずらして、取り消しの待ちを越えた答えにできる。 */
     private val proposalDecisionNow: () -> Instant = Instant::now,
 ) : MobileGatewayRepository, MobileOfflineTaskRepository, MobileWorkLogRepository, MobileRecallRepository, MobileRelatedDocumentsRepository, MobileThemeContextRepository, MobileLocalSearchRepository {
@@ -244,7 +246,7 @@ class AndroidMobileTaskRepository(
     private val workLogOutbox = MobileWorkLogOutbox(dao, store::deviceId, { MobileOutboxScheduler.enqueue(context) })
     private val routineOutbox = MobileRoutineOutbox(dao, store::deviceId, scheduleOutbox)
     private val proposalDecisionOutbox =
-        MobileProposalDecisionOutbox(dao, store::deviceId, scheduleOutboxAfter, proposalDecisionNow)
+        MobileProposalDecisionOutbox(dao, store::deviceId, scheduleOutboxAfter, unscheduleOutboxAfter, proposalDecisionNow)
     private val recallReader = MobileRecallReader(dao) { path ->
         val configuration = store.configuration()
         val token = requireNotNull(store.readToken()) { "Desktopへの接続を確認してください。端末の記録を表示しています。" }

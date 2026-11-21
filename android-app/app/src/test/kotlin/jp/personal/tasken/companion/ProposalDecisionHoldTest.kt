@@ -49,6 +49,15 @@ class ProposalDecisionHoldTest {
     }
 
     @Test
+    fun anAnswerIsNotHeldWhenTheClockWentBackAfterThePress() {
+        // 押した後に端末の時計が戻った。時計が追いつくまで送らずに残すことはしない。
+        val held = decision()
+
+        assertEquals(held, nextSendableCommand(listOf(held), "server-1", now = pressedAt.minusSeconds(60)))
+        assertFalse(held.isHeldProposalDecision(pressedAt.minusMillis(1)))
+    }
+
+    @Test
     fun aWaitingAnswerDoesNotHoldBackOtherCommands() {
         // 先に積んだ答えが待っている間も、後から積んだ Task の変更は送る。
         val held = decision(createdAt = pressedAt)

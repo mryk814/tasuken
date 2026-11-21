@@ -7,6 +7,12 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.IOException
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -155,6 +161,9 @@ class MobileProposalRepositoryTest {
     private var scheduled = 0
     /** 取り消しの待ちが明けた後に送り手を起こすよう頼まれた答え（commandId と待ち）。 */
     private val scheduledAfter = mutableListOf<Pair<String, Duration>>()
+    private val unscheduledAfter = mutableListOf<String>()
+    /** 答えの POST を受けた時に呼ぶ（送っている最中を作る試験だけが使う）。 */
+    private var decisionPostGate: (() -> Unit)? = null
 
     /**
      * [held] が false なら、答えを 5 秒前に積んだことにする（取り消しの待ちを越えた答えとして、すぐ送れる）。
@@ -182,10 +191,12 @@ class MobileProposalRepositoryTest {
         },
         scheduleOutbox = { scheduled += 1 },
         scheduleOutboxAfter = { key, delay -> scheduledAfter += key to delay },
+        unscheduleOutboxAfter = { key -> unscheduledAfter += key },
         proposalDecisionNow = { if (held) Instant.now() else Instant.now().minusMillis(PROPOSAL_DECISION_HOLD_MILLIS) },
     )
 
     private fun desktopDecision(body: String): GatewayHttpResponse {
+        decisionPostGate?.invoke()
         postedDecisionBodies += body
         val envelope = Json.decodeFromString<MobileTaskWorkProposalDecisionEnvelopeDto>(body)
         // 同じ命令の送り直しには、前の受領を返す（Core の commandId の扱い）。
@@ -375,6 +386,44 @@ class MobileProposalRepositoryTest {
 
     // ---- 積んでから 5 秒は送らず、その間の「取り消す」で何も送らずに消せる（#774）。 ----
 
+    /**
+     * 答えごとの待ち明けの起こしは、ほかの送り手が送っている最中にも起きる。後から起きた送り手は、途中で止まった
+     * 命令を戻す前に先の送り手が終わるのを待ち、送っている最中の答えを戻して二度送らない。
+     */
+    @Test
+    fun aSenderWakingWhileAnotherIsSendingWaitsInsteadOfResendingIt() = runBlocking {
+        val first = outboxRepository()
+        val proposal = cachedProposal(first)
+        first.reviewTaskWorkProposal(proposal, "accept")
+        val commandId = first.observeProposalDecisions().first().single().commandId
+        val posting = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        decisionPostGate = {
+            posting.countDown()
+            release.await(10, TimeUnit.SECONDS)
+        }
+
+        withTimeout(20_000) {
+            val firstDrain = async(Dispatchers.IO) { first.synchronizeIfPaired() }
+            assertTrue(posting.await(10, TimeUnit.SECONDS))
+            val second = outboxRepository()
+            val secondDrain = async(Dispatchers.IO) {
+                second.recoverInterruptedOutbox()
+                second.synchronizeIfPaired()
+            }
+            delay(500)
+            // 後の送り手は錠で待っていて、送っている最中の答えを戻していない。
+            assertEquals(OutboxState.Sending, dao.outbox(commandId)?.state)
+            release.countDown()
+            firstDrain.await()
+            secondDrain.await()
+        }
+
+        assertEquals(1, postedDecisionBodies.size)
+        assertEquals(mapOf(commandId to "accept"), desktopDecisions)
+        assertEquals(0, dao.outboxCount())
+    }
+
     @Test
     fun aJustPressedAnswerIsNotSentAndAWakeIsScheduledForWhenTheWaitEnds() = runBlocking {
         val repository = outboxRepository(held = true)
@@ -399,6 +448,7 @@ class MobileProposalRepositoryTest {
         val queued = repository.observeProposalDecisions().first().single()
 
         assertTrue(repository.undoProposalDecision(queued.commandId))
+        assertEquals(listOf(queued.commandId), unscheduledAfter)
         repository.synchronizeIfPaired()
 
         assertTrue(postedDecisionBodies.isEmpty())
@@ -420,6 +470,7 @@ class MobileProposalRepositoryTest {
         assertEquals(OutboxState.RetryWait, repository.observeProposalDecisions().first().single().state)
 
         assertFalse(repository.undoProposalDecision(queued.commandId))
+        assertTrue(unscheduledAfter.isEmpty())
         assertEquals(queued.commandId, repository.observeProposalDecisions().first().single().commandId)
 
         repository.synchronizeIfPaired()
@@ -447,6 +498,7 @@ class MobileProposalRepositoryTest {
         },
         // 答えは取り消しの待ちを越えた物として積み、試験の中の送り手ですぐ送る。
         scheduleOutboxAfter = { _, _ -> },
+        unscheduleOutboxAfter = {},
         proposalDecisionNow = { Instant.now().minusMillis(PROPOSAL_DECISION_HOLD_MILLIS) },
     )
 

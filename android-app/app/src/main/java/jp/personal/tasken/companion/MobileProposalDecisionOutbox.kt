@@ -22,7 +22,8 @@ const val PROPOSAL_DECISION_HOLD_MILLIS = 5_000L
 /**
  * 列の送り手が、まだ取ってはいけない答えか。積んでから [PROPOSAL_DECISION_HOLD_MILLIS] の間の答えは、
  * 帯の「取り消す」のために端末で待たせる。時刻は列の行の createdAt（積んだ時）と、送り手の時計で比べる。
- * 読めない createdAt は待たせない（送らずに残り続けるより、送る方が本人の押しに沿う）。
+ * 読めない createdAt と、送り手の時計が積んだ時より前（時計が戻った）の時は待たせない
+ * （送らずに残り続けるより、送る方が本人の押しに沿う）。
  */
 internal fun OutboxCommandEntity.isHeldProposalDecision(now: Instant): Boolean {
     if (commandName != PROPOSAL_DECISION_COMMAND || state != OutboxState.Pending || attemptCount != 0) return false
@@ -31,7 +32,9 @@ internal fun OutboxCommandEntity.isHeldProposalDecision(now: Instant): Boolean {
     } catch (_: DateTimeParseException) {
         return false
     }
-    return now.isBefore(created.plusMillis(PROPOSAL_DECISION_HOLD_MILLIS))
+    // 押した後に端末の時計が戻った（now が積んだ時より前）なら待たせない。待たせると、時計が追いつくまで
+    // 送られないのに、画面は帯が閉じて送った見え方になる。
+    return !now.isBefore(created) && now.isBefore(created.plusMillis(PROPOSAL_DECISION_HOLD_MILLIS))
 }
 
 /** 先に決まっていた・変わっていた提案への答えに添える文（Desktop が proposal_conflict を返した時）。 */
@@ -97,6 +100,8 @@ internal class MobileProposalDecisionOutbox(
     private val deviceId: () -> String,
     /** 待ちが明けた後に送り手を起こす。[commandId] ごとに 1 回。 */
     private val scheduleAfter: (commandId: String, delay: Duration) -> Unit,
+    /** 取り消した答えの起こしを外す。 */
+    private val unscheduleAfter: (commandId: String) -> Unit,
     private val now: () -> Instant = Instant::now,
 ) {
     private val mutex = Mutex()
@@ -167,7 +172,11 @@ internal class MobileProposalDecisionOutbox(
      * 受け取られなかった前の答えを置き換えた答えなら、前の答えは積んだ時に消えているので戻さない
      * （答え直した時点で本人は前の答えを見ていて、提案は未決のまま、もう一度答えられる）。
      */
-    suspend fun undo(commandId: String): Boolean = dao.undoUnsentProposalDecision(commandId) == 1
+    suspend fun undo(commandId: String): Boolean {
+        if (dao.undoUnsentProposalDecision(commandId) != 1) return false
+        unscheduleAfter(commandId)
+        return true
+    }
 
     /** 受け取られなかった答えを、本人が閉じる。送る途中・送る前の答えは消さない。 */
     suspend fun discard(commandId: String): Boolean = dao.discardReturnedProposalDecision(commandId) == 1
