@@ -349,6 +349,61 @@ test("Note の検索: 引越し で 引っ越し の Note も当たり、書い�
   );
 });
 
+test("知識ノードの検索: 引越し で 引っ越し のノードも当たり、書いたまま当たったノードが先", async () => {
+  const { KnowledgeQueryService } = await importTs(
+    "src/main/core/services/knowledgeQueryService.ts",
+  );
+  const nodes = [
+    {
+      id: "k-alias",
+      title: "週末の段取り",
+      body: "引っ越しの荷造りを始める",
+      node_type: "fact",
+      updated_at: "2026-11-14T10:00:00.000Z",
+    },
+    {
+      id: "k-direct",
+      title: "引越しの手続き",
+      body: "転出届",
+      node_type: "decision",
+      updated_at: "2026-11-13T10:00:00.000Z",
+    },
+    {
+      id: "k-other",
+      title: "献立",
+      body: "カレー",
+      node_type: "fact",
+      updated_at: "2026-11-12T10:00:00.000Z",
+    },
+  ];
+  const service = new KnowledgeQueryService({
+    list: (type) => (type === "knowledge_node" ? nodes : []),
+  });
+  const response = service.searchKnowledge({ query: "引越し" });
+  assert.deepEqual(
+    response.knowledge_nodes.map((node) => node.id),
+    ["k-direct", "k-alias"],
+  );
+  assert.equal(response.result_meta.matched_visible_count, 2, "別名で当たった物も数に入る");
+  assert.deepEqual(
+    service.searchKnowledge({ query: "ＤＥＣＩＳＩＯＮ" }).knowledge_nodes.map((node) => node.id),
+    ["k-direct"],
+    "種類の欄も同じ照合のキーで比べる",
+  );
+  assert.deepEqual(
+    service
+      .searchKnowledge({ query: "引越し", node_types: ["fact"] })
+      .knowledge_nodes.map((node) => node.id),
+    ["k-alias"],
+    "種類の絞り込みはそのまま効く",
+  );
+  assert.deepEqual(
+    service.searchKnowledge({}).knowledge_nodes.map((node) => node.id),
+    ["k-alias", "k-direct", "k-other"],
+    "問いが無ければ新しい順のまま",
+  );
+});
+
 test("パレット: 引越し で 引っ越し の項目も出し、書いたまま当たった項目を先にする", () => {
   const entries = prepareCommandEntries([
     { id: "a", label: "新居への引っ越し", category: "Tasks" },

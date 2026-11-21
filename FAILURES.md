@@ -2,6 +2,22 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-21 `npm run ci` が main（v0.1.97）のまま `tasken-core-mcp-wave3` の 2 件で落ちる
+
+- しようとしたこと: #816 の確かめに `npm run ci` を流す。
+- 起きたこと: Full test suite で 2,183 件中 2 件（`MCP Wave 3 get_task_context preserves legacy fields…` と `Wave 3 preserves graph/text bounds…`）が、task の射影に `schedule: null`・`reminder_at: null` が多いという差で落ち、後の段は走らなかった。#816 の変更を戻した knowledgeQueryService でも同じく落ちる。
+- 原因: #805（MCP の読み射影に日付）で get_task_context の task に `schedule`・`reminder_at` が足されたが、旧来の応答と比べる試験の期待が追いついていないと見ている（確かめていない）。
+- 直し方: 直していない（#816 の範囲の外）。残りの段（audit・build）は個別に流して通した。
+- 再発防止: 記録だけ。直すなら、`tests/tasken-core-mcp-wave3.test.mjs` の旧来の応答との比較で、後から足した欄を外す（#751 の agent_work と同じ扱い）。
+
+## 2026-11-21 `MobileRoutineOutboxTest` が、流すたびに違う試験で落ちる（main でも同じ）
+
+- しようとしたこと: #816（提案の採る・見送るを送信の列へ）の後、送信の列に触れる androidTest（`MobileRoutineOutboxTest` など）を Pixel_8（API 35、`emulator-5556`）で流す。
+- 起きたこと: クラスだけを 9 回流して 4 回、1 件ずつ落ちた。落ちる試験は回ごとに違う（`deliveryAndRereadOverlappingDoNotCountTwice` の `expected:<2> but was:<1>`、`recordsRefusedByAnOldDesktopSayToUpdateThePcAndCanBeSentAgainTogether`）。変更の前の main（7b15adce）を別の worktree で build して同じクラスを 7 回流すと、3 回落ちた（上の 2 件と `aResendAfterALostReceiptKeepsTheSameCommandAndDoesNotRecordTwice`）。
+- 原因: 不明。疑っているのは、同じクラスの `TodayViewModel` を使う試験が作った ViewModel が試験の後も止まらず（viewModelScope を閉じていない）、共有の `MobileGatewayConnectionStore`（SharedPreferences）や送り手を、次の試験の最中に触ること。
+- 直し方: 直していない（#816 の範囲の外）。#816 の変更とは関係が無いことを、main で同じ落ち方をすることで確かめた。
+- 再発防止: 記録だけ。このクラスで落ちたら、前の版で同じ回数だけ流して比べる。直すなら、ViewModel を使う試験の後で viewModelScope を閉じる（か、ViewModel の試験を別のクラスに分ける）。
+
 ## 2026-11-19 ai-document-creation の後始末の順で、Windows の CI 全体が 45 分止まった
 
 - しようとしたこと: #789 の `tests/ai-document-creation.test.mjs`（create-only headless の実証）で、後始末を `t.after` に分けて登録した（一時フォルダー削除 → Core 停止 → MCP 終了の順）。

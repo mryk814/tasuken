@@ -1,12 +1,7 @@
 package jp.personal.tasken.companion
 
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -32,7 +27,6 @@ class ProposalReviewUiTest {
                     task = task(),
                     actionState = TaskActionUiState.Idle,
                     taskWorkProposals = listOf(proposal),
-                    proposalReviewOnline = true,
                     onStateAction = {},
                     onProposalDecision = { _, decision -> decisions += decision },
                 )
@@ -49,7 +43,8 @@ class ProposalReviewUiTest {
     }
 
     @Test
-    fun offlineOrStalePreviewCannotBeApproved() {
+    fun stalePreviewCannotBeApprovedButCanBeRejected() {
+        val decisions = mutableListOf<String>()
         val proposal = proposal()
         composeRule.setContent {
             MaterialTheme {
@@ -57,8 +52,8 @@ class ProposalReviewUiTest {
                     task = task(),
                     actionState = TaskActionUiState.Idle,
                     taskWorkProposals = listOf(proposal.copy(stale = true)),
-                    proposalReviewOnline = false,
                     onStateAction = {},
+                    onProposalDecision = { _, decision -> decisions += decision },
                 )
             }
         }
@@ -67,95 +62,123 @@ class ProposalReviewUiTest {
         composeRule.onNodeWithText("Taskが更新されています。採らずに、AIへ再報告を依頼してください。")
             .assertIsDisplayed()
         composeRule.onNodeWithTag("proposal-approve-${proposal.id}").assertIsNotEnabled()
-        composeRule.onNodeWithTag("proposal-reject-${proposal.id}").assertIsNotEnabled()
+        composeRule.onNodeWithTag("proposal-reject-${proposal.id}").performScrollTo().assertIsEnabled().performClick()
+        assertEquals(listOf("reject"), decisions)
     }
 
-    /** つながらない間は押す前に「使えない」と分かり、押しても判断は送らず一言だけ出す。つながったら元に戻る。 */
+    /** 送る途中の答えは、押した答えを未送信の印と並べて出し、もう一度は押させない（#816）。 */
     @Test
-    fun offlineReviewLooksUnavailableAndRecoversWhenConnected() {
-        val decisions = mutableListOf<String>()
+    fun aQueuedAnswerShowsTheUnsentMarkInsteadOfTheButtons() {
         val proposal = proposal()
-        val online = mutableStateOf(false)
         composeRule.setContent {
             MaterialTheme {
                 TodayDetailPane(
                     task = task(),
                     actionState = TaskActionUiState.Idle,
                     taskWorkProposals = listOf(proposal),
-                    proposalReviewOnline = online.value,
+                    proposalDecisions = listOf(decision(proposal, state = OutboxState.Pending)),
                     onStateAction = {},
-                    onProposalDecision = { _, decision -> decisions += decision },
                 )
             }
         }
 
-        composeRule.onNodeWithTag("proposal-detail-${proposal.id}").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithTag("proposal-approve-${proposal.id}")
-            .assertIsNotEnabled()
-            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "つながると使えます"))
-        composeRule.onNodeWithTag("proposal-offline-hint-${proposal.id}").assertDoesNotExist()
-        composeRule.onNodeWithTag("proposal-approve-${proposal.id}").performClick()
-        composeRule.onNodeWithTag("proposal-reject-${proposal.id}").performClick()
-        composeRule.onNodeWithTag("proposal-offline-hint-${proposal.id}").assertIsDisplayed()
-        assertEquals(emptyList<String>(), decisions)
+        composeRule.onNodeWithTag("proposal-decision-pending-${proposal.id}").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("採る").assertIsDisplayed()
+        composeRule.onNodeWithTag("proposal-approve-${proposal.id}").assertDoesNotExist()
+        composeRule.onNodeWithTag("proposal-reject-${proposal.id}").assertDoesNotExist()
+    }
 
-        online.value = true
-        composeRule.onNodeWithTag("proposal-offline-hint-${proposal.id}").assertDoesNotExist()
-        composeRule.onNodeWithTag("proposal-approve-${proposal.id}").assertIsEnabled().performClick()
+    /** 受け取られなかった答えは理由と一緒に残り、提案がまだ待っていれば、もう一度答えられ、閉じられる。 */
+    @Test
+    fun aReturnedAnswerKeepsItsReasonAndTheProposalCanBeAnsweredAgain() {
+        val decisions = mutableListOf<String>()
+        val discarded = mutableListOf<String>()
+        val proposal = proposal()
+        val returned = decision(proposal, state = OutboxState.Rejected, reason = PROPOSAL_DECISION_CONFLICT)
+        composeRule.setContent {
+            MaterialTheme {
+                TodayDetailPane(
+                    task = task(),
+                    actionState = TaskActionUiState.Idle,
+                    taskWorkProposals = listOf(proposal),
+                    proposalDecisions = listOf(returned),
+                    onStateAction = {},
+                    onProposalDecision = { _, decision -> decisions += decision },
+                    onProposalDecisionDiscard = { discarded += it },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("proposal-decision-returned-${returned.commandId}").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("「採る」は届きませんでした").assertIsDisplayed()
+        composeRule.onNodeWithText(PROPOSAL_DECISION_CONFLICT).assertIsDisplayed()
+        composeRule.onNodeWithTag("proposal-approve-${proposal.id}").performScrollTo().assertIsEnabled().performClick()
+        composeRule.onNodeWithTag("proposal-decision-discard-${returned.commandId}").performScrollTo().performClick()
         assertEquals(listOf("accept"), decisions)
+        assertEquals(listOf(returned.commandId), discarded)
     }
 
-    /** 読み直しの間は「使えない」の形にせず、元のボタンを押せない状態で出す。 */
+    /** 提案が PC で片付いて無くなっても、受け取られなかった答えは閉じるまで Task の詳細に残る。 */
     @Test
-    fun whileCheckingTheButtonsKeepTheirShapeButCannotBePressed() {
-        val decisions = mutableListOf<String>()
-        val proposal = proposal()
+    fun aReturnedAnswerStaysOnTheTaskAfterTheProposalIsGone() {
+        val discarded = mutableListOf<String>()
+        val returned = decision(proposal(), state = OutboxState.Rejected, reason = PROPOSAL_DECISION_CONFLICT)
         composeRule.setContent {
             MaterialTheme {
                 TodayDetailPane(
                     task = task(),
                     actionState = TaskActionUiState.Idle,
-                    taskWorkProposals = listOf(proposal),
-                    proposalReviewOnline = false,
-                    proposalReviewChecking = true,
+                    proposalDecisions = listOf(returned),
                     onStateAction = {},
-                    onProposalDecision = { _, decision -> decisions += decision },
+                    onProposalDecisionDiscard = { discarded += it },
                 )
             }
         }
 
-        composeRule.onNodeWithTag("proposal-detail-${proposal.id}").performScrollTo()
-        composeRule.onNodeWithTag("proposal-approve-${proposal.id}")
-            .assertIsNotEnabled()
-            .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
-        composeRule.onNodeWithTag("proposal-reject-${proposal.id}").assertIsNotEnabled().performClick()
-        composeRule.onNodeWithTag("proposal-offline-hint-${proposal.id}").assertDoesNotExist()
-        assertEquals(emptyList<String>(), decisions)
+        composeRule.onNodeWithTag("proposal-decision-card-${returned.commandId}").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithTag("proposal-decision-discard-${returned.commandId}").performScrollTo().performClick()
+        assertEquals(listOf(returned.commandId), discarded)
     }
 
-    /** 登録が切れている時は「つながると」でなく、つなぎ直すと使えると分かる形にする。 */
+    /** Task が写しから消えていても、受け取られなかった答えは同期の一覧から閉じられる。 */
     @Test
-    fun whenTheDeviceNeedsPairingAgainTheButtonsSaySo() {
-        val proposal = proposal()
+    fun aReturnedAnswerCanBeClosedFromTheSyncSheetWithoutItsTask() {
+        val closed = mutableListOf<String>()
+        val returned = decision(proposal(), state = OutboxState.Rejected, reason = PROPOSAL_DECISION_GONE).copy(code = "not_found")
+        val summary = syncSummary(
+            TodayUiState.Success(emptyList(), "2026-11-21T00:00:00Z"),
+            pending = 0, tasks = emptyList(), captures = emptyList(), recoveredInputs = 0,
+            proposalDecisions = listOf(returned),
+        )
         composeRule.setContent {
             MaterialTheme {
-                TodayDetailPane(
-                    task = task(),
-                    actionState = TaskActionUiState.Idle,
-                    taskWorkProposals = listOf(proposal),
-                    proposalReviewOnline = false,
-                    proposalReviewNeedsRepair = true,
-                    onStateAction = {},
+                SyncStatusSheet(
+                    summary = summary,
+                    refreshing = false,
+                    onSyncNow = {},
+                    onRepair = {},
+                    onOpenUnsentCaptures = {},
+                    onOpenRecoveredInputs = {},
+                    onDismiss = {},
+                    onCloseProposalDecision = { closed += it },
                 )
             }
         }
 
-        composeRule.onNodeWithTag("proposal-detail-${proposal.id}").performScrollTo()
-        composeRule.onNodeWithTag("proposal-approve-${proposal.id}")
-            .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "つなぎ直すと使えます"))
-            .performClick()
-        composeRule.onNodeWithTag("proposal-offline-hint-${proposal.id}").assertTextEquals("つなぎ直すと使えます")
+        composeRule.onNodeWithText("「採る」を確かめられませんでした。$PROPOSAL_DECISION_GONE").assertIsDisplayed()
+        composeRule.onNodeWithTag("sync-returned-open-0").assertDoesNotExist()
+        composeRule.onNodeWithTag("sync-returned-close-0").performClick()
+        assertEquals(listOf(returned.commandId), closed)
     }
+
+    private fun decision(proposal: MobileTaskWorkProposal, state: String, reason: String? = null) = MobileProposalDecision(
+        commandId = "command-1",
+        proposalId = proposal.id,
+        taskId = proposal.taskId,
+        decision = "accept",
+        state = state,
+        reason = reason,
+    )
 
     private fun task() = MobileTask(
         id = "task-1",

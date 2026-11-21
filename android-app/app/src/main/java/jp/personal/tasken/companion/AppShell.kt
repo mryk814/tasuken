@@ -83,6 +83,7 @@ internal fun sectionIcon(section: AppSection): Int = when (section) {
 /**
  * 受け取られなかった物の一つ。[taskId] があれば、その Task を開いて決める。
  * [routineCommandId] があれば続けることの記録で、開く先が無いので、その場で送り直すか消すかを選ぶ。
+ * [proposalCommandId] があれば提案への答えで、その場で閉じられる（Task が写しにあれば開くこともできる）。
  * どちらも無ければ入力の一覧を開く。
  */
 internal data class SyncReturned(
@@ -90,6 +91,7 @@ internal data class SyncReturned(
     val reason: String,
     val taskId: String? = null,
     val routineCommandId: String? = null,
+    val proposalCommandId: String? = null,
 )
 
 /** 断られた続けることの記録を、同期の一覧の一行にする。名前が分からない時（Todayから外れた Habit）は「続けること」。 */
@@ -132,6 +134,20 @@ internal data class SyncSummary(
     val healthy: Boolean get() = connected && unsent == 0
 }
 
+/**
+ * 受け取られなかった提案への答えを、同期の一覧の一行にする。Task が写しから消えていても（PC で消された）出し、
+ * その場で閉じられるようにする。閉じないと、送信の列に残った行が別の PC へのつなぎ直しを止める。
+ */
+internal fun MobileProposalDecision.toSyncReturned(tasks: List<MobileTask>): SyncReturned {
+    val task = tasks.firstOrNull { it.id == taskId }
+    return SyncReturned(
+        title = task?.title ?: "AIの提案",
+        reason = listOfNotNull(returnedTitle() + "。", reason).joinToString(""),
+        taskId = task?.id,
+        proposalCommandId = commandId,
+    )
+}
+
 internal fun MobileTask.toSyncReturned(): SyncReturned? = when {
     conflict != null -> SyncReturned(title, "PC で先に変わっていました", id)
     heldChanges.any { it.rejected } -> SyncReturned(title, heldChanges.first { it.rejected }.reason, id)
@@ -148,6 +164,7 @@ internal fun syncSummary(
     nextSendAt: Long? = null,
     routineRecords: List<MobilePendingRoutineRecord> = emptyList(),
     routineTitles: Map<String, String> = emptyMap(),
+    proposalDecisions: List<MobileProposalDecision> = emptyList(),
 ): SyncSummary {
     val needsRepair = uiState is TodayUiState.PairingRequired ||
         (uiState as? TodayUiState.Cached)?.recovery == TodayUiState.CachedRecovery.RePair
@@ -187,7 +204,9 @@ internal fun syncSummary(
                 SyncReturned(it.text.lineSequence().firstOrNull().orEmpty().take(40), "PC が受け取りませんでした")
             } +
             // 送る前と送っている記録は、ほかの命令と同じく pending の数（waiting）に入っている。
-            routineRecords.filter { it.rejected }.map { it.toSyncReturned(routineTitles) },
+            routineRecords.filter { it.rejected }.map { it.toSyncReturned(routineTitles) } +
+            // 送る前・送っている答えは waiting に入る。受け取られなかった答えだけここに出す。
+            proposalDecisions.filter { it.returned }.map { it.toSyncReturned((tasks + shown).distinctBy { task -> task.id }) },
         unsentCaptures = captures.size,
         recoveredInputs = recoveredInputs,
     )
@@ -282,6 +301,7 @@ internal fun SyncStatusSheet(
     onRetryRoutine: (String) -> Unit = {},
     onDiscardRoutine: (String) -> Unit = {},
     onRetryAllRoutines: () -> Unit = {},
+    onCloseProposalDecision: (String) -> Unit = {},
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         SheetColumn(Modifier.testTag("sync-status-sheet")) {
@@ -375,7 +395,10 @@ internal fun SyncStatusSheet(
                         ) { Text("続けることをまとめて送り直す（${summary.routineReturned}）", fontWeight = FontWeight.Bold) }
                     }
                     // 多い時は先の三つまで。残りは、開いた先（Task の一覧の「戻」の印）で見つかる。
-                    summary.returned.take(3).forEachIndexed { index, item ->
+                    // ただし Task が写しに無い提案への答えは、ほかに辿る先が無いので、三つを越えても出す。
+                    val listed = summary.returned.take(3) +
+                        summary.returned.drop(3).filter { it.proposalCommandId != null && it.taskId == null }
+                    listed.forEachIndexed { index, item ->
                         Text(
                             "「${item.title}」",
                             style = MaterialTheme.typography.bodyMedium,
@@ -386,7 +409,23 @@ internal fun SyncStatusSheet(
                         )
                         ReasonDetail(item.reason, strong = true)
                         val routineCommandId = item.routineCommandId
-                        if (routineCommandId != null) {
+                        val proposalCommandId = item.proposalCommandId
+                        if (proposalCommandId != null) {
+                            // 提案への答えは、Task が写しに無くてもここで閉じられる（手放す）。
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (item.taskId != null) {
+                                    ToolButton(
+                                        onClick = { onOpenReturned(item) },
+                                        modifier = Modifier.testTag("sync-returned-open-$index"),
+                                    ) { Text("開いて見る", fontWeight = FontWeight.Bold) }
+                                }
+                                TextButton(
+                                    onClick = { onCloseProposalDecision(proposalCommandId) },
+                                    modifier = Modifier.padding(top = 6.dp).heightIn(min = 44.dp)
+                                        .testTag("sync-returned-close-$index"),
+                                ) { Text("閉じる") }
+                            }
+                        } else if (routineCommandId != null) {
                             // 続けることの記録には開く先が無い。その場で、同じ記録を送り直すか、消すかを決める。
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 ToolButton(
@@ -406,7 +445,7 @@ internal fun SyncStatusSheet(
                             ) { Text("開いて決める", fontWeight = FontWeight.Bold) }
                         }
                     }
-                    if (summary.returned.size > 3) ReasonDetail("ほか ${summary.returned.size - 3}")
+                    if (summary.returned.size > listed.size) ReasonDetail("ほか ${summary.returned.size - listed.size}")
                 }
             }
             if (summary.unsentCaptures > 0 || summary.recoveredInputs > 0) {
