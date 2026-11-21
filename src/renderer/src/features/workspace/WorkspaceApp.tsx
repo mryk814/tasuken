@@ -2313,7 +2313,7 @@ export function WorkspaceApp() {
       <div className="app-frame" style={frameStyle}>
         {titleBar}
         <div className="app-content-viewport">
-          <AppState state="loading" />
+          <AppState state="loading" animal />
         </div>
       </div>
     );

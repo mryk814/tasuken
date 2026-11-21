@@ -351,3 +351,11 @@
 - 原因: Play Services が `androidx.fragment` 1.1.0 を連れてきて、`registerForActivityResult` が要求する 1.3.0 を下回った。リリースの lint は debug のビルドでは走らない。
 - 直し方: `androidx.fragment:fragment` の新しい版を明示した。
 - 再発防止: 依存を足したときは、手元でも `./gradlew assembleRelease` を流し、「Release signing is not configured」で止まる所まで進むことを確かめる（lint と R8 を通ったことになる）。CI の `verify-release-signing` が同じことを確かめている。
+
+## 2026-11-22 smoke:desktop:focused が stage `core-start` のまま 15 分の上限で落ちる（main でも同じ）
+
+- しようとしたこと: #776（アマガエル）の枝で `npm run ci` の残りの段として `smoke:desktop:focused` を流す。
+- 起きたこと: 4 回とも `Electron smoke exceeded the overall limit of 900000 ms`、result.json の stage は `core-start`。userData の `tasken-core.json`（origin と token）は書かれていて、main.log の最後は `ai-direct-write enabled once on upgrade (#755 bundle 10a)`。同じ時間帯に別の worktree（785-schedule-time・809-tasken-root）の smoke も同じ所で止まっていた。
+- 原因: 不明。origin/main（7b15adce）を同じ worktree で build して流しても同じ所で止まったので、#776 の変更ではない。Core の起動後、smoke が次の段へ進む合図を受け取れていないように見える。
+- 直し方: まだ無い。#776 は、main でも同じく落ちることを確かめた上で、ほかの段（rebuild・lint・typecheck・試験・audit・build・ほかの smoke）を通して入れた。
+- 再発防止: 記録だけ。次に smoke に触る時に、core-start の段で何を待っているかをログに出すようにすると切り分けやすい。

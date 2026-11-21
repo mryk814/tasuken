@@ -304,20 +304,24 @@ export function AppState({
   state,
   message,
   onRetry,
+  animal = false,
 }: {
   state: "loading" | "error";
   message?: string;
   onRetry?: () => void;
+  /** 起動の待ちだけが true。ドロワー・モーダルの遅延読み込みの代わりの表示は繰り返し開く所なので出さない（#776） */
+  animal?: boolean;
 }) {
+  const withKaeru = state === "loading" && animal;
   return (
     <main className="standalone-state">
-      <div className={`state-box ${state}${state === "loading" ? " kaeru-edge" : ""}`}>
+      <div className={`state-box ${state}${withKaeru ? " kaeru-edge" : ""}`}>
         {state === "loading" ? (
           <>
             <span className="spinner" />
             <strong>作業台を読み込んでいます</strong>
             {/* 本人が縮められない待ち。枠の縁にアマガエルが止まる（#776。読み込めない時は出さない）。 */}
-            <KaeruWait />
+            {withKaeru ? <KaeruWait /> : null}
           </>
         ) : (
           <>
