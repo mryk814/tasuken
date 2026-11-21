@@ -140,7 +140,11 @@ async function waitForDecisionsSent(page) {
 async function waitForWorkProposalDecision(page) {
   await waitForDecisionsSent(page);
   const message = await page.evaluate(
-    () => document.querySelector(".toast-message")?.textContent?.trim() || "",
+    // 断られた理由は帯とは別の知らせに積む（#774）。帯と知らせの両方を読む。
+    () =>
+      [...document.querySelectorAll(".toast-message")]
+        .map((node) => node.textContent?.trim() || "")
+        .join("\n"),
   );
   assert.doesNotMatch(message, /Work proposalを採れませんでした/);
   await waitForPendingCount(page, 0);
