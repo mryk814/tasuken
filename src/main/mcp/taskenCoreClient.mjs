@@ -558,12 +558,16 @@ export class TaskenCoreClient {
   }
 
   async editNote(request = {}) {
+    const hasImages = Array.isArray(request.images) && request.images.length > 0;
+    const extraHeaders = hasImages ? { "x-tasken-note-images": "1" } : {};
     return this.request(
       "/v1/commands/edit-note",
       TASKEN_CORE_AI_DIRECT_WRITE_CAPABILITY,
       request,
       aiNoteEditResponseSchema,
       "edit-note",
+      extraHeaders,
+      hasImages ? Math.max(this.timeoutMs, TASKEN_CORE_IMAGE_PROPOSAL_TIMEOUT_MS) : this.timeoutMs,
     );
   }
 
@@ -578,12 +582,16 @@ export class TaskenCoreClient {
   }
 
   async createAiItem(request = {}) {
+    const hasImages = Array.isArray(request.images) && request.images.length > 0;
+    const extraHeaders = hasImages ? { "x-tasken-note-images": "1" } : {};
     return this.request(
       "/v1/commands/create-ai-item",
       TASKEN_CORE_CREATE_AI_ITEM_CAPABILITY,
       request,
       aiItemCreationResponseSchema,
       "create-ai-item",
+      extraHeaders,
+      hasImages ? Math.max(this.timeoutMs, TASKEN_CORE_IMAGE_PROPOSAL_TIMEOUT_MS) : this.timeoutMs,
     );
   }
 

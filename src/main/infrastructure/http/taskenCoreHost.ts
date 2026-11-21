@@ -1230,13 +1230,17 @@ export class TaskenCoreHost {
         const allowsNoteProposalImages =
           url === "/v1/commands/propose-content" &&
           request.headers["x-tasken-proposal-images"] === "1";
+        // Noteの直接作成・直接編集の画像添付も、画像入り提案と同じ上限を使う（#790）。
+        const allowsNoteImages =
+          (url === "/v1/commands/create-ai-item" || url === "/v1/commands/edit-note") &&
+          request.headers["x-tasken-note-images"] === "1";
         // Documentの同梱アセットも、画像入りの提案と同じ大きめの上限が要る（#789）。
         const allowsDocumentAssets =
           url === "/v1/commands/create-ai-document" &&
           request.headers["x-tasken-document-assets"] === "1";
         const rawBody = await requestBody(
           request,
-          allowsNoteProposalImages || allowsDocumentAssets
+          allowsNoteProposalImages || allowsNoteImages || allowsDocumentAssets
             ? MAX_NOTE_PROPOSAL_WITH_IMAGES_BODY_BYTES
             : MAX_BODY_BYTES,
         );

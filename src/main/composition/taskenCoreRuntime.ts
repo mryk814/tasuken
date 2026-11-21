@@ -198,7 +198,7 @@ export class TaskenCoreRuntime {
     onProposalCommitted?: NonNullable<
       Parameters<typeof createTaskenCore>[1]
     >["onProposalCommitted"],
-    noteProposalImagePort?: NoteProposalImagePort,
+    private readonly noteProposalImagePort?: NoteProposalImagePort,
     private readonly workLogWriter?: WorkLogWriterPort,
     private readonly captureImagePort?: CaptureImagePort,
     options: {
@@ -529,10 +529,14 @@ export class TaskenCoreRuntime {
    * AIのTask・Note新規作成を公開する。`isEnabled`はDesktopだけが渡し、本人の設定を要求のたびに読む。
    * NAS replicaは配備の書き込み範囲（create-only）で許しているので渡さない。
    */
-  enableAiItemCreation(port: AiItemCreationPort, options: { isEnabled?: () => boolean } = {}) {
+  enableAiItemCreation(
+    port: AiItemCreationPort,
+    options: { isEnabled?: () => boolean; noteProposalImagePort?: NoteProposalImagePort } = {},
+  ) {
     this.host.enableAiItemCreation(
       new AiItemCreationService(this.persistence, port, {
         isEnabled: options.isEnabled,
+        noteProposalImagePort: options.noteProposalImagePort ?? this.noteProposalImagePort,
       }),
       options.isEnabled,
     );

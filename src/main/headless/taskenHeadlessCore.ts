@@ -19,6 +19,7 @@ import {
 } from "../services/captureImageStore.ts";
 import { AutomaticSnapshotBackupService } from "../services/automaticSnapshotBackup.ts";
 import { createImageHeaderDecoder } from "../services/imageHeaderDecoder.ts";
+import { createNoteProposalImagePort } from "../services/proposalMarkdownImages.ts";
 import { inspectWorkspaceBackup } from "../repositories/workspaceRepository.mjs";
 import { createHeadlessMobileGateway, DEFAULT_MOBILE_GATEWAY_PORT } from "./mobileGateway.ts";
 import { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
@@ -228,15 +229,24 @@ export async function startTaskenHeadlessCore(
     }
     if (writeMode === "create-only" || mobileGatewayEnabled) {
       // WorkLogの書き込み（端末）はwrite-modeと独立に、同じWorkspaceServiceを使う。
-      workspace = new WorkspaceService(repository, userDataPath, undefined, undefined, () => {
-        throw new Error("Headless creation accepts text only.");
-      });
+      workspace = new WorkspaceService(
+        repository,
+        userDataPath,
+        undefined,
+        undefined,
+        createImageHeaderDecoder(),
+      );
       // Join first: a new replica must be empty before its personal theme is bootstrapped.
       repository.loadWorkspace();
       workspace.recoverCanonicalMarkdownReceipts();
     }
     if (writeMode === "create-only" && workspace) {
-      runtime.enableAiItemCreation(createAiItemCreationPort(commands, workspace));
+      runtime.enableAiItemCreation(createAiItemCreationPort(commands, workspace), {
+        noteProposalImagePort: createNoteProposalImagePort(
+          userDataPath,
+          createImageHeaderDecoder(),
+        ),
+      });
       // Documentの直接作成（#789）もcreate-onlyの範囲。新規作成と同じく配備で許している。
       runtime.enableAiDocumentCreation(createAiDocumentCreationPort(userDataPath));
       // 配備で明示した時点で許しているので、Desktopのような要求ごとの設定は読まない。

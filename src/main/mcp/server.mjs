@@ -1,6 +1,6 @@
 import {
   AGENT_WORK_RECORD_LIMITS,
-  aiNoteEditRequestSchema,
+  aiNoteEditFields,
   aiProposalDecisionRequestSchema,
   aiChangeUndoRequestSchema,
   aiNoteCreationFields,
@@ -32,6 +32,12 @@ import {
   parseMcpToolsets,
 } from "./toolAvailability.mjs";
 import { compactToolDiscovery } from "./compactSchema.mjs";
+import {
+  createDocumentAssetsSchema,
+  createNoteImagesSchema,
+  resolveLocalDocumentAssets,
+  resolveLocalNoteImages,
+} from "./localMediaInput.mjs";
 import { instrumentToolCalls, stdioStatsCaller } from "./toolStats.mjs";
 import { MCP_GUIDES } from "./guides.mjs";
 
@@ -62,34 +68,6 @@ const dryRun = z
   .boolean()
   .optional()
   .describe("Validate without saving; retry without dry_run using the same idempotency_key.");
-const noteProposalImages = z
-  .array(
-    z
-      .object({
-        reference_id: z
-          .string()
-          .trim()
-          .regex(/^[a-z0-9][a-z0-9._-]{0,63}$/),
-        file_name: z
-          .string()
-          .trim()
-          .min(1)
-          .max(180)
-          .refine(
-            (value) => !/[<>:"/\\|?*\x00-\x1f\x7f]/.test(value),
-            "file_nameにはファイル名だけを指定してください。",
-          ),
-        media_type: z.enum(["image/png", "image/jpeg"]),
-        data_base64: z.string().min(4).max(16_777_216),
-      })
-      .strict(),
-  )
-  .min(1)
-  .max(8)
-  .optional()
-  .describe(
-    "PNG/JPEG base64 for tasken-upload://reference_id; explicit stable idempotency_key required; see tasken://guide/note_article.",
-  );
 const NOTE_MARKDOWN_BODY_DESCRIPTION =
   "Markdown without duplicate H1; see tasken://guide/note_article.";
 const NOTE_EDIT_MARKDOWN_BODY_DESCRIPTION =
@@ -220,6 +198,7 @@ export function mcpReadOnlyMode(env = process.env) {
  *   toolsets?: string[] | string,
  *   verifiedClient?: string,
  *   statsCaller?: string,
+ *   allowLocalFilePaths?: boolean,
  *   statsSink?: { record(row: object): void },
  *   withheldCapabilities?: readonly string[],
  * }} [options]
@@ -239,6 +218,28 @@ export function createTaskenMcpServer(options = {}) {
       : options.toolsets,
   );
   const readOnly = options.readOnly ?? mcpReadOnlyMode(options.env || process.env);
+  // stdio 接続（クライアントと同じ PC 上）だけがローカル file_path の読み取りを明示的に求める（#790）。
+  // 既定は拒否: HTTP 接続（verifiedClient あり＝NAS 上）や将来の別の遠隔経路が渡し忘れても、
+  // サーバー側のローカルファイル読み出し（LFI）にならないようにする。
+  const allowLocalFilePaths = options.allowLocalFilePaths === true && !options.verifiedClient;
+  const noteImagesSchema = createNoteImagesSchema({
+    allowLocalFilePaths,
+    description: allowLocalFilePaths
+      ? "PNG/JPEG for tasken-upload://id (file_path or data_base64); see guide/note_article."
+      : "PNG/JPEG base64 for tasken-upload://id; see guide/note_article.",
+  });
+  const noteProposalImages = createNoteImagesSchema({
+    allowLocalFilePaths,
+    description: allowLocalFilePaths
+      ? "PNG/JPEG for tasken-upload://id (file_path or data_base64); idempotency_key required."
+      : "PNG/JPEG base64 for tasken-upload://id; idempotency_key required.",
+  });
+  const documentAssetsSchema = createDocumentAssetsSchema({
+    allowLocalFilePaths,
+    description: allowLocalFilePaths
+      ? "Assets for tasken-upload://id (file_path or data_base64); max 8, 12MiB each."
+      : "Assets base64 for tasken-upload://id; max 8, 12MiB each.",
+  });
   const coreClient =
     options.coreClient || new TaskenCoreClient({ env: options.env || process.env });
   // NAS replicaのCoreに繋いだときだけ、結果に同期の鮮度を添える（Desktopの出力は変えない）。
@@ -844,11 +845,11 @@ export function createTaskenMcpServer(options = {}) {
     ...contentProposalIdentity,
     repository_context: taskWorkRepositoryContextSchema,
   };
-  const queueContent = (args, kind) => {
+  const queueContent = async (args, kind) => {
     // 画像はProposal IDから決まる保存先へ先に置く。再試行で同じ画像を指せるよう、
     // 画像を伴う送信はNote・読み物投稿のどちらもidempotency_keyを必須にする。
     const imageCount =
-      kind === "note_create"
+      kind === "note_create" || kind === "note_edit"
         ? Array.isArray(args.images)
           ? args.images.length
           : 0
@@ -862,8 +863,23 @@ export function createTaskenMcpServer(options = {}) {
         "画像付きのProposalにはidempotency_keyが必要です。再試行でも同じ値を指定してください。",
       );
     }
+    const resolvedImages =
+      (kind === "note_create" || kind === "note_edit") && args.images
+        ? await resolveLocalNoteImages(args.images, { allowLocalFilePaths })
+        : undefined;
+    const resolvedArticle =
+      kind === "feed_post" && args.article?.images
+        ? {
+            ...args.article,
+            images: await resolveLocalNoteImages(args.article.images, { allowLocalFilePaths }),
+          }
+        : args.article;
     return coreClient.proposeContent({
       ...args,
+      ...(resolvedImages ? { images: resolvedImages } : {}),
+      ...(kind === "feed_post" && resolvedArticle !== undefined
+        ? { article: resolvedArticle }
+        : {}),
       ...(kind === "note_create" && args.note_type === "note" ? { note_type: "memo" } : {}),
       idempotency_key: args.idempotency_key ?? randomUUID(),
       caller: args.caller ?? sourceApp(args),
@@ -1034,9 +1050,12 @@ export function createTaskenMcpServer(options = {}) {
         "Save a new Task directly (AI-created, unseen); returns its ID. Theme defaults to 個人業務; optional schedule, reminder_at, priority, today_date, checklist, place_reminder. Reuse idempotency_key to retry.",
     },
     note: {
-      fields: aiNoteCreationFields,
+      fields: {
+        ...aiNoteCreationFields,
+        images: noteImagesSchema,
+      },
       description:
-        "Save a new Note directly (marked AI-created/unseen); returns the official ID. With task_id, created linked to that Task and taking its Theme. Theme defaults to 個人業務. Reuse idempotency_key on retries.",
+        "Save a new Note directly (AI-created/unseen); optional task_id and images (file_path/base64). Reuse idempotency_key.",
     },
   };
   for (const [kind, { fields, description }] of Object.entries(creationTools)) {
@@ -1044,7 +1063,17 @@ export function createTaskenMcpServer(options = {}) {
     server.registerTool(
       toolName,
       { description, inputSchema: fields, annotations: DIRECT_WRITE_ANNOTATIONS },
-      withCoreClient((args) => coreClient.createAiItem({ ...args, kind })),
+      withCoreClient(async (args) => {
+        const images =
+          kind === "note" && args.images
+            ? await resolveLocalNoteImages(args.images, { allowLocalFilePaths })
+            : undefined;
+        return coreClient.createAiItem({
+          ...args,
+          ...(images ? { images } : {}),
+          kind,
+        });
+      }),
     );
   }
 
@@ -1052,11 +1081,22 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.create_document",
     {
       description:
-        "Save a finished HTML document directly under a Task (AI-created/unseen); shown in the Task detail and get_task_context at once. Assets: tasken-upload://reference-id; see tasken://guide/document.",
-      inputSchema: aiDocumentCreationFields,
+        "Save HTML document directly under a Task; assets via tasken-upload://id (file_path/base64). See guide/document.",
+      inputSchema: {
+        ...aiDocumentCreationFields,
+        assets: documentAssetsSchema,
+      },
       annotations: DIRECT_WRITE_ANNOTATIONS,
     },
-    withCoreClient((args) => coreClient.createAiDocument(args)),
+    withCoreClient(async (args) => {
+      const assets = args.assets
+        ? await resolveLocalDocumentAssets(args.assets, { allowLocalFilePaths })
+        : undefined;
+      return coreClient.createAiDocument({
+        ...args,
+        ...(assets ? { assets } : {}),
+      });
+    }),
   );
 
   server.registerTool(
@@ -1081,15 +1121,34 @@ export function createTaskenMcpServer(options = {}) {
     withCoreClient((args) => coreClient.decideProposal(args)),
   );
 
+  const noteEditInputSchema = z
+    .object({
+      ...aiNoteEditFields,
+      images: noteImagesSchema,
+    })
+    .strict()
+    .superRefine((value, context) => {
+      if (!value.said && !value.why)
+        context.addIssue({ code: "custom", path: ["said"], message: "saidかwhyが必要です。" });
+    });
+
   server.registerTool(
     "tasken.edit_note",
     {
       description:
-        "Replace a Note's whole title/body; needs base_version and body_signature from a full get_note. Put the user's words in said (why alone may get ASK_USER). Not undoable.",
-      inputSchema: aiNoteEditRequestSchema,
+        "Replace Note title/body (+optional images); needs base_version & body_signature from full get_note. Put user's words in said. Not undoable.",
+      inputSchema: noteEditInputSchema,
       annotations: DIRECT_WRITE_ANNOTATIONS,
     },
-    withCoreClient((args) => coreClient.editNote(args)),
+    withCoreClient(async (args) => {
+      const images = args.images
+        ? await resolveLocalNoteImages(args.images, { allowLocalFilePaths })
+        : undefined;
+      return coreClient.editNote({
+        ...args,
+        ...(images ? { images } : {}),
+      });
+    }),
   );
 
   server.registerTool(
@@ -1296,13 +1355,14 @@ export function createTaskenMcpServer(options = {}) {
     "tasken.propose_note_edit",
     {
       description:
-        "Queue a full Markdown replacement for human adoption; base_version prevents stale overwrites. See tasken://guide/note_article.",
+        "Queue full Markdown replacement (+optional images) for adoption; base_version prevents stale writes.",
       inputSchema: {
         ...contentProposalBase,
         note_id: z.string().trim().min(1),
         base_version: z.number().int().positive(),
         title: z.string().trim().min(1).max(200),
         body: z.string().max(200000).describe(NOTE_EDIT_MARKDOWN_BODY_DESCRIPTION),
+        images: noteProposalImages,
         reason: z.string().trim().min(1).max(2000),
         source_app: z.string().trim().min(1).max(120).optional(),
       },
@@ -1335,6 +1395,7 @@ export async function startTaskenMcpServer() {
   const server = createTaskenMcpServer({
     coreClient,
     capabilities: await startupCapabilities(coreClient),
+    allowLocalFilePaths: true,
   });
   const transport = new StdioServerTransport(undefined, undefined, {
     maxBufferSize: MCP_STDIO_MAX_BUFFER_BYTES,

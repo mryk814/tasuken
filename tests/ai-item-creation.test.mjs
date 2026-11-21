@@ -781,3 +781,130 @@ test("replica が書く AI の Task・Note・Document の差分の形（作成�
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+const TINY_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+test("create_note with file_path image + task_id works over stdio MCP and syncs image from replica to Desktop (#790)", async () => {
+  const dir = temporary();
+  const hostDir = path.join(dir, "desktop");
+  const replicaDir = path.join(dir, "replica");
+  const shared = path.join(dir, "shared");
+  const localMedia = path.join(dir, "local-media");
+  fs.mkdirSync(hostDir);
+  fs.mkdirSync(localMedia);
+  const pngPath = path.join(localMedia, "result-chart.png");
+  fs.writeFileSync(pngPath, TINY_PNG);
+
+  const host = open(hostDir);
+  const hostImagesDir = path.join(hostDir, "attachments", "markdown-images");
+  const sync = new SharedFolderSyncService(host, () => {}, hostImagesDir);
+  let core, transport, client;
+  try {
+    await sync.configure(shared);
+    await sync.syncNow();
+    core = await startTaskenHeadlessCore({
+      userDataPath: replicaDir,
+      syncDirectory: shared,
+      writeMode: "create-only",
+    });
+    transport = new StdioClientTransport({
+      command: nodeExecPath,
+      args: [path.join(mcpDirectory, "server.mjs")],
+      env: { ...process.env, TASKEN_USER_DATA_DIR: replicaDir, TASKEN_MCP_READ_ONLY: "0" },
+      stderr: "pipe",
+    });
+    client = new Client({ name: "note-image-test", version: "1" });
+    await client.connect(transport);
+
+    const taskCall = await client.callTool({
+      name: "tasken.create_task",
+      arguments: {
+        title: "画像テスト親タスク",
+        caller: "dot",
+        source_app: "test-dot",
+        idempotency_key: "img-parent-task",
+      },
+    });
+    assert.equal(taskCall.isError, undefined, JSON.stringify(taskCall));
+    const taskId = taskCall.structuredContent.entity.id;
+
+    // file_path で画像を添えて Task 紐づけ Note を直接作成
+    const noteArgs = {
+      title: "グラフ付きメモ",
+      body: "実測結果です。\n\n![チャート](tasken-upload://chart1)",
+      task_id: taskId,
+      images: [{ reference_id: "chart1", file_path: pngPath }],
+      caller: "dot",
+      source_app: "test-dot",
+      idempotency_key: "img-note-1",
+    };
+    const created = await client.callTool({ name: "tasken.create_note", arguments: noteArgs });
+    assert.equal(created.isError, undefined, JSON.stringify(created));
+    assert.equal(created.structuredContent.status, "created");
+    assert.equal(created.structuredContent.entity.task_id, taskId);
+    const body = created.structuredContent.entity.body;
+    const match = body.match(/tasken-attachment:\/\/local\/([0-9a-f-]+\.png)\/result-chart\.png/);
+    assert.ok(match, `expected rewritten attachment URL, got: ${body}`);
+    const storedFileName = match[1];
+
+    // 同一内容の再送は duplicate で成功する
+    const dup = await client.callTool({ name: "tasken.create_note", arguments: noteArgs });
+    assert.equal(dup.isError, undefined, JSON.stringify(dup));
+    assert.equal(dup.structuredContent.status, "duplicate");
+    assert.equal(dup.structuredContent.entity.id, created.structuredContent.entity.id);
+
+    // 画像無しの tasken-upload:// プレースホルダーは拒否される
+    const dangling = await client.callTool({
+      name: "tasken.create_note",
+      arguments: {
+        title: "欠損",
+        body: "![x](tasken-upload://missing)",
+        caller: "dot",
+        source_app: "test-dot",
+        idempotency_key: "img-note-dangling",
+      },
+    });
+    assert.equal(dangling.isError, true);
+    assert.equal(dangling.structuredContent.error.code, "VALIDATION_FAILED");
+
+    // Task への images 指定は拒否される
+    const coreClient = new TaskenCoreClient({ userDataPath: replicaDir });
+    await assert.rejects(
+      coreClient.createAiItem({
+        ...request("task", "task-with-image"),
+        images: [
+          {
+            reference_id: "chart1",
+            file_name: "result-chart.png",
+            media_type: "image/png",
+            data_base64: TINY_PNG.toString("base64"),
+          },
+        ],
+      }),
+      (e) => e.code === "VALIDATION_FAILED",
+    );
+
+    // replica → 共有フォルダ → Desktop へ Note 本文と画像実体の両方が同期される
+    await core.syncNow();
+    await sync.syncNow();
+    const syncedNote = host.get("note", created.structuredContent.entity.id);
+    assert.equal(syncedNote.body_markdown, body);
+    const desktopImagePath = path.join(hostImagesDir, storedFileName);
+    assert.equal(
+      fs.existsSync(desktopImagePath),
+      true,
+      `Desktop did not receive ${storedFileName}`,
+    );
+    assert.deepEqual(fs.readFileSync(desktopImagePath), TINY_PNG);
+  } finally {
+    await client?.close().catch(() => {});
+    await transport?.close().catch(() => {});
+    await core?.stop().catch(() => {});
+    await sync.stop().catch(() => {});
+    host.db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -319,6 +319,34 @@ test("create-only headless: MCP tool is listed and get_task_context shows the Do
     await mcp.connect(transport);
     const tools = (await mcp.listTools()).tools.map((tool) => tool.name);
     assert.ok(tools.includes("tasken.create_document"));
+
+    // file_path 指定でアセットを同梱し、自己完結 HTML へインライン化される（#790）
+    const assetFile = path.join(dir, "diagram.png");
+    fs.writeFileSync(assetFile, Buffer.from(PNG, "base64"));
+    const withPathAsset = await mcp.callTool({
+      name: "tasken.create_document",
+      arguments: {
+        task_id: task.entity.id,
+        title: "図入りレポート",
+        file_name: "report.html",
+        content: '<!doctype html><html><body><img src="tasken-upload://fig1"></body></html>',
+        assets: [{ reference_id: "fig1", file_path: assetFile }],
+        caller: "dot",
+        source_app: "test-dot",
+        idempotency_key: "document-file-path-e2e",
+        reason: "file_path asset test",
+      },
+    });
+    assert.equal(withPathAsset.isError, undefined, JSON.stringify(withPathAsset));
+    assert.equal(withPathAsset.structuredContent.status, "created");
+    const savedHtml = new DocumentFileStore(dir).read(
+      withPathAsset.structuredContent.entity.file_name,
+    );
+    assert.ok(
+      savedHtml.includes(`data:image/png;base64,${PNG}`),
+      "asset should be inlined from file_path",
+    );
+    assert.equal(savedHtml.includes("tasken-upload://"), false);
   } finally {
     // 後始末は1つにまとめ、閉じてから消す。t.afterを分けると登録順に走る最初の
     // rmSyncが、開いたままのSQLiteに当たってWindowsでEPERMになり、throwした

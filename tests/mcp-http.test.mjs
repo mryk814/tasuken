@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import path from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
 
@@ -742,4 +743,88 @@ test("/api/v1 reports an unexpected tool failure as 500, not as a caller error",
     },
   });
   assert.equal((await api(url, "search_items", {})).status, 500);
+});
+
+test("HTTP MCP and /api/v1 hide and refuse file_path to prevent server-side LFI (#790)", async (t) => {
+  const touched = [];
+  const { url } = await fixture(t, {
+    clients: apiClients,
+    env: { TASKEN_MCP_READ_ONLY: "0" },
+    coreClient: {
+      status: async () => ({
+        capabilities: [...proposalCapabilities, "create_ai_item", "create_ai_document"],
+      }),
+      createAiItem: async (request) => {
+        touched.push(request);
+        return { status: "created" };
+      },
+      createAiDocument: async (request) => {
+        touched.push(request);
+        return { status: "created" };
+      },
+      proposeContent: async (request) => {
+        touched.push(request);
+        return { status: "queued" };
+      },
+    },
+  });
+
+  // 1. GET /api/v1 の schema に file_path は載せない
+  const described = await fetch(new URL("/api/v1", url), {
+    headers: { authorization: `Bearer ${otherToken}` },
+  });
+  assert.equal(described.status, 200);
+  const { tools } = await described.json();
+  for (const name of ["create_note", "propose_note", "propose_note_edit"]) {
+    const tool = tools.find((entry) => entry.name === name);
+    assert.ok(tool, name);
+    assert.equal(tool.inputSchema.properties.images.items.properties.file_path, undefined, name);
+  }
+  const docTool = tools.find((entry) => entry.name === "create_document");
+  assert.ok(docTool);
+  assert.equal(docTool.inputSchema.properties.assets.items.properties.file_path, undefined);
+
+  // 2. サーバー上に実在するファイルパスを HTTP /api/v1 や /mcp へ送っても 400 で拒否し、Core へ渡さない
+  const realServerFile = path.resolve("package.json");
+  const viaCreateNote = await api(
+    url,
+    "create_note",
+    {
+      title: "lfi-probe",
+      body: "![x](tasken-upload://a)",
+      images: [{ reference_id: "a", file_path: realServerFile }],
+      idempotency_key: "lfi-1",
+    },
+    otherToken,
+  );
+  assert.equal(viaCreateNote.status, 400, JSON.stringify(viaCreateNote));
+
+  const viaCreateDoc = await api(
+    url,
+    "create_document",
+    {
+      task_id: "00000000-0000-4000-8000-000000000001",
+      title: "lfi-doc",
+      file_name: "lfi.html",
+      content: '<img src="tasken-upload://a">',
+      assets: [{ reference_id: "a", file_path: realServerFile }],
+      idempotency_key: "lfi-2",
+    },
+    otherToken,
+  );
+  assert.equal(viaCreateDoc.status, 400, JSON.stringify(viaCreateDoc));
+
+  const mcpClient = await connect(t, url, otherToken);
+  const viaMcp = await mcpClient.callTool({
+    name: "tasken.create_note",
+    arguments: {
+      title: "lfi-mcp",
+      body: "![x](tasken-upload://a)",
+      images: [{ reference_id: "a", file_path: realServerFile }],
+      idempotency_key: "lfi-3",
+      caller: "writer",
+    },
+  });
+  assert.equal(viaMcp.isError, true);
+  assert.deepEqual(touched, []);
 });

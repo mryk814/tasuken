@@ -370,6 +370,7 @@ export const proposeContentRequestSchema = z
         title: boundedText(200),
         body: z.string().max(200_000),
         reason: boundedText(2_000),
+        images: z.array(noteProposalImageSchema).min(1).max(8).optional(),
       })
       .strict(),
     z

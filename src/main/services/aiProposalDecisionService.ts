@@ -284,6 +284,7 @@ export class AiProposalDecisionService {
       base_version: request.base_version,
       title: request.title || String(note.title || "無題"),
       body: request.body,
+      ...(request.images ? { images: request.images } : {}),
       reason: request.said || request.why,
       idempotency_key: request.idempotency_key,
       caller: request.caller,

@@ -2,14 +2,20 @@ import { createHash } from "node:crypto";
 import {
   aiItemCreationRequestSchema,
   aiItemCreationResponseSchema,
+  hasTaskenUploadImageDestination,
   taskScheduleEditFromAiInput,
   type AiItemCreationRequest,
   type AiItemCreationResponse,
+  type NoteProposalImage,
 } from "../../../shared/contracts/task/public.ts";
 import { PERSONAL_DEFAULT_THEME_ID } from "../../../shared/themeRef.mjs";
 import { canonicalMarkdownBindingFromProperties } from "../../../shared/canonicalMarkdown.mjs";
 import type { CommandEnvelope, CommandReceipt } from "../../../shared/applicationCommand.ts";
 import type { CanonicalNoteCreationCompanion, Entity } from "../../../shared/types/workspace.ts";
+import type {
+  NoteProposalImagePort,
+  PreparedNoteProposalImages,
+} from "../ports/noteProposalImagePort.ts";
 import { CorePublicError, directWriteDisabled } from "./corePublicError.ts";
 
 interface Persistence {
@@ -38,6 +44,8 @@ export interface AiItemCreationOptions {
    * NAS replicaは配備の書き込み範囲（create-only）を選んだ時点で許しているので渡さない。
    */
   isEnabled?: () => boolean;
+  /** Note作成時の添付画像を検証・保存するport。 */
+  noteProposalImagePort?: NoteProposalImagePort;
   now?: () => string;
 }
 
@@ -106,6 +114,10 @@ export class AiItemCreationService {
       throw new CorePublicError("INVALID_REFERENCE", "指定したThemeがありません。", 400, {
         field: "theme_id",
       });
+    const preparedImages =
+      request.kind === "note"
+        ? this.prepareNoteImages(commandId, request.body, request.images)
+        : undefined;
     const receivedAt = this.now();
     const origin = {
       schema: "tasken-ai-creation/v1" as const,
@@ -148,7 +160,7 @@ export class AiItemCreationService {
               : {}),
           }
         : {
-            body_markdown: request.body,
+            body_markdown: preparedImages?.body ?? request.body,
             note_type: request.note_type || "memo",
             // 日報の日付は、提案の採用と同じくproperties_json.daily_reportに置く（Debriefが読む場所）。
             ...(request.report_date
@@ -203,6 +215,28 @@ export class AiItemCreationService {
         event,
       );
     } else {
+      if (preparedImages) {
+        try {
+          this.options.noteProposalImagePort!.stage(preparedImages.prepared);
+        } catch (error) {
+          try {
+            this.options.noteProposalImagePort!.rollback(preparedImages.prepared);
+          } catch {
+            // Preserve the original staging failure after attempting compensating cleanup.
+          }
+          throw new CorePublicError(
+            "VALIDATION_FAILED",
+            error instanceof Error
+              ? error.message
+              : "ノート画像を保存できませんでした。画像と保存先を確認してください。",
+            400,
+          );
+        }
+      }
+      // saveNote が投げても画像は消さない。Canonical Markdown は、ファイルと復旧用のreceiptを書いた後に
+      // DBへの保存が失敗しうる（次回のrecoverNotesでNoteが確定する）ほか、DBの確定後に通知で投げることもある。
+      // そこで消すと、確定したNoteの本文に壊れた添付URLだけが残る。残った画像は決定的な名前なので
+      // 同じidempotency_keyの再送が再利用し、本文から参照されない間は同期にも載らない。
       this.port.saveNote(entity, {
         schema: "tasken-note-creation-companion/v1",
         noteId: entityId,
@@ -224,6 +258,52 @@ export class AiItemCreationService {
       });
     }
     return this.readback(request.kind, entityId, "created");
+  }
+
+  private prepareNoteImages(
+    commandId: string,
+    body: string,
+    images: readonly NoteProposalImage[] | undefined,
+  ): PreparedNoteProposalImages | undefined {
+    if (!images) {
+      if (hasTaskenUploadImageDestination(body)) {
+        throw new CorePublicError(
+          "VALIDATION_FAILED",
+          "本文の画像プレースホルダーに対応する画像データがありません。画像を添えて送り直してください。",
+          400,
+        );
+      }
+      return undefined;
+    }
+    const imagePort = this.options.noteProposalImagePort;
+    if (!imagePort) {
+      throw new CorePublicError(
+        "VALIDATION_FAILED",
+        "画像付きのNoteには画像ストレージが必要です。画像を外すか、対応するTasken Coreへ送信してください。",
+        400,
+      );
+    }
+    let result: PreparedNoteProposalImages;
+    try {
+      result = imagePort.prepare({ proposalId: commandId, body, images });
+    } catch (error) {
+      if (error instanceof CorePublicError) throw error;
+      throw new CorePublicError(
+        "VALIDATION_FAILED",
+        error instanceof Error
+          ? error.message
+          : "ノート画像を準備できませんでした。画像の形式と内容を確認してください。",
+        400,
+      );
+    }
+    if (typeof result.body !== "string" || result.manifest.length !== images.length) {
+      throw new CorePublicError(
+        "VALIDATION_FAILED",
+        "ノート画像の準備結果が不正です。画像を確認して送り直してください。",
+        400,
+      );
+    }
+    return result;
   }
 
   /**

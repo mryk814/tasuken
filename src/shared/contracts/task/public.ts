@@ -450,6 +450,7 @@ export {
   type AiTaskScheduleInput,
 } from "./aiSchedule.ts";
 export {
+  aiNoteEditFields,
   aiNoteEditRequestSchema,
   aiNoteEditResponseSchema,
   aiProposalDecisionRequestSchema,

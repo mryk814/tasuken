@@ -982,3 +982,141 @@ test("propose_feed_post carries an article image and one media entry through std
     fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
+
+test("stdio MCP resolves local file_path for propose_note, propose_note_edit and propose_feed_post (#790)", async () => {
+  const root = fixtureRoot();
+  const dbPath = path.join(root, "workspace.sqlite3");
+  const imageBytes = validPng(3);
+  const imageHash = createHash("sha256").update(imageBytes).digest("hex");
+  const decodeFixtureImage = (bytes, mimeType) =>
+    mimeType === "image/png" && createHash("sha256").update(bytes).digest("hex") === imageHash
+      ? { width: 256, height: 256 }
+      : null;
+
+  const mediaDir = path.join(root, "local-media");
+  fs.mkdirSync(mediaDir, { recursive: true });
+  const pngPath = path.join(mediaDir, "experiment-plot.png");
+  const textPath = path.join(mediaDir, "not-an-image.txt");
+  const emptyPath = path.join(mediaDir, "empty.png");
+  fs.writeFileSync(pngPath, imageBytes);
+  fs.writeFileSync(textPath, "hello world", "utf8");
+  fs.writeFileSync(emptyPath, Buffer.alloc(0));
+
+  const database = new WorkspaceDatabase(dbPath);
+  const existingNote = database.save("note", {
+    id: "note-edit-img",
+    title: "既存のノート",
+    body_markdown:
+      "既存の図 ![old](tasken-attachment://local/00000000-0000-4000-8000-000000000001.png/old.png)",
+    project_id: "",
+  });
+  const host = new TaskenCoreHost({
+    userDataPath: root,
+    ...createTaskenCore(database, {
+      noteProposalImagePort: createNoteProposalImagePort(root, decodeFixtureImage),
+    }),
+  });
+  await host.start();
+  const client = await connectMcp(root);
+  try {
+    // 1. propose_note: file_path のみ（file_name / media_type は自動推定、file_path は保存しない）
+    const noteQueued = await callProposal(client, "tasken.propose_note", {
+      ...baseArgs("path-note-1"),
+      title: "パス指定ノート",
+      body: "実験結果です。\n\n![グラフ](tasken-upload://plot1)",
+      images: [{ reference_id: "plot1", file_path: pngPath }],
+    });
+    assert.equal(noteQueued.status, "queued");
+    const storedNote = database.get("ai_proposal", noteQueued.proposal_id);
+    assert.match(
+      storedNote.payload.notes[0].body,
+      /tasken-attachment:\/\/local\/[^/]+\/experiment-plot\.png/,
+    );
+    assert.equal(storedNote.payload.note_images[0].mime_type, "image/png");
+    assert.equal(JSON.stringify(storedNote).includes("file_path"), false);
+    assert.equal(JSON.stringify(storedNote).includes(mediaDir), false);
+
+    // 2. propose_note_edit: 既存の tasken-attachment を保ったまま新画像を file_path で追加
+    const editQueued = await callProposal(client, "tasken.propose_note_edit", {
+      ...baseArgs("path-note-edit-1"),
+      note_id: existingNote.id,
+      base_version: existingNote.version,
+      title: "更新後のノート",
+      body: `${existingNote.body_markdown}\n\n![追加図](tasken-upload://plot2)`,
+      images: [{ reference_id: "plot2", file_path: pngPath, file_name: "added.png" }],
+      reason: "図を追加",
+    });
+    assert.equal(editQueued.status, "queued");
+    const storedEdit = database.get("ai_proposal", editQueued.proposal_id);
+    assert.match(storedEdit.payload.notes[0].body, /00000000-0000-4000-8000-000000000001\.png/);
+    assert.match(
+      storedEdit.payload.notes[0].body,
+      /tasken-attachment:\/\/local\/[^/]+\/added\.png/,
+    );
+    assert.equal(storedEdit.payload.note_images.length, 1);
+
+    // 3. propose_feed_post: article.images も file_path を解決できる
+    const feedQueued = await callProposal(client, "tasken.propose_feed_post", {
+      ...baseArgs("path-feed-1"),
+      topic: "learning",
+      body: ["実験のまとめです。"],
+      article: {
+        title: "詳しい記事",
+        body: "![記事の図](tasken-upload://fig)",
+        images: [{ reference_id: "fig", file_path: pngPath }],
+      },
+    });
+    assert.equal(feedQueued.status, "queued");
+    const storedFeed = database.get("ai_proposal", feedQueued.proposal_id);
+    assert.match(storedFeed.payload.feed_posts[0].article.body, /tasken-attachment:\/\/local\//);
+    assert.equal(storedFeed.payload.note_images.length, 1);
+
+    // 4. 異常系: 不在ファイル・相対パス・ディレクトリ・空ファイル・非画像・media_type不一致・併用・両方欠落
+    for (const [label, imageEntry, expectedPattern] of [
+      [
+        "missing",
+        { reference_id: "plot1", file_path: path.join(mediaDir, "missing.png") },
+        /見つかりません/,
+      ],
+      ["relative", { reference_id: "plot1", file_path: "relative/plot.png" }, /絶対パス/],
+      ["directory", { reference_id: "plot1", file_path: mediaDir }, /通常のファイル|ディレクトリ/],
+      ["empty", { reference_id: "plot1", file_path: emptyPath }, /空です/],
+      ["unsupported", { reference_id: "plot1", file_path: textPath }, /形式が対応していません/],
+      [
+        "mime-mismatch",
+        { reference_id: "plot1", file_path: pngPath, media_type: "image/jpeg" },
+        /一致しません/,
+      ],
+      [
+        "both",
+        {
+          reference_id: "plot1",
+          file_path: pngPath,
+          file_name: "a.png",
+          media_type: "image/png",
+          data_base64: imageBytes.toString("base64"),
+        },
+        /同時に指定できません/,
+      ],
+      ["neither", { reference_id: "plot1" }, /どちらかを指定/],
+    ]) {
+      const result = await client.callTool({
+        name: "tasken.propose_note",
+        arguments: {
+          ...baseArgs(`path-err-${label}`),
+          title: "不正テスト",
+          body: "![x](tasken-upload://plot1)",
+          images: [imageEntry],
+        },
+      });
+      assert.equal(result.isError, true, label);
+      const message = result.structuredContent?.error?.message ?? result.content?.[0]?.text ?? "";
+      assert.match(message, expectedPattern, `${label}: ${message}`);
+    }
+  } finally {
+    await client.close();
+    await host.stop();
+    database.db.close();
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+});

@@ -189,10 +189,11 @@ function payloadFor(
             target_id: request.note_id,
             base_version: request.base_version,
             title: request.title,
-            body: request.body,
+            body: preparedImages?.body ?? request.body,
             reason: request.reason,
           },
         ],
+        ...(preparedImages ? { note_images: preparedImages.manifest } : {}),
       },
       target: { type: "note", id: request.note_id, base_version: request.base_version },
     };
@@ -351,9 +352,9 @@ export class ProposeContentService {
     const payloadType = PAYLOAD_TYPE_BY_KIND[request.kind];
     const id = proposalId(sourceApp, payloadType, request.idempotency_key);
     const preparedImages =
-      request.kind === "note_create"
+      request.kind === "note_create" || request.kind === "note_edit"
         ? prepareNoteImages(this.noteProposalImagePort, id, request.body, request.images)
-        : request.kind === "feed_post" && request.article?.images
+        : request.kind === "feed_post" && request.article
           ? // 記事の画像もNote Proposalと同じ準備・検証を行う。プレースホルダーの
             // 書き換え先は記事本文で、保存前のFeedと採用後のNoteが同じ画像を指す。
             prepareNoteImages(
@@ -505,7 +506,7 @@ function queuedMessage(kind: ProposeContentRequest["kind"], imageCount: number):
   if (kind === "feed_reply") {
     return "質問への返信としてスレッドへ届きました。ユーザーは採用を待たずに読めます。";
   }
-  if (kind === "note_create" && imageCount > 0) {
+  if ((kind === "note_create" || kind === "note_edit") && imageCount > 0) {
     return "画像付きNote Proposalを受信しました。このTasken DesktopでPreviewして採用してください。";
   }
   return "TaskenのAI連携にProposalとして送りました。TaskenでPreviewして採用してください。";

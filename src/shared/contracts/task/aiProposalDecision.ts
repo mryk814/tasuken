@@ -1,6 +1,7 @@
 import * as z from "zod/v4";
 
 import { entityIdSchema, entityVersionSchema } from "../../kernel/public.ts";
+import { noteProposalImageSchema } from "./contentProposal.ts";
 import { taskReadModelSchema } from "./model.ts";
 
 const callFields = {
@@ -64,37 +65,45 @@ export const aiProposalDecisionResponseSchema = z
  * Noteの直接編集。本文は全部の置き換え。中身は「Note編集のProposalを作り、その場で採用する」で、
  * 採用の版の照合と保存（Canonical Markdown）はDesktopの採用と同じ経路を通る。
  */
+export const aiNoteEditFields = {
+  note_id: entityIdSchema,
+  base_version: entityVersionSchema,
+  title: z.string().trim().min(1).max(200).optional(),
+  base_signature: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe(
+      "body_signature from get_note read without truncation (proves you read the full body).",
+    ),
+  body: z
+    .string()
+    .max(60_000)
+    .refine((value) => new TextEncoder().encode(value).length <= 56_000, {
+      message:
+        "本文が大きすぎて直接編集できません（約56KB まで）。本人に画面で直してもらってください。",
+    })
+    .describe("Full replacement Markdown; keep existing attachment URLs."),
+  images: z
+    .array(noteProposalImageSchema)
+    .min(1)
+    .max(8)
+    .optional()
+    .describe("PNG/JPEG images for ![alt](tasken-upload://reference-id) in body; up to 8."),
+  said: z
+    .string()
+    .trim()
+    .min(1)
+    .max(2_000)
+    .optional()
+    .describe("The user's own words that asked for this, quoted as said."),
+  why: z.string().trim().min(1).max(2_000).optional(),
+  idempotency_key: z.string().trim().min(1).max(200),
+  ...callFields,
+};
+
 export const aiNoteEditRequestSchema = z
-  .object({
-    note_id: entityIdSchema,
-    base_version: entityVersionSchema,
-    title: z.string().trim().min(1).max(200).optional(),
-    base_signature: z
-      .string()
-      .min(1)
-      .max(200)
-      .describe(
-        "body_signature from get_note read without truncation (proves you read the full body).",
-      ),
-    body: z
-      .string()
-      .max(60_000)
-      .refine((value) => new TextEncoder().encode(value).length <= 56_000, {
-        message:
-          "本文が大きすぎて直接編集できません（約56KB まで）。本人に画面で直してもらってください。",
-      })
-      .describe("Full replacement Markdown; keep existing attachment URLs."),
-    said: z
-      .string()
-      .trim()
-      .min(1)
-      .max(2_000)
-      .optional()
-      .describe("The user's own words that asked for this, quoted as said."),
-    why: z.string().trim().min(1).max(2_000).optional(),
-    idempotency_key: z.string().trim().min(1).max(200),
-    ...callFields,
-  })
+  .object(aiNoteEditFields)
   .strict()
   .superRefine((value, context) => {
     if (!value.said && !value.why)

@@ -262,6 +262,174 @@ test(
 );
 
 test(
+  "tasken.py resolves local file_path for create_note images and create_document assets before HTTP send (#790)",
+  { skip: python ? false : "Pythonが無いので、helperの流れは確かめられない" },
+  async () => {
+    const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "tasken-muse-media-"));
+    const bundleDirectory = fs.mkdtempSync(path.join(process.cwd(), ".tasken-muse-media-test-"));
+    const userDataPath = path.join(root, "user-data");
+    fs.mkdirSync(userDataPath);
+    const pngPath = path.join(root, "plot.png");
+    const pngBytes = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    fs.writeFileSync(pngPath, pngBytes);
+    let core;
+    let http;
+    try {
+      const headlessPath = path.join(bundleDirectory, "headless.mjs");
+      await build({
+        stdin: {
+          contents: `
+            export { startTaskenHeadlessCore } from "./src/main/headless/taskenHeadlessCore.ts";
+            export { DocumentFileStore } from "./src/main/services/documentFileStore.ts";
+          `,
+          resolveDir: process.cwd(),
+        },
+        alias: { electron: path.resolve("src/main/headless/electronUnavailable.ts") },
+        bundle: true,
+        platform: "node",
+        format: "esm",
+        external: ["better-sqlite3", "pptxgenjs"],
+        outfile: headlessPath,
+        logLevel: "silent",
+      });
+      const { startTaskenHeadlessCore, DocumentFileStore } = await import(
+        pathToFileURL(headlessPath).href
+      );
+      core = await startTaskenHeadlessCore({ userDataPath, writeMode: "create-only" });
+      const outDir = path.join(root, "mcp-dist");
+      await buildMcpBridge({ outDir });
+      const token = randomBytes(32).toString("base64url");
+      const credentialsPath = path.join(root, "http-clients.json");
+      fs.writeFileSync(credentialsPath, JSON.stringify({ muse: { token, readOnly: false } }), {
+        mode: 0o600,
+      });
+      const child = spawn(
+        process.env.TASKEN_NODE_EXEC_PATH || "node",
+        [path.join(outDir, "http-server.mjs")],
+        {
+          env: {
+            ...process.env,
+            TASKEN_USER_DATA_DIR: userDataPath,
+            TASKEN_MCP_READ_ONLY: "0",
+            TASKEN_MCP_HTTP_PORT: "0",
+            TASKEN_MCP_HTTP_CLIENTS_FILE: credentialsPath,
+          },
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
+        },
+      );
+      const exited = new Promise((resolve) => child.once("exit", resolve));
+      http = async () => {
+        if (child.exitCode === null) child.kill();
+        await exited;
+      };
+      const port = await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(Error("HTTP bridge readiness timed out")), 15_000);
+        let stderr = "";
+        child.stderr.on("data", (chunk) => {
+          stderr += chunk;
+          const match = /listening on 127\.0\.0\.1:(\d+)/.exec(stderr);
+          if (match) {
+            clearTimeout(timer);
+            resolve(match[1]);
+          }
+        });
+        child.once("exit", () => {
+          clearTimeout(timer);
+          reject(Error("HTTP bridge exited before ready"));
+        });
+      });
+
+      const env = {
+        ...process.env,
+        TASKEN_BASE_URL: `http://127.0.0.1:${port}`,
+        TASKEN_TEST_TOKEN: token,
+        PYTHONIOENCODING: "utf-8",
+      };
+      const run = (...args) =>
+        new Promise((resolve, reject) => {
+          const proc = spawn(python, [path.join(museDirectory, "tasken.py"), ...args], {
+            env,
+            windowsHide: true,
+          });
+          let stdout = "";
+          let stderr = "";
+          proc.stdout.setEncoding("utf8").on("data", (chunk) => (stdout += chunk));
+          proc.stderr.setEncoding("utf8").on("data", (chunk) => (stderr += chunk));
+          proc.once("error", reject);
+          proc.once("close", (code) => {
+            try {
+              resolve({ code, out: JSON.parse(stdout) });
+            } catch {
+              reject(
+                Error(`${args.join(" ")} printed no JSON (exit ${code}): ${stdout} ${stderr}`),
+              );
+            }
+          });
+        });
+
+      const task = await run("call", "create_task", JSON.stringify({ title: "Muse Task" }));
+      assert.equal(task.code, 0, JSON.stringify(task.out));
+
+      const note = await run(
+        "call",
+        "create_note",
+        JSON.stringify({
+          title: "Muse 画像ノート",
+          body: "結果\n\n![図](tasken-upload://fig1)",
+          task_id: task.out.entity.id,
+          images: [{ reference_id: "fig1", file_path: pngPath }],
+        }),
+      );
+      assert.equal(note.code, 0, JSON.stringify(note.out));
+      const match = note.out.entity.body.match(
+        /tasken-attachment:\/\/local\/([0-9a-f-]+\.png)\/plot\.png/,
+      );
+      assert.ok(match, JSON.stringify(note.out));
+      const storedPath = path.join(userDataPath, "attachments", "markdown-images", match[1]);
+      assert.deepEqual(fs.readFileSync(storedPath), pngBytes);
+
+      const doc = await run(
+        "call",
+        "create_document",
+        JSON.stringify({
+          task_id: task.out.entity.id,
+          title: "Muse HTML",
+          file_name: "muse.html",
+          content: '<!doctype html><html><body><img src="tasken-upload://shot"></body></html>',
+          assets: [{ reference_id: "shot", file_path: pngPath }],
+        }),
+      );
+      assert.equal(doc.code, 0, JSON.stringify(doc.out));
+      const html = new DocumentFileStore(userDataPath).read(doc.out.entity.file_name);
+      assert.ok(html.includes(`data:image/png;base64,${pngBytes.toString("base64")}`));
+
+      // 不在ファイルや併用は送信前に拒否し、http_status を付けず idempotency_key は出す
+      const missing = await run(
+        "call",
+        "create_note",
+        JSON.stringify({
+          title: "missing",
+          body: "![x](tasken-upload://fig1)",
+          images: [{ reference_id: "fig1", file_path: path.join(root, "nope.png") }],
+        }),
+      );
+      assert.equal(missing.code, 1);
+      assert.equal(missing.out.http_status, undefined);
+      assert.ok(missing.out.idempotency_key);
+    } finally {
+      await http?.();
+      await core?.stop();
+      fs.rmSync(bundleDirectory, { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
   "the credential is matched against the host name without the port (#720)",
   { skip: python ? false : "Pythonが無いので確かめられない" },
   () => {

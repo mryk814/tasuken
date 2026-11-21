@@ -18,6 +18,8 @@ await build({
     export { WorkspaceService } from "./src/main/services/workspaceService.ts";
     export { ApplicationCommandService } from "./src/main/services/applicationCommandService.ts";
     export { AiProposalDecisionService } from "./src/main/services/aiProposalDecisionService.ts";
+    export { createImageHeaderDecoder } from "./src/main/services/imageHeaderDecoder.ts";
+    export { createNoteProposalImagePort } from "./src/main/services/proposalMarkdownImages.ts";
     export {
       TaskenCoreRuntime,
       createAiItemCreationPort,
@@ -38,6 +40,8 @@ const {
   WorkspaceService,
   ApplicationCommandService,
   AiProposalDecisionService,
+  createImageHeaderDecoder,
+  createNoteProposalImagePort,
   TaskenCoreRuntime,
   createAiItemCreationPort,
   createAiTaskChangeService,
@@ -48,12 +52,17 @@ async function desktop(t) {
   const db = new WorkspaceDatabase(path.join(dir, "research-desk.sqlite"));
   db.loadWorkspace();
   db.setPreference("aiDirectWriteEnabled", true);
-  const workspace = new WorkspaceService(db, dir, undefined, undefined, () => {
-    throw Error("no images");
-  });
+  const decoder = createImageHeaderDecoder();
+  const workspace = new WorkspaceService(db, dir, undefined, undefined, decoder);
   const commands = new ApplicationCommandService(db);
   const isEnabled = () => db.readPreference("aiDirectWriteEnabled") === true;
-  const runtime = new TaskenCoreRuntime(dir, db, (command) => commands.execute(command));
+  const runtime = new TaskenCoreRuntime(
+    dir,
+    db,
+    (command) => commands.execute(command),
+    undefined,
+    createNoteProposalImagePort(dir, decoder),
+  );
   runtime.enableAiItemCreation(createAiItemCreationPort(commands, workspace), {
     isEnabled,
     scope: "any",
@@ -74,7 +83,7 @@ async function desktop(t) {
     db.db.close();
     fs.rmSync(dir, { recursive: true, force: true });
   });
-  return { db, workspace, core: new TaskenCoreClient({ userDataPath: dir }) };
+  return { dir, db, workspace, core: new TaskenCoreClient({ userDataPath: dir }) };
 }
 
 const who = { caller: "Claude Code", source_session: "conversation-d" };
@@ -451,4 +460,51 @@ test("設定が無効なら採否もNote編集も断る", async (t) => {
     }),
     "DIRECT_WRITE_DISABLED",
   );
+});
+
+const TINY_PNG_B64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
+
+test("Noteの直接編集でも画像を添付でき、既存の添付URLを保ち再送も冪等になる (#790)", async (t) => {
+  const { dir, db, core } = await desktop(t);
+  const existingUrl = "tasken-attachment://local/00000000-0000-4000-8000-000000000001.png/old.png";
+  const note = db.save("note", {
+    id: "note-edit-with-image",
+    title: "実験メモ",
+    body_markdown: `既存の図\n\n![old](${existingUrl})`,
+    note_type: "memo",
+    project_id: "theme-personal-default",
+  });
+  const editArgs = {
+    note_id: note.id,
+    ...(await fullRead(core, note.id)),
+    body: `既存の図\n\n![old](${existingUrl})\n\n新しい図\n\n![new](tasken-upload://fig1)`,
+    images: [
+      {
+        reference_id: "fig1",
+        file_name: "new-chart.png",
+        media_type: "image/png",
+        data_base64: TINY_PNG_B64,
+      },
+    ],
+    said: "新しい図を足して",
+    idempotency_key: "edit-note-image-1",
+    ...who,
+  };
+  const edited = await core.editNote(editArgs);
+  assert.equal(edited.status, "applied");
+  const updated = db.get("note", note.id);
+  assert.ok(updated.body_markdown.includes(existingUrl));
+  const match = updated.body_markdown.match(
+    /tasken-attachment:\/\/local\/([0-9a-f-]+\.png)\/new-chart\.png/,
+  );
+  assert.ok(match, `new attachment URL missing: ${updated.body_markdown}`);
+  const storedPath = path.join(dir, "attachments", "markdown-images", match[1]);
+  assert.equal(fs.existsSync(storedPath), true);
+  assert.deepEqual(fs.readFileSync(storedPath), Buffer.from(TINY_PNG_B64, "base64"));
+
+  // 同じ idempotency_key・同じ内容での再送は duplicate
+  const dup = await core.editNote(editArgs);
+  assert.equal(dup.status, "duplicate");
+  assert.equal(dup.proposal_id, edited.proposal_id);
 });

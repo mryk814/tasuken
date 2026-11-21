@@ -3,8 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 
 const MARKDOWN_IMAGE_MAX_BYTES = 12 * 1024 * 1024;
+// 決定的ファイル名（imageManifest.ts の deterministicFileName）は SHA-256 由来で
+// UUID の版・variant ビットを固定しないため、PHOTO_FILE_PATTERN と同じく 16進の桁数だけを見る。
 const IMAGE_FILE_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(png|jpg|gif|webp|bmp)$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpg|gif|webp|bmp)$/i;
 const PHOTO_FILE_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpg)$/i;
 

@@ -3,6 +3,7 @@ import * as z from "zod/v4";
 import { entityIdSchema, isoTimestampSchema, localDateSchema } from "../../kernel/public.ts";
 import { aiCreationOriginSchema } from "./aiCreationOrigin.ts";
 import { aiTaskScheduleInputSchema } from "./aiSchedule.ts";
+import { noteProposalImageSchema } from "./contentProposal.ts";
 import { taskPlaceReminderSchema, taskPrioritySchema } from "./model.ts";
 
 export { aiCreationOriginSchema };
@@ -52,6 +53,14 @@ export const aiNoteCreationFields = {
     .describe(
       "Attach the Note to this Task (from search_items / get_task_context): the Note is created already linked, so it appears in the Task's context and detail without adoption. Theme defaults to the Task's Theme unless theme_id is given.",
     ),
+  images: z
+    .array(noteProposalImageSchema)
+    .min(1)
+    .max(8)
+    .optional()
+    .describe(
+      "PNG/JPEG images for ![alt](tasken-upload://reference-id) in body; up to 8, 12MiB each, 24MiB total.",
+    ),
 };
 
 const TASK_ONLY_FIELDS = [
@@ -62,7 +71,7 @@ const TASK_ONLY_FIELDS = [
   "checklist",
   "place_reminder",
 ] as const;
-const NOTE_ONLY_FIELDS = ["note_type", "report_date", "task_id"] as const;
+const NOTE_ONLY_FIELDS = ["note_type", "report_date", "task_id", "images"] as const;
 
 /** Creation only: identity, ownership, assignment and paths are owned by Core. */
 export const aiItemCreationRequestSchema = z
