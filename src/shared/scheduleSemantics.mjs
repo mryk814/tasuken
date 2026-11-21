@@ -19,19 +19,27 @@ export function isScheduleDueOn(schedule, date) {
 }
 
 export function isScheduleOverdueOn(schedule, date) {
-  return Boolean(schedule?.end_date) && getScheduleKind(schedule) !== "none" && schedule.end_date < date;
+  return (
+    Boolean(schedule?.end_date) && getScheduleKind(schedule) !== "none" && schedule.end_date < date
+  );
 }
 
 export function isScheduleOngoingOn(schedule, date) {
-  return getScheduleKind(schedule) === "ongoing_period"
-    && Boolean(schedule?.start_date && schedule.end_date)
-    && schedule.start_date <= date && date <= schedule.end_date;
+  return (
+    getScheduleKind(schedule) === "ongoing_period" &&
+    Boolean(schedule?.start_date && schedule.end_date) &&
+    schedule.start_date <= date &&
+    date <= schedule.end_date
+  );
 }
 
 export function isExecutionWindowOpenOn(schedule, date) {
-  return getScheduleKind(schedule) === "execution_window"
-    && Boolean(schedule?.start_date && schedule.end_date)
-    && schedule.start_date <= date && date <= schedule.end_date;
+  return (
+    getScheduleKind(schedule) === "execution_window" &&
+    Boolean(schedule?.start_date && schedule.end_date) &&
+    schedule.start_date <= date &&
+    date <= schedule.end_date
+  );
 }
 
 export function isScheduleAvailableOn(schedule, date) {

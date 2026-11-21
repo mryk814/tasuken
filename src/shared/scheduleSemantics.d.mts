@@ -1,4 +1,5 @@
-export type ScheduleKind = "none" | "point" | "deadline" | "execution_window" | "ongoing_period" | "unspecified_range";
+export type ScheduleKind =
+  "none" | "point" | "deadline" | "execution_window" | "ongoing_period" | "unspecified_range";
 export function getScheduleKind(schedule?: object | null): ScheduleKind;
 export function isScheduleDueOn(schedule: object | null | undefined, date: string): boolean;
 export function isScheduleOverdueOn(schedule: object | null | undefined, date: string): boolean;

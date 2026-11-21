@@ -93,20 +93,28 @@ test("Task contract has an explicit no-legacy-migration result for pre-v1 payloa
 });
 
 test("Task contract distinguishes nullable, optional, enum, and unknown fields", () => {
-  const nullable = parseTaskCommand(createCommand({ payload: { task: taskDraft({ description: null }) } }));
+  const nullable = parseTaskCommand(
+    createCommand({ payload: { task: taskDraft({ description: null }) } }),
+  );
   assert.equal(nullable.ok, true);
 
   const optionalTask = taskDraft();
   delete optionalTask.description;
   assert.equal(parseTaskCommand(createCommand({ payload: { task: optionalTask } })).ok, true);
 
-  const invalidEnum = parseTaskCommand(createCommand({ payload: { task: taskDraft({ state: "closed" }) } }));
+  const invalidEnum = parseTaskCommand(
+    createCommand({ payload: { task: taskDraft({ state: "closed" }) } }),
+  );
   assert.equal(invalidEnum.ok, false);
-  if (!invalidEnum.ok) assert.ok(invalidEnum.error.issues.some((issue) => issue.path.join(".") === "payload.task.state"));
+  if (!invalidEnum.ok)
+    assert.ok(
+      invalidEnum.error.issues.some((issue) => issue.path.join(".") === "payload.task.state"),
+    );
 
   const unknown = parseTaskCommand({ ...createCommand(), transport_only: true });
   assert.equal(unknown.ok, false);
-  if (!unknown.ok) assert.ok(unknown.error.issues.some((issue) => issue.path.includes("transport_only")));
+  if (!unknown.ok)
+    assert.ok(unknown.error.issues.some((issue) => issue.path.includes("transport_only")));
 });
 
 test("Desktop, Mobile, HTTP, and MCP serialize through the same Task command contract", () => {
@@ -208,17 +216,39 @@ test("Task schedule change rejects reversed dates, stray range semantics, and an
     {
       expected_version: null,
       base: null,
-      changes: { start_date: "2026-08-24", end_date: "2026-08-22", date_kind: "range", range_semantics: null, confidence: "fixed", granularity: "day" },
+      changes: {
+        start_date: "2026-08-24",
+        end_date: "2026-08-22",
+        date_kind: "range",
+        range_semantics: null,
+        confidence: "fixed",
+        granularity: "day",
+      },
     },
     {
       expected_version: null,
       base: null,
-      changes: { start_date: "2026-08-22", end_date: "2026-08-22", date_kind: "point", range_semantics: "ongoing", confidence: "fixed", granularity: "day" },
+      changes: {
+        start_date: "2026-08-22",
+        end_date: "2026-08-22",
+        date_kind: "point",
+        range_semantics: "ongoing",
+        confidence: "fixed",
+        granularity: "day",
+      },
     },
     {
       expected_version: null,
       base: null,
-      changes: { start_date: null, end_date: null, date_kind: "unknown", range_semantics: null, confidence: "fixed", granularity: "day" },
+      changes: {
+        start_date: null,
+        end_date: null,
+        date_kind: "unknown",
+        range_semantics: null,
+        confidence: "fixed",
+        granularity: "day",
+      },
     },
-  ]) assert.equal(parseTaskCommand(scheduleCommand(schedule_change)).ok, false);
+  ])
+    assert.equal(parseTaskCommand(scheduleCommand(schedule_change)).ok, false);
 });
