@@ -88,6 +88,7 @@
     "aiOrigin": "Mobile request header X-Tasken-Ai-Origin: 1",
     "placeReminder": "Mobile request header X-Tasken-Place-Reminder: 1",
     "reminderAt": "Mobile request header X-Tasken-Reminder-At: 1",
+    "scheduleTime": "Mobile request header X-Tasken-Schedule-Time: 1 (schedule.endTime / schedule.notifyBeforeMinutes, #785)",
     "agentSessions": "Today includeAgentSessions=true with mobile:read and mobile:context-read"
   },
   "rollout": "Owner authorized Tasken main merge, release and coordinated PC/Android/NAS update on 2026-10-04. Prepare and validate one commit; preserve writer inventory, data, backups, existing credentials/permissions and other NAS apps. Execution receipts and artifact hashes are recorded separately."

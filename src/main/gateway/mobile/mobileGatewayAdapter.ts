@@ -110,6 +110,8 @@ export interface MobileGatewayRequest {
   includePlaceReminder?: boolean;
   /** X-Tasken-Reminder-At: 1。Task の要約に reminderAt を含める（#753）。 */
   includeReminderAt?: boolean;
+  /** X-Tasken-Schedule-Time: 1。日程に endTime と notifyBeforeMinutes を含める（#785）。 */
+  includeScheduleTime?: boolean;
 }
 
 export interface MobileGatewayResponse {
@@ -640,6 +642,7 @@ interface TaskProjectionOptions {
   aiOrigin?: boolean;
   placeReminder?: boolean;
   reminderAt?: boolean;
+  scheduleTime?: boolean;
 }
 
 function taskProjection(request: MobileGatewayRequest): TaskProjectionOptions {
@@ -647,6 +650,7 @@ function taskProjection(request: MobileGatewayRequest): TaskProjectionOptions {
     aiOrigin: request.includeAiOrigin,
     placeReminder: request.includePlaceReminder,
     reminderAt: request.includeReminderAt,
+    scheduleTime: request.includeScheduleTime,
   };
 }
 
@@ -731,6 +735,14 @@ function projectTask(
           rangeSemantics: task.schedule.range_semantics,
           confidence: task.schedule.confidence,
           granularity: task.schedule.granularity,
+          // 期限の時刻と知らせ（#785）。頼まれたときだけ、常に両方（無ければ null）を載せる。
+          // 値は Core が読める値に絞った読み出し（読めない保存値は null）のまま。
+          ...(include.scheduleTime
+            ? {
+                endTime: task.schedule.end_time ?? null,
+                notifyBeforeMinutes: task.schedule.notify_before_minutes ?? null,
+              }
+            : {}),
         }
       : null,
     updatedAt: task.updated_at,
@@ -741,6 +753,8 @@ type MobileScheduleEdit = {
   startDate: string | null;
   endDate: string | null;
   rangeSemantics: "once_within_window" | "ongoing" | null;
+  endTime?: string | null;
+  notifyBeforeMinutes?: number | null;
 };
 
 function scheduleDateKind(
@@ -761,6 +775,12 @@ function canonicalSchedule(schedule: MobileScheduleEdit) {
     range_semantics: schedule.rangeSemantics,
     confidence: "fixed" as const,
     granularity: "day" as const,
+    // 時刻の組（#785）は送られたときだけ渡す。欄を知らない古い APK の日付だけの変更は、
+    // 省いた欄 = 保存済みの値のまま、で時刻を消さない。
+    ...(schedule.endTime !== undefined ? { end_time: schedule.endTime } : {}),
+    ...(schedule.notifyBeforeMinutes !== undefined
+      ? { notify_before_minutes: schedule.notifyBeforeMinutes }
+      : {}),
   };
 }
 

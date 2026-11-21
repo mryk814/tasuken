@@ -20,7 +20,9 @@ import {
   taskRequesterSchema,
   taskScheduleConfidenceSchema,
   taskScheduleDateKindSchema,
+  taskScheduleEndTimeSchema,
   taskScheduleGranularitySchema,
+  taskScheduleNotifyBeforeSchema,
   taskScheduleRangeSemanticsSchema,
   taskStateSchema,
   taskSpeechRecognitionModeSchema,
@@ -277,6 +279,9 @@ export const mobileTaskScheduleSchema = z
     rangeSemantics: taskScheduleRangeSemanticsSchema.nullable(),
     confidence: taskScheduleConfidenceSchema,
     granularity: taskScheduleGranularitySchema,
+    // 期限の時刻と知らせ（#785）。X-Tasken-Schedule-Time: 1 の要求にだけ載る（古い APK は未知の欄で落ちる）。
+    endTime: taskScheduleEndTimeSchema.nullable().optional(),
+    notifyBeforeMinutes: taskScheduleNotifyBeforeSchema.nullable().optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -936,10 +941,16 @@ export const mobileTaskCreationProvenanceSchema = z
 
 export const mobileCaptureCreationProvenanceSchema = mobileTaskCreationProvenanceSchema;
 
+/**
+ * 日程の変更。期限の時刻と知らせ（#785）は省けば保存済みの値のまま、null で外す
+ * （日付しか知らない古い APK の変更が時刻を消さない）。
+ */
 const mobileScheduleEditFields = {
   startDate: localDateSchema.nullable(),
   endDate: localDateSchema.nullable(),
   rangeSemantics: taskScheduleRangeSemanticsSchema.nullable(),
+  endTime: taskScheduleEndTimeSchema.nullable().optional(),
+  notifyBeforeMinutes: taskScheduleNotifyBeforeSchema.nullable().optional(),
 };
 
 function validateMobileScheduleDates(
@@ -947,9 +958,29 @@ function validateMobileScheduleDates(
     startDate: string | null;
     endDate: string | null;
     rangeSemantics: "once_within_window" | "ongoing" | null;
+    endTime?: string | null;
+    notifyBeforeMinutes?: number | null;
   },
   context: z.RefinementCtx,
 ) {
+  if (value.endTime && !value.startDate && !value.endDate) {
+    context.addIssue({
+      code: "custom",
+      path: ["endTime"],
+      message: "endTimeは開始日か終了日のある日程にだけ指定できます。",
+    });
+  }
+  if (
+    value.notifyBeforeMinutes !== null &&
+    value.notifyBeforeMinutes !== undefined &&
+    value.endTime === null
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["notifyBeforeMinutes"],
+      message: "notifyBeforeMinutesはendTimeのある日程にだけ指定できます。",
+    });
+  }
   if (value.startDate && value.endDate && value.endDate < value.startDate) {
     context.addIssue({
       code: "custom",

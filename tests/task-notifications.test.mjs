@@ -584,3 +584,190 @@ test("#785 期限の日の知らせ: 時刻が決まった時刻より後なら�
     ["due:a:2026-11-19T09:00"],
   );
 });
+
+test("#785 Gateway はヘッダが無ければ日程の時刻を出さず、あれば付け・知らせの変更・外しが保存と要約に出て、古い形の日付だけの変更は時刻を残す", async () => {
+  const fixture = await createMobileOfflineGateway();
+  try {
+    const { origin, accessToken, deviceId } = fixture.config;
+    let sequence = 0;
+    const send = async (command, optIn = true) => {
+      const id = `end-time-${++sequence}`;
+      const response = await fetch(`${origin}/v1/commands`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+          ...(optIn ? { "X-Tasken-Schedule-Time": "1" } : {}),
+        },
+        body: JSON.stringify({
+          apiVersion: 1,
+          schemaVersion: 7,
+          requestId: id,
+          commandId: id,
+          idempotencyKey: id,
+          clientDeviceId: deviceId,
+          issuedAt: "2026-11-18T00:00:00Z",
+          command,
+        }),
+      });
+      return { status: response.status, body: await response.json() };
+    };
+    const read = async (optIn) => {
+      const query = new URLSearchParams({
+        apiVersion: "1",
+        schemaVersion: "7",
+        requestId: "end-time-read",
+        date: "2026-11-18",
+        limit: "50",
+      });
+      const response = await fetch(`${origin}/v1/today?${query}`, {
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          ...(optIn ? { "X-Tasken-Schedule-Time": "1" } : {}),
+        },
+      });
+      const body = await response.json();
+      assert.equal(response.status, 200, JSON.stringify(body));
+      return body.data.items.find((item) => item.id === "end-time-task");
+    };
+    const stored = () => fixture.snapshot().schedules.find((s) => s.owner_id === "end-time-task");
+    const dates = (endDate) => ({ startDate: null, endDate, rangeSemantics: null });
+
+    const created = await send({
+      name: "CreateTask",
+      task: {
+        id: "end-time-task",
+        title: "株の申込み",
+        projectId: "theme-personal-default",
+        state: "todo",
+        priority: "normal",
+        requester: "self",
+        intendedExecutor: "self",
+        todayDate: "2026-11-18",
+      },
+      schedule: dates("2026-11-19"),
+    });
+    assert.equal(created.status, 200, JSON.stringify(created.body));
+    const without = await read(false);
+    assert.equal(Object.hasOwn(without.schedule, "endTime"), false);
+    assert.equal(Object.hasOwn(without.schedule, "notifyBeforeMinutes"), false);
+    const withHeader = await read(true);
+    assert.equal(withHeader.schedule.endTime, null);
+    assert.equal(withHeader.schedule.notifyBeforeMinutes, null);
+
+    // 付ける（base は時刻の無い形でもよい）。
+    const set = await send({
+      name: "UpdateTask",
+      taskId: "end-time-task",
+      expectedVersion: withHeader.version,
+      expectedScheduleVersion: withHeader.schedule.version,
+      changes: { schedule: { ...dates("2026-11-19"), endTime: "02:00", notifyBeforeMinutes: 30 } },
+      base: { schedule: dates("2026-11-19") },
+    });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+    assert.equal(set.body.data.task.schedule.endTime, "02:00");
+    assert.equal(set.body.data.task.schedule.notifyBeforeMinutes, 30);
+    assert.equal(stored().end_time, "02:00");
+    assert.equal(stored().notify_before_minutes, 30);
+    assert.equal(mobileTaskSummarySchema.safeParse(set.body.data.task).success, true);
+
+    // 欄を知らない古い APK の日付だけの変更（ヘッダも無い）は、時刻と知らせを残す。
+    let current = await read(true);
+    const moved = await send(
+      {
+        name: "UpdateTask",
+        taskId: "end-time-task",
+        expectedVersion: current.version,
+        expectedScheduleVersion: current.schedule.version,
+        changes: { schedule: dates("2026-11-20") },
+        base: { schedule: dates("2026-11-19") },
+      },
+      false,
+    );
+    assert.equal(moved.status, 200, JSON.stringify(moved.body));
+    assert.equal(Object.hasOwn(moved.body.data.task.schedule, "endTime"), false);
+    assert.equal(stored().end_date, "2026-11-20");
+    assert.equal(stored().end_time, "02:00");
+    assert.equal(stored().notify_before_minutes, 30);
+
+    // 知らせだけ変える。
+    current = await read(true);
+    const lead = await send({
+      name: "UpdateTask",
+      taskId: "end-time-task",
+      expectedVersion: current.version,
+      expectedScheduleVersion: current.schedule.version,
+      changes: {
+        schedule: { ...dates("2026-11-20"), endTime: "02:00", notifyBeforeMinutes: 1440 },
+      },
+      base: { schedule: { ...dates("2026-11-20"), endTime: "02:00", notifyBeforeMinutes: 30 } },
+    });
+    assert.equal(lead.status, 200, JSON.stringify(lead.body));
+    assert.equal(stored().notify_before_minutes, 1440);
+
+    // 外す。
+    current = await read(true);
+    const cleared = await send({
+      name: "UpdateTask",
+      taskId: "end-time-task",
+      expectedVersion: current.version,
+      expectedScheduleVersion: current.schedule.version,
+      changes: { schedule: { ...dates("2026-11-20"), endTime: null, notifyBeforeMinutes: null } },
+      base: { schedule: { ...dates("2026-11-20"), endTime: "02:00", notifyBeforeMinutes: 1440 } },
+    });
+    assert.equal(cleared.status, 200, JSON.stringify(cleared.body));
+    assert.equal((await read(true)).schedule.endTime, null);
+    assert.equal(stored().end_time, null);
+    assert.equal(stored().notify_before_minutes, null);
+
+    // 時刻を外して知らせだけ、は入口で断る（Core に届かない）。
+    current = await read(true);
+    const broken = await send({
+      name: "UpdateTask",
+      taskId: "end-time-task",
+      expectedVersion: current.version,
+      expectedScheduleVersion: current.schedule.version,
+      changes: { schedule: { ...dates("2026-11-20"), endTime: null, notifyBeforeMinutes: 30 } },
+      base: { schedule: dates("2026-11-20") },
+    });
+    assert.notEqual(broken.status, 200);
+
+    // golden の要約の欄の形は、実際の応答と同じ。
+    const golden = JSON.parse(
+      readFileSync(
+        new URL("../contracts/mobile/v1/task-schedule-end-time.golden.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(
+      Object.keys(set.body.data.task.schedule).sort(),
+      Object.keys(golden.taskSummaryWithTime.schedule).sort(),
+    );
+  } finally {
+    await fixture.close();
+  }
+});
+
+test("#785 golden の要約と更新の例は schema に合い、時刻だけの知らせは断る", () => {
+  const golden = JSON.parse(
+    readFileSync(
+      new URL("../contracts/mobile/v1/task-schedule-end-time.golden.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  for (const key of [
+    "updateTaskSetTime",
+    "updateTaskChangeLead",
+    "updateTaskClearTime",
+    "updateTaskOldShapeDateOnly",
+  ])
+    assert.equal(mobileTaskCommandRequestSchema.safeParse(golden[key]).success, true, key);
+  for (const key of ["taskSummaryWithTime", "taskSummaryWithoutTime"])
+    assert.equal(mobileTaskSummarySchema.safeParse(golden[key]).success, true, key);
+  const withBadLead = structuredClone(golden.updateTaskSetTime);
+  withBadLead.command.changes.schedule.endTime = null;
+  assert.equal(mobileTaskCommandRequestSchema.safeParse(withBadLead).success, false);
+  const withBadTime = structuredClone(golden.updateTaskSetTime);
+  withBadTime.command.changes.schedule.endTime = "24:00";
+  assert.equal(mobileTaskCommandRequestSchema.safeParse(withBadTime).success, false);
+});

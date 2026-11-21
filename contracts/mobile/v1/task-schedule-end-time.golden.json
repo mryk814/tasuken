@@ -1,0 +1,168 @@
+{
+  "description": "期限の時刻と知らせ（#785）の Mobile 契約。要求に X-Tasken-Schedule-Time: 1 があるときだけ Task の要約（today・bootstrap・sync・コマンドの結果・競合の currentTask）の schedule に endTime（HH:mm、期限の日 = endDate ?? startDate の現地時刻）と notifyBeforeMinutes（時刻の何分前に知らせるか。0 = ちょうど、最大 10080）を載せる。両方とも常に載り、無ければ null。ヘッダが無い要求には欄ごと出さない（古い APK は未知の欄で落ちる）。更新は UpdateTask の changes.schedule と base.schedule に同じ欄を足して送る。省いた欄は保存済みの値のまま（日付だけの変更は時刻を消さない）、null で外す。日付を外すと Core が時刻と知らせも外す。schemaVersion は上げない。reminderAt（リマインダー）とは別の欄で、両方を持てる。tests/task-notifications.test.mjs が schema と Gateway の実際の応答と比べる。",
+  "requestHeader": { "X-Tasken-Schedule-Time": "1" },
+  "taskSummaryWithTime": {
+    "id": "10000000-0000-4000-8000-000000000021",
+    "version": 3,
+    "title": "株の申込み",
+    "themeId": null,
+    "state": "todo",
+    "workState": "not_delegated",
+    "checklistItems": [],
+    "schedule": {
+      "id": "30000000-0000-4000-8000-000000000021",
+      "version": 2,
+      "startDate": null,
+      "endDate": "2026-11-19",
+      "dateKind": "deadline",
+      "rangeSemantics": null,
+      "confidence": "fixed",
+      "granularity": "day",
+      "endTime": "02:00",
+      "notifyBeforeMinutes": 30
+    },
+    "updatedAt": "2026-11-18T09:00:00.000Z"
+  },
+  "taskSummaryWithoutTime": {
+    "id": "10000000-0000-4000-8000-000000000022",
+    "version": 1,
+    "title": "書類を出す",
+    "themeId": null,
+    "state": "todo",
+    "workState": "not_delegated",
+    "checklistItems": [],
+    "schedule": {
+      "id": "30000000-0000-4000-8000-000000000022",
+      "version": 1,
+      "startDate": null,
+      "endDate": "2026-11-19",
+      "dateKind": "deadline",
+      "rangeSemantics": null,
+      "confidence": "fixed",
+      "granularity": "day",
+      "endTime": null,
+      "notifyBeforeMinutes": null
+    },
+    "updatedAt": "2026-11-18T09:00:00.000Z"
+  },
+  "updateTaskSetTime": {
+    "apiVersion": 1,
+    "schemaVersion": 7,
+    "requestId": "end-time-set",
+    "commandId": "end-time-set",
+    "idempotencyKey": "end-time-set",
+    "clientDeviceId": "android-device",
+    "issuedAt": "2026-11-18T00:00:00Z",
+    "command": {
+      "name": "UpdateTask",
+      "taskId": "10000000-0000-4000-8000-000000000021",
+      "expectedVersion": 2,
+      "expectedScheduleVersion": 1,
+      "changes": {
+        "schedule": {
+          "startDate": null,
+          "endDate": "2026-11-19",
+          "rangeSemantics": null,
+          "endTime": "02:00",
+          "notifyBeforeMinutes": 30
+        }
+      },
+      "base": {
+        "schedule": {
+          "startDate": null,
+          "endDate": "2026-11-19",
+          "rangeSemantics": null,
+          "endTime": null,
+          "notifyBeforeMinutes": null
+        }
+      }
+    }
+  },
+  "updateTaskChangeLead": {
+    "apiVersion": 1,
+    "schemaVersion": 7,
+    "requestId": "end-time-lead",
+    "commandId": "end-time-lead",
+    "idempotencyKey": "end-time-lead",
+    "clientDeviceId": "android-device",
+    "issuedAt": "2026-11-18T00:05:00Z",
+    "command": {
+      "name": "UpdateTask",
+      "taskId": "10000000-0000-4000-8000-000000000021",
+      "expectedVersion": 3,
+      "expectedScheduleVersion": 2,
+      "changes": {
+        "schedule": {
+          "startDate": null,
+          "endDate": "2026-11-19",
+          "rangeSemantics": null,
+          "endTime": "02:00",
+          "notifyBeforeMinutes": 1440
+        }
+      },
+      "base": {
+        "schedule": {
+          "startDate": null,
+          "endDate": "2026-11-19",
+          "rangeSemantics": null,
+          "endTime": "02:00",
+          "notifyBeforeMinutes": 30
+        }
+      }
+    }
+  },
+  "updateTaskClearTime": {
+    "apiVersion": 1,
+    "schemaVersion": 7,
+    "requestId": "end-time-clear",
+    "commandId": "end-time-clear",
+    "idempotencyKey": "end-time-clear",
+    "clientDeviceId": "android-device",
+    "issuedAt": "2026-11-18T00:10:00Z",
+    "command": {
+      "name": "UpdateTask",
+      "taskId": "10000000-0000-4000-8000-000000000021",
+      "expectedVersion": 4,
+      "expectedScheduleVersion": 3,
+      "changes": {
+        "schedule": {
+          "startDate": null,
+          "endDate": "2026-11-19",
+          "rangeSemantics": null,
+          "endTime": null,
+          "notifyBeforeMinutes": null
+        }
+      },
+      "base": {
+        "schedule": {
+          "startDate": null,
+          "endDate": "2026-11-19",
+          "rangeSemantics": null,
+          "endTime": "02:00",
+          "notifyBeforeMinutes": 1440
+        }
+      }
+    }
+  },
+  "updateTaskOldShapeDateOnly": {
+    "apiVersion": 1,
+    "schemaVersion": 7,
+    "requestId": "end-time-old-apk",
+    "commandId": "end-time-old-apk",
+    "idempotencyKey": "end-time-old-apk",
+    "clientDeviceId": "android-device",
+    "issuedAt": "2026-11-18T00:15:00Z",
+    "command": {
+      "name": "UpdateTask",
+      "taskId": "10000000-0000-4000-8000-000000000021",
+      "expectedVersion": 3,
+      "expectedScheduleVersion": 2,
+      "changes": {
+        "schedule": { "startDate": null, "endDate": "2026-11-20", "rangeSemantics": null }
+      },
+      "base": {
+        "schedule": { "startDate": null, "endDate": "2026-11-19", "rangeSemantics": null }
+      }
+    }
+  }
+}

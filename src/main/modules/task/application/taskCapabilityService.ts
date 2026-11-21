@@ -8,8 +8,6 @@ import {
   readStoredPlaceReminder,
   taskReadModelSchema,
   taskScheduleReadModelSchema,
-  taskScheduleEndTimeSchema,
-  taskScheduleNotifyBeforeSchema,
   taskChecklistItemSchema,
   type TaskCommand,
   type TaskCommandOutcome,
@@ -30,6 +28,7 @@ import {
   type CommandReceipt,
 } from "../../../../shared/applicationCommand.ts";
 import type { Entity } from "../../../../shared/types/workspace.ts";
+import { scheduleEnd } from "../../../../shared/scheduleSemantics.mjs";
 import { changeEventsForCommand } from "../../../../shared/activityEvent.mjs";
 import { SqliteTaskRepository } from "../infrastructure/sqliteTaskRepository.ts";
 import type { WorkspaceTaskPersistence } from "../ports/taskRepository.ts";
@@ -88,28 +87,18 @@ function projectSchedule(entity: Entity | null): TaskScheduleReadModel | null {
       .filter((key) => Object.prototype.hasOwnProperty.call(entity, key))
       .map((key) => [key, entity[key]]),
   );
+  const end = scheduleEnd(entity);
   return taskScheduleReadModelSchema.parse({
     ...projection,
     start_date: entity.start_date || null,
     end_date: entity.end_date || null,
     range_semantics: entity.range_semantics || null,
-    // 時刻の組（#785）。読めない保存値は無い（null）として返し、DB の値は書き換えない
+    // 時刻の組（#785）は scheduleEnd の決まりで読む。読めない保存値や、日程・日単位・時刻の無い
+    // 組み合わせ（古い版との同期で残りうる）は無い（null）として返し、DB の値は書き換えない
     // （省いた欄は保存済みの値のまま、の決まりで、他の更新でも残る）。
-    end_time: readableScheduleValue(taskScheduleEndTimeSchema, entity.end_time),
-    notify_before_minutes: readableScheduleValue(
-      taskScheduleNotifyBeforeSchema,
-      entity.notify_before_minutes,
-    ),
+    end_time: end?.time ?? null,
+    notify_before_minutes: end?.notifyBeforeMinutes ?? null,
   });
-}
-
-function readableScheduleValue<T>(
-  schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } },
-  value: unknown,
-): T | null {
-  if (value === null || value === undefined) return null;
-  const parsed = schema.safeParse(value);
-  return parsed.success ? parsed.data : null;
 }
 
 function normalizeChecklistItemsForReadModel(value: unknown): unknown {

@@ -375,6 +375,7 @@ export class MobileGatewayHost {
         includeAiOrigin: request.headers["x-tasken-ai-origin"] === "1",
         includePlaceReminder: request.headers["x-tasken-place-reminder"] === "1",
         includeReminderAt: request.headers["x-tasken-reminder-at"] === "1",
+        includeScheduleTime: request.headers["x-tasken-schedule-time"] === "1",
       });
       this.record(method, path, result.status, deviceId);
       const resultError = (result.body as { error?: { code?: unknown } } | null)?.error?.code;
