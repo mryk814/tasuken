@@ -116,6 +116,7 @@
         "src/renderer/src/features/workspace/components/MarkdownRichEditor.tsx",
         "src/renderer/src/features/workspace/components/PlaceReminderFields.tsx",
         "src/renderer/src/features/workspace/lib/placeReminder.ts",
+        "src/renderer/src/features/workspace/lib/proposalDecisions.ts",
         "src/renderer/src/features/workspace/components/NoteCreateMenu.tsx",
         "src/renderer/src/features/workspace/components/SketchCanvas.tsx",
         "src/renderer/src/features/workspace/components/SketchPageSizePicker.tsx",
