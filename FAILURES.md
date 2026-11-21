@@ -2,6 +2,23 @@
 
 このリポジトリで試して失敗したことと、その直し方・再発防止。ほかのリポジトリでも起きる失敗（PC・シェル・道具の癖）は `~/.codex/FAILURES.md` に書く。
 
+## 2026-11-21 Android の採否を押した順に送る錠が、同じ頃に押した 2 件の順を入れ替えた（#774）
+
+- しようとしたこと: 採る・見送るを 5 秒持ってから送る Android の列（`ProposalDecisionHold`）で、「kotlinx の `Mutex` は待った順に渡す」ことに頼り、押した順に 1 件ずつ送ろうとした。
+- 起きたこと: `ProposalDecisionHoldTest.aRefusedDecisionComesBackWithoutBlockingTheNext` が `expected:<[p1, p2]> but was:<[p2, p1]>` で落ちた。
+- 原因: 2 件をほぼ同時に押すと、それぞれの 5 秒の待ちが `Dispatchers.Default` の別のスレッドで明け、錠を取りに行く順が押した順と食い違う。錠は「取りに来た順」は守るが「押した順」は知らない。
+- 直し方: 押した時に「前の 1 件が終わった」印（`CompletableDeferred`）を鎖にしてつなぎ、送る前に前の印を待つ。取り消して早く終わった物も、前の印が終わるまでは自分の印を立てない（後ろが追い越さない）。3 回続けて流して通った。
+- 再発防止: 上の試験と、`ProposalDecisionHold` の頭のコメント。順を守る列は、錠の順番待ちでなく押した時に決まる鎖で作る。
+
+## 2026-11-21 取り消しで戻したカードの判が、画面の右上の隅へ飛んだ（#774）
+
+- しようとしたこと: 提案を採った後の「取り消す」で、戻ったカードに判を置いてから浮かせて消す（`lib/decisionMotion.ts`）。判は `position: absolute` で、載せるカードに `classList.add("decision-seal-host")` で `position: relative` を付けていた。
+- 起きたこと: 撮った絵で、判がカードの上でなく窓の右上の隅に出た。押した時（採る）は正しい所に出ていた。
+- 原因: 戻す時は Feed の投稿を開き直すので、React が `<li>` の `className` を書き直し（`is-open` が足される）、外から足した class が消えた。押した時はカードの `className` が変わらないので、たまたま残っていた。
+- 直し方: 判を載せたカードの印を data 属性（`data-decision-seal-host`）にした。React は props に無い属性を書き直さない。あわせて、開き直した詳細が描かれてから判を置くよう、戻る動きを 1 回だけ次の描画へ回した。
+- 再発防止: `decisionMotion.ts` の `SEAL_HOST_ATTRIBUTE` の横のコメント。React が描く要素に外から付ける目印は、class でなく data 属性にする。
+- 同じ作業で分かったこと: (1) `AiProposalPanel.tsx` は試験（`feed-selected-adoption`）が esbuild で node 向けに束ねて読むので、そこから `stores/uiStore` を import すると `location is not defined` で落ちる。帯へ出す口は本体の窓から渡す形にした（`startProposalDecisions(notify)`）。(2) この PC では、何もしていない Tasken の終了（`app.quit()` から閉じるまで）が今の main の build でも 21〜45 秒かかり、`smoke:proposal-live:focused` が確かめの中身を全部通った後の「30 秒以内に閉じる」で 3 回続けて落ちた（2026-11-14 の項の尾と同じ物。この作業の変更とは関係が無い）。
+
 ## 2026-11-19 ai-document-creation の後始末の順で、Windows の CI 全体が 45 分止まった
 
 - しようとしたこと: #789 の `tests/ai-document-creation.test.mjs`（create-only headless の実証）で、後始末を `t.after` に分けて登録した（一時フォルダー削除 → Core 停止 → MCP 終了の順）。

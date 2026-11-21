@@ -110,6 +110,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.text.style.TextDecoration
@@ -263,6 +264,8 @@ internal fun TodayApp(
     val proposalReviewOnline by todayViewModel.proposalReviewOnline.collectAsState()
     val proposalRefreshing by todayViewModel.proposalRefreshing.collectAsState()
     val proposalReviewState by todayViewModel.proposalReviewState.collectAsState()
+    val decidedProposals by todayViewModel.decidedProposals.collectAsState()
+    val decisionBand by todayViewModel.decisionBand.collectAsState()
     val themes = themeCatalogState.themes
     val context = LocalContext.current
     var notificationsEnabled by remember(context) {
@@ -632,12 +635,8 @@ internal fun TodayApp(
     }
     LaunchedEffect(proposalReviewState) {
         when (val state = proposalReviewState) {
-            is ProposalReviewUiState.Applied -> {
-                snackbarHostState.showSnackbar(
-                    if (state.decision == "accept") "提案を採りました。" else "提案を見送りました。",
-                )
-                todayViewModel.resetProposalReviewState()
-            }
+            // 押した時に帯で「採りました／見送りました」と出しているので、届いた時は重ねて出さない（#774）。
+            is ProposalReviewUiState.Applied -> todayViewModel.resetProposalReviewState()
             is ProposalReviewUiState.Error -> {
                 snackbarHostState.showSnackbar(state.message)
                 todayViewModel.resetProposalReviewState()
@@ -874,6 +873,7 @@ internal fun TodayApp(
                         proposalReviewChecking = proposalRefreshing,
                         proposalReviewNeedsRepair = syncState.needsRepair,
                         proposalReviewState = proposalReviewState,
+                        decidedProposals = decidedProposals,
                         themes = themes,
                         themeCatalogState = themeCatalogState,
                         onStateAction = todayViewModel::toggleTaskState,
@@ -893,7 +893,7 @@ internal fun TodayApp(
                         onWorkReceiptRetry = { selectedTask, selectedReceiptId ->
                             todayViewModel.loadWorkReceipt(selectedTask.id, selectedReceiptId, force = true)
                         },
-                        onProposalDecision = todayViewModel::reviewTaskWorkProposal,
+                        onProposalDecision = todayViewModel::decideTaskWorkProposal,
                         onNavigateBack = if (task != null) navigateToList else null,
                         completionFeedbackEventId = completionFeedback
                             ?.takeIf { it.taskId == task?.id }
@@ -908,6 +908,12 @@ internal fun TodayApp(
             SnackbarHost(snackbarHostState, modifier = Modifier
                 .align(Alignment.TopCenter)
                 .testTag("top-snackbar-host"))
+            // 提案を決めた帯は、知らせと同じ位置に出す（#774）。
+            DecisionBand(
+                band = decisionBand,
+                onUndo = { todayViewModel.undoProposalDecision(it.key) },
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
         }
         }
     }
@@ -2409,6 +2415,8 @@ internal fun TodayDetailPane(
     /** この端末の登録が切れて、つなぎ直しが要る時。 */
     proposalReviewNeedsRepair: Boolean = false,
     proposalReviewState: ProposalReviewUiState = ProposalReviewUiState.Idle,
+    /** 採る・見送るを押した提案と、その決定（#774）。カードは判・流れの動きで外れ、外れたら戻る。 */
+    decidedProposals: Map<String, String> = emptyMap(),
     themes: List<MobileTheme> = emptyList(),
     themeCatalogState: MobileThemeCatalogState = if (themes.isEmpty()) {
         MobileThemeCatalogState.Loading()
@@ -2826,14 +2834,18 @@ internal fun TodayDetailPane(
                 onChange = { onPlaceReminderUpdate(task, it) },
             )
             taskWorkProposals.forEach { proposal ->
-                TaskWorkProposalReviewCard(
-                    proposal = proposal,
-                    online = proposalReviewOnline,
-                    reviewState = proposalReviewState,
-                    onDecision = onProposalDecision,
-                    checking = proposalReviewChecking,
-                    needsRepair = proposalReviewNeedsRepair,
-                )
+                key(proposal.id) {
+                    DecisionMotion(decision = decidedProposals[proposal.id]) {
+                        TaskWorkProposalReviewCard(
+                            proposal = proposal,
+                            online = proposalReviewOnline,
+                            reviewState = proposalReviewState,
+                            onDecision = onProposalDecision,
+                            checking = proposalReviewChecking,
+                            needsRepair = proposalReviewNeedsRepair,
+                        )
+                    }
+                }
             }
             task.latestWorkReceipt?.let { receipt ->
                 Card(

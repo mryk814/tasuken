@@ -55,6 +55,13 @@ import {
 } from "../lib/feedPosts";
 import { workspaceApi } from "../../../services/workspaceApi";
 import { useWorkspaceStore } from "../../../stores/workspaceStore";
+import { resetDecision, returnAdopted, returnDismissed } from "../lib/decisionMotion";
+import {
+  consumeReturning,
+  hiddenProposalIds,
+  useProposalDecisionStore,
+  type DecisionKind,
+} from "../lib/proposalDecisions";
 import { uuid } from "../lib/format";
 import {
   FEED_COPY_EXCERPT_MAX,
@@ -617,10 +624,73 @@ export function FeedPage(props: PageProps) {
    * AIからの質問・判断・成果の確認・変更案。ホームの投稿の間に時刻順で差し込み、
    * 開いた投稿の下で答える。同じ報告を2か所に出さない。
    */
-  const needsRows = useMemo(
-    () => selectNeedsYou(buildFeedProjection(live.items).items),
-    [live.items],
+  const heldDecisions = useProposalDecisionStore((state) => state.held);
+  const leavingDecisions = useProposalDecisionStore((state) => state.leaving);
+  const returningDecisions = useProposalDecisionStore((state) => state.returning);
+  /**
+   * 採る・見送るを押して、まだ端末に持っている（5 秒の取り消し待ち・送信待ちの）提案は一覧から外す。
+   * 届けば提案が決着して消え、取り消すか断られれば戻る（#774）。
+   */
+  const hiddenProposals = useMemo(
+    () =>
+      hiddenProposalIds({
+        held: heldDecisions,
+        leaving: leavingDecisions,
+        returning: returningDecisions,
+      }),
+    [heldDecisions, leavingDecisions, returningDecisions],
   );
+  const needsRows = useMemo(
+    () =>
+      selectNeedsYou(buildFeedProjection(live.items).items).filter(
+        (item) =>
+          !(usesProposalDetail(item) && item.sourceId && hiddenProposals.has(item.sourceId)),
+      ),
+    [live.items, hiddenProposals],
+  );
+  /** 戻ってきた提案の、開き直した後に付ける動き（判が浮く／右から戻る）。 */
+  const pendingReturns = useRef<Array<{ proposalId: string; kind: DecisionKind; tries?: number }>>(
+    [],
+  );
+  useLayoutEffect(() => {
+    if (!returningDecisions.length) return;
+    const arrived: Array<{ proposalId: string; kind: DecisionKind }> = [];
+    for (const entry of returningDecisions) {
+      consumeReturning(entry.proposalId);
+      const row = needsRows.find(
+        (item) => usesProposalDetail(item) && item.sourceId === entry.proposalId,
+      );
+      if (!row) continue;
+      // 戻ったカードは開いた姿で戻す（もう一度決め直せるように）。
+      setSelectedNeedsId(row.id);
+      arrived.push(entry);
+    }
+    pendingReturns.current.push(...arrived);
+  }, [returningDecisions, needsRows]);
+  // 開き直した後の描画で動かす（依存なし: 戻る物がある時だけ働く）。
+  useLayoutEffect(() => {
+    if (!pendingReturns.current.length) return;
+    const entries = pendingReturns.current;
+    pendingReturns.current = [];
+    for (const entry of entries) {
+      const post = document.querySelector<HTMLElement>(
+        `.feed-attention-post[data-proposal-id="${CSS.escape(entry.proposalId)}"]`,
+      );
+      if (!post) continue;
+      // 開き直した詳細（候補のカード）が描かれるのを 1 度だけ待つ。判はそのカードから浮く。
+      if (!post.querySelector(".proposal-inline-preview") && !entry.tries) {
+        pendingReturns.current.push({ ...entry, tries: 1 });
+        continue;
+      }
+      // 押した後の動きの途中で取り消した時は、その動きを捨ててから戻す。
+      resetDecision(post);
+      if (entry.kind === "adopt")
+        void returnAdopted(post, [
+          ...post.querySelectorAll<HTMLElement>(".import-candidate:not(.is-skipped)"),
+        ]);
+      else void returnDismissed(post);
+    }
+  });
 
   /** Focus復帰でAIからの更新を読み直す。通知は出さない。 */
   const refreshNeeds = useCallback(async () => {
@@ -1780,7 +1850,10 @@ export function FeedPage(props: PageProps) {
       item.kind === "proposal_pending" && proposal ? proposalHeadline(proposal) : item.headline;
     const open = item.id === selectedNeedsId;
     return (
-      <li className={`feed-attention-post${open ? " is-open" : ""}`}>
+      <li
+        className={`feed-attention-post${open ? " is-open" : ""}`}
+        data-proposal-id={usesProposalDetail(item) ? item.sourceId : undefined}
+      >
         <div className="feed-post-body">
           <span className="feed-avatar feed-avatar-ai" aria-hidden="true">
             AI

@@ -434,5 +434,7 @@ export interface PageProps {
     message: string,
     tone?: "info" | "success" | "warning" | "danger",
     undo?: { label: string; run(): void | Promise<void> } | null,
+    /** 提案を決めた帯の印（#774）。付けると 5 秒で尽きる線を持つ帯になる。 */
+    mark?: "adopt" | "dismiss" | null,
   ): void;
 }

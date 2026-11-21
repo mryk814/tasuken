@@ -333,6 +333,8 @@ class TodayViewModel(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val refreshExternalProjection: () -> Unit = {},
     private val today: () -> java.time.LocalDate = java.time.LocalDate::now,
+    /** 採る・見送るを送らずに持つ時間。帯の「取り消す」が出ている間（#774）。 */
+    private val proposalHoldMillis: Long = PROPOSAL_DECISION_HOLD_MILLIS,
 ) : ViewModel() {
     val workLogRepository: MobileWorkLogRepository? get() = repository as? MobileWorkLogRepository
     val recallRepository: MobileRecallRepository? get() = repository as? MobileRecallRepository
@@ -382,6 +384,21 @@ class TodayViewModel(
     val proposalRefreshing: StateFlow<Boolean> = mutableProposalRefreshing.asStateFlow()
     private val mutableProposalReviewState = MutableStateFlow<ProposalReviewUiState>(ProposalReviewUiState.Idle)
     val proposalReviewState: StateFlow<ProposalReviewUiState> = mutableProposalReviewState.asStateFlow()
+    /** 採る・見送るを 5 秒持ってから押した順に送る（#774）。viewModelScope は使う時に作る。 */
+    private val decisionHold by lazy {
+        ProposalDecisionHold(
+            scope = viewModelScope,
+            online = mutableProposalReviewOnline,
+            onNotSent = { held, message ->
+                mutableProposalReviewState.value = ProposalReviewUiState.Error(held.proposalId, message)
+            },
+            holdMillis = proposalHoldMillis,
+        )
+    }
+    /** 一覧から外して見せる提案と、その決定（押した後、届くまでと届いた後）。 */
+    val decidedProposals: StateFlow<Map<String, String>> get() = decisionHold.decided
+    /** 帯に出す決定（押してから 5 秒の間だけ「取り消す」を押せる）。 */
+    val decisionBand: StateFlow<HeldProposalDecision?> get() = decisionHold.band
     private val mutableFeedPosts = MutableStateFlow<List<MobileFeedPostDto>>(emptyList())
     val feedPosts: StateFlow<List<MobileFeedPostDto>> = mutableFeedPosts.asStateFlow()
     private val mutableFeedMessages = MutableSharedFlow<String>(extraBufferCapacity = 8)
@@ -822,6 +839,36 @@ class TodayViewModel(
     fun reviewTaskWorkProposal(proposal: MobileTaskWorkProposal, decision: String) {
         viewModelScope.launch { reviewTaskWorkProposalNow(proposal, decision) }
     }
+
+    /**
+     * 採る・見送るを押した（#774）。つながっている時だけ受け、押してから 5 秒は送らずに持つ
+     * （帯の「取り消す」で止められる）。その後、押した順に 1 件ずつ送る（ProposalDecisionHold）。
+     */
+    fun decideTaskWorkProposal(proposal: MobileTaskWorkProposal, decision: String) {
+        if (decision !in setOf("accept", "reject")) return
+        if (decision == "accept" && proposal.stale) {
+            mutableProposalReviewState.value = ProposalReviewUiState.Error(
+                proposal.id,
+                "Taskが更新されています。AIへ再報告を依頼してください。",
+            )
+            return
+        }
+        if (!mutableProposalReviewOnline.value) {
+            mutableProposalReviewState.value = ProposalReviewUiState.Error(
+                proposal.id,
+                "Desktopへ接続してからProposalを判断してください。",
+            )
+            return
+        }
+        decisionHold.hold(proposal.id, decision) {
+            reviewTaskWorkProposalNow(proposal, decision)
+            val state = mutableProposalReviewState.value
+            state is ProposalReviewUiState.Applied && state.proposalId == proposal.id
+        }
+    }
+
+    /** 帯の「取り消す」。まだ送り始めていなければ何も送らず、カードを戻す。 */
+    fun undoProposalDecision(key: Long): Boolean = decisionHold.undo(key)
 
     internal suspend fun reviewTaskWorkProposalNow(proposal: MobileTaskWorkProposal, decision: String) {
         if (decision !in setOf("accept", "reject")) return
