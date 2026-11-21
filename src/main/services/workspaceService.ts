@@ -99,7 +99,10 @@ import { changeEventsForCommand } from "../../shared/activityEvent.mjs";
 import { formatRecordCountsMarkdown, type RecordCountRow } from "./recordCounts.mjs";
 import {
   CONVERSATION_CONTEXT_PUBLICATION_SCHEMA,
+  CONVERSATION_CONTEXT_ROOT_ID,
   buildConversationContextPlan,
+  conversationContextPathParts,
+  legacyConversationContextRootId,
   normalizeConversationContextPublication,
   type ConversationContextPlan,
 } from "../../shared/conversationContext.mjs";
@@ -568,6 +571,13 @@ function existingDefaultPath(value: unknown): { defaultPath?: string } {
     if (parent === candidate) return {};
     candidate = parent;
   }
+}
+
+/** 会話の AI Context の公開先が Tasken ルートの sync の参照か（#810。違えば前の版の theme:<id>）。 */
+function conversationContextRootBound(
+  binding: { storage_root_id?: string | null } | null | undefined,
+): boolean {
+  return binding?.storage_root_id === CONVERSATION_CONTEXT_ROOT_ID;
 }
 
 function errorText(error: unknown): string {
@@ -1142,14 +1152,34 @@ export class WorkspaceService {
     return writeAtomicTextFile(filePath, content, operationId);
   }
 
-  private resolveThemeFolder(theme: Record<string, unknown>) {
+  /**
+   * 会話の AI Context を置く Theme folder（#810）。新しい公開と sync の参照は、Tasken ルートの
+   * Themes/ の下だけを marker で探す。前の版の theme:<id> の参照（公開中のもの）だけは、
+   * Theme に storage_root があればその下を見る。前に公開した場所で更新・解除し、
+   * 別の場所にもう 1 つ作らないため。
+   */
+  private resolveConversationContextThemeFolder(
+    theme: Record<string, unknown>,
+    activeBinding: { storage_root_id?: string | null } | null,
+  ) {
+    const legacy = Boolean(activeBinding) && !conversationContextRootBound(activeBinding);
     return discoverThemeFolderLocation({
       syncRoot: String(this.repository.getPreference("artifactDirectory") || ""),
-      legacyThemeStorageRoot: typeof theme.storage_root === "string" ? theme.storage_root : "",
+      legacyThemeStorageRoot:
+        legacy && typeof theme.storage_root === "string" ? theme.storage_root : "",
       themeId: String(theme.id || ""),
       themeCode: typeof theme.code === "string" ? theme.code : "",
       displayName: String(theme.name || theme.title || ""),
     });
+  }
+
+  /** Tasken ルートから Theme folder までの相対パス（/ 区切り）。ルートの外なら undefined。 */
+  private conversationContextThemeFolderPath(themeFolder: string): string | undefined {
+    const root = String(this.repository.getPreference("artifactDirectory") || "").trim();
+    if (!root) return undefined;
+    const relative = path.relative(path.resolve(root), path.resolve(themeFolder));
+    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return undefined;
+    return relative.split(path.sep).join("/");
   }
 
   private saveConversationContextResource(
@@ -1167,6 +1197,7 @@ export class WorkspaceService {
     resource: Record<string, unknown>;
     theme: Record<string, unknown>;
     plan: ConversationContextPlan;
+    location: ReturnType<typeof discoverThemeFolderLocation>;
   } {
     const request = objectValue(requestValue);
     const conversationId =
@@ -1187,6 +1218,11 @@ export class WorkspaceService {
     const selectedMessageIndexes = Array.isArray(request.selectedMessageIndexes)
       ? request.selectedMessageIndexes
       : undefined;
+    const publication = normalizeConversationContextPublication(
+      resource.conversation_context_publication,
+    );
+    const activeBinding = publication?.status !== "removed" ? publication : null;
+    const location = this.resolveConversationContextThemeFolder(theme, activeBinding);
     const plan = buildConversationContextPlan({
       resource,
       theme,
@@ -1198,8 +1234,13 @@ export class WorkspaceService {
             : undefined,
       selectedMessageIndexes,
       publishedAt,
+      // 新しい公開先は、marker で見つけた Theme folder の下にする（Theme の識別子を変えた後も同じフォルダ）。
+      themeFolderPath:
+        location.status === "ok" && !(activeBinding && !conversationContextRootBound(activeBinding))
+          ? this.conversationContextThemeFolderPath(location.themeFolder)
+          : undefined,
     });
-    return { resource, theme, plan };
+    return { resource, theme, plan, location };
   }
 
   private conversationContextLocation(
@@ -1215,13 +1256,17 @@ export class WorkspaceService {
         this.repository.get("project", bindingThemeId, true)
       : theme;
     if (!bindingTheme) return { location: { status: "theme_missing" as const }, storage: null };
-    const location = this.resolveThemeFolder(bindingTheme);
+    const location = this.resolveConversationContextThemeFolder(
+      bindingTheme,
+      publication?.status !== "removed" ? publication : null,
+    );
     if (location.status !== "ok") return { location, storage: null };
+    const parts = publication ? conversationContextPathParts(publication) : null;
     const storage =
-      publication?.status === "published"
+      publication?.status === "published" && parts
         ? inspectConversationContextFile({
             themeFolder: location.themeFolder,
-            relativePath: publication.relative_path,
+            relativePath: parts.themeRelativePath,
             contentHash: publication.content_hash,
           })
         : null;
@@ -1291,7 +1336,7 @@ export class WorkspaceService {
     ) {
       throw new Error("AI Context Previewが古いため、内容を確認し直してください。");
     }
-    const { resource, theme, plan } = this.conversationContextInput(request, plannedPublishedAt);
+    const { resource, plan, location } = this.conversationContextInput(request, plannedPublishedAt);
     if (plan.content_hash !== expectedContentHash) {
       return {
         conversationId: plan.conversation_id,
@@ -1306,8 +1351,8 @@ export class WorkspaceService {
     if (!plan.allowed) {
       throw new Error(plan.blocking_reasons[0] || "M365への公開が許可されていません。");
     }
-    const location = this.resolveThemeFolder(theme);
-    if (location.status !== "ok")
+    const planParts = conversationContextPathParts(plan);
+    if (location.status !== "ok" || !planParts)
       throw new Error("ThemeのOneDrive保存先を利用できません。Settingsを確認してください。");
     const ensured = ensureThemeFolderLocation(location, { operationId: randomUUID() });
     if (ensured.status !== "ok") throw new Error("ThemeのOneDrive保存先を準備できませんでした。");
@@ -1330,10 +1375,10 @@ export class WorkspaceService {
     ) {
       const storage = inspectConversationContextFile({
         themeFolder: ensured.themeFolder,
-        relativePath: plan.relative_path,
+        relativePath: planParts.themeRelativePath,
         contentHash: plan.content_hash,
       });
-      if (storage.current) {
+      if (storage.current && existingPublication.relative_path === plan.relative_path) {
         return {
           conversationId: plan.conversation_id,
           themeId: plan.theme_id,
@@ -1370,7 +1415,7 @@ export class WorkspaceService {
         themeFolder: ensured.themeFolder,
         conversationId: plan.conversation_id,
         themeId: plan.theme_id,
-        relativePath: plan.relative_path,
+        relativePath: planParts.themeRelativePath,
         content: plan.content,
         contentHash: plan.content_hash,
         operationId,
@@ -1448,13 +1493,19 @@ export class WorkspaceService {
     }
     const themeId =
       publication.theme_id || String(resource.theme_id || resource.project_id || "").trim();
-    const storageRootId = publication.storage_root_id || `theme:${themeId}`;
-    if (!themeId || storageRootId !== `theme:${themeId}`)
+    const storageRootId = publication.storage_root_id || legacyConversationContextRootId(themeId);
+    const parts = conversationContextPathParts(publication);
+    if (
+      !themeId ||
+      !parts ||
+      (storageRootId !== CONVERSATION_CONTEXT_ROOT_ID &&
+        storageRootId !== legacyConversationContextRootId(themeId))
+    )
       throw new Error("Conversationの公開先bindingが不正です。再読込してから再試行してください。");
     const theme =
       this.repository.get("theme", themeId, true) || this.repository.get("project", themeId, true);
     if (!theme) throw new Error("ConversationのThemeが見つかりません。");
-    const location = this.resolveThemeFolder(theme);
+    const location = this.resolveConversationContextThemeFolder(theme, publication);
     if (location.status !== "ok")
       throw new Error("ThemeのOneDrive保存先を利用できません。Settingsを確認してください。");
     const ensured = ensureThemeFolderLocation(location, { operationId: randomUUID() });
@@ -1476,7 +1527,7 @@ export class WorkspaceService {
         themeFolder: ensured.themeFolder,
         conversationId,
         themeId,
-        relativePath: publication.relative_path,
+        relativePath: parts.themeRelativePath,
         operationId,
         recoveryDirectory: this.conversationContextRecoveryDirectory,
       });
@@ -1561,7 +1612,8 @@ export class WorkspaceService {
           this.repository.get("theme", receipt.themeId, true) ||
           this.repository.get("project", receipt.themeId, true);
         if (!theme) throw new Error("Themeが見つかりません。");
-        const location = this.resolveThemeFolder(theme);
+        // 操作中の公開先の参照（sync か前の版の theme:<id>）で、同じ Theme folder を探す。
+        const location = this.resolveConversationContextThemeFolder(theme, publication);
         if (location.status !== "ok")
           throw new Error(`Theme保存先を再発見できません: ${location.status}`);
         let phase = receipt.phase;
