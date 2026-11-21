@@ -34,6 +34,12 @@ import {
   type BoardRow,
 } from "./TaskBoardModel";
 import { AiCreationMark } from "./AiCreationMark";
+import { useReminderNow } from "./common";
+import {
+  isScheduleOverdueAt,
+  scheduleEnd,
+  scheduleEndTime,
+} from "../../../../../shared/scheduleSemantics.mjs";
 import "./TaskBoard.css";
 
 const STATE_ICONS = {
@@ -80,6 +86,7 @@ export function TaskBoard({
   const [title, setTitle] = useState("");
   const keyboardHelp = useId();
   const today = todayIso();
+  const now = useReminderNow();
   const themeOptions = themePickerOptions(themes);
 
   useEffect(() => {
@@ -292,6 +299,8 @@ export function TaskBoard({
                             ? "報告あり"
                             : nextTurn.replace(/^次: /, "").replace(/^AI · /, "");
                     const due = schedule?.end_date;
+                    const dueTime =
+                      due && scheduleEnd(schedule)?.date === due ? scheduleEndTime(schedule) : "";
                     return (
                       <Fragment key={task.id}>
                         {insertion(state, task.id)}
@@ -386,12 +395,18 @@ export function TaskBoard({
                             <div className="task-board-meta">
                               {due && (
                                 <time
-                                  className={!terminal && due < today ? "is-overdue" : ""}
+                                  className={
+                                    !terminal && (due < today || isScheduleOverdueAt(schedule, now))
+                                      ? "is-overdue"
+                                      : ""
+                                  }
                                   dateTime={due}
-                                  title={`予定終了 ${due}`}
+                                  title={`予定終了 ${due}${dueTime ? ` ${dueTime}` : ""}`}
                                 >
                                   <IconCalendar size={14} aria-hidden="true" />
                                   {due.slice(5).replace("-", "/")}
+                                  {/* 期限の時刻（#785）は日付の横に添える。 */}
+                                  {dueTime ? ` ${dueTime}` : ""}
                                 </time>
                               )}
                               {checklist.length > 0 && (

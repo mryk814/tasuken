@@ -36,6 +36,7 @@ import {
 } from "../../../../../shared/themeRef.mjs";
 import { normalizeRepositoryContext } from "../../../../../shared/repositoryContext.mjs";
 import { buildDerivedFromReferenceOperation } from "./lineageOperations";
+import { SCHEDULE_NOTIFY_CUSTOM } from "../domain-model/labels";
 
 export type DrawerFormPlan =
   | {
@@ -160,6 +161,37 @@ function normalizeRangeSemantics(value: string): ScheduleRangeSemantics | null {
   return value === "once_within_window" || value === "ongoing" ? value : null;
 }
 
+/**
+ * 期限の時刻と知らせ（#785）をフォームから読む。時刻の欄が無いフォームでは欄ごと省く
+ * （省いた欄は Core が保存値のまま残す）。欄があれば両方を明示し、外したときは null を送る。
+ * 時刻が無い・日付が無いときは知らせも null。知らせの「ほか」は分の欄の値（0〜10080）。
+ */
+function scheduleEndFieldsFromForm(
+  values: FormData,
+  hasField: (name: string) => boolean,
+  hasDate: boolean,
+):
+  | { ok: true; value: Pick<Schedule, "end_time" | "notify_before_minutes"> }
+  | { ok: false; field: string; message: string } {
+  if (!hasField("end_time")) return { ok: true, value: {} };
+  const raw = formText(values, "end_time");
+  const endTime = hasDate && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(raw) ? raw : null;
+  if (!endTime) return { ok: true, value: { end_time: null, notify_before_minutes: null } };
+  const choice = formText(values, "notify_before_minutes");
+  if (!choice) return { ok: true, value: { end_time: endTime, notify_before_minutes: null } };
+  const minutesText =
+    choice === SCHEDULE_NOTIFY_CUSTOM ? formText(values, "notify_before_custom") : choice;
+  const minutes = Number(minutesText);
+  if (!minutesText || !Number.isInteger(minutes) || minutes < 0 || minutes > 10080) {
+    return {
+      ok: false,
+      field: "notify_before_custom",
+      message: "知らせは期限の時刻の0〜10080分前（7日前まで）の整数で入力してください。",
+    };
+  }
+  return { ok: true, value: { end_time: endTime, notify_before_minutes: minutes } };
+}
+
 function normalizeChatReferenceStatus(value: string): string {
   return value === "adopted" ? "adopted" : "inbox";
 }
@@ -243,6 +275,9 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
     const startDate = formText(values, "start_date") || null;
     const endDate = formText(values, "end_date") || null;
     const scheduleId = formText(values, "_schedule_id");
+    const endFields = scheduleEndFieldsFromForm(values, hasField, Boolean(startDate || endDate));
+    if (!endFields.ok)
+      return { kind: "invalid", field: endFields.field, message: endFields.message };
     if (startDate || endDate || scheduleId) {
       const isRange = Boolean(startDate && endDate && endDate > startDate);
       const schedule: Schedule = {
@@ -266,6 +301,7 @@ export function buildDomainDrawerFormPlan(context: DrawerFormPlanContext): Drawe
           : null,
         confidence: "fixed",
         granularity: "day",
+        ...endFields.value,
       };
       operations.push(...buildSaveScheduleOperations(schedule));
     }

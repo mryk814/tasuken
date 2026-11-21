@@ -55,6 +55,18 @@ function sameSchedule(left: Entity | undefined, right: Entity | undefined): bool
   return changedKeys(left, right).every((key) => VOLATILE_SCHEDULE_KEYS.has(key));
 }
 
+/**
+ * storeの日程（保存済みのEntity）と、フォームから作った日程を比べる。フォームが持つ欄だけを見る
+ * （version・source・device_id など保存の時に付く欄は、フォームの日程には無い）。全部の欄で比べると
+ * 外で何も変わっていなくても毎回「上書きしました」と出ていた（#785 で時刻を足した時に見つけた）。
+ */
+function sameStoredSchedule(stored: Entity | undefined, planned: Entity | undefined): boolean {
+  if (!stored || !planned) return !stored && !planned;
+  return Object.keys(planned)
+    .filter((key) => !VOLATILE_SCHEDULE_KEYS.has(key))
+    .every((key) => sameValue(stored[key], planned[key]));
+}
+
 export function rebaseDrawerTaskOperations(input: DrawerTaskRebaseInput): DrawerTaskRebaseResult {
   const { initial, edited, currentTask, currentSchedule } = input;
   const initialTask = initial.find((operation) => operation.type === "task")?.entity;
@@ -78,8 +90,8 @@ export function rebaseDrawerTaskOperations(input: DrawerTaskRebaseInput): Drawer
   if (
     scheduleChanged &&
     currentSchedule &&
-    !sameSchedule(currentSchedule, initialSchedule) &&
-    !sameSchedule(currentSchedule, editedSchedule)
+    !sameStoredSchedule(currentSchedule, initialSchedule) &&
+    !sameStoredSchedule(currentSchedule, editedSchedule)
   ) {
     overwritten.push(SCHEDULE_KEY);
   }

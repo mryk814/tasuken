@@ -20,6 +20,7 @@ import { DEFAULT_RANGE_SEMANTICS } from "../domain-model/scheduleSemantics";
 import type { Schedule, ScheduleRangeSemantics, Task } from "../domain-model/types";
 import { Field, ThemeSelect } from "./common";
 import { PlaceReminderFields } from "./PlaceReminderFields";
+import { ScheduleEndTimeFields } from "./ScheduleEndTimeFields";
 
 const REPEAT_FREQUENCY_LABELS = {
   daily: "毎日",
@@ -257,6 +258,7 @@ export function TaskFields({
           />
         </Field>
       </div>
+      <ScheduleEndTimeFields schedule={schedule} hasDate={Boolean(startDate || endDate)} />
       {/* 日付範囲を指定したときだけ意味を尋ねる。単日には不要な選択を出さない（#309）。 */}
       {isDateRange && (
         <fieldset className="range-semantics-field">

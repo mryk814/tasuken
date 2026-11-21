@@ -143,3 +143,46 @@ test("両方で変わった欄はこの画面の値で保存し、上書きし�
     "題名・日程は、ほかで変わっていた値をこの画面の値で上書きしました。",
   );
 });
+
+test("自分で日程（日付・時刻）だけ変えた保存は、外で変わっていなければ「上書き」と言わない（#785 で見つけた）", () => {
+  const currentTask = { ...base };
+  // storeの日程は、保存の時に付く欄（version・source・device_id）と、時刻の欄の無い古い形を持つ。
+  const stored = {
+    ...currentSchedule,
+    source: "manual",
+    device_id: "device-1",
+    deleted_at: null,
+    created_at: "2026-11-01T00:00:00.000Z",
+    updated_at: "2026-11-01T00:00:00.000Z",
+  };
+  const opened = { ...openedFields, end_time: "" };
+  const dateOnly = rebaseDrawerTaskOperations({
+    initial: plan(opened),
+    edited: plan({ ...opened, end_date: "2026-11-12" }),
+    currentTask,
+    currentSchedule: stored,
+  });
+  assert.deepEqual(dateOnly.overwritten, []);
+  assert.equal(
+    dateOnly.operations.find((operation) => operation.type === "schedule").entity.end_date,
+    "2026-11-12",
+  );
+  const timed = rebaseDrawerTaskOperations({
+    initial: plan(opened),
+    edited: plan({ ...opened, end_time: "23:59", notify_before_minutes: "30" }),
+    currentTask,
+    currentSchedule: stored,
+  });
+  assert.deepEqual(timed.overwritten, []);
+  const schedule = timed.operations.find((operation) => operation.type === "schedule").entity;
+  assert.equal(schedule.end_time, "23:59");
+  assert.equal(schedule.notify_before_minutes, 30);
+  // 外で時刻が変わっていたら、今までどおり知らせる。
+  const external = rebaseDrawerTaskOperations({
+    initial: plan(opened),
+    edited: plan({ ...opened, end_date: "2026-11-12" }),
+    currentTask,
+    currentSchedule: { ...stored, end_time: "09:00", notify_before_minutes: 30 },
+  });
+  assert.deepEqual(external.overwritten, ["schedule"]);
+});

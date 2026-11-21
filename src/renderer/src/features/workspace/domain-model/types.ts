@@ -302,6 +302,13 @@ export interface Schedule {
   range_semantics?: ScheduleRangeSemantics | null;
   confidence: "rough" | "tentative" | "fixed";
   granularity: "day" | "week" | "month";
+  /**
+   * 期限の時刻（#785）。期限の日（終了日、無ければ開始日）の現地の時刻 HH:mm。日単位の日程だけ。
+   * 読むときは scheduleEnd を通す。省いた保存は Core が保存値のまま残す。
+   */
+  end_time?: string | null;
+  /** 期限の時刻の何分前に知らせるか（0 = ちょうど、最大 10080）。時刻が無ければ無い。 */
+  notify_before_minutes?: number | null;
   baseline_start?: string | null;
   baseline_end?: string | null;
   actual_start?: string | null;

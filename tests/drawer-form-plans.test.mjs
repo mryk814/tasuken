@@ -525,3 +525,63 @@ test("時刻の欄に触れずに保存すると、保存されている値（�
   assert.equal(save("", {}), null);
   assert.equal(save("2026-07-28T10:00", {}), "2026-07-28T10:00");
 });
+
+test("#785 期限の時刻と知らせ: 欄があれば両方を明示し、外せば null、欄の無いフォームは省いて保存値を残す", () => {
+  const scheduleOf = (entries) => {
+    const result = plan("task", [["title", "株の申込み"], ...entries], { id: "task-end-time" });
+    assert.equal(result.kind, "operations", JSON.stringify(result));
+    return result.operations.find((operation) => operation.type === "schedule")?.entity;
+  };
+  const timed = scheduleOf([
+    ["end_date", "2026-11-19"],
+    ["end_time", "02:00"],
+    ["notify_before_minutes", "30"],
+  ]);
+  assert.equal(timed.end_time, "02:00");
+  assert.equal(timed.notify_before_minutes, 30);
+  // 「なし」は知らせだけ外す。
+  const silent = scheduleOf([
+    ["end_date", "2026-11-19"],
+    ["end_time", "23:59"],
+    ["notify_before_minutes", ""],
+  ]);
+  assert.equal(silent.end_time, "23:59");
+  assert.equal(silent.notify_before_minutes, null);
+  // 「ほか」は分の欄の値。
+  const custom = scheduleOf([
+    ["end_date", "2026-11-19"],
+    ["end_time", "23:59"],
+    ["notify_before_minutes", "custom"],
+    ["notify_before_custom", "45"],
+  ]);
+  assert.equal(custom.notify_before_minutes, 45);
+  // 時刻を外すと（知らせの欄が残っていても）両方 null を明示する。
+  const cleared = scheduleOf([
+    ["end_date", "2026-11-19"],
+    ["end_time", ""],
+    ["notify_before_minutes", "30"],
+    ["_schedule_id", "schedule-1"],
+  ]);
+  assert.equal(cleared.end_time, null);
+  assert.equal(cleared.notify_before_minutes, null);
+  // 日付が無ければ時刻も無い。
+  const noDate = scheduleOf([
+    ["end_time", "09:00"],
+    ["_schedule_id", "schedule-1"],
+  ]);
+  assert.equal(noDate.end_time, null);
+  // 欄の無いフォームは欄ごと省く（Core が保存値のまま残す）。
+  const untouched = scheduleOf([["end_date", "2026-11-19"]]);
+  assert.equal(Object.hasOwn(untouched, "end_time"), false);
+  assert.equal(Object.hasOwn(untouched, "notify_before_minutes"), false);
+  // 範囲外の「ほか」は入力を残したまま、その欄へ戻す。
+  const invalid = plan("task", [
+    ["title", "株の申込み"],
+    ["end_date", "2026-11-19"],
+    ["end_time", "02:00"],
+    ["notify_before_minutes", "custom"],
+    ["notify_before_custom", "99999"],
+  ]);
+  assert.equal(invalid.kind, "invalid");
+  assert.equal(invalid.field, "notify_before_custom");
+});

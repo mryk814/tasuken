@@ -26,6 +26,7 @@ import {
   toolNavigation,
 } from "../../../pages/routes";
 import { useCurrentLocalDate } from "../lib/currentLocalDate";
+import { isScheduleOverdueAt } from "../../../../../shared/scheduleSemantics.mjs";
 import type { OpenDrawer, Theme } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 import { todayTaskProgress } from "../domain-model/selectors";
@@ -415,20 +416,11 @@ export function Sidebar({
 }: SidebarProps) {
   const today = useCurrentLocalDate();
   // Sidebarはリマインダー時計やWorkspace全体の再描画でも描き直されるため、件数は入力が変わったときだけ数える（#684）。
-  const { todayCount, overdueTasks, debriefCount } = useMemo(() => {
-    const schedulesByOwner = new Map(
-      domain.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]),
-    );
+  const { todayCount, debriefCount } = useMemo(() => {
     // Today画面の「今日やること」の見出し（あとN件）と同じ数え方にする。
     const todayProgress = todayTaskProgress(domain, today);
     return {
       todayCount: todayProgress.total - todayProgress.done,
-      overdueTasks: domain.tasks.filter((t) => {
-        if (t.state === "done" || t.state === "cancelled") return false;
-        const s = schedulesByOwner.get(`task:${t.id}`);
-        const due = String(s?.end_date || "");
-        return Boolean(due && due < today);
-      }).length,
       debriefCount:
         buildDailyDebriefEvidence(domain, today).length > 0 &&
         !findDailyDebriefNote(domain.notes, today)
@@ -436,6 +428,19 @@ export function Sidebar({
           : 0,
     };
   }, [domain, today]);
+  // 予定超過は、期限の日のうちでも時刻を過ぎたら数える（#785）。分の時計で数え直すのはこの数だけ。
+  const nowMinute = useReminderNow();
+  const overdueTasks = useMemo(() => {
+    const schedulesByOwner = new Map(
+      domain.schedules.map((s) => [`${s.owner_type}:${s.owner_id}`, s]),
+    );
+    return domain.tasks.filter((t) => {
+      if (t.state === "done" || t.state === "cancelled") return false;
+      const s = schedulesByOwner.get(`task:${t.id}`);
+      const due = String(s?.end_date || "");
+      return Boolean(due && (due < today || isScheduleOverdueAt(s, nowMinute)));
+    }).length;
+  }, [domain, today, nowMinute]);
   // Feedのbadgeは、AIが答えを待っている質問・判断の数だけ（2026-10-06に対応待ちタブを廃止）。
   // 成果の確認や変更案はホームの投稿として並び、AI印で見分ける。
   const proposalCount = useMemo(
@@ -457,8 +462,7 @@ export function Sidebar({
     debrief: debriefCount,
   };
   // 時刻を過ぎたリマインダー。Todayに今日やることの数とは別のベル付きバッジで出す。
-  const reminderNow = useReminderNow();
-  const dueReminderCount = dueItemReminders(domain.tasks, reminderNow).length;
+  const dueReminderCount = dueItemReminders(domain.tasks, nowMinute).length;
   const renderNavButton = (id: string) => {
     const label = routeLabel(id);
     const count = countByRoute[id] || 0;

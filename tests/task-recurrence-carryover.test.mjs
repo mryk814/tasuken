@@ -77,3 +77,27 @@ test("longer-lived shelves are kept and reminders without a base date are not ca
   assert.equal(next.today_date, null);
   assert.equal(next.reminder_at, null);
 });
+
+test("#785 the next occurrence keeps the deadline time and its notice lead", () => {
+  const timed = { ...schedule, end_time: "23:59", notify_before_minutes: 30 };
+  const operations = buildCompleteTaskOperations(baseTask, timed, {
+    now: "2026-10-06T09:00:00.000Z",
+  });
+  const next = operations
+    .filter((op) => op.action === "save" && op.type === "schedule")
+    .at(-1).entity;
+  assert.notEqual(next.owner_id, "task-1");
+  assert.equal(next.end_date, "2026-10-13");
+  assert.equal(next.end_time, "23:59");
+  assert.equal(next.notify_before_minutes, 30);
+  // 時刻の無い日程は時刻なしのまま（読めない値も持ち越さない）。
+  const plain = buildCompleteTaskOperations(
+    baseTask,
+    { ...schedule, end_time: "25:99" },
+    { now: "2026-10-06T09:00:00.000Z" },
+  )
+    .filter((op) => op.action === "save" && op.type === "schedule")
+    .at(-1).entity;
+  assert.equal(plain.end_time, null);
+  assert.equal(plain.notify_before_minutes, null);
+});

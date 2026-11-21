@@ -1,4 +1,8 @@
-import { getScheduleKind, isScheduleDueOn } from "../../../../../shared/scheduleSemantics.mjs";
+import {
+  getScheduleKind,
+  isScheduleDueOn,
+  scheduleEndTime,
+} from "../../../../../shared/scheduleSemantics.mjs";
 
 export function scheduledDate(schedule) {
   return String(schedule?.end_date || schedule?.start_date || "");
@@ -16,6 +20,10 @@ export function compareTodoRows(today) {
   return (a, b) => {
     const aDate = scheduledDate(a.schedule) || "9999-12-31";
     const bDate = scheduledDate(b.schedule) || "9999-12-31";
-    return aDate.localeCompare(bDate);
+    // 同じ日の中は期限の時刻の早い順、時刻の無いものは後ろ（#785）。
+    return (
+      aDate.localeCompare(bDate) ||
+      (scheduleEndTime(a.schedule) || "99:99").localeCompare(scheduleEndTime(b.schedule) || "99:99")
+    );
   };
 }

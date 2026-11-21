@@ -38,6 +38,8 @@ import { dateOnly, formatDate, localDateIso, num, str, uuid } from "../lib/forma
 import { notePublishEnabled } from "../lib/io";
 import { normalizeTaskShelf } from "../lib/taskShelves";
 import { placeReminderSummary } from "../lib/placeReminder";
+import { scheduleNotifyBeforeLabel } from "../domain-model/labels";
+import { scheduleEnd } from "../../../../../shared/scheduleSemantics.mjs";
 import { sketchCanvasMode } from "../lib/sketch";
 import {
   escapeHtml,
@@ -1281,7 +1283,19 @@ export function EntityDrawer({
             <dt>Theme</dt>
             <dd>{themeName}</dd>
             <dt>予定</dt>
-            <dd>{`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}</dd>
+            <dd>
+              {`${formatDate(schedule?.start_date)} - ${formatDate(schedule?.end_date)}`}
+              {/* 期限の時刻（#785）は終了日の横に。 */}
+              {scheduleEnd(schedule)?.time ? ` ${scheduleEnd(schedule)?.time}` : ""}
+            </dd>
+            {scheduleEnd(schedule)?.time && (
+              <>
+                <dt>期限の知らせ</dt>
+                <dd>
+                  {scheduleNotifyBeforeLabel(scheduleEnd(schedule)?.notifyBeforeMinutes ?? null)}
+                </dd>
+              </>
+            )}
             {task.place_reminder && (
               <>
                 <dt>場所</dt>

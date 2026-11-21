@@ -28,6 +28,8 @@ import { taskShelfStatus } from "../lib/taskShelves";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { ReminderDueBanner, useReminderNow } from "../components/common";
 import { isReminderDue } from "../lib/reminders";
+import { DeadlineTimeMeta } from "../components/DeadlineTimeMeta";
+import { isScheduleOverdueAt } from "../../../../../shared/scheduleSemantics.mjs";
 import { HabitPanel } from "../components/HabitPanel";
 import { RoutineManage, type RoutineManageState } from "../components/RoutineManage";
 import { InlineAddPanel } from "../components/InlineAddPanel";
@@ -199,7 +201,10 @@ function TodayRows({
             : row.date?.slice(0, 10) === today;
         const done =
           row.status === "done" || row.status === "cancelled" || row.status === "received";
-        const rawUrgency = dateUrgency(row.date, today, done);
+        const rowSchedule = row.v2?.type === "task" ? row.v2.schedule : undefined;
+        // 期限の日のうちでも時刻を過ぎたら超過の色にする（#785。区分は日付のまま）。
+        const timePassed = !done && isScheduleOverdueAt(rowSchedule, reminderNow);
+        const rawUrgency = timePassed ? "overdue" : dateUrgency(row.date, today, done);
         const urgency = rawUrgency === "due-today" && !markDueToday ? null : rawUrgency;
         const reminder = reminderMeta(row, today);
         // 時刻を過ぎたリマインダーは薄い時刻ではなく、ベルと警告色ではっきり示す。
@@ -268,6 +273,12 @@ function TodayRows({
                   {row.v2?.type === "task" && row.v2.task.repeat_rule && (
                     <small>{repeatRuleLabel(row.v2.task.repeat_rule)}</small>
                   )}
+                  <DeadlineTimeMeta
+                    schedule={rowSchedule}
+                    rowDate={row.date}
+                    now={reminderNow}
+                    done={done}
+                  />
                   {reminder && (
                     <small className={`row-reminder-meta${reminderDue ? " is-due" : ""}`}>
                       {reminderDue ? (

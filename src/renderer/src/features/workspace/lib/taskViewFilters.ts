@@ -6,6 +6,7 @@ import { addDays } from "./format";
 import { isTodayRow, scheduledDate } from "./todoRows.js";
 import type { Schedule, Task } from "../domain-model/types";
 import { getScheduleKind, type ScheduleKind } from "../domain-model/scheduleSemantics";
+import { isScheduleOverdueAt } from "../../../../../shared/scheduleSemantics.mjs";
 
 export type TaskViewTab = "open" | "today" | "overdue" | "no-schedule" | "done";
 export type TaskViewSchedule = "" | "scheduled" | "no-schedule" | "overdue" | "this-week" | "today";
@@ -85,10 +86,22 @@ export function normalizeTaskViewFilters(value: unknown): TaskViewFilters {
   };
 }
 
+/**
+ * 予定超過の行か。予定の日が過ぎたものに加え、期限の日のうちでも時刻を過ぎたもの（#785）。
+ * now（現地時刻の分）を渡さなければ日付だけで決める。数と行が食い違わないよう、件数もこれで数える。
+ */
+export function isTodoRowOverdue(row: TodoRow, today: string, now?: string): boolean {
+  const date = scheduledDate(row.schedule);
+  if (!date) return false;
+  if (date < today) return true;
+  return Boolean(now) && isScheduleOverdueAt(row.schedule, String(now));
+}
+
 export function filterTodoRows(
   rows: TodoRow[],
   filters: Partial<TaskViewFilters>,
   today: string,
+  now?: string,
 ): TodoRow[] {
   const normalized = normalizeTaskViewFilters(filters);
   const weekEnd = addDays(today, 6);
@@ -97,7 +110,8 @@ export function filterTodoRows(
     if (normalized.tab === "today" && (isDoneRow(row) || !isTodayRow(row, today))) return false;
     if (normalized.tab === "done" && !isDoneRow(row)) return false;
     if (normalized.tab === "no-schedule" && (isDoneRow(row) || date)) return false;
-    if (normalized.tab === "overdue" && (isDoneRow(row) || !date || date >= today)) return false;
+    if (normalized.tab === "overdue" && (isDoneRow(row) || !isTodoRowOverdue(row, today, now)))
+      return false;
     if (normalized.tab === "open" && isDoneRow(row)) return false;
     if (normalized.themeId !== "all") {
       if (!normalized.themeId && row.task.project_id) return false;
@@ -107,7 +121,7 @@ export function filterTodoRows(
     if (normalized.priority && row.task.priority !== normalized.priority) return false;
     if (normalized.schedule === "scheduled" && !date) return false;
     if (normalized.schedule === "no-schedule" && date) return false;
-    if (normalized.schedule === "overdue" && (!date || date >= today)) return false;
+    if (normalized.schedule === "overdue" && !isTodoRowOverdue(row, today, now)) return false;
     if (normalized.schedule === "this-week" && (!date || date < today || date > weekEnd))
       return false;
     if (normalized.schedule === "today" && !isTodayRow(row, today)) return false;
@@ -122,10 +136,11 @@ export function filterTaskBoardRows(
   rows: TodoRow[],
   filters: Partial<TaskViewFilters>,
   today: string,
+  now?: string,
 ): TodoRow[] {
   const sharedFilters = { ...filters, state: "", priority: "" as const };
   return [
-    ...filterTodoRows(rows, { ...sharedFilters, tab: "open" }, today),
-    ...filterTodoRows(rows, { ...sharedFilters, tab: "done" }, today),
+    ...filterTodoRows(rows, { ...sharedFilters, tab: "open" }, today, now),
+    ...filterTodoRows(rows, { ...sharedFilters, tab: "done" }, today, now),
   ];
 }

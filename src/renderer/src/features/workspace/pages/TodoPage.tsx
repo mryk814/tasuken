@@ -20,10 +20,12 @@ import { compareTodoRows, isTodayRow, scheduledDate } from "../lib/todoRows.js";
 import {
   filterTodoRows,
   filterTaskBoardRows,
+  isTodoRowOverdue,
   normalizeTaskViewFilters,
   type TaskViewFilters,
   type TaskViewTab,
 } from "../lib/taskViewFilters";
+import { DeadlineTimeMeta } from "../components/DeadlineTimeMeta";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { ReminderDueBanner, useReminderNow } from "../components/common";
 import { isReminderDue } from "../lib/reminders";
@@ -176,29 +178,29 @@ export function TodoPage({
     () => ({
       today: taskRows.filter((row) => !isDoneRow(row) && isTodayRow(row, today)).length,
       open: taskRows.filter((row) => !isDoneRow(row)).length,
+      // 期限の時刻を過ぎたもの（#785）も数える。「予定超過」の絞り込みと同じ決まり。
       overdue: taskRows.filter(
-        (row) =>
-          !isDoneRow(row) && scheduledDate(row.schedule) && scheduledDate(row.schedule) < today,
+        (row) => !isDoneRow(row) && isTodoRowOverdue(row, today, reminderNow),
       ).length,
       noSchedule: taskRows.filter((row) => !isDoneRow(row) && !scheduledDate(row.schedule)).length,
       done: taskRows.filter(isDoneRow).length,
     }),
-    [taskRows, today],
+    [taskRows, today, reminderNow],
   );
   const visible = useMemo(
     () =>
       sortTodoRows(
-        filterTodoRows(taskRows, currentFilters, today),
+        filterTodoRows(taskRows, currentFilters, today, reminderNow),
         sortMode,
         sortDirection,
         filter,
         today,
         themes,
       ),
-    [currentFilters, filter, sortDirection, sortMode, taskRows, themes, today],
+    [currentFilters, filter, sortDirection, sortMode, taskRows, themes, today, reminderNow],
   );
   const visibleTaskCount = visible.length;
-  const boardRows = filterTaskBoardRows(taskRows, currentFilters, today);
+  const boardRows = filterTaskBoardRows(taskRows, currentFilters, today, reminderNow);
   const [renderedTaskCount, setRenderedTaskCount] = useState(INITIAL_RENDERED_TASKS);
   useEffect(() => {
     if (visibleTaskCount <= INITIAL_RENDERED_TASKS) return undefined;
@@ -461,8 +463,15 @@ export function TodoPage({
       (task.intended_executor === "ai_agent" ? "ready_for_agent" : "not_delegated");
     const due = scheduledDate(schedule);
     const completionDate = task.completed_at ? task.completed_at.slice(0, 10) : "";
+    // 期限の日のうちでも時刻を過ぎたら超過の色にする（#785）。
     const urgency =
-      !done && due ? (due < today ? "overdue" : due === today ? "due-today" : null) : null;
+      !done && due
+        ? isTodoRowOverdue({ task, schedule }, today, reminderNow)
+          ? "overdue"
+          : due === today
+            ? "due-today"
+            : null
+        : null;
     const reminder = reminderTimeLabel(task.reminder_at, today);
     const reminderDue = !done && isReminderDue(task.reminder_at, reminderNow);
     /**
@@ -608,6 +617,7 @@ export function TodoPage({
               <IconClock size={16} />
             </button>
           )}
+          <DeadlineTimeMeta schedule={schedule} now={reminderNow} done={done} />
           {reminder && (
             <span className={`row-reminder-meta${reminderDue ? " is-due" : ""}`}>
               {reminderDue ? (

@@ -6522,6 +6522,25 @@ textarea:hover {
   grid-template-columns: 1fr 1fr;
   gap: var(--space-2);
 }
+/* 期限の時刻と知らせ（#785）。「ほか」の時は選択の下に分の欄を出す（狭い幅で選択が潰れないように）。 */
+.schedule-end-time {
+  /* 「ほか」で右の欄が高くなっても、左の時刻の欄を伸ばさない。 */
+  align-items: start;
+}
+.schedule-notify-inputs {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.schedule-notify-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+.schedule-notify-custom input {
+  width: 5.5em;
+}
 .drawer-subsection {
   display: grid;
   gap: var(--space-2);
@@ -15788,6 +15807,21 @@ kbd {
 }
 
 /* 時刻を過ぎたリマインダー。薄い時刻表示ではなく、警告色・太字・ベルではっきり示す（2026-10-06）。 */
+/* 期限の時刻（#785）。リマインダーと並ぶ形で、過ぎたら超過の色にする。 */
+.row-deadline-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: fit-content;
+  color: var(--color-text-secondary);
+  font: var(--text-xs) var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.row-deadline-meta.is-passed {
+  color: var(--color-danger-strong);
+  font-weight: var(--weight-bold);
+}
 .row-reminder-meta.is-due {
   padding: 1px 6px;
   border: 1px solid var(--color-warning-bd);

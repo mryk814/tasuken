@@ -165,6 +165,37 @@ export const SCHEDULE_RANGE_SEMANTICS_HINTS: Record<ScheduleRangeSemantics, stri
   ongoing: "今日の実施を記録してもTask全体は継続します。",
 };
 
+/** 期限の時刻の知らせ（#785）の「ほか」。分を数字で打つ欄を出す選択肢の値。 */
+export const SCHEDULE_NOTIFY_CUSTOM = "custom";
+
+/** 期限の時刻の知らせの選択肢（値は分。空 = なし）。並びが画面の並び。 */
+export const SCHEDULE_NOTIFY_BEFORE_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "", label: "なし" },
+  { value: "0", label: "期限の時刻" },
+  { value: "10", label: "10分前" },
+  { value: "30", label: "30分前" },
+  { value: "60", label: "1時間前" },
+  { value: "1440", label: "1日前" },
+  { value: SCHEDULE_NOTIFY_CUSTOM, label: "ほか…" },
+];
+
+/** 時刻を初めて入れたときに選んでおく知らせ（AI の既定と同じ 30 分前）。 */
+export const SCHEDULE_NOTIFY_BEFORE_DEFAULT = "30";
+
+/** 保存された知らせの分を言葉にする（選択肢にある値はその名前、ほかは「45分前」）。 */
+export function scheduleNotifyBeforeLabel(minutes: number | null): string {
+  if (minutes === null) return "なし";
+  const preset = SCHEDULE_NOTIFY_BEFORE_OPTIONS.find(
+    (option) => option.value !== SCHEDULE_NOTIFY_CUSTOM && option.value === String(minutes),
+  );
+  return preset ? preset.label : `${minutes}分前`;
+}
+
+/** 行に添える期限の時刻。時刻の前は「23:59まで」、過ぎたら「23:59 超過」。 */
+export function scheduleEndTimeText(time: string, passed: boolean): string {
+  return passed ? `${time} 超過` : `${time}まで`;
+}
+
 /** 意味が未設定の既存範囲。分類していないことが分かる語にする。 */
 export const UNSPECIFIED_RANGE_LABEL = "期間未分類";
 

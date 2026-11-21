@@ -6,6 +6,7 @@ import {
 } from "./persistence";
 import { UNDELEGATED_COPY } from "./taskDuplication";
 import type { Schedule, Task, TaskChecklistItem, TaskRepeatRule } from "./types";
+import { scheduleEnd } from "../../../../../shared/scheduleSemantics.mjs";
 
 function localDateIso(date = new Date()): string {
   const year = date.getFullYear();
@@ -156,6 +157,9 @@ export function buildCompleteTaskOperations(
     date_kind: schedule?.date_kind === "range" ? "deadline" : schedule?.date_kind || "deadline",
     confidence: schedule?.confidence || "fixed",
     granularity: schedule?.granularity || "day",
+    // 期限の時刻と知らせ（#785）は次の回へ持ち越す（毎週 23:59 締切、など）。
+    end_time: scheduleEnd(schedule)?.time ?? null,
+    notify_before_minutes: scheduleEnd(schedule)?.notifyBeforeMinutes ?? null,
   };
   return [
     ...operations,

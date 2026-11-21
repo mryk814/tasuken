@@ -2,6 +2,8 @@ import type { Note, Resource, Task, WorkspaceDomain } from "../domain-model/type
 import type { StatusUpdate, Theme, WorkspaceData } from "../types";
 import { resolveChatService } from "./chatServices";
 import { dateOnly, str } from "./format";
+import { localDateTimeMinute } from "./reminders";
+import { isScheduleOverdueAt } from "../../../../../shared/scheduleSemantics.mjs";
 
 /**
  * 右側の補助面（ContextPane / FeedContextRail）が読む「今」の断片。
@@ -73,6 +75,8 @@ export function buildGlance(input: {
   const themeTasks = activeTheme
     ? v2.tasks.filter((t) => t.project_id === activeTheme.id)
     : v2.tasks;
+  // 期限の日のうちでも時刻を過ぎたものも入れる（#785）。
+  const nowMinute = localDateTimeMinute();
   const overdue: OverdueRow[] = themeTasks
     .filter((t) => t.state !== "done" && t.state !== "cancelled")
     .map((task) => ({
@@ -80,7 +84,12 @@ export function buildGlance(input: {
       date: schedulesMap.get(`task:${task.id}`)?.end_date || "",
       themeName: themeNameOf(task.project_id),
     }))
-    .filter((row) => row.date && row.date < today)
+    .filter(
+      (row) =>
+        row.date &&
+        (row.date < today ||
+          isScheduleOverdueAt(schedulesMap.get(`task:${row.task.id}`), nowMinute)),
+    )
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const recentUpdates = ([...data.status_updates] as StatusUpdate[])

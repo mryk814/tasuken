@@ -153,3 +153,62 @@ test("actual ToDo Today toggle changes only today_date and makes a period task v
     assert.deepEqual(operations, [{ type: "task", entity: task }]);
   }
 });
+
+test("#785 同じ日の中は期限の時刻の早い順、時刻の無いものは後ろ（ToDo と Today の両方）", async () => {
+  const deadline = (id, endTime) => ({
+    id: `schedule-${id}`,
+    owner_type: "task",
+    owner_id: id,
+    start_date: null,
+    end_date: "2026-11-19",
+    date_kind: "deadline",
+    range_semantics: null,
+    confidence: "fixed",
+    granularity: "day",
+    ...(endTime === undefined ? {} : { end_time: endTime }),
+  });
+  const rows = [
+    row("untimed", "あ 時刻なし", deadline("untimed")),
+    row("late", "い 23:59", deadline("late", "23:59")),
+    row("early", "う 02:00", deadline("early", "02:00")),
+    row("broken", "え 読めない", deadline("broken", "25:99")),
+  ];
+  assert.deepEqual(
+    [...rows].sort(compareTodoRows("2026-11-19")).map((entry) => entry.task.id),
+    ["early", "late", "untimed", "broken"],
+  );
+  const selected = selectTodayTasks(
+    rows.map((entry) => entry.task),
+    rows.map((entry) => entry.schedule),
+    "2026-11-19",
+    TODAY_TASK_POLICY,
+  ).map((entry) => entry.task.id);
+  assert.deepEqual(selected.slice(0, 2), ["early", "late"]);
+
+  // 予定超過の数と「予定超過」の絞り込みは、期限の時刻を過ぎたものも同じ決まりで数える。
+  const { filterTodoRows, isTodoRowOverdue } = await importTaskViewFilters();
+  const today = "2026-11-19";
+  assert.equal(isTodoRowOverdue(rows[1], today, "2026-11-19T23:58"), false);
+  assert.equal(isTodoRowOverdue(rows[1], today, "2026-11-19T23:59"), true);
+  assert.equal(isTodoRowOverdue(rows[0], today, "2026-11-19T23:59"), false);
+  assert.equal(isTodoRowOverdue(rows[1], today), false, "now を渡さなければ日付だけ");
+  assert.deepEqual(
+    filterTodoRows(rows, { tab: "overdue" }, today, "2026-11-19T10:00").map((r) => r.task.id),
+    ["early"],
+  );
+});
+
+async function importTaskViewFilters() {
+  const { build } = await import("esbuild");
+  const bundled = await build({
+    entryPoints: ["src/renderer/src/features/workspace/lib/taskViewFilters.ts"],
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    write: false,
+    logLevel: "silent",
+  });
+  return import(
+    `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`
+  );
+}
