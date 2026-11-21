@@ -2,15 +2,19 @@ import fs from "node:fs";
 import path from "node:path";
 
 function hasPathTraversal(value) {
-  return String(value).split(/[\\/]+/).some((segment) => segment === "..");
+  return String(value)
+    .split(/[\\/]+/)
+    .some((segment) => segment === "..");
 }
 
 function isAbsoluteCanonicalPath(value) {
   const candidate = String(value);
-  return path.isAbsolute(candidate)
-    || /^[A-Za-z]:[\\/]/.test(candidate)
-    || /^\\\\/.test(candidate)
-    || candidate.startsWith("/");
+  return (
+    path.isAbsolute(candidate) ||
+    /^[A-Za-z]:[\\/]/.test(candidate) ||
+    /^\\\\/.test(candidate) ||
+    candidate.startsWith("/")
+  );
 }
 
 function isWithinDirectory(directory, filePath) {
@@ -37,7 +41,10 @@ function assertNoSymlinkComponents(filePath) {
 }
 
 function pathIdentity(value) {
-  return path.normalize(value).replace(/[\\/]+$/, "").toLocaleLowerCase();
+  return path
+    .normalize(value)
+    .replace(/[\\/]+$/, "")
+    .toLocaleLowerCase();
 }
 
 /** 明示的にlinkedされた既存・選択済みパスを検証する。Root外でもこの経路だけは許可する。 */
@@ -53,7 +60,11 @@ export function assertExplicitCanonicalPath(filePath) {
 
 /** 設定済みNotes root配下の生成パスを、lexical/実体の両方で検証する。 */
 export function assertGeneratedCanonicalPath(directory, filePath) {
-  if (hasPathTraversal(directory) || hasPathTraversal(filePath) || !isWithinDirectory(directory, filePath)) {
+  if (
+    hasPathTraversal(directory) ||
+    hasPathTraversal(filePath) ||
+    !isWithinDirectory(directory, filePath)
+  ) {
     throw new Error("Markdownの保存先が設定済みのNotesフォルダの外にあります。");
   }
   assertNoSymlinkComponents(filePath);
