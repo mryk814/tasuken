@@ -8536,6 +8536,24 @@ textarea:hover {
   border-color: var(--toast-bd);
   background: color-mix(in srgb, var(--toast-bg) 74%, var(--color-surface));
 }
+/* 提案の決定の知らせ（#774）。帯（.toast）の上に積み、帯と取り合わない。 */
+.decision-notices {
+  position: fixed;
+  z-index: 21;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  display: grid;
+  justify-items: end;
+  gap: var(--space-2);
+  max-width: 560px;
+}
+.decision-notices.has-toast {
+  bottom: calc(var(--space-5) + 84px);
+}
+.decision-notices > .toast {
+  position: static;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
 /* 提案を決めた帯（#774）: 押した印（採った＝判、見送った＝灰の横棒）と、5 秒で尽きる線。 */
 .toast.is-decision {
   --toast-accent: var(--color-text);

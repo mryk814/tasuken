@@ -632,13 +632,8 @@ export function FeedPage(props: PageProps) {
    * 届けば提案が決着して消え、取り消すか断られれば戻る（#774）。
    */
   const hiddenProposals = useMemo(
-    () =>
-      hiddenProposalIds({
-        held: heldDecisions,
-        leaving: leavingDecisions,
-        returning: returningDecisions,
-      }),
-    [heldDecisions, leavingDecisions, returningDecisions],
+    () => hiddenProposalIds({ held: heldDecisions, leaving: leavingDecisions }),
+    [heldDecisions, leavingDecisions],
   );
   const needsRows = useMemo(
     () =>
@@ -649,24 +644,30 @@ export function FeedPage(props: PageProps) {
     [live.items, hiddenProposals],
   );
   /** 戻ってきた提案の、開き直した後に付ける動き（判が浮く／右から戻る）。 */
-  const pendingReturns = useRef<Array<{ proposalId: string; kind: DecisionKind; tries?: number }>>(
-    [],
-  );
+  const pendingReturns = useRef<
+    Array<{ proposalId: string; kind: DecisionKind; reopened: boolean; tries?: number }>
+  >([]);
   useLayoutEffect(() => {
     if (!returningDecisions.length) return;
-    const arrived: Array<{ proposalId: string; kind: DecisionKind }> = [];
+    const arrived: Array<{ proposalId: string; kind: DecisionKind; reopened: boolean }> = [];
+    let opened = selectedNeedsId;
     for (const entry of returningDecisions) {
       consumeReturning(entry.proposalId);
       const row = needsRows.find(
         (item) => usesProposalDetail(item) && item.sourceId === entry.proposalId,
       );
       if (!row) continue;
-      // 戻ったカードは開いた姿で戻す（もう一度決め直せるように）。
-      setSelectedNeedsId(row.id);
-      arrived.push(entry);
+      // 何も開いていない時だけ、戻ったカードを開いた姿で戻す（もう一度決め直せるように）。
+      // ほかの提案を開いて手を入れている最中なら、選択を奪わず、閉じた姿で一覧に戻す。
+      const reopened = opened === null || opened === row.id;
+      if (reopened && opened !== row.id) {
+        setSelectedNeedsId(row.id);
+        opened = row.id;
+      }
+      arrived.push({ ...entry, reopened });
     }
     pendingReturns.current.push(...arrived);
-  }, [returningDecisions, needsRows]);
+  }, [returningDecisions, needsRows, selectedNeedsId]);
   // 開き直した後の描画で動かす（依存なし: 戻る物がある時だけ働く）。
   useLayoutEffect(() => {
     if (!pendingReturns.current.length) return;
@@ -678,16 +679,19 @@ export function FeedPage(props: PageProps) {
       );
       if (!post) continue;
       // 開き直した詳細（候補のカード）が描かれるのを 1 度だけ待つ。判はそのカードから浮く。
-      if (!post.querySelector(".proposal-inline-preview") && !entry.tries) {
+      if (entry.reopened && !post.querySelector(".proposal-inline-preview") && !entry.tries) {
         pendingReturns.current.push({ ...entry, tries: 1 });
         continue;
       }
       // 押した後の動きの途中で取り消した時は、その動きを捨ててから戻す。
       resetDecision(post);
       if (entry.kind === "adopt")
-        void returnAdopted(post, [
-          ...post.querySelectorAll<HTMLElement>(".import-candidate:not(.is-skipped)"),
-        ]);
+        void returnAdopted(
+          post,
+          entry.reopened
+            ? [...post.querySelectorAll<HTMLElement>(".import-candidate:not(.is-skipped)")]
+            : [],
+        );
       else void returnDismissed(post);
     }
   });

@@ -30,6 +30,7 @@ import { ActionButton, Button } from "./common";
 import { decideAdopt, decideDismiss } from "../lib/decisionMotion";
 import {
   holdProposalDecision,
+  noticeDecision,
   setLeaving,
   undoProposalDecision,
   type DecisionKind,
@@ -768,7 +769,15 @@ export function ProposalDetail(props: ProposalDetailProps) {
       commands: decision.commands,
       ...(decision.completeTask ? { completeTask: decision.completeTask } : {}),
     });
-    if (!held) return;
+    if (!held.ok) {
+      // 端末に書けない時は持たない。カードはそのまま残し、押し直せるようにする。
+      if (held.reason === "unsaved")
+        noticeDecision(
+          "端末に書けなかったので、決定を預かれませんでした。もう一度押してください。",
+          "danger",
+        );
+      return;
+    }
     setToast(
       decision.message,
       "info",
@@ -837,8 +846,9 @@ export function ProposalDetail(props: ProposalDetailProps) {
         ],
       });
     } catch (error) {
-      setToast(
+      noticeDecision(
         `提案を見送れませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
       );
     }
   }
@@ -876,8 +886,9 @@ export function ProposalDetail(props: ProposalDetailProps) {
           commands: [command],
         });
       } catch (error) {
-        setToast(
+        noticeDecision(
           `記録を採れませんでした。${error instanceof Error ? error.message : String(error)}`,
+          "danger",
         );
       }
       return;
@@ -962,8 +973,9 @@ export function ProposalDetail(props: ProposalDetailProps) {
             : {}),
         });
       } catch (error) {
-        setToast(
+        noticeDecision(
           `Work proposalを採れませんでした。${error instanceof Error ? error.message : String(error)}`,
+          "danger",
         );
       }
       return;
@@ -1075,8 +1087,9 @@ export function ProposalDetail(props: ProposalDetailProps) {
         ],
       });
     } catch (error) {
-      setToast(
+      noticeDecision(
         `Proposalを採れませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
       );
     }
   }

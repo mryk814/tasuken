@@ -4,7 +4,7 @@ import { build } from "esbuild";
 
 // 採る・見送るを 5 秒持ってから押した順に 1 件ずつ送る列（#774）。時計は試験の中で進める。
 const result = await build({
-  entryPoints: ["src/renderer/src/features/workspace/lib/heldDecisions.ts"],
+  entryPoints: ["src/renderer/src/utils/heldDecisions.ts"],
   bundle: true,
   platform: "node",
   format: "esm",
@@ -124,7 +124,7 @@ test("5 秒の間に取り消すと、何も送らない", async () => {
   const { clock, peer, queue, storage, events } = setup();
   queue.hold({ id: "a", pressedAt: 0 });
   await clock.advance(4_000);
-  assert.equal(queue.cancel("a"), true);
+  assert.equal(queue.cancel("a"), "cancelled");
   await clock.advance(60_000);
   assert.deepEqual(peer.received, []);
   assert.deepEqual(storage.saved(), []);
@@ -143,7 +143,7 @@ test("押した順に、前の答えが来てから 1 件ずつ送る（遅い�
   // 上限より短い遅い応答の間、b と c は待つ。
   await clock.advance(15_000);
   assert.deepEqual(peer.received, ["a"]);
-  assert.equal(queue.cancel("a"), false, "送っている最中の物は取り消せない");
+  assert.equal(queue.cancel("a"), "sending", "送っている最中の物は取り消せない");
   peer.answer("a");
   await clock.settle();
   assert.deepEqual(peer.received, ["a", "b"]);
@@ -231,4 +231,57 @@ test("壊れた端末の中身でも始められる", async () => {
   const { queue } = setup({ storage });
   assert.doesNotThrow(() => queue.start());
   assert.deepEqual(queue.items(), []);
+});
+
+test("端末に書けない時は持たず、何も送らない", async () => {
+  const storage = memoryStorage();
+  const failing = {
+    read: storage.read,
+    write() {
+      throw new Error("QuotaExceededError");
+    },
+  };
+  const { clock, peer, queue } = setup({ storage: failing });
+  assert.throws(() => queue.hold({ id: "a", pressedAt: 0 }), /QuotaExceededError/);
+  assert.deepEqual(queue.items(), []);
+  await clock.advance(60_000);
+  assert.deepEqual(peer.received, []);
+});
+
+test("取り消しを端末に書けない時は取り消さない（次の起動で取り消した物が送られないように）", async () => {
+  let broken = false;
+  const storage = memoryStorage();
+  const flaky = {
+    read: storage.read,
+    write(items) {
+      if (broken) throw new Error("disk");
+      storage.write(items);
+    },
+  };
+  const { clock, peer, queue } = setup({ storage: flaky });
+  queue.hold({ id: "a", pressedAt: 0 });
+  broken = true;
+  assert.equal(queue.cancel("a"), "unsaved");
+  assert.deepEqual(
+    storage.saved().map((item) => item.id),
+    ["a"],
+  );
+  broken = false;
+  await clock.advance(5_000);
+  assert.deepEqual(peer.received, ["a"], "取り消せなかった決定は、言ったとおり送る");
+});
+
+test("start より先に押しても、前の起動の残りを上書きしない", async () => {
+  const storage = memoryStorage([{ id: "left", pressedAt: 1 }]);
+  const { clock, peer, queue } = setup({ storage });
+  queue.hold({ id: "new", pressedAt: 0 });
+  assert.deepEqual(
+    storage.saved().map((item) => item.id),
+    ["left", "new"],
+  );
+  await clock.settle();
+  assert.deepEqual(peer.received, ["left"]);
+  peer.answer("left");
+  await clock.advance(5_000);
+  assert.deepEqual(peer.received, ["left", "new"]);
 });
