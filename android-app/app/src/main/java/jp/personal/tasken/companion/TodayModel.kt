@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.serialization.Serializable
 
@@ -342,6 +343,8 @@ class TodayViewModel(
     private val today: () -> java.time.LocalDate = java.time.LocalDate::now,
     /** 採る・見送るを送らずに持つ時間。帯の「取り消す」が出ている間（#774）。 */
     private val proposalHoldMillis: Long = PROPOSAL_DECISION_HOLD_MILLIS,
+    /** 持った採否を動かす所。画面では viewModelScope のまま（Main）。JVM の試験は Main が無いので渡す。 */
+    private val decisionContext: kotlin.coroutines.CoroutineContext = kotlin.coroutines.EmptyCoroutineContext,
 ) : ViewModel() {
     val workLogRepository: MobileWorkLogRepository? get() = repository as? MobileWorkLogRepository
     val recallRepository: MobileRecallRepository? get() = repository as? MobileRecallRepository
@@ -396,11 +399,12 @@ class TodayViewModel(
     private val decisionHold by lazy {
         ProposalDecisionHold(
             scope = viewModelScope,
-            online = mutableProposalReviewOnline,
+            online = decisionConnection(mutableProposalReviewOnline, mutableProposalRefreshing),
             onNotSent = { held, message ->
                 mutableProposalReviewState.value = ProposalReviewUiState.Error(held.proposalId, message)
             },
             holdMillis = proposalHoldMillis,
+            context = decisionContext,
         )
     }
     /** 一覧から外して見せる提案と、その決定（押した後、届くまでと届いた後）。 */
@@ -747,10 +751,14 @@ class TodayViewModel(
         proposalRefreshJob?.cancel()
         val gateway = repository as? MobileGatewayRepository
         if (!canConnect || gateway == null) {
+            mutableProposalReviewOnline.value = false
             mutableProposalRefreshing.value = false
             return
         }
+        // 読み直しの間は「確かめている」にしてから「つながっていない」にする。逆の順だと、持っている採否が
+        // 一瞬「切れた」と見て、送らずに戻してしまう（#774。decisionConnection）。
         mutableProposalRefreshing.value = true
+        mutableProposalReviewOnline.value = false
         proposalRefreshJob = viewModelScope.launch(ioDispatcher) {
             try {
                 gateway.refreshTaskWorkProposals()
@@ -871,6 +879,8 @@ class TodayViewModel(
             return
         }
         decisionHold.hold(proposal.id, decision) {
+            // 読み直しの途中なら終わるまで待つ（その間は「つながっていない」の値になっているので）。
+            withTimeoutOrNull(PROPOSAL_REFRESH_WAIT_MILLIS) { mutableProposalRefreshing.first { !it } }
             reviewTaskWorkProposalNow(proposal, decision)
             val state = mutableProposalReviewState.value
             state is ProposalReviewUiState.Applied && state.proposalId == proposal.id
