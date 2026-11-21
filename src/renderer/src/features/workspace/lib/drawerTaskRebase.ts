@@ -29,6 +29,8 @@ export interface DrawerTaskRebaseResult {
 }
 
 const SCHEDULE_KEY = "schedule";
+/** 期限の時刻と知らせ（#785）。本人が触れていない時は送らず、Core に保存値を残させる。 */
+const SCHEDULE_END_KEYS = ["end_time", "notify_before_minutes"] as const;
 // 計画ごとに作り直される時刻は、利用者の変更に数えない。
 const VOLATILE_SCHEDULE_KEYS = new Set(["created_at", "updated_at"]);
 
@@ -96,14 +98,24 @@ export function rebaseDrawerTaskOperations(input: DrawerTaskRebaseInput): Drawer
     overwritten.push(SCHEDULE_KEY);
   }
 
+  // 期限の時刻と知らせの欄に本人が触れていなければ、その 2 つは送らない（#785）。引き出しを開いた後に
+  // スマホや AI が付けた時刻を、日付だけの保存が null で消さないため（省いた欄は Core が保存値を残す）。
+  const untouchedEndKeys = SCHEDULE_END_KEYS.filter((key) =>
+    sameValue(initialSchedule?.[key] ?? null, editedSchedule?.[key] ?? null),
+  );
   const operations = edited
     // 日程に触れていなければScheduleを送らない（送らなければCoreは日程を変えない）。
     .filter((operation) => operation.type !== "schedule" || scheduleChanged)
-    .map((operation) =>
-      operation.type === "task" && operation.entity.id === task.id
-        ? { ...operation, entity: task }
-        : operation,
-    );
+    .map((operation) => {
+      if (operation.type === "task" && operation.entity.id === task.id)
+        return { ...operation, entity: task };
+      if (operation.type === "schedule" && untouchedEndKeys.length > 0) {
+        const entity = { ...operation.entity };
+        for (const key of untouchedEndKeys) delete entity[key];
+        return { ...operation, entity };
+      }
+      return operation;
+    });
   return { operations, overwritten };
 }
 

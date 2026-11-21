@@ -186,3 +186,33 @@ test("自分で日程（日付・時刻）だけ変えた保存は、外で変�
   });
   assert.deepEqual(external.overwritten, ["schedule"]);
 });
+
+test("開いている間に外で付いた期限の時刻を、時刻の欄に触れない日付の保存が消さない（#785 のレビューで見つけた）", () => {
+  const opened = { ...openedFields, end_time: "" };
+  const { operations } = rebaseDrawerTaskOperations({
+    initial: plan(opened),
+    edited: plan({ ...opened, end_date: "2026-11-12" }),
+    currentTask: { ...base },
+    currentSchedule: {
+      ...currentSchedule,
+      end_time: "17:00",
+      notify_before_minutes: 30,
+      version: 2,
+    },
+  });
+  const schedule = operations.find((operation) => operation.type === "schedule").entity;
+  assert.equal(schedule.end_date, "2026-11-12");
+  // 送らなければ Core は保存済みの時刻と知らせを残す（null を送ると外す）。
+  assert.equal(Object.hasOwn(schedule, "end_time"), false);
+  assert.equal(Object.hasOwn(schedule, "notify_before_minutes"), false);
+
+  // 本人が時刻の欄を変えた時は、その値を送る。
+  const timed = rebaseDrawerTaskOperations({
+    initial: plan(opened),
+    edited: plan({ ...opened, end_time: "18:30" }),
+    currentTask: { ...base },
+    currentSchedule,
+  });
+  const timedSchedule = timed.operations.find((operation) => operation.type === "schedule").entity;
+  assert.equal(timedSchedule.end_time, "18:30");
+});

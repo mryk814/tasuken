@@ -558,20 +558,30 @@ test("#785 期限の日の知らせ: 時刻が決まった時刻より後なら�
   assert.deepEqual(dues("23:59", local(2026, 11, 18, 9, 0)), []);
   // 02:00 の期限: 前の日の 09:00 に「明日が期限」。当日 09:00（過ぎた後）には出さない。
   assert.deepEqual(dues("02:00", local(2026, 11, 18, 9, 0)), [
-    ["due:a:2026-11-18T09:00", "tomorrow"],
+    ["due:a:2026-11-18T09:00:2026-11-19", "tomorrow"],
   ]);
   assert.deepEqual(dues("02:00", local(2026, 11, 19, 9, 0)), []);
   // ちょうど同じ時刻も前の日（時刻ちょうどに「今日が期限」は遅い）。
   assert.deepEqual(dues("09:00", local(2026, 11, 18, 9, 0)), [
-    ["due:a:2026-11-18T09:00", "tomorrow"],
+    ["due:a:2026-11-18T09:00:2026-11-19", "tomorrow"],
   ]);
   // 2 回目の時刻は、それぞれで決める。
   assert.deepEqual(dues("12:00", local(2026, 11, 19, 18, 0), ["09:00", "17:00"]), [
     ["due:a:2026-11-19T09:00", "today"],
   ]);
   assert.deepEqual(dues("12:00", local(2026, 11, 18, 18, 0), ["09:00", "17:00"]), [
-    ["due:a:2026-11-18T17:00", "tomorrow"],
+    ["due:a:2026-11-18T17:00:2026-11-19", "tomorrow"],
   ]);
+  // 前の日に「明日が期限」を出した後で期限をその日に移すと、同じ時刻でも「今日が期限」は別の知らせ
+  // （鍵が重なって出なくなっていた。#785 のレビューで見つけた）。
+  const moved = dueTaskNotices({
+    tasks,
+    dueDates: new Map([["a", { date: "2026-11-18", time: "23:59", notifyBeforeMinutes: null }]]),
+    dueTimes: ["09:00"],
+    now: local(2026, 11, 18, 9, 30),
+  }).map((notice) => notice.key);
+  assert.deepEqual(moved, ["due:a:2026-11-18T09:00"]);
+  assert.notEqual(moved[0], "due:a:2026-11-18T09:00:2026-11-19");
   // 時刻の無い期限は今までどおり（文字列の日付を渡しても、時刻なしの組を渡しても同じ）。
   assert.deepEqual(dues(null, local(2026, 11, 19, 9, 0)), [["due:a:2026-11-19T09:00", "today"]]);
   assert.deepEqual(

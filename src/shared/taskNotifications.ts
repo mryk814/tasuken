@@ -179,7 +179,10 @@ export function dueTaskNotices(input: {
       const dueAt = `${today}T${dueTime}`;
       if (dueAt <= nowMinute)
         notices.push({
-          key: `due:${taskId}:${dueAt}`,
+          // 前日にずらした知らせの鍵には期限の日を入れる。前日に「明日が期限」を出した後で本人が
+          // 期限をその日に移すと、同じ時刻の「今日が期限」が鍵の重なりで出なくなるため。
+          // 期限の日に出す知らせの鍵は今までどおり（入れ替えると、更新の直後に出した知らせが鳴り直す）。
+          key: sameDay ? `due:${taskId}:${dueAt}` : `due:${taskId}:${dueAt}:${end.date}`,
           kind: "due",
           taskId,
           title,
