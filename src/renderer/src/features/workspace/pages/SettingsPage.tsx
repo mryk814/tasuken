@@ -7,6 +7,8 @@ import type {
   AutomaticSnapshotBackupStatus,
   McpBridgeInfo,
   SharedSyncStatus,
+  TaskenRootKind,
+  TaskenRootStatus,
   UnconvertedWaitings,
   WorkspaceRestoreOutcome,
 } from "../../../../../shared/ipc/contracts";
@@ -41,6 +43,21 @@ const UNCONVERTED_WAITING_REASONS: Record<UnconvertedWaitings["reason"], string>
     "写す前の控えを作れなかったので、Task に写していません。控えの保存先を確かめてください。",
   write_failed: "Task に写せなかった待ちがあります。次の起動でやり直します。",
 };
+
+// Tasken ルートの性質（#809）。色ではなく文字で見分ける。
+const TASKEN_ROOT_KIND_LABELS: Record<TaskenRootKind, string> = {
+  cloud: "クラウド",
+  nas: "NAS",
+  local: "この PC",
+};
+
+// ルートの外にある場所の呼び名。控えだけは、外にある理由を名前に含める（同期の事故と一緒に壊れないため）。
+function taskenRootExceptionLabel(entry: TaskenRootStatus["exceptions"][number]): string {
+  if (entry.kind === "sync") return "同期フォルダ";
+  if (entry.kind === "theme") return `Theme「${entry.themeName || entry.themeId || ""}」`;
+  if (entry.kind === "activity") return "日誌";
+  return "控え（ルートの外。同期と独立させるため）";
+}
 
 interface SettingsPageProps extends PageProps {
   themeMode: "light" | "dark";
@@ -99,6 +116,7 @@ export function SettingsPage({
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateCheckResult | null>(null);
   const [artifactDirectory, setArtifactDirectory] = useState("");
+  const [rootStatus, setRootStatus] = useState<TaskenRootStatus | null>(null);
   const [syncStatus, setSyncStatus] = useState<SharedSyncStatus | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
   const [mcpInfo, setMcpInfo] = useState<McpBridgeInfo | null>(null);
@@ -303,14 +321,20 @@ export function SettingsPage({
     setAutomaticBackupError("");
   }
 
-  useEffect(() => {
-    workspaceApi
-      .getPreference("artifactDirectory")
-      .then((value) => setArtifactDirectory(typeof value === "string" ? value : ""))
-      .catch(() => {
-        // 未設定として表示するだけでよい（設定操作時に改めてエラーを出す）。
-      });
+  // Tasken ルートと、ルートの外にある場所（#809）。Main が設定・Theme・控えの場所から組み立てる。
+  const reloadRootStatus = useCallback(async () => {
+    try {
+      const status = await workspaceApi.taskenRootStatus();
+      setRootStatus(status);
+      setArtifactDirectory(status.root);
+    } catch {
+      // 未設定として表示するだけでよい（設定操作時に改めてエラーを出す）。
+    }
   }, []);
+
+  useEffect(() => {
+    void reloadRootStatus();
+  }, [reloadRootStatus]);
 
   useEffect(() => {
     void reloadMcpInfo(false);
@@ -335,18 +359,47 @@ export function SettingsPage({
     };
   }, []);
 
-  async function chooseArtifactDirectory() {
+  async function setTaskenRoot(directory: string) {
     try {
-      const result = await workspaceApi.chooseDirectory("Artifact保存先フォルダを選択");
-      if (result.canceled || !result.path) return;
-      await workspaceApi.setPreference("artifactDirectory", result.path);
-      setArtifactDirectory(result.path);
-      setToast(`Artifact保存先を設定しました。${result.path}`, "success");
+      await workspaceApi.setPreference("artifactDirectory", directory);
+      setArtifactDirectory(directory);
+      setToast(`Tasken ルートを設定しました。${directory}`, "success");
     } catch (error) {
       setToast(
-        `Artifact保存先を設定できませんでした。${error instanceof Error ? error.message : String(error)}`,
+        `Tasken ルートを設定できませんでした。${error instanceof Error ? error.message : String(error)}`,
         "danger",
       );
+    } finally {
+      await reloadRootStatus();
+    }
+  }
+
+  async function chooseArtifactDirectory() {
+    try {
+      const result = await workspaceApi.chooseDirectory(
+        "Tasken ルートを選択",
+        artifactDirectory || undefined,
+      );
+      if (result.canceled || !result.path) return;
+      await setTaskenRoot(result.path);
+    } catch (error) {
+      setToast(
+        `Tasken ルートを選べませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    }
+  }
+
+  async function changeTaskenRootKind(value: string) {
+    try {
+      await workspaceApi.setPreference("taskenRootKind", value);
+    } catch (error) {
+      setToast(
+        `場所の性質を変えられませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    } finally {
+      await reloadRootStatus();
     }
   }
 
@@ -358,11 +411,16 @@ export function SettingsPage({
   async function chooseSyncDirectory() {
     setSyncBusy(true);
     try {
-      const result = await workspaceApi.chooseDirectory("Tasken同期フォルダを選択");
+      // ルートがあれば {root}/Sync で開く（#809）。既存の同期フォルダは動かさない。
+      const result = await workspaceApi.chooseDirectory(
+        "Tasken同期フォルダを選択",
+        rootStatus?.syncDefaultPath || undefined,
+      );
       if (result.canceled || !result.path) return;
       const status = await workspaceApi.configureSharedSync(result.path);
       setSyncStatus(status);
       setToast("端末間同期を開始しました。", "success");
+      void reloadRootStatus();
     } catch (error) {
       setToast(
         `同期フォルダを設定できませんでした。${error instanceof Error ? error.message : String(error)}`,
@@ -518,6 +576,7 @@ export function SettingsPage({
       generations: automaticBackupGenerations,
     });
     acceptAutomaticBackupStatus(status);
+    void reloadRootStatus();
     if (showSuccess) setToast("自動バックアップの設定を保存しました。", "success");
     return status;
   }
@@ -618,6 +677,24 @@ export function SettingsPage({
           : syncStatus
             ? { label: "未設定", tone: "neutral" as const }
             : { label: "確認中", tone: "loading" as const };
+  const rootMarkerNotice =
+    rootStatus?.marker.state === "mismatch"
+      ? `このルートの目印は別の Workspace（${rootStatus.marker.workspaceId.slice(0, 8)}）のものです。別の Workspace のフォルダを選んでいないか確かめてください。`
+      : rootStatus?.marker.state === "invalid"
+        ? "ルートの目印 .tasken-root.json を読めません。"
+        : rootStatus?.marker.state === "missing" && rootStatus.marker.error
+          ? `ルートの目印 .tasken-root.json を書けませんでした。${rootStatus.marker.error}`
+          : "";
+  const rootNeedsAttention =
+    Boolean(rootMarkerNotice) ||
+    Boolean(rootStatus?.exceptions.some((entry) => entry.warning === "backup_in_cloud_root"));
+  const rootSummary = !rootStatus
+    ? { label: "確認中", tone: "loading" as const }
+    : !rootStatus.root
+      ? { label: "未設定", tone: "neutral" as const }
+      : rootNeedsAttention
+        ? { label: "要確認", tone: "attention" as const }
+        : { label: "設定済み", tone: "normal" as const };
   const mcpSummary = mcpInfo
     ? mcpInfo.coreStatus === "unavailable"
       ? { label: "Core接続エラー", tone: "error" as const }
@@ -1039,6 +1116,106 @@ export function SettingsPage({
               </section>
             )}
             <section
+              className="panel settings-form tasken-root-panel"
+              hidden={activeSection !== "storage"}
+            >
+              {/* 保存先は Tasken ルート一つに集約し、配下はTaskenが自動生成する（#306・#809）。
+                  ルートの外にあるものは例外として並べ、どこに何があるかを一目で分かるようにする。 */}
+              <div className="settings-section-heading">
+                <h2>保存先</h2>
+                <IntegrationStatus label={rootSummary.label} tone={rootSummary.tone} />
+              </div>
+              <div className="tasken-root-card">
+                <div className="tasken-root-head">
+                  <strong>Tasken ルート</strong>
+                  {rootStatus?.root && (
+                    <select
+                      className="tasken-root-kind"
+                      aria-label="場所の性質"
+                      value={rootStatus.kindPreference}
+                      onChange={(event) => void changeTaskenRootKind(event.target.value)}
+                    >
+                      <option value="auto">
+                        自動（
+                        {rootStatus.detectedKind
+                          ? TASKEN_ROOT_KIND_LABELS[rootStatus.detectedKind]
+                          : "—"}
+                        ）
+                      </option>
+                      <option value="cloud">クラウド</option>
+                      <option value="nas">NAS</option>
+                      <option value="local">この PC</option>
+                    </select>
+                  )}
+                </div>
+                <p className="tasken-root-path mono-value" title={artifactDirectory || undefined}>
+                  {artifactDirectory || "未設定"}
+                </p>
+                <div className="settings-action-row">
+                  <Button
+                    variant={artifactDirectory || rootStatus?.candidate ? "secondary" : "primary"}
+                    onClick={chooseArtifactDirectory}
+                  >
+                    {artifactDirectory ? "ルートを変更" : "ルートを選ぶ"}
+                  </Button>
+                  {artifactDirectory && (
+                    <Button variant="secondary" onClick={openArtifactDirectory}>
+                      フォルダを開く
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {/* ルートが空で同期フォルダだけある端末への候補。自動では決めない（#809）。 */}
+              {rootStatus?.candidate && (
+                <div className="tasken-root-candidate">
+                  <div>
+                    <span className="tasken-root-label">同期フォルダの親</span>
+                    <p className="mono-value" title={rootStatus.candidate}>
+                      {rootStatus.candidate}
+                    </p>
+                  </div>
+                  <Button
+                    variant="primary"
+                    onClick={() => void setTaskenRoot(rootStatus.candidate || "")}
+                  >
+                    この場所をルートにする
+                  </Button>
+                </div>
+              )}
+              {rootMarkerNotice && <p className="alert-note warning">{rootMarkerNotice}</p>}
+              {rootStatus && rootStatus.exceptions.length > 0 && (
+                <div className="tasken-root-exceptions">
+                  <h3>ルートの外</h3>
+                  <ul>
+                    {rootStatus.exceptions.map((entry) => (
+                      <li key={`${entry.kind}:${entry.themeId || entry.path}`}>
+                        <span className="tasken-root-label">{taskenRootExceptionLabel(entry)}</span>
+                        <span className="mono-value" title={entry.path}>
+                          {entry.path}
+                        </span>
+                        {entry.warning === "backup_in_cloud_root" && (
+                          <p className="alert-note warning">
+                            控えがクラウドのルートの中にあります。クラウドの事故と一緒に消えないよう、ルートの外へ移してください。
+                          </p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <details className="settings-detail">
+                <summary>保存ルールを見る</summary>
+                <div className="settings-detail-body">
+                  <p className="field-help">
+                    OneDrive等のTasken ルート配下に <code>Inbox/</code> と{" "}
+                    <code>Themes/識別子/</code>、その中の <code>Notes|Artifacts|Exports/</code>{" "}
+                    を必要時だけ自動生成します。Theme専用ルート、PDF等の明示Export、linked
+                    Artifactはそれぞれ既存の導線で扱います。
+                  </p>
+                </div>
+              </details>
+            </section>
+            <section
               className="panel settings-form sync-settings-panel"
               hidden={activeSection !== "storage"}
             >
@@ -1177,40 +1354,6 @@ export function SettingsPage({
                   </div>
                 </div>
               </details>
-            </section>
-            <section className="panel settings-form" hidden={activeSection !== "storage"}>
-              {/* 保存先の設定は同期ルート一つに集約し、配下はTaskenが自動生成する（#306）。 */}
-              <h2>同期ストレージ</h2>
-              <p className="field-help">
-                Tasken共通の同期ルートを使います。用途ごとの保存先設定は増やしません。
-              </p>
-              <details className="settings-detail">
-                <summary>保存ルールを見る</summary>
-                <div className="settings-detail-body">
-                  <p className="field-help">
-                    OneDrive等のTasken同期ルート配下に <code>Inbox/</code> と{" "}
-                    <code>Themes/識別子/</code>、その中の <code>Notes|Artifacts|Exports/</code>{" "}
-                    を必要時だけ自動生成します。Theme専用ルート、PDF等の明示Export、linked
-                    Artifactはそれぞれ既存の導線で扱います。
-                  </p>
-                </div>
-              </details>
-              <dl className="settings-meta-list">
-                <div>
-                  <dt>同期ルート</dt>
-                  <dd>{artifactDirectory || "未設定"}</dd>
-                </div>
-              </dl>
-              <div className="settings-action-row">
-                <Button variant="secondary" onClick={chooseArtifactDirectory}>
-                  保存先を選ぶ
-                </Button>
-                {artifactDirectory && (
-                  <Button variant="secondary" onClick={openArtifactDirectory}>
-                    フォルダを開く
-                  </Button>
-                )}
-              </div>
             </section>
             <section className="panel settings-form" hidden={activeSection !== "mobile"}>
               <div className="settings-section-heading">

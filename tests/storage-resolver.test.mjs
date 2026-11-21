@@ -153,8 +153,8 @@ test("保存先解決の実装を一箇所に集約する（#306）", () => {
     "src/renderer/src/features/workspace/pages/SettingsPage.tsx",
     "utf8",
   );
-  // 用途別の保存先入力を並べず、同期ルート一つに集約していることを文言でも示す。
-  assert.match(settingsSource, /<h2>同期ストレージ<\/h2>/);
-  assert.match(settingsSource, /<dt>同期ルート<\/dt>/);
-  assert.match(settingsSource, /用途ごとの保存先設定は増やしません。/);
+  // 用途別の保存先入力を並べず、Tasken ルート一つに集約していることを文言でも示す（#809 で呼び名を変えた）。
+  assert.match(settingsSource, /<h2>保存先<\/h2>/);
+  assert.match(settingsSource, /<strong>Tasken ルート<\/strong>/);
+  assert.match(settingsSource, /<h3>ルートの外<\/h3>/);
 });
