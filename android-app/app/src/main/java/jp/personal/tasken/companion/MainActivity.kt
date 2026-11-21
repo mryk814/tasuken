@@ -111,6 +111,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.text.style.TextDecoration
@@ -263,6 +264,8 @@ internal fun TodayApp(
     val feedPosts by todayViewModel.feedPosts.collectAsState()
     val proposalDecisions by todayViewModel.proposalDecisions.collectAsState()
     val proposalReviewState by todayViewModel.proposalReviewState.collectAsState()
+    val decidedProposals by todayViewModel.decidedProposals.collectAsState()
+    val decisionBand by todayViewModel.decisionBand.collectAsState()
     val themes = themeCatalogState.themes
     val context = LocalContext.current
     var notificationsEnabled by remember(context) {
@@ -785,6 +788,7 @@ internal fun TodayApp(
                         taskWorkProposals = taskWorkProposals.filter { it.taskId == task?.id },
                         proposalDecisions = proposalDecisions.filter { it.taskId == task?.id },
                         proposalReviewState = proposalReviewState,
+                        decidedProposals = decidedProposals,
                         themes = themes,
                         themeCatalogState = themeCatalogState,
                         onStateAction = todayViewModel::toggleTaskState,
@@ -804,7 +808,7 @@ internal fun TodayApp(
                         onWorkReceiptRetry = { selectedTask, selectedReceiptId ->
                             todayViewModel.loadWorkReceipt(selectedTask.id, selectedReceiptId, force = true)
                         },
-                        onProposalDecision = todayViewModel::reviewTaskWorkProposal,
+                        onProposalDecision = todayViewModel::decideTaskWorkProposal,
                         onProposalDecisionDiscard = todayViewModel::discardProposalDecision,
                         onNavigateBack = if (task != null) navigateToList else null,
                         completionFeedbackEventId = completionFeedback
@@ -820,6 +824,12 @@ internal fun TodayApp(
             SnackbarHost(snackbarHostState, modifier = Modifier
                 .align(Alignment.TopCenter)
                 .testTag("top-snackbar-host"))
+            // 提案を決めた帯は、知らせと同じ位置に出す（#774）。
+            DecisionBand(
+                band = decisionBand,
+                onUndo = { todayViewModel.undoProposalDecision(it.key) },
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
         }
         }
     }
@@ -2245,6 +2255,8 @@ internal fun TodayDetailPane(
     /** この Task の提案への、まだ届いていない（か、受け取られなかった）答え。 */
     proposalDecisions: List<MobileProposalDecision> = emptyList(),
     proposalReviewState: ProposalReviewUiState = ProposalReviewUiState.Idle,
+    /** 採る・見送るを押した提案と、その決定（#774）。カードは判・流れの動きで外れ、外れたら戻る。 */
+    decidedProposals: Map<String, String> = emptyMap(),
     themes: List<MobileTheme> = emptyList(),
     themeCatalogState: MobileThemeCatalogState = if (themes.isEmpty()) {
         MobileThemeCatalogState.Loading()
@@ -2664,13 +2676,17 @@ internal fun TodayDetailPane(
                 onChange = { onPlaceReminderUpdate(task, it) },
             )
             taskWorkProposals.forEach { proposal ->
-                TaskWorkProposalReviewCard(
-                    proposal = proposal,
-                    decision = proposalDecisions.lastOrNull { it.proposalId == proposal.id },
-                    reviewState = proposalReviewState,
-                    onDecision = onProposalDecision,
-                    onDiscard = onProposalDecisionDiscard,
-                )
+                key(proposal.id) {
+                    DecisionMotion(decision = decidedProposals[proposal.id]) {
+                        TaskWorkProposalReviewCard(
+                            proposal = proposal,
+                            decision = proposalDecisions.lastOrNull { it.proposalId == proposal.id },
+                            reviewState = proposalReviewState,
+                            onDecision = onProposalDecision,
+                            onDiscard = onProposalDecisionDiscard,
+                        )
+                    }
+                }
             }
             // 提案がもう無い（PC で片付いた）のに受け取られなかった答えは、閉じるまでここに残す。
             val shownProposals = taskWorkProposals.mapTo(HashSet()) { it.id }
