@@ -10,6 +10,14 @@
 - 直し方: CSS は `styles/kaeru.css` に置き、`app.css` の `@import` で読んだ（`main.tsx` に足すと architecture-audit の composition の基準が増える）。部品の先頭のコメントに理由を書いた。
 - 再発防止: 記録だけ（全試験が機械的に止める）。`common.tsx` のように広く使われる部品から辿れる module では CSS を `import` しない。
 
+## 2026-11-21 #785 の `npm run ci` で、smoke:desktop:focused が core-start のまま 15 分の上限で止まった
+
+- しようとしたこと: #785（期限の時刻）の作業の最後に `npm run ci` を流す。
+- 起きたこと: (1) 1 回目は自分で付けた `timeout 3600` が試験の段（この日は 37 分）の途中で切った（exit 124）。(2) 2 回目は試験の段が tasken-core-mcp-wave3 の 2 件（#804 の既知の落ち。別ブランチで直し中）で止まり、後の段を手で流すと `smoke:desktop:focused` だけが `Electron smoke exceeded the overall limit of 900000 ms`（result.json の stage は `core-start`）で落ちた。
+- 原因: 不明。#785 の変更の前の commit（e38ab191）と、元にした origin/main（7b15adce）を同じ worktree で build して流しても、同じく core-start で 15 分止まった（#785 の変更によるものではない）。
+- 直し方: なし（記録だけ）。ほかの smoke（proposal-live・activity）と監査 3 つ・build は通った。
+- 再発防止: 記録だけ。`npm run ci` を外から `timeout` で囲まない（試験の段だけで 40 分近くかかる日がある）。止まった smoke は、元の commit で同じことが起きるかを先に見ると切り分けが早い。lint-staged の `prettier --write` は commit の後に作業ツリーのファイルを LF にする（index は LF のままなので差分は出ない）。CRLF に戻すときは `git show HEAD:` を手本にしない（core.autocrlf=true で LF が返る）。
+
 ## 2026-11-19 ai-document-creation の後始末の順で、Windows の CI 全体が 45 分止まった
 
 - しようとしたこと: #789 の `tests/ai-document-creation.test.mjs`（create-only headless の実証）で、後始末を `t.after` に分けて登録した（一時フォルダー削除 → Core 停止 → MCP 終了の順）。
