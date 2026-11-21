@@ -5,8 +5,10 @@
  * 同じ用途のファイルが複数フォルダへ散る。設定は原則「Tasken同期ルート」一つに集約し、
  * 配下の用途別・Theme別フォルダはTaskenが規定構成で自動生成する。
  *
- * Themeだけは例外として専用ルートを持てる。既存の案件・顧客フォルダへ合わせたり、
- * 共有範囲をTheme単位で分けたりするため。
+ * 前はThemeだけ専用ルート（storage_root）を持てたが、#810（#803 の段 2）で新しい書き込みには
+ * 使わなくした。storage_root は同期される記録に絶対パスで入っており、別の PC や NAS では
+ * 指す先がずれるため。前に置いたファイルと公開済みの参照（activityRootRegistry の
+ * theme:<id>）は動かさない。欄は読むだけで残す。
  *
  * この関数はpathを組み立てるだけで、ファイルI/Oはしない（node:fsに依存しない）。
  */
@@ -58,9 +60,8 @@ function subfolderFor(purpose) {
  * 優先順位:
  * 1. 既存canonical path  … すでに正本の場所が決まっているファイルは動かさない
  * 2. 明示的なExport先    … PDF等、提出先が用途ごとに違うものだけ都度選ばせる
- * 3. Theme専用ルート     … Themeが自分のフォルダを持つ場合
- * 4. アプリ共通sync root … 通常の保存。配下はTaskenが自動生成する
- * 5. 未設定             … needs_root。内部データは失わせず、保存だけ保留する
+ * 3. Tasken ルート       … 通常の保存。配下はTaskenが自動生成する
+ * 4. 未設定            … needs_root。内部データは失わせず、保存だけ保留する
  *
  * 選ばれた根拠を `source` として返す。どの設定が効いたのか画面から説明できるようにする。
  *
@@ -72,7 +73,6 @@ export function resolveStorageLocation({
   themeId = null,
   themeRef = null,
   themeCode = null,
-  themeStorageRoot = null,
   syncRoot = null,
   canonicalPath = null,
   explicitExportRoot = null,
@@ -85,11 +85,6 @@ export function resolveStorageLocation({
   if (explicit) return { status: "ok", root: explicit, segments: [], source: "explicit_export" };
 
   const subfolder = subfolderFor(purpose);
-
-  const themeRoot = String(themeStorageRoot || "").trim();
-  // Theme専用ルート配下でも標準サブフォルダはTaskenが作る。利用者に構成を作らせない。
-  if (themeRoot)
-    return { status: "ok", root: themeRoot, segments: [subfolder], source: "theme_override" };
 
   const base = String(syncRoot || "").trim();
   if (!base) return { status: "needs_root" };
@@ -116,6 +111,5 @@ export function resolveStorageLocation({
 export const STORAGE_SOURCE_LABELS = {
   canonical: "既存の保存場所",
   explicit_export: "書き出し時に指定",
-  theme_override: "Theme専用フォルダ",
   app_default: "Tasken同期ルート",
 };

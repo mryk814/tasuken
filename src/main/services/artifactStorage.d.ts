@@ -18,7 +18,6 @@ export function resolveThemeContentDirectoryParts(options?: {
   artifactDirectory?: string | null;
   themeId?: string | null;
   themeCode?: string | null;
-  themeStorageRoot?: string | null;
   contentKind?: ThemeContentKind | string;
 }): ThemeContentDirectoryParts;
 
@@ -26,5 +25,4 @@ export function resolveManagedArtifactDirectoryParts(options?: {
   artifactDirectory?: string | null;
   themeId?: string | null;
   themeCode?: string | null;
-  themeStorageRoot?: string | null;
 }): ThemeContentDirectoryParts;
