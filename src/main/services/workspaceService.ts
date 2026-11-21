@@ -3422,6 +3422,24 @@ export class WorkspaceService {
     return { kind: "ok", directory };
   }
 
+  /**
+   * 書き出しのダイアログの初期位置（#810）。Theme の Exports/（Theme なしと個人業務は Inbox/Exports）。
+   * ルートのフォルダがあるときだけ Exports/ を作る。ルートそのものは作らない（消えた場所を
+   * 作り直さないため）。作れなければ、いちばん近い既存の親で開く。
+   */
+  private exportDialogDefaultPath(themeId: string | null | undefined): { defaultPath?: string } {
+    const root = String(this.repository.getPreference("artifactDirectory") || "").trim();
+    if (!root || !fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) return {};
+    const location = this.resolveThemeContentDirectory(themeId, "exports");
+    if (location.kind !== "ok") return {};
+    try {
+      fs.mkdirSync(location.directory, { recursive: true });
+    } catch {
+      // 作れなくても書き出しは止めない。
+    }
+    return existingDefaultPath(location.directory);
+  }
+
   /** Main-owned Media sessionがmanaged Artifactの確定先を共有する。 */
   resolveManagedArtifactDirectory(themeId: string | null):
     | { kind: "needs_directory" }
@@ -3835,12 +3853,11 @@ export class WorkspaceService {
   async exportMarkdownPdf(requestValue: unknown): Promise<MarkdownPdfExportResult> {
     const request = normalizeMarkdownPdfExportRequest(requestValue);
     let directory = request.directory?.trim() || "";
-    // PDF は都度選択する。既定の保存先はOSのフォルダ選択ダイアログに任せる。
+    // PDF は都度選択する。ダイアログは Theme の Exports/（Theme なしは Inbox/Exports）で開く（#810）。
     if (request.chooseDirectory || !directory) {
-      const defaultPath = directory || undefined;
       const result = await dialog.showOpenDialog({
         title: "PDF出力先フォルダを選択",
-        defaultPath: defaultPath || undefined,
+        ...(directory ? { defaultPath: directory } : this.exportDialogDefaultPath(request.themeId)),
         properties: ["openDirectory", "createDirectory"],
       });
       if (result.canceled || !result.filePaths[0]) return { canceled: true };

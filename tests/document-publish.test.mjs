@@ -80,7 +80,8 @@ test("document publish uses Markdown as primary output and removes Word", () => 
   );
 
   assert.match(workspaceServiceSource, /PDF は都度選択する/);
-  assert.match(workspaceServiceSource, /const defaultPath = directory \|\| undefined/);
+  // 都度選ぶダイアログは、Theme の Exports/ で開く（#810。#803 の決めの 3）。
+  assert.match(workspaceServiceSource, /this\.exportDialogDefaultPath\(request\.themeId\)/);
   assert.doesNotMatch(
     workspaceServiceSource,
     /resolveThemeContentDirectory\(request\.themeId, "exports"\)/,
