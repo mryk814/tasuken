@@ -364,6 +364,11 @@ export class AiProposalDecisionService {
       });
       this.annotateAfter(acceptance.execute(command), command.commandId, annotation);
     } catch (error) {
+      // 画像を付けた編集は、失敗しても却下しない（#790）。採用は Canonical Markdown の .md と
+      // 復旧用の receipt を書いた後で DB への保存に失敗しうる。そこで却下すると Proposal の画像が
+      // 全部消え、次の起動で receipt が編集を確定した時に、本文に壊れた添付だけが残る。
+      // 保留のまま本人の画面に残し、本人が採否を決める（保留が 1 件増えるだけで済む）。
+      if (request.images?.length) decisionError(error);
       // 採用に失敗した編集のProposalを保留のまま残さない（送り直すたびに増えないように）。
       try {
         const rejecting = this.acceptance({

@@ -804,6 +804,7 @@ test("proposalsモードのHeadless Coreは許可した種類だけを受け付�
     assert.deepEqual(capabilities.structuredContent.writes, {
       task_create: false,
       note_direct_create: false,
+      note_direct_images: false,
       task_edit: false,
       undo: false,
       note_edit_direct: false,

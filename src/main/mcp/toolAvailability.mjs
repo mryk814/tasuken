@@ -263,7 +263,10 @@ export function mcpToolAvailability(capabilities, options = {}) {
       feed_reply: canContent("feed_reply"),
       note_create: canContent("note_create"),
       // proposals配備は画像のstage先を持たないため、画像付きNoteを受け付けない。
+      // 画像付きの「Note の Proposal」を受けるか。直接の create_note・edit_note の画像は
+      // note_direct_images で別に示す（create-only の NAS でも直接作成は画像を受ける。#790）。
       note_images: canContent("note_create") && !["proposals", "create-only"].includes(profile),
+      note_direct_images: tools["tasken.create_note"].available,
       note_edit: canContent("note_edit"),
       task_work_report:
         tools["tasken.report_work"].available &&

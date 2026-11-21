@@ -228,6 +228,15 @@ async function resolveLocalMediaItems(items, { allowLocalFilePaths, allowedMedia
         `${label}のfile_pathには絶対パスを指定してください（${item.reference_id}）。`,
       );
     }
+    // ネットワーク上の場所（\\host\share・//host/share）やデバイス（\\.\pipe など）は開かない。
+    // 開くだけで SMB へ本人の資格情報で接続しに行くので、AI に外のホストを指させれば
+    // 資格情報のハッシュが漏れる道になる。長いパスの形（\\?\C:\...）だけは手元のファイルなので通す。
+    if (/^[\\/]{2}/.test(filePath) && !/^\\\\\?\\[A-Za-z]:\\/.test(filePath)) {
+      throw new TaskenCoreClientError(
+        "VALIDATION_FAILED",
+        `${label}のfile_pathにはこのPCのドライブ上のファイルを指定してください（${item.reference_id}）。`,
+      );
+    }
     let bytes;
     let handle;
     try {

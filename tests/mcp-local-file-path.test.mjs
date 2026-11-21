@@ -144,6 +144,15 @@ test("12 MiB超・空・画像でない・併用・相対パスは、Coreへ送�
     ["empty", { reference_id: "a", file_path: empty }, /空です/],
     ["not image", { reference_id: "a", file_path: text }, /形式が対応していません/],
     ["relative", { reference_id: "a", file_path: "ok.png" }, /絶対パス/],
+    // ネットワーク上の場所とデバイスは開かない（開くだけで SMB へ資格情報つきで接続する）。
+    // POSIX では \\ で始まる形は絶対パスでないので、そちらの断りでもよい。
+    [
+      "unc",
+      { reference_id: "a", file_path: "\\\\attacker.example\\share\\a.png" },
+      /ドライブ上|絶対パス/,
+    ],
+    ["unc slash", { reference_id: "a", file_path: "//attacker.example/share/a.png" }, /ドライブ上/],
+    ["device", { reference_id: "a", file_path: "\\\\.\\pipe\\tasken" }, /ドライブ上|絶対パス/],
     [
       "both",
       {
