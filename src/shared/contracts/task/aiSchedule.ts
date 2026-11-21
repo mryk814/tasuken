@@ -28,15 +28,11 @@ export const aiTaskScheduleInputSchema = z
     end_time: taskScheduleEndTimeSchema
       .nullable()
       .optional()
-      .describe(
-        "Local HH:mm on the due day (end_date, else start_date), e.g. 23:59. Omit = keep the saved time; null removes it.",
-      ),
+      .describe("Due-day local HH:mm. Omit keeps; null clears."),
     notify_before_minutes: taskScheduleNotifyBeforeSchema
       .nullable()
       .optional()
-      .describe(
-        "Notify this many minutes before end_time (0 = at it). Omit = keep; with a new end_time the default is 30. null = no notice.",
-      ),
+      .describe("Notice N min before end_time (new time: 30). Omit keeps."),
   })
   .strict()
   .refine((value) => value.start_date !== null || value.end_date !== null, {
