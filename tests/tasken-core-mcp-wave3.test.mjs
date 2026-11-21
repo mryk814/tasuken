@@ -273,11 +273,18 @@ class FixtureRepository {
 /** 旧実装にない追加欄（assignment.agent_state）を除いて、互換部分だけを比べる。 */
 // 凍結した旧来の応答に無い、後から足した欄を外して比べる。
 // agent_state は作業の状態、agent_work は AI の作業のカード（#751。この fixture には AI の作業が無いので必ず空）。
+// task の schedule と reminder_at は読み射影の日付（#805。この fixture の Task には日付が無いので必ず null）。
 function withoutAgentState(result) {
   if (!result?.assignment) return result;
   const { agent_state: _agentState, ...assignment } = result.assignment;
   const { agent_work: agentWork, ...rest } = result;
   if (agentWork !== undefined) assert.deepEqual(agentWork, []);
+  if (rest.task && ("schedule" in rest.task || "reminder_at" in rest.task)) {
+    const { schedule, reminder_at: reminderAt, ...task } = rest.task;
+    assert.equal(schedule ?? null, null);
+    assert.equal(reminderAt ?? null, null);
+    rest.task = task;
+  }
   return { ...rest, assignment };
 }
 
