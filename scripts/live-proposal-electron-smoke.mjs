@@ -125,22 +125,25 @@ async function acceptSelectedNeedsItem(page) {
     .click();
 }
 
-async function waitForWorkProposalDecision(page) {
-  const outcomeHandle = await page.waitForFunction(
-    () => {
-      if (document.querySelectorAll(".feed-attention-post").length === 0) {
-        return { status: "accepted" };
-      }
-      const message = document.querySelector(".toast-message")?.textContent?.trim() || "";
-      return message.includes("Work proposalを採れませんでした")
-        ? { status: "error", message }
-        : false;
-    },
+/**
+ * 採る・見送るは押してから 5 秒端末に持たれ、その後に Core へ届く（#774）。
+ * 端末の列が空になる（送り終えた）まで待つ。
+ */
+async function waitForDecisionsSent(page) {
+  await page.waitForFunction(
+    () => !window.localStorage.getItem("tasken.heldProposalDecisions.v1"),
     undefined,
-    { timeout: 15_000 },
+    { timeout: 30_000 },
   );
-  const outcome = await outcomeHandle.jsonValue();
-  assert.equal(outcome.status, "accepted", outcome.message || "Work proposal was not accepted.");
+}
+
+async function waitForWorkProposalDecision(page) {
+  await waitForDecisionsSent(page);
+  const message = await page.evaluate(
+    () => document.querySelector(".toast-message")?.textContent?.trim() || "",
+  );
+  assert.doesNotMatch(message, /Work proposalを採れませんでした/);
+  await waitForPendingCount(page, 0);
 }
 
 async function bodyText(page) {
@@ -278,6 +281,7 @@ try {
   assert.match(await page.locator(".proposal-inline-preview").innerText(), new RegExp(title));
   await page.getByRole("button", { name: "採る", exact: true }).click();
   await waitForPendingCount(page, 0);
+  await waitForDecisionsSent(page);
   assert.doesNotMatch(await bodyText(page), /Proposalを採れませんでした/);
 
   await openNavigation(page, "ノート");
@@ -474,6 +478,7 @@ try {
     .getByRole("button", { name: "見送る", exact: true })
     .click();
   await waitForPendingCount(page, 0);
+  await waitForDecisionsSent(page);
 
   await openNavigation(page, "ノート");
   assert.equal(await page.getByText(rejectedTitle, { exact: true }).count(), 0);

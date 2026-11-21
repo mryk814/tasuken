@@ -97,6 +97,9 @@ import type {
 } from "../../../../shared/applicationCommand";
 import { collectionKeyForEntityType } from "../../../../shared/entityRegistry.mjs";
 import { flushPendingNoteDraftSaves } from "./lib/noteDraftFlushRegistry";
+import { IconCheck } from "@tabler/icons-react";
+import { DECISION_HOLD_MS } from "./lib/heldDecisions";
+import { startProposalDecisions } from "./lib/proposalDecisions";
 import { projectWorkspaceData } from "./lib/workspaceProjection";
 import {
   buildDerivedFromDocumentCompanion,
@@ -204,6 +207,8 @@ export function WorkspaceApp() {
   const toast = useUiStore((state) => state.toast);
   const toastToneValue = useUiStore((state) => state.toastTone);
   const toastUndo = useUiStore((state) => state.toastUndo);
+  const toastMark = useUiStore((state) => state.toastMark);
+  const toastKey = useUiStore((state) => state.toastKey);
   const setToast = useUiStore((state) => state.setToast);
   const themeMode = useUiStore((state) => state.themeMode);
   const setThemeMode = useUiStore((state) => state.setThemeMode);
@@ -448,6 +453,12 @@ export function WorkspaceApp() {
     return () => query.removeEventListener("change", updateLayout);
   }, []);
 
+  // 5 秒の間に窓を閉じて送れなかった提案の決定を、本体の窓で読み込んだ後に送る（#774）。
+  useEffect(() => {
+    if (loadState === "success" && windowMode.kind === "main")
+      startProposalDecisions((message, tone) => setToast(message, tone));
+  }, [loadState, windowMode.kind, setToast]);
+
   useEffect(() => {
     document.documentElement.dataset.theme = themeMode;
     void workspaceApi.setTitleBarTheme(themeMode);
@@ -513,9 +524,13 @@ export function WorkspaceApp() {
     if (!toast) return undefined;
     // 取り消せる操作は、押す時間を確保するため長めに残す。
     const undoable = Boolean(lastDeleted.current) || Boolean(useUiStore.getState().toastUndo);
-    const timer = setTimeout(() => setToast(""), undoable ? 4500 : 3200);
+    // 提案を決めた帯は、決定を端末に持つ 5 秒と同じだけ出す（線が尽きたら閉じる。#774）。
+    const timer = setTimeout(
+      () => setToast(""),
+      useUiStore.getState().toastMark ? DECISION_HOLD_MS : undoable ? 4500 : 3200,
+    );
     return () => clearTimeout(timer);
-  }, [toast, setToast]);
+  }, [toast, toastKey, setToast]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -2472,15 +2487,22 @@ export function WorkspaceApp() {
           )}
           {toast && (
             <div
-              className={`toast is-${toastToneValue}`}
+              key={toastKey}
+              className={`toast is-${toastToneValue}${toastMark ? " is-decision" : ""}`}
               role={toastToneValue === "danger" ? "alert" : "status"}
               aria-live={
                 toastToneValue === "danger" || toastToneValue === "warning" ? "assertive" : "polite"
               }
             >
-              <span className="toast-icon" aria-hidden="true">
-                {toastIcon(toastToneValue)}
-              </span>
+              {toastMark ? (
+                <span className={`toast-mark toast-mark-${toastMark}`} aria-hidden="true">
+                  {toastMark === "adopt" ? <IconCheck size={14} stroke={3} /> : null}
+                </span>
+              ) : (
+                <span className="toast-icon" aria-hidden="true">
+                  {toastIcon(toastToneValue)}
+                </span>
+              )}
               <span className="toast-message">{toast}</span>
               {toastUndo ? (
                 <button
@@ -2496,6 +2518,13 @@ export function WorkspaceApp() {
                 lastDeleted.current && <button onClick={undoDelete}>取り消す</button>
               )}
               <button onClick={() => setToast("")}>閉じる</button>
+              {toastMark ? (
+                <span
+                  className="toast-line"
+                  aria-hidden="true"
+                  style={{ animationDuration: `${DECISION_HOLD_MS}ms` }}
+                />
+              ) : null}
             </div>
           )}
           {showShortcuts && <ShortcutDialog close={() => setShowShortcuts(false)} />}
