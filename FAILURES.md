@@ -135,6 +135,7 @@
 - 直し方: `live-proposal-electron-smoke.mjs` と `activity-electron-smoke.mjs` の終了の待ちを 30 秒にした。止まったままの終了は 30 秒で捕まえる。
 - 再発防止: 待ちの横にコメントで理由を書いた。smoke の終了の待ちは、アプリ側の書き出しの上限（10 秒）より長くする。
 - 追記（同じ日、段ごとの時間を測った）: 一時の worktree で before-quit・will-quit の各段に時刻を出し、今の main と #733 の前の版（ff3e3e73）で 5 回ずつ流した（CPU 50〜100%）。アプリの終了処理（書き出し・Core の stop・バックアップの中止・will-quit）は、app.quit() から quit イベントまで、今の main で 64〜96 ms、前の版で 45〜76 ms。#733 で増えたのは `stats.close()` の 30〜50 ms だけ。遅いのは quit イベントの後、Electron のプロセスが消えるまでの尾で、今の main で 0.6〜18.8 秒、前の版でも 1 回は 30 秒を越えて閉じなかった。終了の途中の保存はどの回も 0.1 秒以内に済んでいて、待ちを延ばしても遅い保存は隠していない。尾の中身（GPU・utility・renderer の後始末など）はまだ調べていない。30 秒でも越える回はありうるので、落ち続けるなら尾の中身を調べる。
+- 追記（2026-11-21、尾の中身が分かった。#769）: 長い尾は smoke の閉じ方が作っていた。`live-proposal-electron-smoke.mjs` は `electronApp.evaluate(({ app }) => app.quit())` で閉じて Node の inspector の接続を持ったまま待つので、Electron は終了の直後に `Waiting for the debugger to disconnect...` を出し、Playwright が切れるまで残る（実測 0.1〜63 秒）。Playwright の `electronApp.close()` は `app.quit()` の後に接続を切るので、この待ちは出ない（0.25〜2.2 秒）。Playwright を通さずに起動した Tasken は 0.1〜2 秒、窓を 1 枚開くだけの空の Electron も 0.1〜1.3 秒で、残りの尾は Electron 自身の後始末で Tasken 固有ではない。直し方: live-proposal の smoke を `close()` に替えた（activity の smoke は前から `close()`）。再発防止: 閉じる所にコメントで理由を書いた。Playwright で Electron を閉じる時は `evaluate(app.quit)` ではなく `close()` を使う。
 
 ## 2026-11-14 Android の未送信の列で、同じ時刻に積んだ子の命令が親を止め、送信が全部止まった
 

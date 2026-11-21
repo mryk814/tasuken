@@ -194,13 +194,15 @@ async function closeElectron() {
   // the mobile gateway and any running backup with no limit of their own. Waiting exactly
   // 10 s here left no room for those, so a busy PC failed this check after every real
   // check had passed. 30 s still catches a quit that hangs.
-  const closeEvent = electronApp.waitForEvent("close", { timeout: 30_000 }).then(
-    () => true,
-    () => false,
-  );
-  // Keep the renderer alive while Tasken flushes drafts during before-quit.
-  await electronApp.evaluate(({ app }) => app.quit());
-  const closed = await closeEvent;
+  // Quit through Playwright's close(), not evaluate(app.quit()): close() calls app.quit() and
+  // then drops the Node inspector connection. With evaluate() the connection stayed open, so
+  // Node printed "Waiting for the debugger to disconnect..." and the process lingered until
+  // Playwright let go (0.1 s to over 60 s, #769). close() keeps the pages open, so the
+  // renderer can still flush drafts during before-quit.
+  const closed = await Promise.race([
+    electronApp.close().then(() => true),
+    delay(30_000).then(() => false),
+  ]);
   if (!closed && processHandle.exitCode === null) processHandle.kill();
   electronApp = undefined;
   assert.equal(closed, true, "Tasken did not close within 30 seconds.");
