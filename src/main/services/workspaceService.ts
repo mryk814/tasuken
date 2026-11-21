@@ -3442,11 +3442,12 @@ export class WorkspaceService {
 
   /** Main-owned Media sessionがmanaged Artifactの確定先を共有する。 */
   resolveManagedArtifactDirectory(themeId: string | null):
-    | { kind: "needs_directory" }
+    | { kind: "needs_directory"; legacyDirectories?: string[] }
     | {
         kind: "ok";
         directory: string;
         themeMarker?: { directory: string; themeId: string; displayName: string };
+        legacyDirectories?: string[];
       } {
     // MediaCaptureService がancestor確認→mkdir→再確認を一つの境界で行う。
     // ここでTheme markerを先に書くと、junction越しに外部directoryを作り得る。
@@ -3455,9 +3456,15 @@ export class WorkspaceService {
     }
     const theme = this.repository.get("theme", themeId) || this.repository.get("project", themeId);
     if (!theme) throw new Error("音声CaptureのThemeが見つかりません。Themeを選び直してください。");
-    // Theme の storage_root は新しい書き込みに使わない（#810）。
+    // Theme の storage_root は新しい書き込みに使わない（#810）。ただし前の版がそこへ保存した
+    // Media を開くこと、更新の前に始めた session をそこで確定することは認める（legacyDirectories）。
+    const legacyRoot = typeof theme.storage_root === "string" ? theme.storage_root.trim() : "";
+    const legacy =
+      legacyRoot && path.isAbsolute(legacyRoot)
+        ? { legacyDirectories: [path.join(legacyRoot, "Artifacts")] }
+        : {};
     const root = String(this.repository.getPreference("artifactDirectory") || "").trim();
-    if (!root) return { kind: "needs_directory" };
+    if (!root) return { kind: "needs_directory", ...legacy };
     let themeFolder: string;
     if (fs.existsSync(root)) {
       const discovered = discoverThemeFolderLocation({
@@ -3488,7 +3495,7 @@ export class WorkspaceService {
       const planned = this.resolveThemeContentDirectory(themeId, "artifacts", {
         writeThemeManifest: false,
       });
-      if (planned.kind === "needs_directory") return planned;
+      if (planned.kind === "needs_directory") return { ...planned, ...legacy };
       themeFolder = path.dirname(planned.directory);
     }
     return {
@@ -3499,6 +3506,7 @@ export class WorkspaceService {
         themeId,
         displayName: String(theme.name || theme.title || ""),
       },
+      ...legacy,
     };
   }
 

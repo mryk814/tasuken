@@ -578,3 +578,41 @@ test("manifest themeId accepts a safe legacy ID and rejects untrimmed IDs before
   );
   assert.equal(rejectedExecutor.calls, 0);
 });
+
+test("更新の前に Theme の storage_root の下で始めた session は、その場所で確定できる（#810）", (t) => {
+  const state = finalizedAfterDbFailure(t);
+  const manifest = JSON.parse(fs.readFileSync(state.manifestPath, "utf8"));
+  manifest.state = "finalizing";
+  delete manifest.recoveryError;
+  fs.writeFileSync(state.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  fs.rmSync(manifest.finalPath);
+  // 新しい保存先は Tasken ルートの下。session は前の版の保存先（managedDirectory）を持っている。
+  const newDirectory = path.join(state.paths.root, "TaskenRoot", "Themes", "A", "Artifacts");
+  const withoutLegacy = new MediaCaptureService({
+    userDataPath: state.paths.userDataPath,
+    repository: { get: () => null },
+    commands: commandExecutor({ fail: false }),
+    resolveManagedDirectory: () => ({ kind: "ok", directory: newDirectory }),
+  });
+  assert.throws(
+    () => withoutLegacy.commit({ sessionId: state.prepared.sessionId, durationMs: 1200 }),
+    /session作成時から変更/,
+  );
+  const retryExecutor = commandExecutor({ fail: false });
+  const restarted = new MediaCaptureService({
+    userDataPath: state.paths.userDataPath,
+    repository: { get: () => null },
+    commands: retryExecutor,
+    resolveManagedDirectory: () => ({
+      kind: "ok",
+      directory: newDirectory,
+      legacyDirectories: [state.paths.managedDirectory],
+    }),
+  });
+  const result = restarted.commit({ sessionId: state.prepared.sessionId, durationMs: 1200 });
+  assert.equal(result.publicResult.status, "applied");
+  assert.equal(retryExecutor.calls, 1);
+  assert.equal(path.dirname(manifest.finalPath), state.paths.managedDirectory);
+  assert.ok(fs.existsSync(manifest.finalPath));
+  assert.equal(fs.existsSync(newDirectory), false, "新しい保存先に二つ目を作らない");
+});
