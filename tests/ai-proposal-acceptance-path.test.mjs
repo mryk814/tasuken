@@ -1048,12 +1048,13 @@ test("AiProposalPanel accepts through ApplyAiProposal without direct saveEntitie
     "src/renderer/src/features/workspace/components/AiProposalPanel.tsx",
     "utf8",
   );
-  const acceptStart = source.indexOf("async function acceptProposal");
+  // 採る・見送るは押した時に command を作って端末に持つ（#774）ので、async でなくてよい。
+  const acceptStart = source.search(/(?:async )?function acceptProposal\(/);
   const acceptBlock = source.slice(acceptStart, source.indexOf("  return (", acceptStart));
   assert.match(acceptBlock, /name: "ApplyAiProposal"/);
   assert.doesNotMatch(acceptBlock, /saveEntities\(/);
   assert.doesNotMatch(acceptBlock, /materializeArtifactProposal/);
-  const rejectStart = source.indexOf("async function rejectProposal");
+  const rejectStart = source.search(/(?:async )?function rejectProposal\(/);
   const rejectBlock = source.slice(
     rejectStart,
     source.indexOf("async function quarantineProposal", rejectStart),
