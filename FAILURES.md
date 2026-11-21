@@ -17,6 +17,10 @@
 - 原因: 不明。#785 の変更の前の commit（e38ab191）と、元にした origin/main（7b15adce）を同じ worktree で build して流しても、同じく core-start で 15 分止まった（#785 の変更によるものではない）。
 - 直し方: なし（記録だけ）。ほかの smoke（proposal-live・activity）と監査 3 つ・build は通った。
 - 再発防止: 記録だけ。`npm run ci` を外から `timeout` で囲まない（試験の段だけで 40 分近くかかる日がある）。止まった smoke は、元の commit で同じことが起きるかを先に見ると切り分けが早い。lint-staged の `prettier --write` は commit の後に作業ツリーのファイルを LF にする（index は LF のままなので差分は出ない）。CRLF に戻すときは `git show HEAD:` を手本にしない（core.autocrlf=true で LF が返る）。
+- 追記（同じ日の夜、#769 の作業で続けて調べた）: この PC の環境の問題で、Tasken のコードではない。
+  - 窓を 1 枚開いて `data:` のページを読むだけの空の Electron でも、読み込みに 37〜80 秒かかった時間帯があった（数時間後には 2.7 秒に戻った）。その間、smoke の Electron の main・renderer は CPU をほとんど使わず（3 分で 0.2 秒）、main のスレッドは Wait（UserRequest）で、180 秒の見張りの setTimeout も鳴らなかった。PC 全体の CPU は 20 コア中 7 コア分ほど、ディスクの待ちも小さく、CPU の周波数の絞り込みも無かった。原因はつかめていない（ほかのセッションの全体の試験・smoke が同時に何本も動いていた時間帯）。
+  - 同じ時間帯に、GitHub の windows-quality（`npm run ci` の全段）は同じ smoke を通していた（#809・#820〜#823）。
+  - 見分け方: smoke が core-start などで止まったら、空の Electron で窓の読み込みの秒数を測る（`app.whenReady` → `BrowserWindow` → `loadURL("data:text/html,x")` → `did-finish-load`）。数十秒かかるなら環境なので、時間を置くか、PR の windows-quality で確かめる。
 
 ## 2026-11-19 ai-document-creation の後始末の順で、Windows の CI 全体が 45 分止まった
 
