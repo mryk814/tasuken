@@ -3,14 +3,18 @@ package jp.personal.tasken.companion
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 
 /**
  * 押してから送るまで端末に持っている採否（#774）。`key` は押した 1 回ごとの番号。
@@ -24,6 +28,17 @@ data class HeldProposalDecision(
 )
 
 const val PROPOSAL_DECISION_HOLD_MILLIS = 5_000L
+
+/** 持った採否を送る前に、提案の読み直しが終わるのを待つ上限。過ぎたら今の値のまま送る（切れていれば戻す）。 */
+const val PROPOSAL_REFRESH_WAIT_MILLIS = 15_000L
+
+/**
+ * 持っている採否にとっての「つながっている」。提案の読み直し（引いて更新・回転・画面に戻った時）の間は
+ * [online] が一時 false になるが、それは切れたのではないので、読み直しの間（[refreshing]）はつながっている
+ * と見る。読み直しが失敗して false のまま終わった時だけ「切れた」になる。
+ */
+fun decisionConnection(online: Flow<Boolean>, refreshing: Flow<Boolean>): Flow<Boolean> =
+    combine(online, refreshing) { isOnline, isRefreshing -> isOnline || isRefreshing }
 
 /**
  * 採る・見送るを、押してから [holdMillis] の間は送らずに持ち、その後で押した順に 1 件ずつ送る（#774）。
@@ -39,7 +54,9 @@ const val PROPOSAL_DECISION_HOLD_MILLIS = 5_000L
  */
 class ProposalDecisionHold(
     private val scope: CoroutineScope,
-    private val online: StateFlow<Boolean>,
+    /** 持つ・送る処理を動かす所。既定は scope のまま（画面では Main）。 */
+    private val context: CoroutineContext = EmptyCoroutineContext,
+    private val online: Flow<Boolean>,
     private val onNotSent: (HeldProposalDecision, String) -> Unit,
     private val holdMillis: Long = PROPOSAL_DECISION_HOLD_MILLIS,
     private val now: () -> Long = System::currentTimeMillis,
@@ -77,7 +94,7 @@ class ProposalDecisionHold(
             tail = done
             held to before
         }
-        val job = scope.launch {
+        val job = scope.launch(context) {
             try {
                 val disconnected = withTimeoutOrNull(holdMillis) { online.first { !it } } != null
                 mutableBand.update { if (it?.key == held.key) null else it }

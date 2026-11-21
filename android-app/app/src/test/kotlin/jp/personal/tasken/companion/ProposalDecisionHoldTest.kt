@@ -1,11 +1,15 @@
 package jp.personal.tasken.companion
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExecutorCoroutineDispatcher
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -15,16 +19,24 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Collections
+import java.util.concurrent.Executors
 
-/** 採る・見送るを持ってから押した順に 1 件ずつ送る（#774）。持つ時間は試験では短くする。 */
-class ProposalDecisionHoldTest {
+/**
+ * 採る・見送るを持ってから押した順に 1 件ずつ送る（#774）。持つ時間は試験では短くする。
+ * 同じ試験を、複数のスレッド（Dispatchers.Default）と、画面と同じ 1 本のスレッドの両方で流す
+ * （ProposalDecisionHoldSingleThreadTest）。
+ */
+open class ProposalDecisionHoldTest {
     private val holdMillis = 150L
 
+    protected open fun dispatcher(): CoroutineDispatcher = Dispatchers.Default
+
     private fun <T> withHold(
-        online: MutableStateFlow<Boolean> = MutableStateFlow(true),
+        online: Flow<Boolean> = MutableStateFlow(true),
         block: suspend (ProposalDecisionHold, MutableList<String>) -> T,
     ): T = runBlocking {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val dispatcher = dispatcher()
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
         val notSent = Collections.synchronizedList(mutableListOf<String>())
         try {
             val hold = ProposalDecisionHold(
@@ -36,6 +48,7 @@ class ProposalDecisionHoldTest {
             block(hold, notSent)
         } finally {
             scope.cancel()
+            if (dispatcher !== Dispatchers.Default) (dispatcher as? ExecutorCoroutineDispatcher)?.close()
         }
     }
 
@@ -110,4 +123,45 @@ class ProposalDecisionHoldTest {
         eventually { hold.held.value.isEmpty() }
         assertEquals(mapOf("p1" to "accept"), hold.decided.value)
     }
+
+    @Test
+    fun aReloadThatBrieflyLooksOfflineDoesNotDropTheDecision() {
+        val online = MutableStateFlow(true)
+        val refreshing = MutableStateFlow(false)
+        withHold(decisionConnection(online, refreshing)) { hold, notSent ->
+            val sent = Collections.synchronizedList(mutableListOf<String>())
+            hold.hold("p1", "accept") { sent += "p1"; true }
+            delay(holdMillis / 3)
+            // 引いて更新・回転・画面に戻った時の読み直し（TodayViewModel.refreshProposals の順）。
+            refreshing.value = true
+            online.value = false
+            delay(holdMillis / 3)
+            online.value = true
+            refreshing.value = false
+            eventually { hold.held.value.isEmpty() }
+            assertEquals(listOf("p1"), sent)
+            assertEquals(emptyList<String>(), notSent)
+        }
+    }
+
+    @Test
+    fun aReloadThatFailsIsALostConnection() {
+        val online = MutableStateFlow(true)
+        val refreshing = MutableStateFlow(false)
+        withHold(decisionConnection(online, refreshing)) { hold, notSent ->
+            val sent = Collections.synchronizedList(mutableListOf<String>())
+            hold.hold("p1", "accept") { sent += "p1"; true }
+            refreshing.value = true
+            online.value = false
+            delay(holdMillis / 3)
+            refreshing.value = false
+            eventually { notSent.isNotEmpty() }
+            assertEquals(emptyList<String>(), sent)
+        }
+    }
+}
+
+/** 同じ試験を、画面（Main）と同じく 1 本のスレッドで流す。 */
+class ProposalDecisionHoldSingleThreadTest : ProposalDecisionHoldTest() {
+    override fun dispatcher(): CoroutineDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 }

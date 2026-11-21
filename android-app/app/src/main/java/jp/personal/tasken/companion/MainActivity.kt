@@ -111,7 +111,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
-import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.text.style.TextDecoration
@@ -559,8 +558,11 @@ internal fun TodayApp(
     }
     LaunchedEffect(proposalReviewState) {
         when (val state = proposalReviewState) {
+            // 知らせは画面の scope で出す。次の採否で状態が Reviewing に変わっても、この知らせを途中で消さない
+            // （ここで待つと、状態が変わった時に LaunchedEffect ごと止まる。#774）。
             is ProposalReviewUiState.Error -> {
-                snackbarHostState.showSnackbar(state.message)
+                val message = state.message
+                coroutineScope.launch { snackbarHostState.showSnackbar(message) }
                 todayViewModel.resetProposalReviewState()
             }
             ProposalReviewUiState.Idle, is ProposalReviewUiState.Reviewing -> Unit
@@ -821,15 +823,18 @@ internal fun TodayApp(
             },
             modifier = Modifier.fillMaxSize(),
         )
-            SnackbarHost(snackbarHostState, modifier = Modifier
-                .align(Alignment.TopCenter)
-                .testTag("top-snackbar-host"))
-            // 提案を決めた帯は、知らせと同じ位置に出す（#774）。
-            DecisionBand(
-                band = decisionBand,
-                onUndo = { todayViewModel.undoProposalDecision(it.key) },
+            // 提案を決めた帯は知らせと同じ上の位置に出し、知らせはその下に積む（#774）。帯の「取り消す」と
+            // 断られた理由の知らせが、同じ場所を取り合って片方を隠さないように。
+            Column(
                 modifier = Modifier.align(Alignment.TopCenter),
-            )
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                DecisionBand(
+                    band = decisionBand,
+                    onUndo = { todayViewModel.undoProposalDecision(it.key) },
+                )
+                SnackbarHost(snackbarHostState, modifier = Modifier.testTag("top-snackbar-host"))
+            }
         }
         }
     }
