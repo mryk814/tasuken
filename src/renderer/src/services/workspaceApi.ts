@@ -185,8 +185,11 @@ export const workspaceApi = {
   pathForFile(file: File) {
     return desktopApi().files.pathForFile(file);
   },
-  chooseDirectory(title?: string) {
-    return desktopApi().dialogs.chooseDirectory(title);
+  chooseDirectory(title?: string, defaultPath?: string) {
+    return desktopApi().dialogs.chooseDirectory(title, defaultPath);
+  },
+  taskenRootStatus() {
+    return desktopApi().taskenRoot.status();
   },
   chooseFiles(title?: string) {
     return desktopApi().dialogs.chooseFiles(title);

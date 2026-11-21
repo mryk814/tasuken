@@ -168,6 +168,7 @@ export const IPC = {
   backupRestore: "backup:restore",
   backupLastRestore: "backup:last-restore",
   backupDismissLastRestore: "backup:dismiss-last-restore",
+  taskenRootStatus: "tasken-root:status",
   sharedSyncStatus: "shared-sync:status",
   sharedSyncConfigure: "shared-sync:configure",
   sharedSyncDisable: "shared-sync:disable",
@@ -458,6 +459,35 @@ export interface UnconvertedWaitings {
   reason: "sync_behind" | "backup_failed" | "write_failed";
 }
 
+/** Tasken ルートの性質（#809）。端末ごとに判定し、本人が直せる。 */
+export type TaskenRootKind = "cloud" | "nas" | "local";
+
+/** Settings の保存先の節に出す、ルート 1 つと、ルートの外にある場所の一覧（#809）。 */
+export interface TaskenRootStatus {
+  root: string;
+  kindPreference: "auto" | TaskenRootKind;
+  detectedKind: TaskenRootKind | null;
+  kind: TaskenRootKind | null;
+  marker: {
+    /** none: ルート未設定。unchecked: 同期に参加する前なので照らしていない。 */
+    state: "none" | "ok" | "missing" | "invalid" | "mismatch" | "unchecked";
+    workspaceId: string;
+    /** 目印を書けなかったときの理由。 */
+    error: string;
+  };
+  exceptions: Array<{
+    kind: "sync" | "theme" | "activity" | "backup";
+    path: string;
+    themeId?: string;
+    themeName?: string;
+    warning?: "backup_in_cloud_root";
+  }>;
+  /** ルートが空で同期フォルダだけある端末への候補（同期フォルダの親）。 */
+  candidate: string | null;
+  /** 同期フォルダを選ぶダイアログの初期位置（{root}/Sync）。 */
+  syncDefaultPath: string | null;
+}
+
 export interface SharedSyncRepublishResult {
   republished: number;
   status: SharedSyncStatus;
@@ -633,7 +663,10 @@ export interface ResearchDeskApi {
     pathForFile(file: File): string;
   };
   dialogs: {
-    chooseDirectory(title?: string): Promise<{ canceled: boolean; path?: string }>;
+    chooseDirectory(
+      title?: string,
+      defaultPath?: string,
+    ): Promise<{ canceled: boolean; path?: string }>;
     chooseFiles(
       title?: string,
     ): Promise<{ canceled: boolean; files?: Array<{ path: string; name: string }> }>;
@@ -740,6 +773,9 @@ export interface ResearchDeskApi {
     restoreBackup(token: string): Promise<void>;
     lastRestore(): Promise<WorkspaceRestoreOutcome | null>;
     dismissLastRestore(): Promise<void>;
+  };
+  taskenRoot: {
+    status(): Promise<TaskenRootStatus>;
   };
   sharedSync: {
     status(): Promise<SharedSyncStatus>;

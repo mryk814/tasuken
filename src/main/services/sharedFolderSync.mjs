@@ -149,6 +149,9 @@ export class SharedFolderSyncService {
     // 他端末のstatus.jsonを読んで鮮度を出すのはNAS replicaだけ。Desktopは自分の分を書くだけで、
     // 10秒ごとの共有フォルダ(SMB)の読み込みを増やさない。
     this.role = options.role === "replica" ? "replica" : "desktop";
+    // Workspace を引き継いだ後に呼ぶ（#809 の Tasken ルートの目印の書き換え）。失敗しても参加は止めない。
+    this.onWorkspaceAdopted =
+      typeof options.onWorkspaceAdopted === "function" ? options.onWorkspaceAdopted : () => {};
     this.repository = repository;
     this.notifyWorkspaceChanged = notifyWorkspaceChanged;
     this.attachmentDirectory = attachmentDirectory;
@@ -253,7 +256,15 @@ export class SharedFolderSyncService {
       };
       await writeJsonAtomic(this.manifestPath(directory), manifest);
     } else if (manifest.workspaceId !== this.repository.workspaceId) {
+      const previousWorkspaceId = this.repository.workspaceId;
       this.repository.adoptSyncWorkspace(manifest.workspaceId);
+      try {
+        this.onWorkspaceAdopted(previousWorkspaceId, manifest.workspaceId);
+      } catch (error) {
+        console.warn(
+          `[tasken-sync] Workspace の引き継ぎ後の処理に失敗しました: ${syncErrorMessage(error)}`,
+        );
+      }
     }
     this.repository.setPreference("sharedSyncDirectory", directory);
     this.repository.setPreference("sharedSyncEnabled", true);

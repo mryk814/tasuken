@@ -6,6 +6,7 @@ import type { WorkspaceService } from "../services/workspaceService";
 import type { AutomaticSnapshotBackupService } from "../services/automaticSnapshotBackup";
 import type { WorkspaceRestoreController } from "../services/workspaceRestoreController";
 import type { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
+import type { TaskenRootService } from "../services/taskenRoot.mjs";
 import type { ApplicationCommandService } from "../services/applicationCommandService";
 import { AiProposalAcceptanceService } from "../services/aiProposalAcceptanceService";
 import type { MediaCaptureService } from "../services/mediaCaptureService";
@@ -208,6 +209,8 @@ export function registerIpc(
   ) => void = () => {},
   /** AIの直接変更を本人が取り消す口（#703）。Desktopのcompositionが渡す。 */
   aiTaskChanges?: { undoByUser(changeId: string): unknown },
+  /** Tasken ルートの目印と、Settings の保存先の節（#809）。Desktop の起動が渡す。 */
+  taskenRoot?: TaskenRootService,
 ): void {
   const aiProposalAcceptance = new AiProposalAcceptanceService(
     applicationCommands,
@@ -280,6 +283,8 @@ export function registerIpc(
     const normalizedKey = requireId(key);
     const saved = repository.setPreference(normalizedKey, value);
     if (normalizedKey === "artifactDirectory") {
+      // ルートを決めたら目印を置く。書けなくても設定は保存済みで、理由は Settings に出る（#809）。
+      taskenRoot?.ensureMarker();
       // Root changes are workspace projection changes, not entity changes.
       // Refreshing here updates canonical_root_status in the live renderer.
       publishIpc(IPC.workspaceChanged, {});
@@ -327,7 +332,9 @@ export function registerIpc(
   ipcMain.handle(IPC.fileReadPreview, (_event, filePath) =>
     service.readFilePreview(requireText(filePath, "プレビューするファイル")),
   );
-  ipcMain.handle(IPC.dialogChooseDirectory, (_event, title) => service.chooseDirectory(title));
+  ipcMain.handle(IPC.dialogChooseDirectory, (_event, title, defaultPath) =>
+    service.chooseDirectory(title, defaultPath),
+  );
   ipcMain.handle(IPC.dialogChooseFiles, (_event, title) => service.chooseFiles(title));
   ipcMain.handle(IPC.markdownImageSave, (_event, request) =>
     service.saveMarkdownImageAttachment(request),
@@ -629,6 +636,10 @@ export function registerIpc(
   ipcMain.handle(IPC.backupRestore, (_event, token) => workspaceRestore.restore(requireId(token)));
   ipcMain.handle(IPC.backupLastRestore, () => workspaceRestore.lastOutcome());
   ipcMain.handle(IPC.backupDismissLastRestore, () => workspaceRestore.dismissOutcome());
+  ipcMain.handle(IPC.taskenRootStatus, () => {
+    if (!taskenRoot) throw new Error("Tasken ルートの状態を読めません。");
+    return taskenRoot.status();
+  });
   ipcMain.handle(IPC.sharedSyncStatus, () => sharedSync.status());
   ipcMain.handle(IPC.sharedSyncConfigure, (_event, directory) =>
     sharedSync.configure(requireText(directory, "同期フォルダ")),

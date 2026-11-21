@@ -1,0 +1,228 @@
+/**
+ * Tasken ルートの目印（{root}/.tasken-root.json）と、Settings に出す状態（#809）。
+ *
+ * 目印は「このフォルダがどの Workspace のルートか」を後から確かめるためのもので、
+ * 書けなくても何も止めない（ログに残し、Settings に出すだけ）。食い違いも止めずに注意だけにする。
+ * 端末ごとの設定と同じで、同期される記録には入れない。
+ */
+
+import fs from "node:fs";
+import path from "node:path";
+
+import {
+  TASKEN_ROOT_MARKER,
+  buildTaskenRootMarker,
+  compareTaskenRootMarker,
+  detectTaskenRootKind,
+  effectiveTaskenRootKind,
+  isTaskenRootMarker,
+  listTaskenRootExceptions,
+  normalizeTaskenRootKindPreference,
+  syncFolderDefaultPath,
+  taskenRootCandidate,
+} from "../../shared/taskenRoot.mjs";
+
+function text(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function taskenRootMarkerPath(root) {
+  return path.join(root, TASKEN_ROOT_MARKER);
+}
+
+/**
+ * @returns {{ state: "missing" } | { state: "invalid", error?: string } | { state: "present", marker: { schema: string, workspaceId: string, createdAt: string } }}
+ */
+export function readTaskenRootMarker(root) {
+  const filePath = taskenRootMarkerPath(root);
+  let raw;
+  try {
+    raw = fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return { state: "missing" };
+    }
+    return { state: "invalid", error: errorMessage(error) };
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return isTaskenRootMarker(parsed) ? { state: "present", marker: parsed } : { state: "invalid" };
+  } catch (error) {
+    return { state: "invalid", error: errorMessage(error) };
+  }
+}
+
+/** 一時ファイルに書いてから rename する。途中で落ちても壊れた目印を残さない。 */
+function writeMarkerAtomic(root, marker) {
+  const filePath = taskenRootMarkerPath(root);
+  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(temporaryPath, `${JSON.stringify(marker, null, 2)}\n`, "utf8");
+    fs.renameSync(temporaryPath, filePath);
+  } catch (error) {
+    fs.rmSync(temporaryPath, { force: true });
+    throw error;
+  }
+}
+
+/**
+ * 目印が無ければ書く。あれば（別の Workspace のものでも）書き換えない。投げない。
+ * ルートのフォルダそのものは作らない（指定した場所が消えていたら、作らずに失敗として出す）。
+ * @returns {{ status: "written" | "present" | "skipped" | "failed", error?: string }}
+ */
+export function ensureTaskenRootMarker({ root, workspaceId, now = () => new Date() }) {
+  const directory = text(root);
+  if (!directory || !text(workspaceId)) return { status: "skipped" };
+  try {
+    if (!fs.statSync(directory, { throwIfNoEntry: false })?.isDirectory()) {
+      return { status: "failed", error: "ルートのフォルダが見つかりません。" };
+    }
+    const current = readTaskenRootMarker(directory);
+    if (current.state !== "missing") return { status: "present" };
+    writeMarkerAtomic(
+      directory,
+      buildTaskenRootMarker({ workspaceId, createdAt: now().toISOString() }),
+    );
+    return { status: "written" };
+  } catch (error) {
+    return { status: "failed", error: errorMessage(error) };
+  }
+}
+
+/**
+ * 同期に参加して Workspace を引き継いだとき、目印が前の Workspace を指していれば新しい方へ書き換える。
+ * 前の Workspace 以外（別の端末が書いた目印など）は触らない。作った日時は残す。投げない。
+ * @returns {{ status: "rewritten" | "unchanged" | "skipped" | "failed", error?: string }}
+ */
+export function rewriteTaskenRootMarkerWorkspace({ root, fromWorkspaceId, toWorkspaceId }) {
+  const directory = text(root);
+  if (!directory || !text(toWorkspaceId) || fromWorkspaceId === toWorkspaceId) {
+    return { status: "skipped" };
+  }
+  try {
+    const current = readTaskenRootMarker(directory);
+    if (current.state !== "present" || current.marker.workspaceId !== fromWorkspaceId) {
+      return { status: "unchanged" };
+    }
+    writeMarkerAtomic(directory, { ...current.marker, workspaceId: toWorkspaceId });
+    return { status: "rewritten" };
+  } catch (error) {
+    return { status: "failed", error: errorMessage(error) };
+  }
+}
+
+/**
+ * Settings に出す Tasken ルートの状態を組み立てる。
+ * repository は端末ごとの設定と Theme を読むだけで、ここからは書かない。
+ */
+export class TaskenRootService {
+  /**
+   * @param {{
+   *   repository: {
+   *     workspaceId: string,
+   *     getPreference(key: string): unknown,
+   *     list(type: string, includeDeleted?: boolean): Array<Record<string, unknown>>,
+   *   },
+   *   backupDirectory: () => string,
+   *   env?: Record<string, string | undefined>,
+   *   now?: () => Date,
+   *   log?: (level: "info" | "warn" | "error", message: string) => void,
+   * }} options
+   */
+  constructor({ repository, backupDirectory, env = process.env, now, log = () => {} }) {
+    this.repository = repository;
+    this.backupDirectory = backupDirectory;
+    this.env = env;
+    this.now = now || (() => new Date());
+    this.log = log;
+    this.lastWriteError = "";
+  }
+
+  root() {
+    return text(this.repository.getPreference("artifactDirectory"));
+  }
+
+  /** 起動時とルートを決めたときに呼ぶ。失敗は覚えて Settings に出す。 */
+  ensureMarker() {
+    const root = this.root();
+    const result = ensureTaskenRootMarker({
+      root,
+      workspaceId: this.repository.workspaceId,
+      now: this.now,
+    });
+    if (result.status === "failed") {
+      this.lastWriteError = result.error || "目印を書けませんでした。";
+      this.log("warn", `Tasken ルートの目印を書けませんでした: ${this.lastWriteError}`);
+    } else {
+      this.lastWriteError = "";
+      if (result.status === "written") this.log("info", "Tasken ルートの目印を書きました。");
+    }
+    return result;
+  }
+
+  /** adoptSyncWorkspace の後に呼ぶ。 */
+  workspaceAdopted(fromWorkspaceId, toWorkspaceId) {
+    const result = rewriteTaskenRootMarkerWorkspace({
+      root: this.root(),
+      fromWorkspaceId,
+      toWorkspaceId,
+    });
+    if (result.status === "failed") {
+      this.log("warn", `Tasken ルートの目印を書き換えられませんでした: ${result.error}`);
+    }
+    return result;
+  }
+
+  status() {
+    const root = this.root();
+    const kindPreference = normalizeTaskenRootKindPreference(
+      this.repository.getPreference("taskenRootKind"),
+    );
+    const detectedKind = detectTaskenRootKind(root, this.env);
+    const kind = effectiveTaskenRootKind(kindPreference, detectedKind);
+    const syncDirectory = text(this.repository.getPreference("sharedSyncDirectory"));
+    const syncEnabled = this.repository.getPreference("sharedSyncEnabled") === true;
+    let backupDirectory = "";
+    try {
+      backupDirectory = text(this.backupDirectory());
+    } catch {
+      // 控えの場所が読めないときは一覧から外すだけにする。
+    }
+    let marker = { state: /** @type {string} */ ("none"), workspaceId: "", error: "" };
+    if (root) {
+      const read = readTaskenRootMarker(root);
+      const compared = compareTaskenRootMarker({
+        marker: read.state === "missing" ? null : read.state === "present" ? read.marker : {},
+        workspaceId: this.repository.workspaceId,
+        // 同期フォルダに参加した後でなければ、この端末の Workspace は決まっていない。
+        workspaceSettled: syncEnabled && Boolean(syncDirectory),
+      });
+      marker = {
+        state: compared,
+        workspaceId: read.state === "present" ? read.marker.workspaceId : "",
+        error: compared === "missing" ? this.lastWriteError : "",
+      };
+    }
+    return {
+      root,
+      kindPreference,
+      detectedKind,
+      kind,
+      marker,
+      exceptions: listTaskenRootExceptions({
+        root,
+        rootKind: kind,
+        syncDirectory,
+        themes: this.repository.list("theme"),
+        activityLogDirectory: text(this.repository.getPreference("activityLogDirectory")),
+        backupDirectory,
+      }),
+      candidate: taskenRootCandidate({ root, syncDirectory }),
+      syncDefaultPath: syncFolderDefaultPath(root),
+    };
+  }
+}

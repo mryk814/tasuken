@@ -52,6 +52,7 @@ import {
 import { WorkspaceService } from "./services/workspaceService";
 import { AiProposalAcceptanceService } from "./services/aiProposalAcceptanceService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
+import { TaskenRootService } from "./services/taskenRoot.mjs";
 import { runRetiredExportsOnce } from "./services/retiredExports";
 import { runWaitingConversionOnce, unconvertedWaitingsFrom } from "./services/waitingRetirement";
 import { runRetiredOutputCleanupOnce } from "./services/retiredOutputCleanup.mjs";
@@ -2065,11 +2066,23 @@ async function startDesktopApp(): Promise<void> {
   const leftoverRecordingsCreatedBefore = new Date().toISOString();
   if (smokeAudioSourcePath) mediaCapture.prepareFile(smokeAudioSourcePath, null);
   registerMediaProtocol(mediaCapture);
+  // Tasken ルートの目印（#809）。ルートが決まっていて目印が無ければ、起動のたびに置き直す。
+  // 書けなくても起動は止めず、理由は Settings に出す。
+  const taskenRoot = new TaskenRootService({
+    repository: workspaceRepository,
+    backupDirectory: () => backupService.status().directory,
+    log: (level, message) => logMain(level, "tasken-root", message),
+  });
+  taskenRoot.ensureMarker();
   sharedFolderSyncService = new SharedFolderSyncService(
     workspaceRepository,
     notifyMainWindowRefresh,
     path.join(app.getPath("userData"), "attachments", "markdown-images"),
     path.join(app.getPath("userData"), "attachments", "capture-images"),
+    {
+      onWorkspaceAdopted: (previousWorkspaceId: string, workspaceId: string) =>
+        taskenRoot.workspaceAdopted(previousWorkspaceId, workspaceId),
+    },
   );
   // Feedの外部リンクPreview。派生キャッシュなので正本DBには触れず、
   // サムネイルだけを他の添付と同じ userData/attachments 配下へ置く。
@@ -2088,6 +2101,7 @@ async function startDesktopApp(): Promise<void> {
     (_types, change) => notifyMainWindowRefresh(change),
     notifyCommandApplied,
     aiTaskChanges,
+    taskenRoot,
   );
   registerMobileGatewayIpc(composition.mobileGateway);
   // 切り離しウィンドウの共通基盤（#290）。位置・サイズは端末ごとの見え方なので

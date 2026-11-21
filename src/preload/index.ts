@@ -69,7 +69,8 @@ const api: ResearchDeskApi = {
     pathForFile: (file) => webUtils.getPathForFile(file),
   },
   dialogs: {
-    chooseDirectory: (title) => ipcRenderer.invoke(IPC.dialogChooseDirectory, title),
+    chooseDirectory: (title, defaultPath) =>
+      ipcRenderer.invoke(IPC.dialogChooseDirectory, title, defaultPath),
     chooseFiles: (title) => ipcRenderer.invoke(IPC.dialogChooseFiles, title),
   },
   attachments: {
@@ -249,6 +250,9 @@ const api: ResearchDeskApi = {
     restoreBackup: (token) => ipcRenderer.invoke(IPC.backupRestore, token),
     lastRestore: () => ipcRenderer.invoke(IPC.backupLastRestore),
     dismissLastRestore: () => ipcRenderer.invoke(IPC.backupDismissLastRestore),
+  },
+  taskenRoot: {
+    status: () => ipcRenderer.invoke(IPC.taskenRootStatus),
   },
   sharedSync: {
     status: () => ipcRenderer.invoke(IPC.sharedSyncStatus),

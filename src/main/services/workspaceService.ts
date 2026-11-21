@@ -553,6 +553,23 @@ function normalizeDocumentSaveCompanions(
   });
 }
 
+/**
+ * フォルダを選ぶダイアログの初期位置（#809 の同期フォルダの {root}/Sync など）。
+ * まだ無い場所は作らず、いちばん近い既存の親で開く。何も無ければ OS の既定に任せる。
+ */
+function existingDefaultPath(value: unknown): { defaultPath?: string } {
+  if (typeof value !== "string" || !value.trim() || !path.isAbsolute(value)) return {};
+  let candidate = path.resolve(value);
+  for (;;) {
+    if (fs.statSync(candidate, { throwIfNoEntry: false })?.isDirectory()) {
+      return { defaultPath: candidate };
+    }
+    const parent = path.dirname(candidate);
+    if (parent === candidate) return {};
+    candidate = parent;
+  }
+}
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -3251,10 +3268,14 @@ export class WorkspaceService {
     }
   }
 
-  async chooseDirectory(titleValue: unknown): Promise<{ canceled: boolean; path?: string }> {
+  async chooseDirectory(
+    titleValue: unknown,
+    defaultPathValue?: unknown,
+  ): Promise<{ canceled: boolean; path?: string }> {
     const result = await dialog.showOpenDialog({
       title: typeof titleValue === "string" && titleValue.trim() ? titleValue : "フォルダを選択",
       properties: ["openDirectory", "createDirectory"],
+      ...existingDefaultPath(defaultPathValue),
     });
     if (result.canceled || !result.filePaths[0]) return { canceled: true };
     return { canceled: false, path: result.filePaths[0] };

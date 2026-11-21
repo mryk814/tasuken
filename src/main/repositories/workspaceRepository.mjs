@@ -16,6 +16,10 @@ import {
   workspaceEntityTypes,
 } from "./domain.mjs";
 import { normalizeDueNotificationTimes } from "../../shared/taskNotifications.ts";
+import {
+  TASKEN_ROOT_KIND_PREFERENCES,
+  normalizeTaskenRootKindPreference,
+} from "../../shared/taskenRoot.mjs";
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { migratePublishedFeedNotes } from "./feedPostMigration.mjs";
 import { assertSyncPacket, isRetiredSyncPacket } from "./syncPacketContract.mjs";
@@ -836,6 +840,9 @@ export class WorkspaceDatabase {
     if (key === "activityLogLastFinalizedDate")
       return this.ensureMeta("activity_log_last_finalized_date", "");
     if (key === "artifactDirectory") return this.ensureMeta("artifact_directory", "");
+    // Tasken ルートの性質（#809）。端末ごとの設定で、auto は場所から判定する。
+    if (key === "taskenRootKind")
+      return normalizeTaskenRootKindPreference(this.ensureMeta("tasken_root_kind", "auto"));
     if (key === "sharedSyncDirectory") return this.ensureMeta("shared_sync_directory", "");
     if (key === "sharedSyncEnabled")
       return this.ensureMeta("shared_sync_enabled", "false") === "true";
@@ -1096,6 +1103,20 @@ export class WorkspaceDatabase {
         )
         .run(directory);
       return directory;
+    }
+    if (key === "taskenRootKind") {
+      if (!TASKEN_ROOT_KIND_PREFERENCES.includes(value)) {
+        throw new Error("Tasken ルートの性質の値が不正です。");
+      }
+      this.db
+        .prepare(
+          `
+        INSERT INTO workspace_meta(key, value) VALUES('tasken_root_kind', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `,
+        )
+        .run(value);
+      return value;
     }
     if (key === "sharedSyncDirectory") {
       const directory = typeof value === "string" ? value : "";
