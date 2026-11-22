@@ -50,6 +50,7 @@
         "snapshots",
         "task",
         "taskenRoot",
+        "taskenView",
         "workLog",
         "workspace"
       ]

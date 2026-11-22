@@ -309,11 +309,14 @@ test("production audit is deterministic and keeps temporary composition growth v
     // generic-task-write 利用者という指摘が検出形から外れたので 20 → 19。
     // seen メタデータ書き込みが Task コマンド能力を迂回する #405 の移行債務そのものは
     // 解消しておらず、#405 側で引き続き追う。
-    assert.equal(report.summary.newFindings, 19, unexplainedFindings(report));
-    assert.equal(report.summary.suppressedFindings, 19);
+    // #811 で View の書き手の配線が src/main/index.ts の import を基準（43）より
+    // 増やしたので 19 → 20。抑止は #482 の既存のもの（Main の composition root を
+    // 分割するまで）を使う。
+    assert.equal(report.summary.newFindings, 20, unexplainedFindings(report));
+    assert.equal(report.summary.suppressedFindings, 20);
     assert.equal(report.summary.blockingFindings, 0, unexplainedFindings(report));
     const newFindings = report.findings.filter((entry) => !entry.baseline);
-    assert.equal(newFindings.length, 19);
+    assert.equal(newFindings.length, 20);
     assert.equal(
       newFindings.every((entry) => entry.suppressed && entry.suppression?.issue),
       true,
@@ -323,7 +326,9 @@ test("production audit is deterministic and keeps temporary composition growth v
         .filter((entry) => entry.ruleId === "composition.baseline_increase")
         .map((entry) => [entry.source, entry.suppressed, entry.suppression?.issue]),
       [
-        // src/main/index.ts は、録る側を外して（#755 束4）基準の行数を下回ったので出なくなった。
+        // src/main/index.ts は、録る側を外して（#755 束4）基準を下回って出なくなったが、
+        // #811 の配線で import が基準を上回り、#482 の抑止で再び出るようになった。
+        ["src/main/index.ts", true, 482],
         ["src/main/ipc/registerIpc.ts", true, 405],
         ["src/preload/index.ts", true, 405],
         ["src/renderer/src/features/workspace/WorkspaceApp.tsx", true, 481],
