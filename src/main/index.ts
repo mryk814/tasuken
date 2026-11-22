@@ -53,6 +53,8 @@ import { WorkspaceService } from "./services/workspaceService";
 import { AiProposalAcceptanceService } from "./services/aiProposalAcceptanceService";
 import { SharedFolderSyncService } from "./services/sharedFolderSync.mjs";
 import { TaskenRootService } from "./services/taskenRoot.mjs";
+import { TaskenViewService } from "./services/taskenView.mjs";
+import { DocumentFileStore } from "./services/documentFileStore";
 import { runRetiredExportsOnce } from "./services/retiredExports";
 import { runWaitingConversionOnce, unconvertedWaitingsFrom } from "./services/waitingRetirement";
 import { runRetiredOutputCleanupOnce } from "./services/retiredOutputCleanup.mjs";
@@ -120,6 +122,7 @@ let satelliteWindows: SatelliteWindowRegistry | null = null;
 let memoStickyController: MemoStickyController | null = null;
 let noteWindowController: NoteWindowController | null = null;
 let sharedFolderSyncService: SharedFolderSyncService | null = null;
+let taskenViewService: TaskenViewService | null = null;
 let automaticSnapshotBackup: AutomaticSnapshotBackupService | null = null;
 let agentLogSyncService: WorkspaceService | null = null;
 // 起動直後の画面表示とworkspace:loadの邪魔をしないよう、自動バックアップは少し遅らせて裏で写す。
@@ -286,6 +289,9 @@ function notifyMemoStickyWindowsChanged(): void {
 }
 
 function notifyMainWindowRefresh(change?: WorkspaceChangePayload): void {
+  // 保存・受信のあとは View の作り直しも依頼する（#811）。30 秒静かになってから、
+  // 2 分に 1 回までという間隔の制御はサービス側が持つ。書き手でなければ何もしない。
+  taskenViewService?.requestGenerate();
   for (const win of BrowserWindow.getAllWindows()) {
     if (!isAuxiliaryWindow(win) && !win.isDestroyed()) {
       win.webContents.send(IPC.workspaceChanged, change);
@@ -2076,6 +2082,17 @@ async function startDesktopApp(): Promise<void> {
   taskenRoot.ensureMarker();
   // 段 2（#810）の知らせ。この版の最初の起動で知らせることが無ければ、ここで済ませる。
   taskenRoot.settleOutsideRootNotice();
+  // View（現在形の射影）の書き手（#811）。起動時に 1 回作り、保存・受信のたびに
+  // notifyMainWindowRefresh から作り直しを依頼される。書き手でなければ何も書かない。
+  const documentFileStore = new DocumentFileStore(app.getPath("userData"));
+  const taskenView = new TaskenViewService({
+    repository: workspaceRepository,
+    readDocumentHtml: (document) =>
+      documentFileStore.read(typeof document.filename === "string" ? document.filename : ""),
+    log: (level, message) => logMain(level, "tasken-view", message),
+  });
+  taskenViewService = taskenView;
+  taskenView.start();
   sharedFolderSyncService = new SharedFolderSyncService(
     workspaceRepository,
     notifyMainWindowRefresh,
@@ -2104,6 +2121,7 @@ async function startDesktopApp(): Promise<void> {
     notifyCommandApplied,
     aiTaskChanges,
     taskenRoot,
+    taskenView,
   );
   registerMobileGatewayIpc(composition.mobileGateway);
   // 切り離しウィンドウの共通基盤（#290）。位置・サイズは端末ごとの見え方なので

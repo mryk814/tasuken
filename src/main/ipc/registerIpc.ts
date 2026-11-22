@@ -7,6 +7,7 @@ import type { AutomaticSnapshotBackupService } from "../services/automaticSnapsh
 import type { WorkspaceRestoreController } from "../services/workspaceRestoreController";
 import type { SharedFolderSyncService } from "../services/sharedFolderSync.mjs";
 import type { TaskenRootService } from "../services/taskenRoot.mjs";
+import type { TaskenViewService } from "../services/taskenView.mjs";
 import type { ApplicationCommandService } from "../services/applicationCommandService";
 import { AiProposalAcceptanceService } from "../services/aiProposalAcceptanceService";
 import type { MediaCaptureService } from "../services/mediaCaptureService";
@@ -211,6 +212,8 @@ export function registerIpc(
   aiTaskChanges?: { undoByUser(changeId: string): unknown },
   /** Tasken ルートの目印と、Settings の保存先の節（#809）。Desktop の起動が渡す。 */
   taskenRoot?: TaskenRootService,
+  /** View（現在形の射影）の書き手と、Settings の保存先の節（#811）。Desktop の起動が渡す。 */
+  taskenView?: TaskenViewService,
 ): void {
   const aiProposalAcceptance = new AiProposalAcceptanceService(
     applicationCommands,
@@ -288,6 +291,11 @@ export function registerIpc(
       // Root changes are workspace projection changes, not entity changes.
       // Refreshing here updates canonical_root_status in the live renderer.
       publishIpc(IPC.workspaceChanged, {});
+    }
+    if (normalizedKey === "artifactDirectory" || normalizedKey === "taskenViewWriter") {
+      // ルートが変わった・書き手に名乗り出たときは、View の作り直しを依頼する（#811）。
+      // 書き手でなければサービス側で何もしない。
+      taskenView?.requestGenerate();
     }
     return saved;
   });
@@ -643,6 +651,18 @@ export function registerIpc(
   ipcMain.handle(IPC.taskenRootOutsideNotice, () => taskenRoot?.outsideRootNotice() ?? null);
   ipcMain.handle(IPC.taskenRootDismissOutsideNotice, () => {
     taskenRoot?.dismissOutsideRootNotice();
+  });
+  ipcMain.handle(IPC.taskenViewStatus, () => {
+    if (!taskenView) throw new Error("View の状態を読めません。");
+    return taskenView.status();
+  });
+  ipcMain.handle(IPC.taskenViewTakeOver, () => {
+    if (!taskenView) throw new Error("View の書き手を引き継げません。");
+    return taskenView.takeOver();
+  });
+  ipcMain.handle(IPC.taskenViewRebuild, () => {
+    if (!taskenView) throw new Error("View を作り直せません。");
+    return taskenView.rebuild();
   });
   ipcMain.handle(IPC.sharedSyncStatus, () => sharedSync.status());
   ipcMain.handle(IPC.sharedSyncConfigure, (_event, directory) =>

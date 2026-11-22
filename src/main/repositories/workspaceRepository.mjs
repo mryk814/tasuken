@@ -859,6 +859,9 @@ export class WorkspaceDatabase {
     // Desktopは新しい版の最初の起動で一度だけ有効にする（enableAiDirectWriteOnce。#755 束10a）。
     if (key === "aiDirectWriteEnabled")
       return this.ensureMeta("ai_direct_write_enabled", "false") === "true";
+    // View（現在形の射影）をこの端末で書くか（#811）。端末ごとの設定で、同期しない。既定は書かない。
+    if (key === "taskenViewWriter")
+      return this.ensureMeta("tasken_view_writer", "false") === "true";
     if (key === "automaticSnapshotBackupDirectory")
       return this.ensureMeta("automatic_snapshot_backup_directory", "");
     if (key === "automaticSnapshotBackupGenerations") {
@@ -903,6 +906,7 @@ export class WorkspaceDatabase {
     if (key === "artifactDirectory") return readMeta("artifact_directory") ?? "";
     // Coreが書き込みのたびに読む。値が無い時の無効を書き出さない（一度だけの有効化は enableAiDirectWriteOnce）。
     if (key === "aiDirectWriteEnabled") return readMeta("ai_direct_write_enabled") === "true";
+    if (key === "taskenViewWriter") return readMeta("tasken_view_writer") === "true";
     throw new Error(`未対応のread-only設定です: ${key}`);
   }
 
@@ -1185,6 +1189,18 @@ export class WorkspaceDatabase {
         .prepare(
           `
         INSERT INTO workspace_meta(key, value) VALUES('ai_direct_write_enabled', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `,
+        )
+        .run(value ? "true" : "false");
+      return value;
+    }
+    if (key === "taskenViewWriter") {
+      if (typeof value !== "boolean") throw new Error("View の書き手の設定の値が不正です。");
+      this.db
+        .prepare(
+          `
+        INSERT INTO workspace_meta(key, value) VALUES('tasken_view_writer', ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value
       `,
         )
@@ -2858,6 +2874,14 @@ export class WorkspaceDatabase {
         .prepare("SELECT last_sequence FROM sync_device_cursors WHERE device_id = ?")
         .get(deviceId)?.last_sequence || 0,
     );
+  }
+
+  /** 端末ごとの取り込み済みの連番すべて。View の台帳（#811）にだけ書く端末ごとの値。 */
+  syncCursors() {
+    const rows = this.db
+      .prepare("SELECT device_id, last_sequence FROM sync_device_cursors ORDER BY device_id")
+      .all();
+    return Object.fromEntries(rows.map((row) => [row.device_id, Number(row.last_sequence) || 0]));
   }
 
   setSyncCursor(deviceId, sequence) {
