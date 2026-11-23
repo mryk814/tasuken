@@ -1,5 +1,6 @@
 # Tasken
 
+- アプリ共通の骨格は、kotoba の [KOKKAKU.md](https://github.com/mryk814/kotoba/blob/main/KOKKAKU.md) に従う。
 研究開発職向けのテーマ・タスク・長期スケジュール・メモ管理アプリ。Desktop は Electron + TypeScript + React で、利用者の正本データを SQLite に保存する。Android 版は `android-app/`。起動とセットアップは [README](README.md) と [開発環境](docs/development-environment.md)、コマンドの正本は `package.json`。
 
 ## 構造とデータ
