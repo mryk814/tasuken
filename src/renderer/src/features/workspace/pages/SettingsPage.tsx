@@ -9,6 +9,7 @@ import type {
   SharedSyncStatus,
   TaskenRootKind,
   TaskenRootStatus,
+  TaskenViewStatus,
   UnconvertedWaitings,
   WorkspaceRestoreOutcome,
 } from "../../../../../shared/ipc/contracts";
@@ -141,6 +142,8 @@ export function SettingsPage({
   const [updateInfo, setUpdateInfo] = useState<AppUpdateCheckResult | null>(null);
   const [artifactDirectory, setArtifactDirectory] = useState("");
   const [rootStatus, setRootStatus] = useState<TaskenRootStatus | null>(null);
+  const [viewStatus, setViewStatus] = useState<TaskenViewStatus | null>(null);
+  const [viewBusy, setViewBusy] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SharedSyncStatus | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
   const [mcpInfo, setMcpInfo] = useState<McpBridgeInfo | null>(null);
@@ -359,6 +362,82 @@ export function SettingsPage({
   useEffect(() => {
     void reloadRootStatus();
   }, [reloadRootStatus]);
+
+  // View（現在形の射影）の書き手の状態（#811）。Main が台帳と設定から組み立てる。
+  const reloadViewStatus = useCallback(async () => {
+    try {
+      setViewStatus(await workspaceApi.taskenViewStatus());
+    } catch {
+      // 未設定として表示するだけでよい（操作時に改めてエラーを出す）。
+    }
+  }, []);
+
+  useEffect(() => {
+    void reloadViewStatus();
+  }, [reloadViewStatus]);
+
+  async function changeViewWriter(enabled: boolean) {
+    setViewBusy(true);
+    try {
+      await workspaceApi.setPreference("taskenViewWriter", enabled);
+      setToast(
+        enabled ? "この端末で View を書くようにしました。" : "この端末では View を書きません。",
+        "success",
+      );
+    } catch (error) {
+      setToast(
+        `View の設定を変えられませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    } finally {
+      setViewBusy(false);
+      await reloadViewStatus();
+    }
+  }
+
+  async function takeOverViewWriter() {
+    setViewBusy(true);
+    try {
+      const result = await workspaceApi.taskenViewTakeOver();
+      setToast(
+        result.status === "written" || result.status === "unchanged"
+          ? "View の書き手を引き継ぎました。"
+          : `引き継げませんでした。（${result.status}）`,
+        result.status === "written" || result.status === "unchanged" ? "success" : "danger",
+      );
+    } catch (error) {
+      setToast(
+        `引き継げませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    } finally {
+      setViewBusy(false);
+      await reloadViewStatus();
+    }
+  }
+
+  async function rebuildView() {
+    setViewBusy(true);
+    try {
+      const result = await workspaceApi.taskenViewRebuild();
+      setToast(
+        result.status === "written"
+          ? `View を作り直しました。（書き換え ${result.written.length} 件・削除 ${result.deleted.length} 件）`
+          : result.status === "unchanged"
+            ? "View は最新でした。"
+            : `作り直せませんでした。（${result.status}）`,
+        result.status === "written" || result.status === "unchanged" ? "success" : "danger",
+      );
+    } catch (error) {
+      setToast(
+        `作り直せませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+    } finally {
+      setViewBusy(false);
+      await reloadViewStatus();
+    }
+  }
 
   useEffect(() => {
     void reloadMcpInfo(false);
@@ -1249,6 +1328,85 @@ export function SettingsPage({
                   </p>
                 </div>
               </details>
+            </section>
+            <section
+              className="panel settings-form tasken-view-panel"
+              hidden={activeSection !== "storage"}
+            >
+              {/* View（現在形の射影）は、ルートの View/ に出す決定的な生成物（#802・#811）。
+                  書き手は Workspace に 1 台だけ。台帳にあるファイルだけを書き換える。 */}
+              <div className="settings-section-heading">
+                <h2>View（現在形の射影）</h2>
+              </div>
+              <p className="field-help">
+                Tasken
+                の今の内容を、ドライブを読むAIが読めるMarkdownとしてルートの <code>View/</code>{" "}
+                に出します。生成物なので、編集しても Tasken には戻りません。
+              </p>
+              <label className="toggle">
+                この端末で View を書く
+                <input
+                  type="checkbox"
+                  checked={Boolean(viewStatus?.writerEnabled)}
+                  disabled={viewBusy || !viewStatus?.root}
+                  onChange={(event) => void changeViewWriter(event.target.checked)}
+                />
+              </label>
+              {viewStatus?.root && viewStatus.kind !== "cloud" && (
+                <p className="field-help">
+                  このルートはクラウドではないため、既定では書きません。書くときは上の設定を入れてください。
+                </p>
+              )}
+              <dl className="settings-meta-list">
+                <div>
+                  <dt>書き手</dt>
+                  <dd>
+                    {!viewStatus?.root
+                      ? "ルート未設定"
+                      : viewStatus.writerState === "self"
+                        ? "この端末"
+                        : viewStatus.writerState === "other"
+                          ? "別の端末が書いています"
+                          : viewStatus.writerState === "invalid"
+                            ? "台帳が読めません（書きません）"
+                            : "まだ決まっていません"}
+                  </dd>
+                </div>
+                <div>
+                  <dt>最終生成</dt>
+                  <dd>{viewStatus?.lastGeneratedAt || "まだありません"}</dd>
+                </div>
+                <div>
+                  <dt>ファイル</dt>
+                  <dd>{viewStatus ? `${viewStatus.fileCount} 件` : "—"}</dd>
+                </div>
+              </dl>
+              <div className="settings-action-row">
+                {viewStatus?.writerState === "other" && (
+                  <Button variant="primary" disabled={viewBusy} onClick={() => void takeOverViewWriter()}>
+                    引き継ぐ
+                  </Button>
+                )}
+                <Button
+                  variant="secondary"
+                  disabled={viewBusy || viewStatus?.writerState !== "self"}
+                  onClick={() => void rebuildView()}
+                >
+                  作り直す
+                </Button>
+              </div>
+              {viewStatus && viewStatus.conflicts.length > 0 && (
+                <div className="tasken-root-exceptions">
+                  <h3>台帳に無いファイル（触りません）</h3>
+                  <ul>
+                    {viewStatus.conflicts.map((relative) => (
+                      <li key={relative}>
+                        <span className="mono-value">{relative}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </section>
             <section
               className="panel settings-form sync-settings-panel"

@@ -171,6 +171,9 @@ export const IPC = {
   taskenRootStatus: "tasken-root:status",
   taskenRootOutsideNotice: "tasken-root:outside-notice",
   taskenRootDismissOutsideNotice: "tasken-root:dismiss-outside-notice",
+  taskenViewStatus: "tasken-view:status",
+  taskenViewTakeOver: "tasken-view:take-over",
+  taskenViewRebuild: "tasken-view:rebuild",
   sharedSyncStatus: "shared-sync:status",
   sharedSyncConfigure: "shared-sync:configure",
   sharedSyncDisable: "shared-sync:disable",
@@ -463,6 +466,43 @@ export interface UnconvertedWaitings {
 
 /** Tasken ルートの性質（#809）。端末ごとに判定し、本人が直せる。 */
 export type TaskenRootKind = "cloud" | "nas" | "local";
+
+/** Settings の保存先の節に出す、View（現在形の射影）の状態（#811）。 */
+export interface TaskenViewStatus {
+  root: string;
+  kind: TaskenRootKind | null;
+  /** Settings の「この端末で View を書く」（端末ごとの設定）。 */
+  writerEnabled: boolean;
+  deviceId: string;
+  /** 台帳の書き手。まだ誰も書いていなければ空。 */
+  writerDeviceId: string;
+  /**
+   * no-root: ルート未設定。disabled: この端末で書く設定が無い。
+   * self: この端末が書き手。other: 別の端末が書き手。none: 書き手がまだいない。
+   * invalid: 台帳が読めない（書かない）。
+   */
+  writerState: "no-root" | "disabled" | "self" | "other" | "none" | "invalid";
+  lastGeneratedAt: string;
+  fileCount: number;
+  /** 台帳に無いのに View の中にあるファイル（本人が置いた物・同期の競合の複製）。触らない。 */
+  conflicts: string[];
+  lastRun: {
+    at: string;
+    reason: string;
+    status: string;
+    written: number;
+    deleted: number;
+    error?: string;
+  } | null;
+}
+
+/** View の生成 1 回の結果（引き継ぎ・作り直しの応答）。 */
+export interface TaskenViewRunResult {
+  status: string;
+  written: string[];
+  deleted: string[];
+  error?: string;
+}
 
 /** Settings の保存先の節に出す、ルート 1 つと、ルートの外にある場所の一覧（#809）。 */
 export interface TaskenRootStatus {
@@ -793,6 +833,11 @@ export interface ResearchDeskApi {
     status(): Promise<TaskenRootStatus>;
     outsideNotice(): Promise<TaskenRootOutsideNotice | null>;
     dismissOutsideNotice(): Promise<void>;
+  };
+  taskenView: {
+    status(): Promise<TaskenViewStatus>;
+    takeOver(): Promise<TaskenViewRunResult>;
+    rebuild(): Promise<TaskenViewRunResult>;
   };
   sharedSync: {
     status(): Promise<SharedSyncStatus>;
