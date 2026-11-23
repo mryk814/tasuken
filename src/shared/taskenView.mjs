@@ -173,6 +173,20 @@ function maxUpdatedMs(records) {
   return max;
 }
 
+/**
+ * Task と、それに結ぶ Schedule を updated の材料として並べる。
+ * Schedule だけの変更でもファイルの中身（期日・予定の行）は書き換わるので、
+ * 鮮度の最大値には Schedule の updated_at も含める（設計 3.3。本人の判断 2026-11-23）。
+ */
+function taskRecordsWithSchedule(tasks) {
+  const records = [];
+  for (const task of tasks) {
+    records.push(task.record);
+    if (task.schedule) records.push(task.schedule);
+  }
+  return records;
+}
+
 /** ファイル名に使う題名。区切りや制御文字は _ にし、長さは 80 文字まで。 */
 export function taskenViewFileTitle(title) {
   const cleaned = String(title || "")
@@ -505,8 +519,10 @@ export function buildTaskenViewFiles(snapshot = {}, { now = new Date() } = {}) {
   function themeFile(bucket, { foldCompleted }) {
     const included = [
       ...(bucket.theme ? [bucket.theme] : []),
-      ...bucket.incomplete.map((task) => task.record),
-      ...(foldCompleted ? [] : bucket.recentCompleted.map((task) => task.record)),
+      ...taskRecordsWithSchedule([
+        ...bucket.incomplete,
+        ...(foldCompleted ? [] : bucket.recentCompleted),
+      ]),
       ...bucket.notes,
       ...bucket.documents,
     ];
@@ -634,7 +650,7 @@ export function buildTaskenViewFiles(snapshot = {}, { now = new Date() } = {}) {
           themeId: bucket.theme ? bucket.theme.id : undefined,
           themeCode: bucket.segment,
           year,
-          updatedMs: maxUpdatedMs(members.map((task) => task.record)),
+          updatedMs: maxUpdatedMs(taskRecordsWithSchedule(members)),
         }),
         "",
         `# ${bucket.code} ${bucket.title} の完了（${year}）`,
@@ -733,12 +749,12 @@ export function buildTaskenViewFiles(snapshot = {}, { now = new Date() } = {}) {
   if (doing.length) nowSections.push(["進行中", doing.map((entry) => entryLine(entry))]);
   const nowShown = new Map();
   for (const entries of [overdue, todayEntries, weekEntries, reminded, doing]) {
-    for (const entry of entries) nowShown.set(entry.task.record.id, entry.task.record);
+    for (const entry of entries) nowShown.set(entry.task.record.id, entry.task);
   }
   const nowLines = [
     frontMatter({
       kind: "now",
-      updatedMs: maxUpdatedMs([...nowShown.values()]),
+      updatedMs: maxUpdatedMs(taskRecordsWithSchedule([...nowShown.values()])),
     }),
     "",
     "# 今",
@@ -748,10 +764,10 @@ export function buildTaskenViewFiles(snapshot = {}, { now = new Date() } = {}) {
   files.set("now.md", finishFile(nowLines.join("\n")));
 
   // index.md：目次と鮮度。鮮度の時刻は、中身が変わったときだけ進むよう、
-  // 全記録の updated_at の最大値から作る（設計 3.3）。
+  // 全記録（Task に結ぶ Schedule を含む）の updated_at の最大値から作る（設計 3.3）。
   const allRecords = [
     ...themes,
-    ...tasks.map((task) => task.record),
+    ...taskRecordsWithSchedule(tasks),
     ...notes,
     ...documents,
   ];

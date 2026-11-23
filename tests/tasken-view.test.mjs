@@ -61,6 +61,7 @@ function seed(database) {
     confidence: "fixed",
     granularity: "day",
   });
+  pin(database, "sch-1", "2026-11-10T00:00:00.000Z", "2026-11-18T00:00:00.000Z");
   database.save("task", {
     id: "task-child1",
     title: "子タスク",
@@ -87,6 +88,7 @@ function seed(database) {
     confidence: "fixed",
     granularity: "day",
   });
+  pin(database, "sch-2", "2026-11-09T00:00:00.000Z", "2026-11-09T00:00:00.000Z");
   database.save("task", {
     id: "task-done1",
     title: "終わった件",
@@ -249,6 +251,28 @@ test("記録を 1 件変えて、書き換わるのが関わるファイルだ�
   assert.ok(!result.written.includes("themes/inbox.md"), "関わらない Theme は書かない");
   assert.ok(!result.written.includes("now.md"), "Task が変わらなければ now は書かない");
   assert.ok(!result.written.includes("archive/EXP-A/2025.md"));
+});
+
+test("Schedule だけを変えると、関わるファイルの updated と index の鮮度が進む", (t) => {
+  const { database, service, viewDirectory } = setup(t);
+  service.generateNow("test");
+  // 期日を延ばすだけの変更（Task 自体は触らない）。updated_at は全記録で最新にする。
+  database.save("schedule", { ...database.get("schedule", "sch-1"), end_date: "2026-11-26" });
+  pin(database, "sch-1", "2026-11-10T00:00:00.000Z", "2026-11-20T00:00:00.000Z");
+  const result = service.generateNow("test");
+  assert.equal(result.status, "written");
+  assert.ok(result.written.includes("themes/EXP-A.md"), "Theme ファイルが書き換わる");
+  assert.ok(result.written.includes("index.md"), "index が書き換わる");
+  // 2026-11-20T00:00Z = +09:00 で 09:00。Schedule の updated_at が最大値になる。
+  const theme = fs.readFileSync(path.join(viewDirectory, "themes", "EXP-A.md"), "utf8");
+  assert.match(theme, /updated: 2026-11-20T09:00:00\+09:00/);
+  assert.match(theme, /期日: 2026-11-26/);
+  const index = fs.readFileSync(path.join(viewDirectory, "index.md"), "utf8");
+  assert.match(index, /updated: 2026-11-20T09:00:00\+09:00/);
+  assert.match(index, /2026-11-20 09:00 時点の Tasken の内容/);
+  const now = fs.readFileSync(path.join(viewDirectory, "now.md"), "utf8");
+  assert.match(now, /updated: 2026-11-20T09:00:00\+09:00/);
+  assert.ok(!result.written.includes("themes/inbox.md"), "関わらない Theme は書かない");
 });
 
 test("台帳に無いファイルに触らない。台帳から外れたファイルだけ消す", (t) => {
