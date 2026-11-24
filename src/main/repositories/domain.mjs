@@ -1,4 +1,8 @@
 import { hasAiMetadataContract, normalizeAiMetadata } from "../../shared/aiMetadata.mjs";
+import {
+  isRootRelativePathRef,
+  normalizeRootRelativePathRef,
+} from "../../shared/rootRelativePath.mjs";
 import { inferArtifactLinkType } from "../../shared/artifactLinks.mjs";
 import { normalizeActivityEvent, ACTIVITY_EVENT_KINDS } from "../../shared/activityEvent.mjs";
 import {
@@ -983,7 +987,13 @@ export function validateEntity(type, input) {
       throw new Error("artifact.storage_modeが不正です。");
     }
     if (storageMode === "managed") {
-      if (typeof input.stored_path !== "string" || !input.stored_path.trim()) {
+      // stored_path は絶対パスの文字列か、ルート相対の参照 { storage_root_id, relative_path }
+      // （#814）。参照の形が崩れているものは、絶対パスとして扱わずに止める。
+      if (
+        typeof input.stored_path === "string"
+          ? !input.stored_path.trim()
+          : !isRootRelativePathRef(input.stored_path)
+      ) {
         throw new Error("artifact.stored_pathを入力してください。");
       }
     } else {
@@ -1152,6 +1162,8 @@ export function normalizeEntity(type, input) {
     normalized.storage_mode = normalized.storage_mode === "linked" ? "linked" : "managed";
     if (typeof normalized.stored_path === "string")
       normalized.stored_path = normalized.stored_path.trim();
+    else if (isRootRelativePathRef(normalized.stored_path))
+      normalized.stored_path = normalizeRootRelativePathRef(normalized.stored_path);
     else if (normalized.storage_mode === "linked") normalized.stored_path = "";
     if (typeof normalized.target === "string") normalized.target = normalized.target.trim();
     if (typeof normalized.filename === "string") normalized.filename = normalized.filename.trim();

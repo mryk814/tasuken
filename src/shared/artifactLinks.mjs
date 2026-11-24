@@ -1,7 +1,21 @@
 // Artifact managed / linked の純ロジック（I/Oなし）。Main / Renderer / テストで共有する。
 
+import {
+  isRootRelativePathRef,
+  normalizeRootRelativePathRef,
+  resolveRootRelativePath,
+  rootRelativePathText,
+} from "./rootRelativePath.mjs";
+
 export const ARTIFACT_STORAGE_MODES = ["managed", "linked"];
-export const ARTIFACT_LINK_TYPES = ["url", "local_path", "shared_path", "onedrive", "sharepoint", "teams"];
+export const ARTIFACT_LINK_TYPES = [
+  "url",
+  "local_path",
+  "shared_path",
+  "onedrive",
+  "sharepoint",
+  "teams",
+];
 export const ARTIFACT_LINK_STATUSES = ["unknown", "ok", "broken", "inaccessible"];
 
 export function resolveArtifactStorageMode(value) {
@@ -69,10 +83,10 @@ export function inferArtifactLinkType(target) {
     if (lower.includes("teams.microsoft.com") || lower.includes("teams.live.com")) return "teams";
     if (lower.includes("sharepoint.com") || lower.includes("sharepoint.")) return "sharepoint";
     if (
-      lower.includes("onedrive.live.com")
-      || lower.includes("1drv.ms")
-      || lower.includes("onedrive.com")
-      || lower.includes("-my.sharepoint.com")
+      lower.includes("onedrive.live.com") ||
+      lower.includes("1drv.ms") ||
+      lower.includes("onedrive.com") ||
+      lower.includes("-my.sharepoint.com")
     ) {
       return "onedrive";
     }
@@ -82,33 +96,77 @@ export function inferArtifactLinkType(target) {
   return "local_path";
 }
 
-export function artifactOpenTarget(artifact) {
+/** managed Artifact の stored_path がルート相対の参照（#814）なら、その参照を返す。 */
+export function artifactStoredPathRef(artifact) {
+  if (!artifact || typeof artifact !== "object") return null;
+  return normalizeRootRelativePathRef(artifact.stored_path);
+}
+
+/**
+ * ファイルを開く・フォルダに出す・中身を読むための所在（ロケータ）。
+ * linked は target の文字列、managed は stored_path（絶対パスの文字列、またはルート相対の
+ * 参照オブジェクト）。参照の解決は Main（ルートの登録を持つ側）が行うので、Renderer は
+ * この値をそのまま IPC へ渡す。文字列が要る表示・コピーでは artifactPathText を使う。
+ */
+export function artifactFileLocator(artifact) {
   if (!artifact || typeof artifact !== "object") return "";
   if (resolveArtifactStorageMode(artifact.storage_mode) === "linked") {
     return String(artifact.target || "").trim();
   }
-  return String(artifact.stored_path || "").trim();
+  if (typeof artifact.stored_path === "string") return artifact.stored_path.trim();
+  return artifactStoredPathRef(artifact) || "";
+}
+
+/**
+ * 開く対象の絶対パス。ルート相対の参照は roots（ID → 絶対パス）を渡した時だけ解決する。
+ * 解決できない参照は空文字（参照のままでは開けない）。
+ */
+export function artifactOpenTarget(artifact, roots) {
+  if (!artifact || typeof artifact !== "object") return "";
+  if (resolveArtifactStorageMode(artifact.storage_mode) === "linked") {
+    return String(artifact.target || "").trim();
+  }
+  if (typeof artifact.stored_path === "string") return artifact.stored_path.trim();
+  const ref = artifactStoredPathRef(artifact);
+  if (!ref) return "";
+  return roots ? resolveRootRelativePath(ref, roots).trim() : "";
+}
+
+/** 表示・検索・一覧コピー用のパスの文字列。参照は relative_path で表す。 */
+export function artifactPathText(artifact) {
+  if (!artifact || typeof artifact !== "object") return "";
+  if (resolveArtifactStorageMode(artifact.storage_mode) === "linked") {
+    return String(artifact.target || "").trim();
+  }
+  return rootRelativePathText(artifact.stored_path).trim();
 }
 
 export function artifactCopyTarget(artifact) {
-  return artifactOpenTarget(artifact);
+  return artifactPathText(artifact);
 }
 
 /** フォルダを開く対象になるローカル系パスか。 */
 export function artifactCanShowInFolder(artifact) {
   if (!artifact || typeof artifact !== "object") return false;
   const mode = resolveArtifactStorageMode(artifact.storage_mode);
-  if (mode === "managed") return Boolean(String(artifact.stored_path || "").trim());
+  if (mode === "managed")
+    return Boolean(
+      (typeof artifact.stored_path === "string" && artifact.stored_path.trim()) ||
+      isRootRelativePathRef(artifact.stored_path),
+    );
   const target = String(artifact.target || "").trim();
   if (!target || isHttpUrl(target)) return false;
   const linkType = artifact.link_type || inferArtifactLinkType(target);
-  return linkType === "local_path" || linkType === "shared_path"
-    || (linkType === "onedrive" && !isHttpUrl(target));
+  return (
+    linkType === "local_path" ||
+    linkType === "shared_path" ||
+    (linkType === "onedrive" && !isHttpUrl(target))
+  );
 }
 
-export function artifactFolderPath(artifact) {
+export function artifactFolderPath(artifact, roots) {
   if (!artifactCanShowInFolder(artifact)) return "";
-  return artifactOpenTarget(artifact);
+  return artifactOpenTarget(artifact, roots);
 }
 
 /** linked → managed 化できる（ローカル/共有パスの実体がある）か。 */

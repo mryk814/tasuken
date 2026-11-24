@@ -2,6 +2,7 @@ import type { CanonicalRouteId } from "../../../pages/routes";
 import type { DrawerEntityType, Theme, WorkspaceData } from "../types";
 import type { WorkspaceDomain } from "../domain-model/types";
 import { CAPTURE_ENTRY_STATE_LABELS, TASK_STATE_LABELS } from "../domain-model/labels";
+import { artifactPathText } from "../../../../../shared/artifactLinks.mjs";
 import { NOTE_TYPE_LABELS } from "./domain";
 import { isChatReference } from "./chatRefs";
 import { CHAT_SERVICE_LABELS, resolveChatService } from "./chatServices";
@@ -211,7 +212,7 @@ export function buildRecallPaletteEntries({
     ],
     searchText: [
       artifact.filename,
-      artifact.stored_path,
+      artifactPathText(artifact),
       artifact.original_path,
       artifact.target,
       artifact.description,

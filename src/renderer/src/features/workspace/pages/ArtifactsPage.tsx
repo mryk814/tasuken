@@ -5,6 +5,7 @@ import { workspaceApi } from "../../../services/workspaceApi";
 import { usePreference } from "../../../utils/usePreference";
 import { useUiStore } from "../../../stores/uiStore";
 import { defaultViewPreference } from "../../../../../shared/viewPreferenceRegistry.mjs";
+import { artifactPathText } from "../../../../../shared/artifactLinks.mjs";
 import { ArtifactCard, resolveArtifactSourceLabel, themeNameOf } from "../components/artifacts";
 import { Button, EmptyState, PageHeader, ThemePickerSelect } from "../components/common";
 import { ARTIFACT_SOURCE_TYPE_LABELS } from "../domain-model/labels";
@@ -143,7 +144,7 @@ export function ArtifactsPage({
         themeNameOf(artifact, data),
         `${ARTIFACT_SOURCE_TYPE_LABELS[artifact.source_type] || artifact.source_type}:${resolveArtifactSourceLabel(artifact, data)}`,
         artifact.created_at ? new Date(artifact.created_at).toLocaleDateString("ja-JP") : "",
-        artifact.stored_path,
+        artifactPathText(artifact),
       ].join("\t"),
     );
     workspaceApi

@@ -586,8 +586,8 @@ test("managed / linked 添付UIと操作が接続されている", () => {
   assert.doesNotMatch(artifactsComponentSource, /artifact-attach-mode/);
   assert.match(artifactsComponentSource, /aria-label="URLをリンク"/);
   assert.match(artifactsComponentSource, /aria-label="Artifactを追加"/);
-  assert.match(artifactsComponentSource, /IconLink size=\{14\} \/>URL/);
-  assert.match(artifactsComponentSource, /IconPlus size=\{14\} \/>Artifact/);
+  assert.match(artifactsComponentSource, /IconLink size=\{14\} \/>\s*URL/);
+  assert.match(artifactsComponentSource, /IconPlus size=\{14\} \/>\s*Artifact/);
   assert.match(artifactsComponentSource, /参照のみ/);
   assert.match(artifactsComponentSource, /storage_mode: "managed"/);
   assert.match(artifactEntitiesSource, /storage_mode: "managed"/);

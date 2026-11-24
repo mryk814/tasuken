@@ -48,6 +48,7 @@ import type {
   SlideTimelineExportResult,
 } from "../slideTimelineExport";
 import type { WebArtifactExecutionPolicy } from "../webArtifact.mjs";
+import type { RootRelativePathRef } from "../rootRelativePath.mjs";
 import type { CommandEnvelope, CommandReceipt } from "../applicationCommand";
 import type {
   AudioCaptureCancelRequest,
@@ -720,13 +721,16 @@ export interface ResearchDeskApi {
     writeRecordCounts(): Promise<boolean>;
   };
   files: {
-    openPath(filePath: string): Promise<{ ok: boolean; error?: string }>;
-    showItemInFolder(filePath: string): Promise<{ ok: boolean; error?: string }>;
+    // filePath は絶対パスのほかに、ルート相対の参照（#814）も受けられる。
+    openPath(filePath: string | RootRelativePathRef): Promise<{ ok: boolean; error?: string }>;
+    showItemInFolder(
+      filePath: string | RootRelativePathRef,
+    ): Promise<{ ok: boolean; error?: string }>;
     pathExists(
-      filePath: string,
+      filePath: string | RootRelativePathRef,
     ): Promise<{ exists: boolean; kind: "url" | "path"; error?: string }>;
     /** アプリ内ビューア用。ローカル画像は data URL、Markdown/テキストは本文を返す。 */
-    readPreview(filePath: string): Promise<FilePreviewReadResult>;
+    readPreview(filePath: string | RootRelativePathRef): Promise<FilePreviewReadResult>;
     // DOMのFileからOSパスを取り出す（Preloadのelectron.webUtils経由。同期）。
     pathForFile(file: File): string;
   };

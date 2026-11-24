@@ -109,11 +109,13 @@ import {
 import {
   buildCanonicalMarkdownContent,
   canonicalMarkdownBindingFromProperties,
+  canonicalMarkdownBindingRef,
   markdownSignature,
   normalizeCanonicalMarkdownBinding,
   planCanonicalMarkdownWrite,
   withCanonicalMarkdownBinding,
 } from "../../shared/canonicalMarkdown.mjs";
+import { resolveRootRelativePath } from "../../shared/rootRelativePath.mjs";
 import { validateArtifactProposal } from "../../shared/proposalMedia.mjs";
 import { THEME_FOLDER_MANIFEST, buildThemeFolderManifest } from "../../shared/storageResolver.mjs";
 import { canonicalThemeId, PERSONAL_DEFAULT_THEME_ID } from "../../shared/themeRef.mjs";
@@ -146,7 +148,7 @@ import {
 import { buildMermaidPptxBuffer } from "./mermaidPowerPointService";
 import { discoverThemeFolderLocation, ensureThemeFolderLocation } from "./themeFolderLocation.mjs";
 import { rejectGenericAudioArtifact, rejectGenericVideoArtifact } from "../mediaCapturePersistence";
-import { artifactOpenTarget } from "../../shared/artifactLinks.mjs";
+import { artifactOpenTarget, artifactStoredPathRef } from "../../shared/artifactLinks.mjs";
 import {
   isWebArtifact,
   normalizeWebArtifactExecutionPolicy,
@@ -845,7 +847,7 @@ export class WorkspaceService {
       typeof receipt.pending !== "boolean" ||
       !binding ||
       typeof receipt.filePath !== "string" ||
-      !this.sameFileSystemPath(binding.canonical_path, receipt.filePath) ||
+      !this.sameFileSystemPath(this.canonicalBindingFilePath(binding), receipt.filePath) ||
       bufferSignature(Buffer.from(receipt.content, "base64")) !== receipt.signature ||
       binding.file_signature !== receipt.signature
     )
@@ -1015,16 +1017,18 @@ export class WorkspaceService {
     });
     // 別の OS の端末が結び付けたファイル（#810）は、この端末では触れない。保存と同じく
     // DB の側だけ消し（取り消せる）、ファイルはそのままにする。復旧記録も作らないので、
-    // 戻すときも DB の側だけ戻る。
-    if (!binding?.canonical_path || isForeignAbsolutePath(binding.canonical_path))
+    // 戻すときも DB の側だけ戻る。ルート相対の結び付け（#814）はこの端末のルートで
+    // 引き直した先を対象にし、引き直せなければ同じく DB の側だけ消す。
+    const canonicalPath = this.canonicalBindingFilePath(binding);
+    if (!binding || !canonicalPath || isForeignAbsolutePath(canonicalPath))
       return workLogCommit
         ? this.commitWorkLogLifecycle(id, workLogCommit)
         : this.repository.remove(type, id);
-    assertExplicitCanonicalPath(binding.canonical_path);
-    if (!fs.existsSync(binding.canonical_path)) {
+    assertExplicitCanonicalPath(canonicalPath);
+    if (!fs.existsSync(canonicalPath)) {
       // A file already deleted outside Tasken needs no further cleanup. Preserve
       // that absence on Undo; an unavailable folder must still report an error.
-      const directory = path.dirname(binding.canonical_path);
+      const directory = path.dirname(canonicalPath);
       if (fs.existsSync(directory) && fs.statSync(directory).isDirectory()) {
         return workLogCommit
           ? this.commitWorkLogLifecycle(id, workLogCommit)
@@ -1034,7 +1038,7 @@ export class WorkspaceService {
         "NoteのMarkdownが見つかりません。保存先の接続とファイルを確認してから削除してください。",
       );
     }
-    const content = fs.readFileSync(binding.canonical_path);
+    const content = fs.readFileSync(canonicalPath);
     const signature = bufferSignature(content);
     if (!binding.file_signature || signature !== binding.file_signature) {
       throw new Error(
@@ -1047,10 +1051,8 @@ export class WorkspaceService {
         objectValue(other.properties_json),
         { noteId: String(other.id) },
       );
-      return Boolean(
-        otherBinding?.canonical_path &&
-        this.sameFileSystemPath(otherBinding.canonical_path, binding.canonical_path),
-      );
+      const otherPath = this.canonicalBindingFilePath(otherBinding);
+      return Boolean(otherPath && this.sameFileSystemPath(otherPath, canonicalPath));
     });
     if (sharedOwner)
       throw new Error(
@@ -1058,7 +1060,7 @@ export class WorkspaceService {
       );
     const receipt: NoteDeletionReceipt = {
       noteId: id,
-      filePath: binding.canonical_path,
+      filePath: canonicalPath,
       content: content.toString("base64"),
       signature,
       pending: true,
@@ -1862,6 +1864,8 @@ export class WorkspaceService {
       "binding_id",
       "mode",
       "canonical_path",
+      "storage_root_id",
+      "relative_path",
       "directory",
       "root_identity",
       "file_name",
@@ -2086,6 +2090,24 @@ export class WorkspaceService {
   ): CanonicalTarget | null {
     const noteId = String(note.id || "");
     const themeId = String(note.project_id || note.theme_id || "").trim() || null;
+    // ルート相対の結び付け（#814）は、この端末のルートで引き直してから絶対パスと同じに扱う。
+    // ルートが決まっていない端末では引き直せないので、生成先の振り分け（needs_directory と
+    // 同じ DB だけの保存）に倒す。結び付け自体は bindingForAttempt が参照のまま残す。
+    if (binding && canonicalMarkdownBindingRef(binding)) {
+      const resolved = this.canonicalBindingFilePath(binding);
+      if (!resolved) return null;
+      assertExplicitCanonicalPath(resolved);
+      const filePath = path.resolve(resolved);
+      if (path.extname(filePath).toLowerCase() !== ".md") {
+        throw new Error("canonical Markdownの保存先は.mdファイルにしてください。");
+      }
+      return {
+        filePath,
+        directory: path.dirname(filePath),
+        rootIdentity: binding.root_identity || markdownSignature(path.dirname(filePath)),
+        configuredRoot: false,
+      };
+    }
     if (binding?.canonical_path) {
       if (isForeignAbsolutePath(binding.canonical_path)) throw new Error(FOREIGN_CANONICAL_PATH);
       assertExplicitCanonicalPath(binding.canonical_path);
@@ -2943,10 +2965,11 @@ export class WorkspaceService {
   }
 
   async openPath(filePathValue: unknown): Promise<{ ok: boolean; error?: string }> {
-    if (typeof filePathValue !== "string" || !filePathValue.trim()) {
+    const resolvedValue = this.resolvePathOrRef(filePathValue);
+    if (!resolvedValue.trim()) {
       throw new Error("開くファイルの場所がありません。");
     }
-    const raw = filePathValue.trim();
+    const raw = resolvedValue.trim();
     // linked Artifact の URL 参照。file プロトコルや未知のスキームは開かない。
     if (/^https?:\/\//i.test(raw)) {
       try {
@@ -2983,6 +3006,33 @@ export class WorkspaceService {
     });
   }
 
+  /**
+   * Renderer から届くパスの値（絶対パスの文字列、またはルート相対の参照 #814）を、
+   * この端末の絶対パスへ引き直す。参照が引けない・値が不正なら空文字。
+   */
+  private resolvePathOrRef(value: unknown): string {
+    if (typeof value === "string") return value;
+    return resolveRootRelativePath(value, this.activityCanonicalRootPaths());
+  }
+
+  /**
+   * Note の正本 Markdown の結び付けが指す、この端末でのファイルの絶対パス。
+   * ルート相対の結び付け（#814）はこの端末のルートで引き直す。引けなければ空文字。
+   */
+  private canonicalBindingFilePath(
+    binding: ReturnType<typeof normalizeCanonicalMarkdownBinding> | null,
+  ): string {
+    if (!binding) return "";
+    const ref = canonicalMarkdownBindingRef(binding);
+    if (ref) return resolveRootRelativePath(ref, this.activityCanonicalRootPaths());
+    return binding.canonical_path || "";
+  }
+
+  /** managed Artifact の stored_path（絶対パス、またはルート相対の参照 #814）を絶対パスにする。 */
+  resolveArtifactFilePath(artifact: Record<string, unknown>): string {
+    return artifactOpenTarget(artifact, this.activityCanonicalRootPaths());
+  }
+
   getActivityCanonicalRootStatus(): Record<string, { status: "ok" | "broken" }> {
     return publicActivityRootStatus(this.activityCanonicalRootPaths(), (root: string) =>
       fs.existsSync(root),
@@ -3006,10 +3056,11 @@ export class WorkspaceService {
   }
 
   showItemInFolder(filePathValue: unknown): { ok: boolean; error?: string } {
-    if (typeof filePathValue !== "string" || !filePathValue.trim()) {
+    const resolvedValue = this.resolvePathOrRef(filePathValue);
+    if (!resolvedValue.trim()) {
       throw new Error("表示するファイルの場所がありません。");
     }
-    const raw = filePathValue.trim();
+    const raw = resolvedValue.trim();
     if (/^https?:\/\//i.test(raw)) {
       return {
         ok: false,
@@ -3037,10 +3088,11 @@ export class WorkspaceService {
   }
 
   pathExists(filePathValue: unknown): { exists: boolean; kind: "url" | "path"; error?: string } {
-    if (typeof filePathValue !== "string" || !filePathValue.trim()) {
+    const resolvedValue = this.resolvePathOrRef(filePathValue);
+    if (!resolvedValue.trim()) {
       return { exists: false, kind: "path", error: "場所がありません。" };
     }
-    const raw = filePathValue.trim();
+    const raw = resolvedValue.trim();
     if (/^https?:\/\//i.test(raw)) {
       // URL の到達確認は権限・ネットワーク依存のため best-effort で未確認扱い。
       return { exists: false, kind: "url", error: "URLの到達確認は未対応です。" };
@@ -3149,10 +3201,11 @@ export class WorkspaceService {
 
   /** アプリ内ビューア用にローカルの画像・Markdown・テキストを読む。 */
   readFilePreview(filePathValue: unknown): FilePreviewReadResult {
-    if (typeof filePathValue !== "string" || !filePathValue.trim()) {
+    const resolvedValue = this.resolvePathOrRef(filePathValue);
+    if (!resolvedValue.trim()) {
       return { ok: false, error: "プレビューするファイルの場所がありません。" };
     }
-    const raw = filePathValue.trim();
+    const raw = resolvedValue.trim();
     if (/^https?:\/\//i.test(raw)) {
       return { ok: false, error: "URLはアプリ内では直接読み込めません。外部で開いてください。" };
     }
@@ -3226,7 +3279,10 @@ export class WorkspaceService {
         error: "このArtifactはWeb Artifactとして扱えません。HTML形式を確認してください。",
       };
     }
-    const target = artifactOpenTarget(artifact);
+    // ルート相対の参照（#814）のときだけ、この端末のルートで引き直す。
+    const target = artifactStoredPathRef(artifact)
+      ? artifactOpenTarget(artifact, this.activityCanonicalRootPaths())
+      : artifactOpenTarget(artifact);
     if (!target || /^https?:\/\//i.test(target)) {
       return {
         ok: false,

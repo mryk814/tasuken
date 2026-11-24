@@ -57,6 +57,10 @@ import { TaskenViewService } from "./services/taskenView.mjs";
 import { DocumentFileStore } from "./services/documentFileStore";
 import { runRetiredExportsOnce } from "./services/retiredExports";
 import { runWaitingConversionOnce, unconvertedWaitingsFrom } from "./services/waitingRetirement";
+import {
+  runPathRelativizationOnce,
+  type PathRelativizationRepository,
+} from "./services/pathRelativization";
 import { runRetiredOutputCleanupOnce } from "./services/retiredOutputCleanup.mjs";
 import { AutomaticSnapshotBackupService } from "./services/automaticSnapshotBackup";
 import { applyPendingRestore, cancelStagedRestore } from "./services/workspaceRestore";
@@ -2059,6 +2063,8 @@ async function startDesktopApp(): Promise<void> {
     repository: workspaceRepository,
     commands: applicationCommands,
     resolveManagedDirectory: (themeId) => workspaceService.resolveManagedArtifactDirectory(themeId),
+    resolveArtifactPath: (artifact) =>
+      workspaceService.resolveArtifactFilePath(artifact as Record<string, unknown>),
     openPath: (filePath) => shell.openPath(filePath),
   });
   smokeMediaCaptureService = isSmokeTest ? mediaCapture : null;
@@ -2227,6 +2233,23 @@ async function startDesktopApp(): Promise<void> {
       const exportRepository = workspaceRepository;
       const exportBackup = automaticSnapshotBackup;
       const exportSync = sharedFolderSyncService;
+      // 同期される記録の中のパスをルート相対にする（#803 段 6・#814）。待ちの変換と同じ
+      // 起動・同じ控え・同じ追いつき判定で走らせる。変換はこの端末のルートで始まる記録
+      // だけが対象で、物理ファイルは動かさない。
+      const pathRelativizationRepository: PathRelativizationRepository = {
+        list: (type) => exportRepository.list(type) as Record<string, unknown>[],
+        get: (type, id, includeDeleted) =>
+          exportRepository.get(type, id, includeDeleted) as Record<string, unknown> | null,
+        syncHead: (type, id) => exportRepository.syncHead(type, id),
+        rootDirectory: () => String(exportRepository.readPreference("artifactDirectory") || ""),
+        applyPathRelativization: (type, entity, fixedRevisionId) =>
+          exportRepository.applyPathRelativization(type, entity, fixedRevisionId) as Record<
+            string,
+            unknown
+          > | null,
+        readRetiredExportMark: (name) => exportRepository.readRetiredExportMark(name),
+        markRetiredExportDone: (name, value) => exportRepository.markRetiredExportDone(name, value),
+      };
       // 同期がほかの端末に追いついていなければ写さず、5 分ごとに 1 時間まで確かめ直す
       // （その後は次の起動）。書き出しは毎回、写した後（写さなかった時も）に流す。
       const convertWaitingsThenExport = async (attempt: number) => {
@@ -2246,7 +2269,16 @@ async function startDesktopApp(): Promise<void> {
             : null,
           log: (level, message) => logMain(level, "retired-export", message),
         });
-        if (result.state === "not_caught_up" && attempt < WAITING_CONVERSION_RETRIES)
+        const relativization = await runPathRelativizationOnce({
+          repository: pathRelativizationRepository,
+          backup: async () => (exportBackup ? exportBackup.createRetirementCopy() : null),
+          isCaughtUp: async () => (exportSync ? exportSync.caughtUpForDerivedWrites() : true),
+          log: (level, message) => logMain(level, "path-relativization", message),
+        });
+        if (
+          (result.state === "not_caught_up" || relativization.state === "not_caught_up") &&
+          attempt < WAITING_CONVERSION_RETRIES
+        )
           setTimeout(
             () => void convertWaitingsThenExport(attempt + 1),
             WAITING_CONVERSION_RETRY_MS,

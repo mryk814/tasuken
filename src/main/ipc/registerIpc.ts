@@ -42,6 +42,10 @@ import {
   normalizeViewPreferenceEnvelope,
   getViewPreferenceDefinition,
 } from "../../shared/viewPreferenceRegistry.mjs";
+import {
+  normalizeRootRelativePathRef,
+  type RootRelativePathRef,
+} from "../../shared/rootRelativePath.mjs";
 import type {
   AutomaticSnapshotBackupConfig,
   ViewPreferenceEnvelope,
@@ -89,6 +93,17 @@ function requireText(value: unknown, label: string): string {
     throw new Error(`${label}の形式が不正です。画面を再読み込みして、もう一度試してください。`);
   }
   return value;
+}
+
+/**
+ * ファイルの場所の値。絶対パスの文字列のほかに、ルート相対の参照（#814）も受ける。
+ * 参照は形だけ確かめてそのまま Service へ渡し、引き直しは Service（ルートの登録を持つ側）が行う。
+ */
+function requireFilePath(value: unknown, label: string): string | RootRelativePathRef {
+  if (typeof value === "string") return value;
+  const ref = normalizeRootRelativePathRef(value);
+  if (ref) return ref;
+  throw new Error(`${label}の形式が不正です。画面を再読み込みして、もう一度試してください。`);
 }
 
 function requireAutomaticSnapshotConfig(value: unknown): AutomaticSnapshotBackupConfig {
@@ -329,16 +344,16 @@ export function registerIpc(
   ipcMain.handle(IPC.clipboardWriteSvg, (_event, payload) => service.writeClipboardSvg(payload));
   ipcMain.handle(IPC.clipboardWriteRecordCounts, () => service.writeClipboardRecordCounts());
   ipcMain.handle(IPC.fileOpen, (_event, filePath) =>
-    service.openPath(requireText(filePath, "開くファイル")),
+    service.openPath(requireFilePath(filePath, "開くファイル")),
   );
   ipcMain.handle(IPC.fileShowInFolder, (_event, filePath) =>
-    service.showItemInFolder(requireText(filePath, "表示するファイル")),
+    service.showItemInFolder(requireFilePath(filePath, "表示するファイル")),
   );
   ipcMain.handle(IPC.filePathExists, (_event, filePath) =>
-    service.pathExists(requireText(filePath, "確認する場所")),
+    service.pathExists(requireFilePath(filePath, "確認する場所")),
   );
   ipcMain.handle(IPC.fileReadPreview, (_event, filePath) =>
-    service.readFilePreview(requireText(filePath, "プレビューするファイル")),
+    service.readFilePreview(requireFilePath(filePath, "プレビューするファイル")),
   );
   ipcMain.handle(IPC.dialogChooseDirectory, (_event, title, defaultPath) =>
     service.chooseDirectory(title, defaultPath),
