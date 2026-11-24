@@ -492,6 +492,8 @@ export interface WorkspaceDomain {
   agent_sessions: AgentSession[];
   /** AIの作業（#751）。1回の作業を要約した1件。 */
   agent_work_records: Array<Record<string, unknown> & { id: string }>;
+  /** 本体の指定（#812）。Workspace に 1 件だけの同期される設定。 */
+  workspace_designations: Array<Record<string, unknown> & { id: string }>;
   capture_entries: CaptureEntry[];
   tasks: Task[];
   waitings: Waiting[];

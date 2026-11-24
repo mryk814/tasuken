@@ -168,6 +168,7 @@ export function buildBootstrapWorkspace() {
     working_copies: [],
     agent_sessions: [],
     agent_work_records: [],
+    workspace_designations: [],
   };
 }
 
@@ -194,6 +195,7 @@ export function emptyWorkspace() {
     working_copies: [],
     agent_sessions: [],
     agent_work_records: [],
+    workspace_designations: [],
     plan_revisions: [],
     meta: {},
   };

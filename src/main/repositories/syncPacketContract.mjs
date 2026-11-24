@@ -1,3 +1,4 @@
+import { entityTypes } from "../../shared/entityRegistry.mjs";
 import { assertEntityType, validateEntity } from "./domain.mjs";
 
 /** 差分の検査で拒否された失敗の code。文言ではなくこの code で「拒否」と「通信の失敗」を区別する。 */
@@ -42,6 +43,23 @@ export function isRetiredSyncPacket(packet) {
   return isPlainObject(packet) && packet.retired === true;
 }
 
+/**
+ * この版が知らない種類の差分か。新しい種類の Entity を足すとき（#812 の本体の指定など）、
+ * 知らない版の端末が受け手になる。知らない種類は中身を書かずに受け、連番だけを進める
+ * （applySyncPacket が head だけを残す）。止めてしまうと、その端末からの差分が永久に
+ * 取り込めなくなるため、空の差分（retired）と同じく「止まらない」側に倒す。
+ * 形の検査は封筒だけに絞る：Entity があり、ID が封筒と一致すること。中身の規則は
+ * その種類を知る版の仕事で、知らない版は中身に触らない。
+ */
+export function isUnknownEntityTypePacket(packet) {
+  return (
+    isPlainObject(packet) &&
+    typeof packet.entityType === "string" &&
+    packet.entityType !== "" &&
+    !entityTypes.includes(/** @type {never} */ (packet.entityType))
+  );
+}
+
 function checkSyncPacket(packet, workspaceId) {
   if (
     !isPlainObject(packet) ||
@@ -62,6 +80,16 @@ function checkSyncPacket(packet, workspaceId) {
       !packet.entityId
     ) {
       throw new Error("空の同期差分の形式が不正です。");
+    }
+    return;
+  }
+  if (isUnknownEntityTypePacket(packet)) {
+    // 知らない種類は、中身の規則を確かめない（確かめようがない）。封筒の形だけを見る。
+    if (
+      !isPlainObject(packet.entity) ||
+      String(packet.entity.id || "") !== String(packet.entityId || "")
+    ) {
+      throw new Error("同期差分のEntityが不正です。");
     }
     return;
   }

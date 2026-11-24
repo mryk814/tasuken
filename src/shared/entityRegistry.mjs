@@ -466,6 +466,19 @@ const definitions = /** @type {const} */ ([
     themeField: null,
     requiredFields: ["maintenance_id", "performed_on", "recorded_at"],
   },
+  {
+    // 本体の指定（#754・段4 #812）。Workspace に 1 件（固定 ID）だけの、同期される設定の記録。
+    // 指定先の端末は main_device_id に持つ（device_id は書いた端末を指すシステム欄で、保存で剥がれる）。
+    type: "workspace_designation",
+    collectionKey: "workspace_designations",
+    domainCollectionKey: "workspace_designations",
+    label: "Workspace designation",
+    iconKey: "database",
+    projection: "canonical",
+    themePolicy: "none",
+    themeField: null,
+    requiredFields: ["main_device_id"],
+  },
 ]);
 
 /** @typedef {(typeof definitions)[number]["type"]} RegistryEntityType */

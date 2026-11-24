@@ -471,9 +471,13 @@ export type TaskenRootKind = "cloud" | "nas" | "local";
 export interface TaskenViewStatus {
   root: string;
   kind: TaskenRootKind | null;
-  /** Settings の「この端末で View を書く」（端末ごとの設定）。 */
+  /** Settings の「この端末で View を書く」（端末ごとの設定）。本体の指定による既定を含む実効値。 */
   writerEnabled: boolean;
   deviceId: string;
+  /** 本体に指定されている端末（同期される記録、#812）。指定が無ければ空。 */
+  designatedDeviceId: string;
+  /** この端末が本体に指定されているか。 */
+  isDesignatedDevice: boolean;
   /** 台帳の書き手。まだ誰も書いていなければ空。 */
   writerDeviceId: string;
   /**
