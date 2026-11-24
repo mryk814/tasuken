@@ -35,9 +35,9 @@ test("video prepare requires the drawer Theme to be saved and commit is an expli
   assert.match(pickBlock, /videoOwnerThemeIsSaved\(effectiveThemeId\(\)/);
   assert.match(pickBlock, /Themeの変更を先に保存/);
   assert.doesNotMatch(pickBlock, /await commitPreparedVideo\(result\)/);
-  assert.match(source, />添付する<\/button>/);
+  assert.match(source, />\s*添付する\s*<\/button>/);
   assert.match(source, /保存前プレビュー/);
-  assert.match(source, />破棄<\/button>/);
+  assert.match(source, />\s*破棄\s*<\/button>/);
 });
 
 test("ArtifactSection exposes compact loading, empty, error, and success states without a permanent empty panel", () => {
@@ -47,14 +47,14 @@ test("ArtifactSection exposes compact loading, empty, error, and success states 
   );
   assert.match(
     source,
-    /const videoState = videoLoading \? "loading" : videoError \? "error" :[\s\S]*\? "success" : "empty"/,
+    /const videoState = videoLoading\s+\?\s+"loading"\s+:\s+videoError\s+\?\s+"error"\s+:[\s\S]*\?\s+"success"\s+:\s+"empty"/,
   );
   assert.match(source, /data-video-state=/);
   assert.match(source, /aria-busy=/);
   assert.match(source, /disabled=\{videoLoading \|\| importing/);
   assert.match(source, /保存待ち動画を確認中…/);
   assert.match(source, /保存待ち動画を確認できませんでした。/);
-  assert.match(source, />一覧を再試行<\/button>/);
+  assert.match(source, />\s*一覧を再試行\s*<\/button>/);
   assert.doesNotMatch(source, /保存待ち動画はありません/);
 });
 

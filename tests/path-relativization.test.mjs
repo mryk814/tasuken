@@ -165,6 +165,11 @@ function bindingOf(database, noteId) {
   return canonicalMarkdownBindingFromProperties(note.properties_json, { noteId });
 }
 
+/** パスの照合用。引き直したパスは / 区切りで返るので、OS の区切りに寄せずに比べる。 */
+function slashes(value) {
+  return String(value).replaceAll("\\", "/");
+}
+
 test("自分のルートで始まる Artifact と Note だけが変換され、document_exports と対象外は不変", async (t) => {
   const root = tempRoot(t);
   const taskenRoot = path.join(root, "TaskenRoot");
@@ -485,9 +490,9 @@ test("ルート位置の違う 2 台で、同じ Artifact とノートが開け�
 
   // Artifact は B のルートで引き直して開ける。
   const artifactB = databaseB.get("artifact", "artifact-in");
-  assert.equal(artifactOpenTarget(artifactB, { sync: rootB }), artifactFileB);
+  assert.equal(slashes(artifactOpenTarget(artifactB, { sync: rootB })), slashes(artifactFileB));
   const serviceB = new WorkspaceService(databaseB, path.join(root, "b"));
-  assert.equal(serviceB.resolveArtifactFilePath(artifactB), artifactFileB);
+  assert.equal(slashes(serviceB.resolveArtifactFilePath(artifactB)), slashes(artifactFileB));
   assert.ok(fs.existsSync(artifactFileB));
 
   // ノートは B で保存すると B 側のファイルだけが更新され、結び付けは参照のまま残る。
@@ -522,7 +527,10 @@ test("読み手は絶対パスとルート相対の両形式を解ける", () =>
     storage_root_id: "sync",
     relative_path: "Artifacts/a.pdf",
   });
-  assert.equal(artifactOpenTarget(relative, { sync: rootB }), path.join(rootB, "Artifacts/a.pdf"));
+  assert.equal(
+    slashes(artifactOpenTarget(relative, { sync: rootB })),
+    slashes(path.join(rootB, "Artifacts/a.pdf")),
+  );
   // ルートの登録が無い読み手では開けない（空文字）で、参照を絶対パスと誤認しない。
   assert.equal(artifactOpenTarget(relative), "");
   assert.equal(artifactOpenTarget(relative, { other: rootB }), "");
