@@ -576,6 +576,27 @@ export function SettingsPage({
     }
   }
 
+  async function relocateSharedSync() {
+    setSyncBusy(true);
+    try {
+      const result = await workspaceApi.relocateSharedSync();
+      setSyncStatus(result.status);
+      setToast(
+        `同期フォルダを Tasken ルートの Sync/ へ移しました（${result.copiedFiles}件を写しました）。古い場所は残っています。`,
+        "success",
+      );
+      void reloadRootStatus();
+    } catch (error) {
+      setToast(
+        `同期フォルダを移せませんでした。${error instanceof Error ? error.message : String(error)}`,
+        "danger",
+      );
+      setSyncStatus(await workspaceApi.sharedSyncStatus().catch(() => syncStatus));
+    } finally {
+      setSyncBusy(false);
+    }
+  }
+
   async function disableSharedSync() {
     setSyncBusy(true);
     try {
@@ -1339,9 +1360,8 @@ export function SettingsPage({
                 <h2>View（現在形の射影）</h2>
               </div>
               <p className="field-help">
-                Tasken
-                の今の内容を、ドライブを読むAIが読めるMarkdownとしてルートの <code>View/</code>{" "}
-                に出します。生成物なので、編集しても Tasken には戻りません。
+                Tasken の今の内容を、ドライブを読むAIが読めるMarkdownとしてルートの{" "}
+                <code>View/</code> に出します。生成物なので、編集しても Tasken には戻りません。
               </p>
               <label className="toggle">
                 この端末で View を書く
@@ -1383,7 +1403,11 @@ export function SettingsPage({
               </dl>
               <div className="settings-action-row">
                 {viewStatus?.writerState === "other" && (
-                  <Button variant="primary" disabled={viewBusy} onClick={() => void takeOverViewWriter()}>
+                  <Button
+                    variant="primary"
+                    disabled={viewBusy}
+                    onClick={() => void takeOverViewWriter()}
+                  >
                     引き継ぐ
                   </Button>
                 )}
@@ -1512,6 +1536,16 @@ export function SettingsPage({
                     <Button variant="secondary" disabled={syncBusy} onClick={republishSharedSync}>
                       差分を再公開
                     </Button>
+                    {rootStatus?.syncDefaultPath &&
+                      syncStatus.directory !== rootStatus.syncDefaultPath && (
+                        <Button
+                          variant="secondary"
+                          disabled={syncBusy}
+                          onClick={relocateSharedSync}
+                        >
+                          Sync/ へ移す
+                        </Button>
+                      )}
                     <button className="text-button" disabled={syncBusy} onClick={disableSharedSync}>
                       停止
                     </button>

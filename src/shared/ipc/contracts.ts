@@ -179,6 +179,7 @@ export const IPC = {
   sharedSyncDisable: "shared-sync:disable",
   sharedSyncNow: "shared-sync:now",
   sharedSyncRepublish: "shared-sync:republish",
+  sharedSyncRelocate: "shared-sync:relocate",
   sharedSyncResolve: "shared-sync:resolve",
   markdownFileExport: "markdown-file:export",
   markdownPdfExport: "markdown-pdf:export",
@@ -552,6 +553,14 @@ export interface SharedSyncRepublishResult {
   status: SharedSyncStatus;
 }
 
+/** 同期フォルダの引っ越し（段 5・#813）の結果。古い場所は消さずに残る。 */
+export interface SharedSyncRelocateResult {
+  from: string;
+  to: string;
+  copiedFiles: number;
+  status: SharedSyncStatus;
+}
+
 export interface AutomaticSnapshotBackupConfig {
   enabled: boolean;
   directory: string;
@@ -849,6 +858,7 @@ export interface ResearchDeskApi {
     disable(): Promise<SharedSyncStatus>;
     syncNow(): Promise<SharedSyncStatus>;
     republish(): Promise<SharedSyncRepublishResult>;
+    relocate(): Promise<SharedSyncRelocateResult>;
     resolveConflict(
       conflictId: string,
       choice: "local" | "incoming",

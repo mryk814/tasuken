@@ -267,6 +267,7 @@ const api: ResearchDeskApi = {
     disable: () => ipcRenderer.invoke(IPC.sharedSyncDisable),
     syncNow: () => ipcRenderer.invoke(IPC.sharedSyncNow),
     republish: () => ipcRenderer.invoke(IPC.sharedSyncRepublish),
+    relocate: () => ipcRenderer.invoke(IPC.sharedSyncRelocate),
     resolveConflict: (conflictId, choice) =>
       ipcRenderer.invoke(IPC.sharedSyncResolve, conflictId, choice),
   },

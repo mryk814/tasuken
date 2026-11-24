@@ -1138,6 +1138,8 @@ test("各端末は公開の進みを status.json に置き、進みが無けれ�
       at: new Date(T0).toISOString(),
       // この版の Desktop が取り込める形（印の最後）。replica が書き込みを断る判定に使う。
       syncShape: aiItemPacketFlags.at(-1).shape_sha256,
+      // 同期フォルダの引っ越し（段 5・#813）に対応する版の印。引っ越しの検証ゲートが見る。
+      capabilities: ["sync-relocation"],
     });
 
     now = T0 + 5 * MINUTE;
