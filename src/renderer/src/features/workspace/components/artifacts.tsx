@@ -31,9 +31,10 @@ import {
   artifactCanPromoteToManaged,
   artifactCanShowInFolder,
   artifactCopyTarget,
+  artifactFileLocator,
   artifactFileTypeFromName,
-  artifactFolderPath,
   artifactOpenTarget,
+  artifactPathText,
   displayNameFromTarget,
   extractHttpUrls,
   extractUrlsFromDataTransfer,
@@ -384,7 +385,8 @@ export async function showArtifactInFolder(
     );
     return;
   }
-  const result = await workspaceApi.showItemInFolder(artifactFolderPath(artifact));
+  // ルート相対の参照（#814）はそのまま IPC へ渡し、Main がこの端末のパスへ引き直す。
+  const result = await workspaceApi.showItemInFolder(artifactFileLocator(artifact));
   if (!result.ok) setToast(`フォルダを開けませんでした。${result.error || ""}`, "danger");
 }
 
@@ -405,7 +407,8 @@ export async function openArtifactFile(
   artifact: Artifact,
   setToast: (message: string, tone?: "info" | "success" | "warning" | "danger") => void,
 ): Promise<void> {
-  const target = artifactOpenTarget(artifact);
+  // ルート相対の参照（#814）はそのまま IPC へ渡し、Main がこの端末のパスへ引き直す。
+  const target = artifactFileLocator(artifact);
   if (!target) {
     setToast("開く場所がありません。参照先を確認してください。", "danger");
     return;
@@ -624,7 +627,7 @@ export function canPreviewArtifactInApp(artifact: Artifact): boolean {
   const category = artifactFileCategory(artifact);
   if (artifact.media_kind === "audio" || artifact.media_kind === "video") return true;
   if (category !== "image" && category !== "markdown" && category !== "web") return false;
-  const target = artifactOpenTarget(artifact);
+  const target = artifactFileLocator(artifact);
   if (!target) return false;
   // URL の Markdown は CORS のためアプリ内では読めない。画像 URL は img 直指定で可。
   if (category === "markdown" && isHttpUrl(target)) return false;
@@ -667,7 +670,7 @@ export function ArtifactCard({
   const nameEditRef = useRef<HTMLInputElement | null>(null);
   const metaParts = artifactCardMetaParts(artifact, data, { includeSource: showSource });
   const mode = resolveArtifactStorageMode(artifact);
-  const pathTitle = artifactOpenTarget(artifact) || artifact.filename;
+  const pathTitle = artifactPathText(artifact) || artifact.filename;
   const linkStatus = artifact.link_status;
   const showLinkStatus =
     mode === "linked" && linkStatus && linkStatus !== "unknown" && linkStatus !== "ok";
@@ -1291,7 +1294,13 @@ export function ArtifactSection({
     void linkUrls(urls);
   }
 
-  const videoState = videoLoading ? "loading" : videoError ? "error" : preparedVideos.length > 0 || attached.some((entry) => entry.media_kind === "video") ? "success" : "empty";
+  const videoState = videoLoading
+    ? "loading"
+    : videoError
+      ? "error"
+      : preparedVideos.length > 0 || attached.some((entry) => entry.media_kind === "video")
+        ? "success"
+        : "empty";
 
   return (
     <section
@@ -1315,7 +1324,8 @@ export function ArtifactSection({
             title="ファイルをコピーして追加"
             aria-label="Artifactを追加"
           >
-            <IconPlus size={14} />Artifact
+            <IconPlus size={14} />
+            Artifact
           </button>
           {isVideoArtifactSourceType(sourceType) && (
             <button
@@ -1340,7 +1350,8 @@ export function ArtifactSection({
             title="URLをリンク"
             aria-label="URLをリンク"
           >
-            <IconLink size={14} />URL
+            <IconLink size={14} />
+            URL
           </button>
           {sourceType === "chat_ref" && data && (
             <button
@@ -1445,7 +1456,9 @@ export function ArtifactSection({
                     )
                     .finally(() => setVideoLoading(false));
                 }}
-              >一覧を再試行</button>
+              >
+                一覧を再試行
+              </button>
             </div>
           ) : (
             <div className="artifact-video-recovery" aria-label="保存待ち動画">
@@ -1476,7 +1489,9 @@ export function ArtifactSection({
                         onClick={() => {
                           void commitPreparedVideo(prepared);
                         }}
-                      >添付する</button>
+                      >
+                        添付する
+                      </button>
                     )}
                     {prepared.canRetry && (
                       <button
@@ -1498,7 +1513,9 @@ export function ArtifactSection({
                         onClick={() => {
                           void discardPreparedVideo(prepared);
                         }}
-                      >破棄</button>
+                      >
+                        破棄
+                      </button>
                     )}
                   </div>
                 );

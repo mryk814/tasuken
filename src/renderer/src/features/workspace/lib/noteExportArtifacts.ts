@@ -1,5 +1,6 @@
 import {
   artifactFileTypeFromName,
+  artifactPathText,
   displayNameFromTarget,
   inferArtifactLinkType,
 } from "../../../../../shared/artifactLinks.mjs";
@@ -228,7 +229,7 @@ export function buildNoteExportArtifactOperation(options: {
       artifact.source_type === "chat_ref" &&
       artifact.source_id === chatRef.id &&
       artifact.origin_note_id === exported.noteId &&
-      normalizedTarget(str(artifact.stored_path || artifact.target)) === targetKey,
+      normalizedTarget(artifactPathText(artifact)) === targetKey,
   );
   const filename = displayNameFromTarget(
     exported.filePath,

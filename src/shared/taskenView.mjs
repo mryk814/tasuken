@@ -16,7 +16,10 @@
  *   1 日に 1 回は変わりうる（試験では時計を固定する）。
  */
 
-import { canonicalMarkdownBindingFromProperties } from "./canonicalMarkdown.mjs";
+import {
+  canonicalMarkdownBindingFromProperties,
+  canonicalMarkdownBindingRef,
+} from "./canonicalMarkdown.mjs";
 import { isPersonalDefaultTheme } from "./personalTheme.mjs";
 import { safeFolderSegment } from "./storageResolver.mjs";
 
@@ -213,8 +216,14 @@ export function taskenViewHtmlToText(html) {
   source = source.replace(/<img[^>]*>/gi, "");
   source = source.replace(/<br\s*\/?>/gi, "\n");
   source = source.replace(/<li[^>]*>/gi, "\n- ");
-  source = source.replace(/<h([1-6])[^>]*>/gi, (_match, level) => `\n\n${"#".repeat(Number(level))} `);
-  source = source.replace(/<\/(p|div|section|article|tr|h[1-6]|ul|ol|table|blockquote|li)>/gi, "\n");
+  source = source.replace(
+    /<h([1-6])[^>]*>/gi,
+    (_match, level) => `\n\n${"#".repeat(Number(level))} `,
+  );
+  source = source.replace(
+    /<\/(p|div|section|article|tr|h[1-6]|ul|ol|table|blockquote|li)>/gi,
+    "\n",
+  );
   source = source.replace(/<[^>]+>/g, "");
   source = source
     .replace(/&nbsp;/gi, " ")
@@ -364,13 +373,16 @@ export function buildTaskenViewFiles(snapshot = {}, { now = new Date() } = {}) {
   const isIncomplete = (task) => task.state !== "done" && task.state !== "cancelled";
   const isOverdue = (task) => isIncomplete(task) && task.dueDate && task.dueDate < today;
   function completionDate(task) {
-    const ms = taskenViewInstantOf(task.record.completed_at) ?? taskenViewInstantOf(task.record.updated_at);
+    const ms =
+      taskenViewInstantOf(task.record.completed_at) ?? taskenViewInstantOf(task.record.updated_at);
     return ms === null ? null : taskenViewDateOf(ms);
   }
 
   // 完了の振り分け：最近 30 日は Theme ファイル、31 日より前は archive（設計 3.2）。
   for (const bucket of orderedBuckets) {
-    bucket.incomplete = bucket.tasks.filter(isIncomplete).sort((a, b) => compareKeys(taskSortKey(a), taskSortKey(b)));
+    bucket.incomplete = bucket.tasks
+      .filter(isIncomplete)
+      .sort((a, b) => compareKeys(taskSortKey(a), taskSortKey(b)));
     bucket.recentCompleted = [];
     bucket.archived = [];
     for (const task of bucket.tasks) {
@@ -382,15 +394,22 @@ export function buildTaskenViewFiles(snapshot = {}, { now = new Date() } = {}) {
     bucket.recentCompleted.sort((a, b) => compareKeys(taskSortKey(a), taskSortKey(b)));
     bucket.archived.sort((a, b) => compareKeys(taskSortKey(a), taskSortKey(b)));
     bucket.notes.sort(
-      (a, b) => compareText(text(a.title), text(b.title)) || compareText(String(a.id), String(b.id)),
+      (a, b) =>
+        compareText(text(a.title), text(b.title)) || compareText(String(a.id), String(b.id)),
     );
     bucket.documents.sort(
-      (a, b) => compareText(text(a.title), text(b.title)) || compareText(String(a.id), String(b.id)),
+      (a, b) =>
+        compareText(text(a.title), text(b.title)) || compareText(String(a.id), String(b.id)),
     );
     bucket.noteFiles = new Map();
     for (const note of bucket.notes) {
-      const binding = canonicalMarkdownBindingFromProperties(note.properties || {}, { noteId: note.id });
-      if (binding && binding.canonical_path) {
+      // 記録の置き場は properties_json（本体の保存形）。properties は旧い呼び名の互換。
+      const binding = canonicalMarkdownBindingFromProperties(
+        note.properties || note.properties_json || {},
+        { noteId: note.id },
+      );
+      // ルート相対の結び付け（#814）も正本 Markdown へのリンクにする（本文は写さない）。
+      if (binding && (binding.canonical_path || canonicalMarkdownBindingRef(binding))) {
         bucket.noteFiles.set(note.id, { canonical: binding });
       } else {
         bucket.noteFiles.set(note.id, {
@@ -455,7 +474,9 @@ export function buildTaskenViewFiles(snapshot = {}, { now = new Date() } = {}) {
     ) {
       const [hour, minute] = text(schedule.end_time).split(":").map(Number);
       const notifyMs =
-        dateToMs(task.endDate) - JST_OFFSET_MS + (hour * 60 + minute - Number(schedule.notify_before_minutes)) * 60 * 1000;
+        dateToMs(task.endDate) -
+        JST_OFFSET_MS +
+        (hour * 60 + minute - Number(schedule.notify_before_minutes)) * 60 * 1000;
       segments.push(`知らせ: ${taskenViewDateTimeOf(notifyMs)}`);
     }
     if (task.record.place_reminder && text(task.record.place_reminder.name)) {
@@ -469,18 +490,26 @@ export function buildTaskenViewFiles(snapshot = {}, { now = new Date() } = {}) {
     lines.push(`- Tasken ID: ${task.record.id}`);
     const description = String(task.record.description || "").replace(/\s+$/, "");
     if (description) lines.push("", description);
-    const checklist = [...(Array.isArray(task.record.checklist_items) ? task.record.checklist_items : [])].sort(
+    const checklist = [
+      ...(Array.isArray(task.record.checklist_items) ? task.record.checklist_items : []),
+    ].sort(
       (a, b) =>
         Number(a?.sort_order || 0) - Number(b?.sort_order || 0) ||
         compareText(String(a?.id || ""), String(b?.id || "")),
     );
     if (checklist.length) {
       lines.push("");
-      for (const item of checklist) lines.push(`- [${item?.done ? "x" : " "}] ${text(item?.title)}`);
+      for (const item of checklist)
+        lines.push(`- [${item?.done ? "x" : " "}] ${text(item?.title)}`);
     }
     const images = Array.isArray(task.record.images) ? task.record.images : [];
     if (images.length) {
-      lines.push(`- 添付: ${images.map((image) => text(image?.file_name)).filter(Boolean).join(", ")}`);
+      lines.push(
+        `- 添付: ${images
+          .map((image) => text(image?.file_name))
+          .filter(Boolean)
+          .join(", ")}`,
+      );
     }
     if (level < 6) {
       for (const child of task.children) {
@@ -498,7 +527,9 @@ export function buildTaskenViewFiles(snapshot = {}, { now = new Date() } = {}) {
     for (const task of bucket.incomplete) task.children = [];
     bucket.topLevel = [];
     for (const task of bucket.incomplete) {
-      const parent = task.record.parent_task_id ? inBucket.get(task.record.parent_task_id) : undefined;
+      const parent = task.record.parent_task_id
+        ? inBucket.get(task.record.parent_task_id)
+        : undefined;
       if (parent && parent !== task) parent.children.push(task);
       else bucket.topLevel.push(task);
     }
@@ -536,7 +567,8 @@ export function buildTaskenViewFiles(snapshot = {}, { now = new Date() } = {}) {
       "",
       `# ${bucket.code} ${bucket.title}`,
     ];
-    if (bucket.theme && text(bucket.theme.description)) lines.push("", text(bucket.theme.description));
+    if (bucket.theme && text(bucket.theme.description))
+      lines.push("", text(bucket.theme.description));
     const overdueCount = bucket.incomplete.filter(isOverdue).length;
     lines.push(
       "",
@@ -590,12 +622,26 @@ export function buildTaskenViewFiles(snapshot = {}, { now = new Date() } = {}) {
       for (const note of bucket.notes) {
         const entry = bucket.noteFiles.get(note.id);
         if (entry.canonical) {
+          const ref = canonicalMarkdownBindingRef(entry.canonical);
           const fileName =
             text(entry.canonical.file_name) ||
-            text(entry.canonical.canonical_path).split(/[\\/]/).pop() ||
+            text(ref ? ref.relative_path : entry.canonical.canonical_path)
+              .split(/[\\/]/)
+              .pop() ||
             "";
-          const folder = bucket.theme ? `../../Themes/${bucket.segment}/Notes` : "../../Inbox/Notes";
-          lines.push(`- [${text(note.title) || "（無題）"}](${folder}/${fileName})（正本 Markdown）`);
+          // ルート相対の結び付けは、View から見た相対リンクをそのまま使う（置き場所が
+          // テーマの Notes とは限らないため）。絶対パスの結び付けは従来どおり。
+          const refFolder = ref ? ref.relative_path.split("/").slice(0, -1).join("/") : "";
+          const folder = ref
+            ? refFolder
+              ? `../../${refFolder}`
+              : "../.."
+            : bucket.theme
+              ? `../../Themes/${bucket.segment}/Notes`
+              : "../../Inbox/Notes";
+          lines.push(
+            `- [${text(note.title) || "（無題）"}](${folder}/${fileName})（正本 Markdown）`,
+          );
         } else {
           lines.push(`- [${text(note.title) || "（無題）"}](notes/${entry.path.split("/").pop()})`);
         }
@@ -726,7 +772,8 @@ export function buildTaskenViewFiles(snapshot = {}, { now = new Date() } = {}) {
     (task.startDate && task.endDate && task.startDate <= to && task.endDate >= from) ||
     (task.dueDate && task.dueDate >= from && task.dueDate <= to);
   const todayEntries = allIncomplete.filter(({ task }) => inRange(task, today, today));
-  if (todayEntries.length) nowSections.push(["今日", todayEntries.map((entry) => entryLine(entry))]);
+  if (todayEntries.length)
+    nowSections.push(["今日", todayEntries.map((entry) => entryLine(entry))]);
   const weekEnd = weekEndSunday(today);
   const weekEntries = allIncomplete.filter(({ task }) => inRange(task, today, weekEnd));
   if (weekEntries.length) nowSections.push(["今週", weekEntries.map((entry) => entryLine(entry))]);
@@ -734,14 +781,18 @@ export function buildTaskenViewFiles(snapshot = {}, { now = new Date() } = {}) {
     .filter(({ task }) => taskenViewInstantOf(task.record.reminder_at) !== null)
     .sort(
       (a, b) =>
-        taskenViewInstantOf(a.task.record.reminder_at) - taskenViewInstantOf(b.task.record.reminder_at) ||
+        taskenViewInstantOf(a.task.record.reminder_at) -
+          taskenViewInstantOf(b.task.record.reminder_at) ||
         compareText(String(a.task.record.id), String(b.task.record.id)),
     );
   if (reminded.length) {
     nowSections.push([
       "知らせ",
       reminded.map((entry) =>
-        entryLine(entry, `（知らせ: ${taskenViewDateTimeOf(taskenViewInstantOf(entry.task.record.reminder_at))}）`),
+        entryLine(
+          entry,
+          `（知らせ: ${taskenViewDateTimeOf(taskenViewInstantOf(entry.task.record.reminder_at))}）`,
+        ),
       ),
     ]);
   }
@@ -765,12 +816,7 @@ export function buildTaskenViewFiles(snapshot = {}, { now = new Date() } = {}) {
 
   // index.md：目次と鮮度。鮮度の時刻は、中身が変わったときだけ進むよう、
   // 全記録（Task に結ぶ Schedule を含む）の updated_at の最大値から作る（設計 3.3）。
-  const allRecords = [
-    ...themes,
-    ...taskRecordsWithSchedule(tasks),
-    ...notes,
-    ...documents,
-  ];
+  const allRecords = [...themes, ...taskRecordsWithSchedule(tasks), ...notes, ...documents];
   const overallMax = maxUpdatedMs(allRecords);
   const indexLines = [
     frontMatter({ kind: "index", updatedMs: overallMax }),

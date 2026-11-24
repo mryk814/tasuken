@@ -15,6 +15,7 @@ import type {
   AppUpdateCheckResult,
   SatelliteWindowStatePayload,
 } from "../../../shared/ipc/contracts";
+import type { RootRelativePathRef } from "../../../shared/rootRelativePath.mjs";
 import type { CommandEnvelope } from "../../../shared/applicationCommand";
 import type {
   MarkdownFileExportRequest,
@@ -143,16 +144,16 @@ export const workspaceApi = {
   copyRecordCounts() {
     return desktopApi().clipboard.writeRecordCounts();
   },
-  openPath(filePath: string) {
+  openPath(filePath: string | RootRelativePathRef) {
     return desktopApi().files.openPath(filePath);
   },
-  showItemInFolder(filePath: string) {
+  showItemInFolder(filePath: string | RootRelativePathRef) {
     return desktopApi().files.showItemInFolder(filePath);
   },
-  pathExists(filePath: string) {
+  pathExists(filePath: string | RootRelativePathRef) {
     return desktopApi().files.pathExists(filePath);
   },
-  readFilePreview(filePath: string) {
+  readFilePreview(filePath: string | RootRelativePathRef) {
     return desktopApi().files.readPreview(filePath);
   },
   agentLogSetup() {

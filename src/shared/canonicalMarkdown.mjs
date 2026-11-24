@@ -1,3 +1,5 @@
+import { normalizeRootRelativePathRef } from "./rootRelativePath.mjs";
+
 export const CANONICAL_MARKDOWN_SCHEMA_VERSION = 1;
 
 const CANONICAL_SYNC_STATES = new Set([
@@ -144,9 +146,15 @@ export function normalizeCanonicalMarkdownBinding(value = {}, { noteId = "" } = 
   const canonicalPath = text(
     source.canonical_path || source.canonicalPath || source.filePath || source.path,
   );
+  // ルート相対の結び付け（#814）。canonical_path の絶対パスに代えて、{ storage_root_id,
+  // relative_path } で持つ。両方ある場合は参照を優先する（変換後の形を正とする）。
+  const rootRef = normalizeRootRelativePathRef({
+    storage_root_id: source.storage_root_id || source.storageRootId,
+    relative_path: source.relative_path || source.relativePath,
+  });
   const syncState = CANONICAL_SYNC_STATES.has(source.sync_state)
     ? source.sync_state
-    : canonicalPath && text(source.file_signature || source.fileSignature)
+    : (canonicalPath || rootRef) && text(source.file_signature || source.fileSignature)
       ? "in_sync"
       : "unavailable";
   return {
@@ -154,9 +162,11 @@ export function normalizeCanonicalMarkdownBinding(value = {}, { noteId = "" } = 
     binding_id:
       text(source.binding_id || source.bindingId) || (text(noteId) ? `note:${text(noteId)}` : ""),
     mode: "linked_canonical",
-    canonical_path: canonicalPath,
-    directory: text(source.directory),
-    root_identity: text(source.root_identity || source.rootIdentity),
+    canonical_path: rootRef ? "" : canonicalPath,
+    storage_root_id: rootRef ? rootRef.storage_root_id : "",
+    relative_path: rootRef ? rootRef.relative_path : "",
+    directory: rootRef ? "" : text(source.directory),
+    root_identity: rootRef ? "" : text(source.root_identity || source.rootIdentity),
     file_name: text(source.file_name || source.fileName),
     body_signature: text(source.body_signature || source.bodySignature),
     file_signature: text(source.file_signature || source.fileSignature),
@@ -170,6 +180,15 @@ export function normalizeCanonicalMarkdownBinding(value = {}, { noteId = "" } = 
     last_error: text(source.last_error || source.lastError),
     file_ahead_signature: text(source.file_ahead_signature || source.fileAheadSignature),
   };
+}
+
+/** 結び付けがルート相対の参照を持てば、その参照を返す（#814）。絶対パスの結び付けは null。 */
+export function canonicalMarkdownBindingRef(binding) {
+  if (!isPlainObject(binding)) return null;
+  return normalizeRootRelativePathRef({
+    storage_root_id: binding.storage_root_id,
+    relative_path: binding.relative_path,
+  });
 }
 
 export function canonicalMarkdownBindingFromProperties(properties = {}, { noteId = "" } = {}) {

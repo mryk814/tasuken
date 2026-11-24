@@ -8,6 +8,9 @@ export interface CanonicalMarkdownBinding {
   binding_id: string;
   mode: "linked_canonical";
   canonical_path: string;
+  /** ルート相対の結び付け（#814）。参照で持つ間は canonical_path / directory / root_identity は空。 */
+  storage_root_id: string;
+  relative_path: string;
   directory: string;
   root_identity: string;
   file_name: string;
@@ -38,6 +41,10 @@ export function normalizeCanonicalMarkdownBinding(
   value?: unknown,
   options?: { noteId?: string },
 ): CanonicalMarkdownBinding;
+export function canonicalMarkdownBindingRef(binding?: unknown): {
+  storage_root_id: string;
+  relative_path: string;
+} | null;
 export function canonicalMarkdownBindingFromProperties(
   properties?: unknown,
   options?: { noteId?: string },

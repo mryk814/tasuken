@@ -20,7 +20,11 @@ import {
   type WheelEvent,
 } from "react";
 
-import { artifactOpenTarget, isHttpUrl } from "../../../../../shared/artifactLinks.mjs";
+import {
+  artifactFileLocator,
+  artifactPathText,
+  isHttpUrl,
+} from "../../../../../shared/artifactLinks.mjs";
 import { formatMediaDuration } from "../../../../../shared/mediaArtifact.mjs";
 import type { MediaAvailability } from "../../../../../shared/mediaArtifact.mjs";
 import { isWebArtifact, webArtifactPreviewUrl } from "../../../../../shared/webArtifact.mjs";
@@ -251,7 +255,8 @@ async function resolveTarget(target: ContentViewerTarget, data: WorkspaceData): 
     };
   }
 
-  const openTarget = artifactOpenTarget(artifact);
+  // ルート相対の参照（#814）はそのまま IPC へ渡し、Main がこの端末のパスへ引き直す。
+  const openTarget = artifactFileLocator(artifact);
 
   if (category !== "image" && category !== "markdown") {
     return {
@@ -264,7 +269,7 @@ async function resolveTarget(target: ContentViewerTarget, data: WorkspaceData): 
     return { status: "error", message: "開く場所がありません。参照先を確認してください。" };
   }
 
-  if (isHttpUrl(openTarget)) {
+  if (typeof openTarget === "string" && isHttpUrl(openTarget)) {
     if (category === "image") {
       return {
         status: "ready",
@@ -553,7 +558,7 @@ export function ContentViewer({
   const loadFilePath = loadedFilePath(load);
   const canOpenFolder = Boolean(
     load.status === "ready" && load.mode !== "audio" && load.mode !== "video" && loadArtifact
-      ? !isHttpUrl(String(artifactOpenTarget(loadArtifact) || ""))
+      ? !isHttpUrl(artifactPathText(loadArtifact))
       : loadFilePath && !isHttpUrl(loadFilePath),
   );
   const canCopyPath = Boolean(
@@ -822,7 +827,7 @@ export function ContentViewer({
               {target.type === "artifact" &&
                 targetArtifact?.media_kind !== "audio" &&
                 targetArtifact?.media_kind !== "video" &&
-                Boolean(artifactOpenTarget(targetArtifact)) && (
+                Boolean(artifactFileLocator(targetArtifact)) && (
                   <button
                     type="button"
                     className="secondary-button compact"

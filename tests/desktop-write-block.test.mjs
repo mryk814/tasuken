@@ -83,13 +83,13 @@ test("契約ファイルの AI の作業の印は、AI の作業を書く経路�
 });
 
 // #789: Document は新しい Entity 種類で、古い Desktop は差分を取り込めない。
-// 印は最後にあり、遅れた Desktop に対しては Document を書く経路だけを断る。
+// 印より前の形の Desktop に対しては、Document を書く経路だけを断る（印の後ろに
+// 新しい形の印が足されても、この経路の断り方は変わらない）。
 test("契約ファイルの Document の印は、Document を書く経路だけを断る", () => {
   const route = "/v1/commands/create-ai-document";
   const flag = aiItemPacketFlags.find((entry) => entry.desktop_first_routes?.includes(route));
   assert.ok(flag);
   assert.equal(flag.desktop_first, false);
-  assert.equal(aiItemPacketFlags.at(-1), flag);
   const previous = aiItemPacketFlags[aiItemPacketFlags.indexOf(flag) - 1];
   const behind = [{ syncShape: previous.shape_sha256 }];
   assert.equal(

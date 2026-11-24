@@ -98,8 +98,10 @@
       "$.entity.properties_json.canonical_markdown.last_synced_at: string=\"\"",
       "$.entity.properties_json.canonical_markdown.last_synced_revision: null",
       "$.entity.properties_json.canonical_markdown.mode: string=\"linked_canonical\"",
+      "$.entity.properties_json.canonical_markdown.relative_path: string=\"\"",
       "$.entity.properties_json.canonical_markdown.root_identity: string=\"\"",
       "$.entity.properties_json.canonical_markdown.schema_version: number",
+      "$.entity.properties_json.canonical_markdown.storage_root_id: string=\"\"",
       "$.entity.properties_json.canonical_markdown.sync_state: string=\"unavailable\"",
       "$.entity.properties_json.canonical_markdown: object",
       "$.entity.properties_json: object",
@@ -435,6 +437,12 @@
       "desktop_first": false,
       "desktop_first_routes": ["/v1/commands/create-ai-document"],
       "note": "#796 と #789 が main で合流した現在の形。関連（Reference: note→task related_to）の差分と、Task 配下の Document の差分の両方を含む。古い Desktop は Document を取り込めないため、その種類を書く経路だけを従来どおり断る。Note・Task の形は変わらない"
+    },
+    {
+      "date": "2026-11-25",
+      "shape_sha256": "30ea9b993a6e6690679afd80c1ddf532122e1c51a8ecd7a2b7a00cf043cdb9b1",
+      "desktop_first": false,
+      "note": "Note の正本 Markdown の結び付けに storage_root_id / relative_path を追加（#814 ルート相対化）。キーの追加のみで、旧い Desktop もそのまま取り込める。"
     }
   ]
 }

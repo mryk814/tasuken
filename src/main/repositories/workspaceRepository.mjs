@@ -2696,6 +2696,34 @@ export class WorkspaceDatabase {
     })();
   }
 
+  /**
+   * 同期される記録の中のパスをルート相対へ移す（#803 段 6・#814）。
+   *
+   * 変換後の Entity は呼び手（services/pathRelativization.ts）が元の記録だけから決める。
+   * ここは保存と差分の積み方だけを持つ。
+   * - 更新時刻は元の記録のままにする（__canonicalOperationAt）。変換した端末の時計で決めると、
+   *   2 台が同じ変換をしても中身が食い違い、版の ID がそろわない。
+   * - 差分の版の ID は呼び手が決めた固定の ID（元の版と変換後の Entity から決まる）を使い、
+   *   親は変換前の head にする。同じ変換が別の端末でも走っていれば、その端末では head が
+   *   既に固定の ID になっているので何もしない（同期で届いた同じ版は duplicate になる）。
+   * - 既に変換済みの head なら null を返す。
+   */
+  applyPathRelativization(type, entity, fixedRevisionId) {
+    if (!entity?.id || !fixedRevisionId) return null;
+    return this.db.transaction(() => {
+      const existing = this.get(type, entity.id, true);
+      if (!existing || existing.deleted_at) return null;
+      const headBefore = this.syncHead(type, entity.id);
+      if (headBefore === fixedRevisionId) return null;
+      const saved = this.saveWithinTransaction(type, entity, {
+        skipSync: true,
+        __canonicalOperationAt: existing.updated_at,
+      });
+      this.enqueueSyncEntity(type, saved, headBefore ? [headBefore] : [], "", fixedRevisionId);
+      return saved;
+    })();
+  }
+
   /** その記録を作った写しの最初の版の ID（端末ごとの控え）。写した記録でなければ空文字。 */
   derivedRoot(type, id) {
     return (

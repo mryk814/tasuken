@@ -28,12 +28,14 @@ import {
   markdownSignature,
   buildCanonicalMarkdownContent,
   canonicalMarkdownBindingFromProperties,
+  canonicalMarkdownBindingRef,
   canonicalMarkdownFileState,
   withCanonicalMarkdownBinding,
   noteSaveStateLabel,
   shouldCreateExportArtifact,
   type CanonicalMarkdownFileState,
 } from "../../../../../shared/canonicalMarkdown.mjs";
+import type { RootRelativePathRef } from "../../../../../shared/rootRelativePath.mjs";
 import { isFocusSession } from "../../../../../shared/focusSession.mjs";
 import { workspaceApi } from "../../../services/workspaceApi";
 import {
@@ -660,6 +662,9 @@ export function NotesPage({
     ? {
         filePath: canonicalBinding.canonical_path,
         directory: canonicalBinding.directory,
+        // ルート相対の結び付け（#814）は絶対パスを持たない。開く操作では参照をそのまま
+        // IPC へ渡し、表示では relative_path を使う。
+        pathRef: canonicalMarkdownBindingRef(canonicalBinding),
         fileSignature: canonicalBinding.file_signature,
         bodySignature: canonicalBinding.body_signature,
         storageMode: "linked",
@@ -668,7 +673,13 @@ export function NotesPage({
     : null;
   const markdownExportFilePath = str(markdownExport?.filePath);
   const markdownExportDirectory = str(markdownExport?.directory);
-  const markdownExportOpenPath = markdownExportFilePath || markdownExportDirectory;
+  const markdownExportRelativePath = str(markdownExport?.pathRef?.relative_path);
+  const markdownExportOpenPath =
+    markdownExportFilePath || markdownExportDirectory || markdownExportRelativePath;
+  const markdownExportHint =
+    markdownExportDirectory || markdownExportFilePath || markdownExportRelativePath;
+  const markdownExportOpenTarget: string | RootRelativePathRef =
+    markdownExport?.pathRef ?? (markdownExportDirectory || markdownExportFilePath);
   const currentExportSignature = markdownSignature(selectedBody);
   const markdownExportStale = Boolean(
     str(markdownExport?.bodySignature) &&
@@ -1095,7 +1106,8 @@ export function NotesPage({
    * 「保存しました」の一言に混ぜない。本文を変えた直後はファイルが古いので pending。
    */
   const canonicalFileState: CanonicalMarkdownFileState = (() => {
-    const canonicalPath = str(markdownExport?.filePath);
+    const canonicalPath =
+      str(markdownExport?.filePath) || str(markdownExport?.pathRef?.relative_path);
     if (!canonicalPath) return "none";
     // 直近の同期結果があればそれを優先する。外部変更や失敗は署名比較では分からない。
     if (canonicalSyncState && canonicalSyncState !== "synced") return canonicalSyncState;
@@ -1615,8 +1627,8 @@ export function NotesPage({
     setContextMenu({ x: event.clientX, y: event.clientY, items });
   }
 
-  async function openMarkdownExportDirectory(directory: string) {
-    const result = await workspaceApi.openPath(directory);
+  async function openMarkdownExportDirectory(target: string | RootRelativePathRef) {
+    const result = await workspaceApi.openPath(target);
     if (result.ok) {
       setToast("Markdownの保存先フォルダを開きました。", "success");
       return;
@@ -2387,7 +2399,7 @@ export function NotesPage({
         : setToast("PDF出力できるNoteまたはReportを選択してください。", "warning"),
     folder: () =>
       markdownExportOpenPath
-        ? openMarkdownExportDirectory(markdownExportDirectory || markdownExportFilePath)
+        ? openMarkdownExportDirectory(markdownExportOpenTarget)
         : setToast("先にNoteを保存して正本Markdownの保存先を決めてください。", "warning"),
     // 選択範囲の変換（#313）。自動toolbarを撤去したので、ここが正規の入口。
     "selection-task": () => requestSelectionCommand("task"),
@@ -2448,11 +2460,8 @@ export function NotesPage({
               {
                 id: "open-destination",
                 label: "保存先フォルダを開く",
-                hint: markdownExportDirectory || markdownExportFilePath,
-                onSelect: () =>
-                  void openMarkdownExportDirectory(
-                    markdownExportDirectory || markdownExportFilePath,
-                  ),
+                hint: markdownExportHint,
+                onSelect: () => void openMarkdownExportDirectory(markdownExportOpenTarget),
               } as ToolbarMenuItem,
             ]
           : []),
@@ -2889,13 +2898,9 @@ export function NotesPage({
                         <button
                           className="document-publish-open"
                           type="button"
-                          title={markdownExportDirectory || markdownExportFilePath}
+                          title={markdownExportHint}
                           aria-label="保存先フォルダを開く"
-                          onClick={() =>
-                            openMarkdownExportDirectory(
-                              markdownExportDirectory || markdownExportFilePath,
-                            )
-                          }
+                          onClick={() => openMarkdownExportDirectory(markdownExportOpenTarget)}
                         >
                           <IconFolder size={15} stroke={1.8} />
                         </button>

@@ -15,6 +15,7 @@ import type {
   CommandReceipt,
 } from "../../../../shared/applicationCommand";
 import type { TaskCommandEntrypoint } from "../../../../shared/contracts/task/public";
+import type { RootRelativePathRef } from "../../../../shared/rootRelativePath.mjs";
 
 // shared型をこの層から再エクスポートし、各ファイルの相対パスを単純化する。
 export type {
@@ -239,8 +240,8 @@ export interface Artifact extends BaseRecord {
   file_type?: string;
   mime_type?: string;
   file_size?: number;
-  /** managed では必須。linked では空文字可 */
-  stored_path: string;
+  /** managed では必須。linked では空文字可。同期される記録ではルート相対の参照（#814）にもなる */
+  stored_path: string | RootRelativePathRef;
   original_path?: string | null;
   /** 未設定は managed 扱い */
   storage_mode?: ArtifactStorageMode | null;

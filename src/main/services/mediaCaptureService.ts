@@ -128,6 +128,11 @@ export interface MediaCaptureServiceOptions {
   repository: MediaRepository;
   commands: AudioCommandExecutor;
   resolveManagedDirectory: (themeId: string | null) => DirectoryResolution;
+  /**
+   * managed Artifact の stored_path がルート相対の参照（#814）のときに、この端末の
+   * 絶対パスへ引き直す。省くと参照は引けず、メディアは見つからない扱いになる。
+   */
+  resolveArtifactPath?: (artifact: Entity) => string;
   idFactory?: () => string;
   now?: () => string;
   openPath?: (filePath: string) => Promise<string>;
@@ -2256,7 +2261,12 @@ export class MediaCaptureService {
   }
 
   private resolveArtifactBytes(artifactId: string, artifact: Entity): MediaFileResolution {
-    const rawPath = artifact.storage_mode === "linked" ? artifact.target : artifact.stored_path;
+    const rawPath =
+      artifact.storage_mode === "linked"
+        ? artifact.target
+        : typeof artifact.stored_path === "string"
+          ? artifact.stored_path
+          : this.options.resolveArtifactPath?.(artifact);
     if (typeof rawPath !== "string" || !path.isAbsolute(rawPath))
       return { availability: "missing" };
     const filePath = path.resolve(rawPath);
