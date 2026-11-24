@@ -231,6 +231,7 @@
         "tests/repository-context.test.mjs",
         "tests/saved-view-retirement-export.test.mjs",
         "tests/shared-folder-sync.test.mjs",
+        "tests/shared-folder-sync-relocation.test.mjs",
         "tests/tasken-root.test.mjs",
         "tests/tasken-view.test.mjs",
         "tests/task-notifications.test.mjs",

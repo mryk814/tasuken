@@ -352,6 +352,9 @@ export const workspaceApi = {
   republishSharedSync() {
     return desktopApi().sharedSync.republish();
   },
+  relocateSharedSync() {
+    return desktopApi().sharedSync.relocate();
+  },
   resolveSharedSyncConflict(conflictId: string, choice: "local" | "incoming") {
     return desktopApi().sharedSync.resolveConflict(conflictId, choice);
   },

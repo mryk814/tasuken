@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 
 import { currentSyncShape } from "../../shared/contracts/sync/aiItemPacketContract.mjs";
+import { TASKEN_ROOT_SYNC_FOLDER } from "../../shared/taskenRoot.mjs";
 import {
   countMarkdownImageAttachments,
   syncMarkdownImageAttachments,
@@ -15,6 +17,15 @@ const DEVICE_DIRECTORY = "devices";
 export const SYNC_PACKET_FILE_PATTERN = /^\d{12}-[0-9a-f-]+\.json$/i;
 const SYNC_PACKET_WAITING = "SYNC_PACKET_WAITING";
 const SYNC_SEQUENCE_ROLLBACK = "SYNC_SEQUENCE_ROLLBACK";
+const SYNC_FOLDER_RELOCATED = "SYNC_FOLDER_RELOCATED";
+/**
+ * 同期フォルダの引っ越し（段 5・#813）に対応する版の印。status.json に出す。
+ * 引っ越しの検証ゲートは、全端末の status.json にこの印があるかを見る。
+ */
+export const SYNC_RELOCATION_CAPABILITY = "sync-relocation";
+// 引っ越しで自分の場所を切り替えた直後の数回は、中継差分（relayOrphanedChanges）を止める。
+// 同期ソフトが運び終える前に「端末が消えた」と読み違えて中継差分を大量に積まないため（#803 2.1）。
+const RELOCATION_RELAY_SUPPRESS_PASSES = 3;
 // syncPacketContract（repositories）と同じ値。application層からinfrastructureを読まないよう文字列で比べる。
 const SYNC_PACKET_REJECTED = "SYNC_PACKET_REJECTED";
 const SYNC_INTERVAL_MS = 10_000;
@@ -92,6 +103,8 @@ function failureState(error) {
       return "blocked";
     case SYNC_SEQUENCE_ROLLBACK:
       return "blocked";
+    case SYNC_FOLDER_RELOCATED:
+      return "blocked";
     case SYNC_PACKET_WAITING:
       return "waiting_packet";
     case "SYNC_IMAGE_WAITING":
@@ -168,6 +181,8 @@ export class SharedFolderSyncService {
     this.lastReportedError = null;
     this.checkedWorkspaceId = null;
     this.relayCheckedKey = null;
+    // 引っ越しで場所を切り替えた直後、中継差分を止める残りの同期回数（#813）。
+    this.relaySuppressPasses = 0;
     // 照合済み画像のstat署名。再起動で消えてよい派生キャッシュ。
     this.verifiedImages = new Map();
     // 以下は共有フォルダの読み書きを減らすための派生値。再起動で消えてよい。
@@ -240,12 +255,87 @@ export class SharedFolderSyncService {
     return manifest;
   }
 
+  /**
+   * 引っ越しの道しるべ（formatVersion: 2 ＋ relocatedTo）を読む。厳密な readManifest と違い、
+   * 壊れた・対象外の manifest では例外にせず null を返す（呼び出し側が従来の検査に進む）。
+   */
+  async readRelocationManifest(directory) {
+    try {
+      const manifest = await readJson(this.manifestPath(directory));
+      if (manifest?.format !== "tasken-shared-folder-sync" || manifest?.formatVersion !== 2)
+        return null;
+      const relocatedTo = manifest.relocatedTo;
+      if (
+        !relocatedTo ||
+        typeof relocatedTo.relativePath !== "string" ||
+        !relocatedTo.relativePath ||
+        typeof relocatedTo.workspaceId !== "string" ||
+        !relocatedTo.workspaceId
+      )
+        return null;
+      return {
+        relativePath: relocatedTo.relativePath,
+        workspaceId: relocatedTo.workspaceId,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 道しるべに従って自分の同期先を新しい場所へ切り替える。切り替えは次の 2 つがそろった時だけ
+   * （#803 2.1）。そろわなければ null を返し、呼び出し側が同期を止めて本人に選ばせる。
+   * - 相対パスで解いた先の manifest の workspaceId が自分のものと同じ。
+   * - 古い場所の devices/* にあった端末のフォルダと status.json が、新しい場所にすべて届いている。
+   */
+  async followRelocation(oldDirectory, relocation) {
+    if (relocation.workspaceId !== this.repository.workspaceId) return null;
+    const newDirectory = path.resolve(oldDirectory, relocation.relativePath);
+    if (newDirectory === oldDirectory) return null;
+    let manifest = null;
+    try {
+      manifest = await this.readManifest(newDirectory);
+    } catch {
+      return null;
+    }
+    if (!manifest || manifest.workspaceId !== this.repository.workspaceId) return null;
+    const oldDevicesRoot = path.join(oldDirectory, DEVICE_DIRECTORY);
+    if (await exists(oldDevicesRoot)) {
+      for (const entry of await fs.promises.readdir(oldDevicesRoot, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const deviceDirectory = path.join(newDirectory, DEVICE_DIRECTORY, entry.name);
+        if (!(await exists(deviceDirectory))) return null;
+        if (!(await exists(path.join(deviceDirectory, DEVICE_STATUS_FILE)))) return null;
+      }
+    }
+    this.repository.setPreference("sharedSyncDirectory", newDirectory);
+    this.relaySuppressPasses = RELOCATION_RELAY_SUPPRESS_PASSES;
+    return newDirectory;
+  }
+
+  /** 道しるべがあるのに従えなかった時に止めるための失敗。送信待ちは手元に残る。 */
+  relocatedError() {
+    return codedError(
+      "同期フォルダが移りましたが、新しい場所を確かめられませんでした。同期を止めています。" +
+        "「保存と同期」の端末間同期で新しい場所（Tasken ルートの Sync/）を選んでください。" +
+        "送信待ちの変更はこの端末に残っています。",
+      SYNC_FOLDER_RELOCATED,
+    );
+  }
+
   async configure(directoryValue) {
-    const directory = typeof directoryValue === "string" ? path.resolve(directoryValue) : "";
+    let directory = typeof directoryValue === "string" ? path.resolve(directoryValue) : "";
     if (!directory) throw new Error("同期フォルダを選択してください。");
     // 非同期化で定期同期と交互に進みうる。旧設定の同期が終わってから切り替える。
     await this.running?.catch(() => {});
     await fs.promises.mkdir(directory, { recursive: true });
+    // 引っ越し済みのフォルダを選んだら、道しるべに従って新しい場所で参加する。
+    const relocation = await this.readRelocationManifest(directory);
+    if (relocation) {
+      const followed = await this.followRelocation(directory, relocation);
+      if (!followed) throw this.relocatedError();
+      directory = followed;
+    }
     let manifest = await this.readManifest(directory);
     if (!manifest) {
       manifest = {
@@ -331,10 +421,18 @@ export class SharedFolderSyncService {
 
   async runSync() {
     if (!this.repository.getPreference("sharedSyncEnabled")) return this.status();
-    const directory = String(this.repository.getPreference("sharedSyncDirectory") || "");
+    let directory = String(this.repository.getPreference("sharedSyncDirectory") || "");
     if (!directory) throw new Error("同期フォルダが設定されていません。");
     this.state = "syncing";
     try {
+      // 同期フォルダの引っ越し（段 5）の道しるべがあれば、先に従う。従えなければ、
+      // 古い場所へ黙って書き続けずに止めて知らせる（送信待ちは手元に残る）。
+      const relocation = await this.readRelocationManifest(directory);
+      if (relocation) {
+        const followed = await this.followRelocation(directory, relocation);
+        if (!followed) throw this.relocatedError();
+        directory = followed;
+      }
       // status.jsonの`at`。ensureSyncBaseline（まだ送信キューに無い記録をこの回で入れる）や
       // 画像の同期より前に取る。後ろで取ると、その間に確定した変更の時刻が`at`より前なのに
       // 連番は publishedThrough より後になり、「at より前の変更は全部入っている」が偽になる。
@@ -413,7 +511,12 @@ export class SharedFolderSyncService {
     }
     const deviceDirectory = path.join(directory, DEVICE_DIRECTORY, this.repository.deviceId);
     await fs.promises.mkdir(deviceDirectory, { recursive: true });
-    await this.relayOrphanedChanges(directory);
+    // 引っ越しで切り替えた直後の数回は中継を止める（#803 2.1）。
+    if (this.relaySuppressPasses > 0) {
+      this.relaySuppressPasses -= 1;
+    } else {
+      await this.relayOrphanedChanges(directory);
+    }
     const present = new Set(
       (await fs.promises.readdir(deviceDirectory)).filter((name) => name.endsWith(".json")),
     );
@@ -501,6 +604,8 @@ export class SharedFolderSyncService {
       // この版の Desktop が取り込める AI 作成の差分の形。replica はこれより後に
       // desktop_first の印があると書き込みを断る。replica 自身は取り込む側ではないので付けない。
       ...(this.role === "desktop" ? { syncShape: currentSyncShape } : {}),
+      // 同期フォルダの引っ越し（段 5）に対応する版の印。引っ越しの検証ゲートが全端末分を見る。
+      ...(this.role === "desktop" ? { capabilities: [SYNC_RELOCATION_CAPABILITY] } : {}),
     };
     try {
       await fs.promises.writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
@@ -714,6 +819,177 @@ export class SharedFolderSyncService {
       this.repository.markSyncPublished(entry.changeId);
     }
     return { republished, status: this.status() };
+  }
+
+  /**
+   * 引っ越しの検証ゲート（#803 2.1 の 1）。古い同期フォルダにいる全端末の status.json を見る。
+   * - replica（NAS）がいれば止める。replica の同期先は TASKEN_SYNC_DIRECTORY で決まるため、
+   *   変更には本人の確認が要る。
+   * - 「移せる版」の印が無い端末（status.json が無い・古い版）がいれば、その端末を名指しして止める。
+   * 自端末は、この版そのものが動いているので印ありとして扱う。
+   */
+  async relocationBlockers(directory) {
+    const blockers = { replica: [], unready: [] };
+    const devicesRoot = path.join(directory, DEVICE_DIRECTORY);
+    if (!(await exists(devicesRoot))) return blockers;
+    for (const entry of await fs.promises.readdir(devicesRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const deviceId = entry.name;
+      let status = null;
+      try {
+        const value = await readJson(path.join(devicesRoot, deviceId, DEVICE_STATUS_FILE));
+        if (isDeviceStatus(value, deviceId)) status = value;
+      } catch {
+        // 無い・壊れている端末は「印が無い」として扱う。
+      }
+      if (status?.role === "replica") {
+        blockers.replica.push(deviceId);
+        continue;
+      }
+      if (deviceId === this.repository.deviceId) continue;
+      const ready =
+        status &&
+        Array.isArray(status.capabilities) &&
+        status.capabilities.includes(SYNC_RELOCATION_CAPABILITY);
+      if (!ready) blockers.unready.push(deviceId);
+    }
+    return blockers;
+  }
+
+  /**
+   * tasken-sync.json と devices/** を移し先へ写し、ファイルごとに大きさと SHA-256 で照合する。
+   * 既に同じ内容があれば写さない。途中の一時ファイル（*.tmp）は写さない。
+   */
+  async copySyncTree(source, target) {
+    let copied = 0;
+    const copyFile = async (sourcePath, targetPath) => {
+      const data = await fs.promises.readFile(sourcePath);
+      const hash = createHash("sha256").update(data).digest("hex");
+      try {
+        const existing = await fs.promises.readFile(targetPath);
+        if (
+          existing.length === data.length &&
+          createHash("sha256").update(existing).digest("hex") === hash
+        )
+          return;
+      } catch {
+        // 無ければ写す。
+      }
+      await fs.promises.mkdir(path.dirname(targetPath), { recursive: true });
+      const temporaryPath = `${targetPath}.${process.pid}.${Date.now()}.tmp`;
+      await fs.promises.writeFile(temporaryPath, data);
+      await fs.promises.rename(temporaryPath, targetPath);
+      const verified = await fs.promises.readFile(targetPath);
+      if (
+        verified.length !== data.length ||
+        createHash("sha256").update(verified).digest("hex") !== hash
+      ) {
+        throw new Error(`同期フォルダの写しを照合できませんでした: ${path.basename(sourcePath)}`);
+      }
+      copied += 1;
+    };
+    await copyFile(this.manifestPath(source), this.manifestPath(target));
+    const walk = async (sourceDirectory, relative) => {
+      for (const entry of await fs.promises.readdir(sourceDirectory, { withFileTypes: true })) {
+        const entryRelative = relative ? `${relative}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          await walk(path.join(sourceDirectory, entry.name), entryRelative);
+        } else if (entry.isFile() && !entry.name.endsWith(".tmp")) {
+          await copyFile(
+            path.join(sourceDirectory, entry.name),
+            path.join(target, DEVICE_DIRECTORY, entryRelative),
+          );
+        }
+      }
+    };
+    const devicesRoot = path.join(source, DEVICE_DIRECTORY);
+    if (await exists(devicesRoot)) await walk(devicesRoot, "");
+    return copied;
+  }
+
+  /**
+   * 同期フォルダを Tasken ルートの Sync/ へ移す手続き（段 5・#803 2.1）。本人が押した時だけ動く。
+   * 古い場所は消さない。写しは 2 回行い、1 回目の最中に古い場所へ書かれた差分も 2 回目で拾う。
+   * それでも間に合わなかった自端末の差分は、切り替え後の同期の書き戻しで新しい場所へ届く。
+   * hooks.afterCopyPass は試験の差し込み口（写している間の書き込みを再現する）。
+   */
+  async relocateSyncFolder(hooks = {}) {
+    await this.running?.catch(() => {});
+    if (this.role === "replica") {
+      throw new Error(
+        "NAS replica の同期フォルダは TASKEN_SYNC_DIRECTORY で決まるため、ここからは移せません。本人に確認してください。",
+      );
+    }
+    if (!this.repository.getPreference("sharedSyncEnabled")) {
+      throw new Error("端末間同期が有効になっていません。");
+    }
+    const configuredDirectory = String(this.repository.getPreference("sharedSyncDirectory") || "");
+    if (!configuredDirectory) {
+      throw new Error("同期フォルダが設定されていません。");
+    }
+    const oldDirectory = path.resolve(configuredDirectory);
+    const root = String(this.repository.getPreference("artifactDirectory") || "");
+    if (!root) {
+      throw new Error(
+        "Tasken ルートが未設定です。先に「保存と同期」で Tasken ルートを設定してください。",
+      );
+    }
+    const newDirectory = path.join(path.resolve(root), TASKEN_ROOT_SYNC_FOLDER);
+    if (newDirectory === oldDirectory) {
+      throw new Error("同期フォルダは既に Tasken ルートの Sync/ にあります。");
+    }
+    const manifest = await this.readManifest(oldDirectory);
+    if (!manifest) throw new Error("同期フォルダのTasken設定が見つかりません。");
+    if (manifest.workspaceId !== this.repository.workspaceId) {
+      throw new Error("選択した同期フォルダは別のWorkspace用です。");
+    }
+    if (await exists(this.manifestPath(newDirectory))) {
+      const targetManifest = await this.readManifest(newDirectory).catch(() => null);
+      if (!targetManifest || targetManifest.workspaceId !== this.repository.workspaceId) {
+        throw new Error("移す先の Sync/ に、別のWorkspaceの同期フォルダがあります。");
+      }
+    }
+    // ゲートの前に、自端末の status.json をこの版の印つきで出し直す。
+    this.publishedStatus = null;
+    this.statusRetryAt = 0;
+    const ownThrough = this.repository
+      .syncPacketHeaders()
+      .reduce((max, header) => Math.max(max, header.deviceSequence), 0);
+    await this.publishDeviceStatus(oldDirectory, ownThrough, this.clock());
+    const blockers = await this.relocationBlockers(oldDirectory);
+    if (blockers.replica.length) {
+      throw new Error(
+        `NAS replica（${blockers.replica.join(", ")}）が参加しているため止めました。` +
+          "replica の同期先を変えるには TASKEN_SYNC_DIRECTORY の変更が要るので、本人に確認してからにしてください。",
+      );
+    }
+    if (blockers.unready.length) {
+      throw new Error(
+        `次の端末に「移せる版」の印が無いため止めました: ${blockers.unready.join(", ")}。` +
+          "全端末の Tasken を新しい版にしてから実行してください。",
+      );
+    }
+    let copiedFiles = await this.copySyncTree(oldDirectory, newDirectory);
+    if (typeof hooks.afterCopyPass === "function") await hooks.afterCopyPass();
+    copiedFiles += await this.copySyncTree(oldDirectory, newDirectory);
+    // 古い場所に道しるべを付ける。古い版の端末は formatVersion !== 1 を「壊れています」で
+    // 止めるので、黙って古い場所に書き続けることが無い。
+    await writeJsonAtomic(this.manifestPath(oldDirectory), {
+      format: "tasken-shared-folder-sync",
+      formatVersion: 2,
+      workspaceId: manifest.workspaceId,
+      createdAt: manifest.createdAt,
+      relocatedAt: new Date().toISOString(),
+      relocatedTo: {
+        relativePath: path.relative(oldDirectory, newDirectory),
+        workspaceId: manifest.workspaceId,
+      },
+    });
+    // 自分を切り替える。切り替え後の同期で、自端末の欠けた差分は新しい場所へ書き戻される。
+    this.repository.setPreference("sharedSyncDirectory", newDirectory);
+    this.relaySuppressPasses = RELOCATION_RELAY_SUPPRESS_PASSES;
+    const status = await this.syncNow();
+    return { from: oldDirectory, to: newDirectory, copiedFiles, status };
   }
 
   async receiveChanges(directory) {
