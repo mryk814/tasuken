@@ -12,6 +12,11 @@
  * 書き換え・削除は台帳にあるファイルだけ。中身は読まず、台帳のハッシュと
  * stat（有無と大きさ）で比べる（クラウドにしかないファイルを全部読んで
  * ダウンロードさせないため）。
+ *
+ * 段 4（#812）以降は、本体の指定（同期される記録）が書き手の既定になる。
+ * 本人が書き手の設定をまだ触っていない端末では、本体に指定されていて、
+ * かつ自分のルートの性質が cloud のときだけ、既定で書き手になる。本人が
+ * 設定を触ったら、その値が常に正（指定より本人の明示が優先）。
  */
 
 import { createHash } from "node:crypto";
@@ -28,6 +33,10 @@ import {
   effectiveTaskenRootKind,
   normalizeTaskenRootKindPreference,
 } from "../../shared/taskenRoot.mjs";
+import {
+  findWorkspaceDesignation,
+  workspaceDesignationDeviceId,
+} from "../../shared/workspaceDesignation.mjs";
 
 /** 保存・受信のあと静かになるまで待つ時間（設計 3.4）。 */
 export const TASKEN_VIEW_QUIET_MS = 30 * 1000;
@@ -120,6 +129,7 @@ export class TaskenViewService {
    *     workspaceId: string,
    *     deviceId: string,
    *     getPreference(key: string): unknown,
+   *     taskenViewWriterTouched?: () => boolean,
    *     list(type: string, includeDeleted?: boolean): Array<Record<string, unknown>>,
    *     syncCursors(): Record<string, number>,
    *   },
@@ -169,8 +179,39 @@ export class TaskenViewService {
     return effectiveTaskenRootKind(preference, detectTaskenRootKind(this.root(), this.env));
   }
 
+  /** 本体の指定（同期される記録）。指定が無ければ null。 */
+  designation() {
+    try {
+      return findWorkspaceDesignation(this.repository.list("workspace_designation"));
+    } catch {
+      return null;
+    }
+  }
+
+  /** 本体に指定されている端末。指定が無ければ空文字。 */
+  designatedDeviceId() {
+    return workspaceDesignationDeviceId(this.designation());
+  }
+
+  /**
+   * 本体の指定による既定で書き手になるか（段 4）。本体に指定されていて、
+   * 自分のルートの性質が cloud のときだけ。cloud でなければ既定にはならない。
+   */
+  writerByDesignation() {
+    const designated = this.designatedDeviceId();
+    return (
+      Boolean(designated) && designated === this.repository.deviceId && this.rootKind() === "cloud"
+    );
+  }
+
   writerEnabled() {
-    return this.repository.getPreference("taskenViewWriter") === true;
+    // 本人が書き手の設定を触っていたら、その値が正。本体の指定は既定にだけ効く。
+    const touched =
+      typeof this.repository.taskenViewWriterTouched === "function"
+        ? this.repository.taskenViewWriterTouched()
+        : true;
+    if (touched) return this.repository.getPreference("taskenViewWriter") === true;
+    return this.writerByDesignation();
   }
 
   /**
@@ -180,11 +221,15 @@ export class TaskenViewService {
    */
   status() {
     const root = this.root();
+    const designatedDeviceId = this.designatedDeviceId();
     const base = {
       root,
       kind: this.rootKind(),
       writerEnabled: this.writerEnabled(),
       deviceId: this.repository.deviceId,
+      designatedDeviceId,
+      isDesignatedDevice:
+        Boolean(designatedDeviceId) && designatedDeviceId === this.repository.deviceId,
       writerDeviceId: "",
       writerState: "no-root",
       lastGeneratedAt: "",
@@ -204,7 +249,9 @@ export class TaskenViewService {
     const managed = new Set(Object.keys(ledger.files || {}));
     const conflicts = listViewFiles(viewDirectory).filter(
       (relative) =>
-        relative !== TASKEN_VIEW_LEDGER_FILE && !managed.has(relative) && !relative.includes(".tmp"),
+        relative !== TASKEN_VIEW_LEDGER_FILE &&
+        !managed.has(relative) &&
+        !relative.includes(".tmp"),
     );
     return {
       ...base,

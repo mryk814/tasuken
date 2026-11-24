@@ -1320,7 +1320,9 @@ test("検査で拒否された差分は blocked になる", async () => {
       changeId: "00000000-0000-4000-8000-000000000a01",
       revisionId: "00000000-0000-4000-8000-000000000a01",
       deviceSequence: sequence,
-      entityType: "retired_kind",
+      // 封筒の ID と中身の ID が一致しない、形の壊れた差分（#812 以前は知らない種類も
+      // ここに含まれたが、知らない種類は止まらずに受け流すようになった）。
+      entity: { ...latest.entity, id: "task-mismatch" },
     };
     fs.writeFileSync(
       path.join(directory, `${String(sequence).padStart(12, "0")}-${rejected.changeId}.json`),
@@ -1329,6 +1331,65 @@ test("検査で拒否された差分は blocked になる", async () => {
     await assert.rejects(() => pair.secondSync.syncNow());
     assert.equal(pair.secondSync.sourceStatus().state, "blocked");
     assert.equal(pair.second.syncCursor(pair.first.deviceId), sequence - 1);
+  } finally {
+    pair.close();
+  }
+});
+
+test("知らない種類の差分は止まらず、後続の差分が取り込まれる", async () => {
+  const pair = createPair();
+  try {
+    pair.first.save("task", task("task-a", "A"));
+    await pair.firstSync.configure(pair.shared);
+    await pair.secondSync.configure(pair.shared);
+
+    const directory = path.join(pair.shared, "devices", pair.first.deviceId);
+    const files = packetFiles(pair, pair.first);
+    const latest = JSON.parse(fs.readFileSync(path.join(directory, files.at(-1)), "utf8"));
+    // この版が知らない種類の差分を、次の連番で置く。
+    const unknownSequence = latest.deviceSequence + 1;
+    const unknown = {
+      ...latest,
+      changeId: "00000000-0000-4000-8000-000000000b01",
+      revisionId: "00000000-0000-4000-8000-000000000b01",
+      parentRevisionIds: [],
+      deviceSequence: unknownSequence,
+      entityType: "future_kind",
+      entityId: "future-1",
+      entity: { id: "future-1", note: "この版は知らない種類" },
+    };
+    fs.writeFileSync(
+      path.join(directory, `${String(unknownSequence).padStart(12, "0")}-${unknown.changeId}.json`),
+      JSON.stringify(unknown),
+    );
+    // その次の連番に、ふつうの Task の差分を置く。
+    const taskSequence = unknownSequence + 1;
+    const taskPacket = {
+      ...latest,
+      changeId: "00000000-0000-4000-8000-000000000b02",
+      revisionId: "00000000-0000-4000-8000-000000000b02",
+      parentRevisionIds: [],
+      deviceSequence: taskSequence,
+      entityType: "task",
+      entityId: "task-b",
+      entity: task("task-b", "B"),
+    };
+    fs.writeFileSync(
+      path.join(directory, `${String(taskSequence).padStart(12, "0")}-${taskPacket.changeId}.json`),
+      JSON.stringify(taskPacket),
+    );
+
+    await pair.secondSync.syncNow();
+    assert.equal(pair.secondSync.sourceStatus().state, "ok");
+    // 連番は知らない種類を飛ばして進み、後続の Task が取り込まれている。
+    assert.equal(pair.second.syncCursor(pair.first.deviceId), taskSequence);
+    assert.equal(pair.second.get("task", "task-b").title, "B");
+    // 知らない種類は中身を書かず、head だけが残る。
+    const rows = pair.second.db
+      .prepare("SELECT COUNT(*) AS count FROM entities WHERE entity_type = ?")
+      .get("future_kind");
+    assert.equal(rows.count, 0);
+    assert.equal(pair.second.syncHead("future_kind", "future-1"), unknown.revisionId);
   } finally {
     pair.close();
   }

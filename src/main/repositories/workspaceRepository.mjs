@@ -22,7 +22,15 @@ import {
 } from "../../shared/taskenRoot.mjs";
 import { applyRepositoryDeletePolicy } from "./repositoryDeletePolicy.mjs";
 import { migratePublishedFeedNotes } from "./feedPostMigration.mjs";
-import { assertSyncPacket, isRetiredSyncPacket } from "./syncPacketContract.mjs";
+import {
+  assertSyncPacket,
+  isRetiredSyncPacket,
+  isUnknownEntityTypePacket,
+} from "./syncPacketContract.mjs";
+import {
+  WORKSPACE_DESIGNATION_ID,
+  findWorkspaceDesignation,
+} from "../../shared/workspaceDesignation.mjs";
 import {
   derivedRootMetaKey,
   derivedRootRevisionId,
@@ -911,6 +919,43 @@ export class WorkspaceDatabase {
   }
 
   /**
+   * View の書き手の設定を、本人が Settings で触ったか（#812）。
+   * getPreference の既定値は読むだけで書き込まれる（ensureMeta）ので、触ったかどうかは
+   * この印でだけ判断する。触っていない端末では、本体の指定が書き手の既定になる。
+   */
+  taskenViewWriterTouched() {
+    return (
+      this.db
+        .prepare("SELECT value FROM workspace_meta WHERE key = ?")
+        .get("tasken_view_writer_touched")?.value === "true"
+    );
+  }
+
+  /** 本体の指定（同期される記録、#754・段 4）。指定が無ければ null。 */
+  workspaceDesignation() {
+    return findWorkspaceDesignation(this.list("workspace_designation"));
+  }
+
+  /**
+   * 本体を指定する。固定 ID の 1 件として保存し、差分に乗せる（tasken-sync.json には入れない）。
+   * 別の端末が同時に別の本体を指定したら、同じ ID への競合として今の仕組みに乗る。
+   */
+  setWorkspaceDesignation(deviceId) {
+    const target = typeof deviceId === "string" ? deviceId.trim() : "";
+    if (!target) throw new Error("本体にする端末を指定してください。");
+    return this.save("workspace_designation", {
+      id: WORKSPACE_DESIGNATION_ID,
+      main_device_id: target,
+    });
+  }
+
+  /** 本体の指定をやめる（墓標にする）。指定が無ければ何もしない。 */
+  clearWorkspaceDesignation() {
+    if (!this.get("workspace_designation", WORKSPACE_DESIGNATION_ID)) return null;
+    return this.remove("workspace_designation", WORKSPACE_DESIGNATION_ID);
+  }
+
+  /**
    * #755 束2 で外した AI Pack・日別 Context が書き出した場所を、一度だけの片付け
    * （services/retiredOutputCleanup.mjs）のためだけに読む。日別 Context の保存先は、
    * 前の版が daily_context_publication と daily_context_auto_state に残した値から拾う。
@@ -1205,6 +1250,16 @@ export class WorkspaceDatabase {
       `,
         )
         .run(value ? "true" : "false");
+      // 本人が触った印。読んだだけで立つ既定値（ensureMeta）と区別し、本体の指定による
+      // 既定（#812）が、本人の明示の設定を上書きしないようにする。
+      this.db
+        .prepare(
+          `
+        INSERT INTO workspace_meta(key, value) VALUES('tasken_view_writer_touched', 'true')
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+      `,
+        )
+        .run();
       return value;
     }
     if (key === "automaticSnapshotBackupEnabled") {
@@ -2963,6 +3018,20 @@ export class WorkspaceDatabase {
     // 空の差分（retired）。移行で中身を抜いた送信済みの差分で、連番を埋めるためだけにある（#751）。
     // 中身が無いので何も書かずに受け、呼び手が連番を進める。記録の削除は各端末の移行が手元で行う。
     if (isRetiredSyncPacket(packet)) return { status: "retired", entity: null };
+    // この版が知らない種類の差分（#812）。中身は書けないので、版の先端（head）だけを残して
+    // 受け、呼び手が連番を進める。止めると、その端末からの後続の差分まで取り込めなくなる。
+    // 中身は同期フォルダの差分に残り続け、その種類を知る版になった端末が改めて指定・保存
+    // し直せば新しい版として届く（パケットは記録の全文を持つ）。
+    if (isUnknownEntityTypePacket(packet)) {
+      return this.db.transaction(() => {
+        const type = packet.entityType;
+        const id = String(packet.entityId);
+        const revisionId = String(packet.revisionId || packet.changeId || "");
+        if (this.syncHead(type, id) === revisionId) return { status: "duplicate", entity: null };
+        this.setSyncHead(type, id, revisionId);
+        return { status: "unknown", entity: null };
+      })();
+    }
     const transaction = this.db.transaction(() => {
       const type = packet.entityType;
       const id = String(packet.entityId);

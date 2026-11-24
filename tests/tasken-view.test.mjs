@@ -9,10 +9,7 @@ import {
   buildTaskenViewFiles,
   taskenViewHtmlToText,
 } from "../src/shared/taskenView.mjs";
-import {
-  TaskenViewService,
-  readTaskenViewLedger,
-} from "../src/main/services/taskenView.mjs";
+import { TaskenViewService, readTaskenViewLedger } from "../src/main/services/taskenView.mjs";
 import { WorkspaceDatabase } from "../src/main/repositories/workspaceRepository.mjs";
 
 // 試験では時計を固定する（設計 3.3）。2026-11-20（金）09:00 +09:00。
@@ -151,7 +148,8 @@ function setup(t, { writer = true } = {}) {
   seed(database);
   const service = new TaskenViewService({
     repository: database,
-    readDocumentHtml: (document) => (document.filename === "report-abc.html" ? DOCUMENT_HTML : null),
+    readDocumentHtml: (document) =>
+      document.filename === "report-abc.html" ? DOCUMENT_HTML : null,
     now: () => new Date(NOW.getTime()),
     env: {},
   });
@@ -164,7 +162,8 @@ function readTree(directory) {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
       const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
       if (entry.isDirectory()) walk(path.join(current, entry.name), relative);
-      else if (entry.isFile()) result.set(relative, fs.readFileSync(path.join(current, entry.name), "utf8"));
+      else if (entry.isFile())
+        result.set(relative, fs.readFileSync(path.join(current, entry.name), "utf8"));
     }
   };
   walk(directory, "");
@@ -192,7 +191,10 @@ test("中身の形: front matter・並び・期日と予定と知らせ・親子
   const { service, viewDirectory } = setup(t);
   service.generateNow("test");
   const theme = fs.readFileSync(path.join(viewDirectory, "themes", "EXP-A.md"), "utf8");
-  assert.match(theme, /^---\ntasken_view: 1\nkind: theme\ntheme_id: theme-exp\ntheme_code: EXP-A\n/);
+  assert.match(
+    theme,
+    /^---\ntasken_view: 1\nkind: theme\ntheme_id: theme-exp\ntheme_code: EXP-A\n/,
+  );
   // updated は含めた記録の最大（task-parent1 の 2026-11-19T01:00Z = +09:00 で 10:00）。
   assert.match(theme, /updated: 2026-11-19T10:00:00\+09:00/);
   assert.match(theme, /未完了 3 件（期限切れ 1）・最近 30 日の完了 1 件/);
@@ -210,7 +212,10 @@ test("中身の形: front matter・並び・期日と予定と知らせ・親子
   assert.match(index, /\[EXP-A 触媒の条件出し\]\(themes\/EXP-A\.md\) — 未完了 3 件（期限切れ 1）/);
 
   const now = fs.readFileSync(path.join(viewDirectory, "now.md"), "utf8");
-  assert.match(now, /## 期限切れ\n\n- \[EXP-A\] \[期限切れの件\]\(themes\/EXP-A\.md\)（期日: 2026-11-19）/);
+  assert.match(
+    now,
+    /## 期限切れ\n\n- \[EXP-A\] \[期限切れの件\]\(themes\/EXP-A\.md\)（期日: 2026-11-19）/,
+  );
   assert.match(now, /## 進行中/);
 
   const archive = fs.readFileSync(path.join(viewDirectory, "archive", "EXP-A", "2025.md"), "utf8");
@@ -227,7 +232,10 @@ test("正本 Markdown を持つノートは本文を写さず、Document は文�
     assert.ok(!content.includes("evil()"), "script は文章に入らない");
   }
   const theme = tree.get("themes/EXP-A.md");
-  assert.match(theme, /\[正本ノート\]\(\.\.\/\.\.\/Themes\/EXP-A\/Notes\/正本\.md\)（正本 Markdown）/);
+  assert.match(
+    theme,
+    /\[正本ノート\]\(\.\.\/\.\.\/Themes\/EXP-A\/Notes\/正本\.md\)（正本 Markdown）/,
+  );
   const note = tree.get("themes/EXP-A/notes/読書メモ--note-pla.md");
   assert.ok(note, "通常のノートはファイルになる");
   assert.match(note, /# 読書メモ\n\n最初の段落/);
@@ -293,7 +301,9 @@ test("台帳に無いファイルに触らない。台帳から外れたファ�
   database.remove("note", "note-plain1");
   const result = service.generateNow("test");
   assert.ok(result.deleted.includes("themes/EXP-A/notes/読書メモ--note-pla.md"));
-  assert.ok(!fs.existsSync(path.join(viewDirectory, "themes", "EXP-A", "notes", "読書メモ--note-pla.md")));
+  assert.ok(
+    !fs.existsSync(path.join(viewDirectory, "themes", "EXP-A", "notes", "読書メモ--note-pla.md")),
+  );
   assert.equal(fs.readFileSync(stray, "utf8"), "本人が置いた物");
   assert.ok(root);
 });
@@ -433,7 +443,14 @@ test("作るタイミング: 30 秒静かになってから、2 分に 1 回ま�
 
 test("射影の純粋関数: 同じ snapshot から同じファイルが返る", () => {
   const snapshot = {
-    themes: [{ id: "theme-exp", name: "触媒の条件出し", code: "EXP-A", updated_at: "2026-11-18T01:00:00.000Z" }],
+    themes: [
+      {
+        id: "theme-exp",
+        name: "触媒の条件出し",
+        code: "EXP-A",
+        updated_at: "2026-11-18T01:00:00.000Z",
+      },
+    ],
     tasks: [
       {
         id: "task-1",
@@ -452,4 +469,69 @@ test("射影の純粋関数: 同じ snapshot から同じファイルが返る",
   const second = buildTaskenViewFiles(snapshot, { now: NOW });
   assert.deepEqual([...second.entries()], [...first.entries()]);
   assert.equal(taskenViewHtmlToText("<p>a</p><p>b</p>"), "a\nb");
+});
+
+// 段 4（#812）：本体の指定が書き手の既定になる。cloud の判定は env の OneDrive で作る。
+function designationSetup(t, { cloud = true, designate = null } = {}) {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "tasken-view-designation-"));
+  const database = new WorkspaceDatabase(path.join(base, "tasken.sqlite"));
+  t.after(() => {
+    if (database.db.open) database.db.close();
+    fs.rmSync(base, { recursive: true, force: true });
+  });
+  const oneDrive = path.join(base, "OneDrive");
+  const root = cloud ? path.join(oneDrive, "Tasken") : path.join(base, "Tasken");
+  fs.mkdirSync(root, { recursive: true });
+  database.setPreference("artifactDirectory", root);
+  seed(database);
+  if (designate === "self") database.setWorkspaceDesignation(database.deviceId);
+  if (designate === "other") database.setWorkspaceDesignation("another-device");
+  const service = new TaskenViewService({
+    repository: database,
+    readDocumentHtml: () => null,
+    now: () => new Date(NOW.getTime()),
+    env: cloud ? { OneDrive: oneDrive } : {},
+  });
+  return { base, database, root, service, viewDirectory: path.join(root, "View") };
+}
+
+test("段4: 本体に指定され、ルートが cloud の端末は、設定を触っていなくても既定で書く", (t) => {
+  const { database, service, viewDirectory } = designationSetup(t, { designate: "self" });
+  assert.equal(database.taskenViewWriterTouched(), false);
+  assert.equal(service.rootKind(), "cloud");
+  assert.equal(service.writerEnabled(), true);
+  assert.equal(service.generateNow("test").status, "written");
+  assert.ok(fs.existsSync(path.join(viewDirectory, TASKEN_VIEW_LEDGER_FILE)));
+  const status = service.status();
+  assert.equal(status.designatedDeviceId, database.deviceId);
+  assert.equal(status.isDesignatedDevice, true);
+});
+
+test("段4: 本体のルートが cloud でなければ既定で書かず、他の端末の指定でも書かない", (t) => {
+  const local = designationSetup(t, { cloud: false, designate: "self" });
+  assert.equal(local.service.rootKind(), "local");
+  assert.equal(local.service.writerEnabled(), false);
+  assert.equal(local.service.generateNow("test").status, "not-enabled");
+
+  const other = designationSetup(t, { cloud: true, designate: "other" });
+  assert.equal(other.service.writerEnabled(), false);
+  assert.equal(other.service.generateNow("test").status, "not-enabled");
+  assert.equal(other.service.status().isDesignatedDevice, false);
+
+  const none = designationSetup(t, { cloud: true });
+  assert.equal(none.service.writerEnabled(), false);
+  assert.equal(none.service.status().designatedDeviceId, "");
+});
+
+test("段4: 本人が書き手の設定を触ったら、本体の指定より本人の値が正になる", (t) => {
+  const off = designationSetup(t, { designate: "self" });
+  off.database.setPreference("taskenViewWriter", false);
+  assert.equal(off.database.taskenViewWriterTouched(), true);
+  assert.equal(off.service.writerEnabled(), false);
+  assert.equal(off.service.generateNow("test").status, "not-enabled");
+
+  const on = designationSetup(t, { cloud: false, designate: "other" });
+  on.database.setPreference("taskenViewWriter", true);
+  assert.equal(on.service.writerEnabled(), true);
+  assert.equal(on.service.generateNow("test").status, "written");
 });

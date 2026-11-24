@@ -305,6 +305,8 @@ export interface WorkspaceData {
   agent_sessions: BaseRecord[];
   /** AIの作業（#751）。画面で読むのは後の変更。 */
   agent_work_records: BaseRecord[];
+  /** 本体の指定（#812）。画面で読むのは後の変更。 */
+  workspace_designations: BaseRecord[];
   work_receipts: WorkReceipt[];
   waitings: BaseRecord[];
   plan_nodes: BaseRecord[];

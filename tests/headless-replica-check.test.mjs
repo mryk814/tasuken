@@ -84,18 +84,28 @@ test("packets: 今の版が書いた差分は読める", async () => {
   }
 });
 
-test("packets: この版の知らないEntityの差分を版ずれとし、中身を出さない", async () => {
+test("packets: この版の知らないEntityの差分は版ずれにせず、形の壊れた差分は版ずれとし、中身を出さない", async () => {
   const world = await createDesktopAndReplica();
   try {
     world.desktop.database.save("task", task("task-b", "秘密の本文を含む題"));
     await world.desktop.service.syncNow();
+    // 知らない種類は、取り込み側が受け流す（#812）ので版ずれにしない。
     rewriteJson(world.latestDesktopPacket(), (packet) => {
       packet.entityType = "future_kind";
+    });
+    const tolerated = checkSyncPackets(world.shared);
+    assert.equal(tolerated.compatible, true);
+    assert.equal(tolerated.rejected_total, 0);
+    assert.doesNotMatch(JSON.stringify(tolerated), /秘密の本文/);
+    // 形の壊れた差分（封筒の ID と中身の ID が一致しない）は従来どおり版ずれ。
+    rewriteJson(world.latestDesktopPacket(), (packet) => {
+      packet.entityType = "task";
+      packet.entity = { ...packet.entity, id: "task-mismatch" };
     });
     const result = checkSyncPackets(world.shared);
     assert.equal(result.compatible, false);
     assert.equal(result.rejected_total, 1);
-    assert.equal(result.rejected[0].entity_type, "future_kind");
+    assert.equal(result.rejected[0].entity_type, "task");
     assert.equal(result.rejected[0].device, world.desktop.database.deviceId.slice(0, 8));
     assert.doesNotMatch(JSON.stringify(result), /秘密の本文/);
   } finally {
@@ -114,7 +124,7 @@ test("packets: 取り込み済みの古い差分の拒否では止めず、数�
     for (let i = 0; i < 3; i += 1) world.desktop.database.save("task", task(`task-n${i}`, "架空"));
     await world.desktop.service.syncNow();
     rewriteJson(path.join(world.deviceDirectory, oldest), (packet) => {
-      packet.entityType = "retired_kind";
+      packet.entity = { ...packet.entity, id: "task-mismatch" };
     });
     const result = checkSyncPackets(world.shared, { blocking: 2 });
     assert.equal(result.compatible, true);
@@ -137,7 +147,7 @@ test("packets: replica 自身の端末は見ない。ほかの端末を一つも
       .readdirSync(replicaDirectory)
       .filter((n) => SYNC_PACKET_FILE_PATTERN.test(n))) {
       rewriteJson(path.join(replicaDirectory, name), (packet) => {
-        packet.entityType = "retired_kind";
+        packet.entity = { ...packet.entity, id: "task-mismatch" };
       });
     }
     assert.equal(checkSyncPackets(world.shared).compatible, false);
@@ -235,7 +245,7 @@ test("state: 取り込めない差分で同期が止まったら incompatible（
     world.desktop.database.save("task", task("task-d", "架空"));
     await world.desktop.service.syncNow();
     rewriteJson(world.latestDesktopPacket(), (packet) => {
-      packet.entityType = "future_kind";
+      packet.entity = { ...packet.entity, id: "task-mismatch" };
     });
     await assert.rejects(world.replica.service.syncNow());
     const result = readReplicaState({
@@ -245,7 +255,7 @@ test("state: 取り込めない差分で同期が止まったら incompatible（
     });
     assert.equal(result.verdict, "incompatible");
     assert.equal(result.sync.behind, 1);
-    assert.equal(result.sync.pending_invalid.entity_type, "future_kind");
+    assert.equal(result.sync.pending_invalid.entity_type, "task");
     assert.notEqual(result.sync.last_error, "");
     assert.equal(
       result.sync.last_error_sha256,
