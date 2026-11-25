@@ -14,6 +14,11 @@
  *   Workspace の既定（+09:00）で書く。改行は LF、末尾の改行は 1 つ。
  * - 「期限切れ」「今日」「今週」「30 日」の区切りは日付で動く。now.md は
  *   1 日に 1 回は変わりうる（試験では時計を固定する）。
+ *
+ * docx（#815 段 7）: now と Theme だけ、同じ中間の形（front matter＋本文）から
+ * docx でも出す。zip 内の全エントリの日時は、そのファイルの updated に固定し、
+ * 生成時刻は中身にも zip にも入れない（Markdown と同じ決定性の決まり）。
+ * 外部の変換ツールは版で出力が揺れるので使わず、zip＋XML をここで直接組む。
  */
 
 import {
@@ -861,4 +866,314 @@ export function buildTaskenViewFiles(snapshot = {}, { now = new Date() } = {}) {
     if (path.startsWith("archive/")) ordered.set(path, content);
   }
   return ordered;
+}
+
+// ---------------------------------------------------------------------------
+// docx（#815 段 7）。Markdown の射影のうち now と Theme だけを、同じ中間の形
+// （front matter＋本文の構造）から docx に写す。ここもファイルに触らない
+// 純粋な部分だけ：バイト列（Uint8Array）を返す。
+// ---------------------------------------------------------------------------
+
+function xmlEscape(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** front matter の updated（無ければ null）。docx の zip 日時の材料にする。 */
+function docxUpdatedMsOf(markdown) {
+  if (!markdown.startsWith("---\n")) return null;
+  const end = markdown.indexOf("\n---\n", 3);
+  if (end < 0) return null;
+  const match = markdown.slice(0, end).match(/^updated: (.+)$/m);
+  return match ? taskenViewInstantOf(match[1].trim()) : null;
+}
+
+/** 行中の Markdown 記法を、docx の本文として読める形に寄せる（リンクは文字だけ残す）。 */
+function docxInlineText(value) {
+  return String(value)
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1");
+}
+
+/**
+ * Markdown の本文を段落の並びにする。front matter は落とす（鮮度は zip 日時と
+ * 中身の見出しで足りる）。見出しは段階、箇条書きは丸付きの段落にする。
+ * @returns {Array<{ style: string, text: string, list?: boolean }>}
+ */
+function docxParagraphs(markdown) {
+  const lines = String(markdown || "").split("\n");
+  let start = 0;
+  if (lines[0] === "---") {
+    const end = lines.indexOf("---", 1);
+    if (end > 0) start = end + 1;
+  }
+  const paragraphs = [];
+  for (let index = start; index < lines.length; index += 1) {
+    const line = lines[index].replace(/\s+$/, "");
+    if (!line.trim()) continue;
+    const heading = line.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      paragraphs.push({ style: `Heading${heading[1].length}`, text: docxInlineText(heading[2]) });
+      continue;
+    }
+    const item = line.match(/^\s*-\s+(.*)$/);
+    if (item) {
+      const check = item[1].match(/^\[( |x)\]\s+(.*)$/);
+      if (check) {
+        paragraphs.push({
+          style: "ListParagraph",
+          list: true,
+          text: `${check[1] === "x" ? "☑" : "☐"} ${docxInlineText(check[2])}`,
+        });
+      } else {
+        paragraphs.push({ style: "ListParagraph", list: true, text: docxInlineText(item[1]) });
+      }
+      continue;
+    }
+    paragraphs.push({ style: "Normal", text: docxInlineText(line.trim()) });
+  }
+  return paragraphs;
+}
+
+function docxDocumentXml(markdown) {
+  const body = docxParagraphs(markdown)
+    .map((paragraph) => {
+      const properties = [`<w:pStyle w:val="${paragraph.style}"/>`];
+      if (paragraph.list) {
+        properties.push('<w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr>');
+      }
+      const run = paragraph.text
+        ? `<w:r><w:t xml:space="preserve">${xmlEscape(paragraph.text)}</w:t></w:r>`
+        : "";
+      return `<w:p><w:pPr>${properties.join("")}</w:pPr>${run}</w:p>`;
+    })
+    .join("");
+  return (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" ' +
+    'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+    `<w:body>${body}` +
+    '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>' +
+    '<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>' +
+    "</w:sectPr></w:body></w:document>"
+  );
+}
+
+function docxStylesXml() {
+  const headings = [32, 28, 26, 24, 22, 22]
+    .map((size, index) => {
+      const level = index + 1;
+      return (
+        `<w:style w:type="paragraph" w:styleId="Heading${level}">` +
+        `<w:name w:val="heading ${level}"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/>` +
+        `<w:uiPriority w:val="${level}"/><w:qFormat/>` +
+        `<w:pPr><w:keepNext/><w:spacing w:before="${240 - index * 20}" w:after="80"/>` +
+        `<w:outlineLvl w:val="${index}"/></w:pPr>` +
+        `<w:rPr><w:b/><w:sz w:val="${size}"/><w:szCs w:val="${size}"/></w:rPr></w:style>`
+      );
+    })
+    .join("");
+  return (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+    '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+    "<w:docDefaults><w:rPrDefault><w:rPr>" +
+    '<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="游ゴシック" w:cs="Calibri"/>' +
+    '<w:sz w:val="22"/><w:szCs w:val="22"/>' +
+    "</w:rPr></w:rPrDefault><w:pPrDefault><w:pPr>" +
+    '<w:spacing w:after="120" w:line="276" w:lineRule="auto"/>' +
+    "</w:pPr></w:pPrDefault></w:docDefaults>" +
+    '<w:style w:type="paragraph" w:default="1" w:styleId="Normal">' +
+    '<w:name w:val="Normal"/><w:qFormat/></w:style>' +
+    headings +
+    '<w:style w:type="paragraph" w:styleId="ListParagraph">' +
+    '<w:name w:val="List Paragraph"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="34"/><w:qFormat/>' +
+    '<w:pPr><w:ind w:left="360"/></w:pPr></w:style>' +
+    "</w:styles>"
+  );
+}
+
+const DOCX_NUMBERING_XML =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+  '<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+  '<w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="singleLevel"/>' +
+  '<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/>' +
+  '<w:lvlText w:val="•"/><w:lvlJc w:val="left"/>' +
+  '<w:pPr><w:ind w:left="360" w:hanging="360"/></w:pPr>' +
+  '<w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="游ゴシック"/></w:rPr>' +
+  "</w:lvl></w:abstractNum>" +
+  '<w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>' +
+  "</w:numbering>";
+
+const DOCX_CONTENT_TYPES_XML =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+  '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+  '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+  '<Default Extension="xml" ContentType="application/xml"/>' +
+  '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
+  '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>' +
+  '<Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>' +
+  "</Types>";
+
+const DOCX_PACKAGE_RELS_XML =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+  '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+  '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+  "</Relationships>";
+
+const DOCX_DOCUMENT_RELS_XML =
+  '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+  '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+  '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+  '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>' +
+  "</Relationships>";
+
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let value = 0; value < 256; value += 1) {
+    let crc = value;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+    }
+    table[value] = crc >>> 0;
+  }
+  return table;
+})();
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+/** zip の DOS 日時。+09:00 の壁時計で書く（front matter の updated と同じ向き）。 */
+function dosDateTimeOf(updatedMs) {
+  if (updatedMs === null || updatedMs === undefined) return { time: 0, date: 0x21 };
+  const shifted = new Date(updatedMs + JST_OFFSET_MS);
+  const year = shifted.getUTCFullYear();
+  if (year < 1980) return { time: 0, date: 0x21 };
+  const clampedYear = Math.min(year, 2107);
+  const date =
+    ((clampedYear - 1980) << 9) | ((shifted.getUTCMonth() + 1) << 5) | shifted.getUTCDate();
+  const time =
+    (shifted.getUTCHours() << 11) |
+    (shifted.getUTCMinutes() << 5) |
+    Math.floor(shifted.getUTCSeconds() / 2);
+  return { time, date };
+}
+
+/**
+ * 無圧縮（stored）の zip を組む。全エントリ同じ DOS 日時・固定の並び・
+ * 余分なフィールドなしで、同じ入力からは同じバイト列になる。
+ * @param {Array<{ name: string, data: Uint8Array }>} entries
+ * @param {{ time: number, date: number }} stamp
+ * @returns {Uint8Array}
+ */
+function zipStore(entries, stamp) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  const push = (bytes) => {
+    chunks.push(bytes);
+    offset += bytes.length;
+  };
+  for (const entry of entries) {
+    const nameBytes = encoder.encode(entry.name);
+    const crc = crc32(entry.data);
+    const header = new DataView(new ArrayBuffer(30));
+    header.setUint32(0, 0x04034b50, true);
+    header.setUint16(4, 20, true);
+    header.setUint16(6, 0, true);
+    header.setUint16(8, 0, true);
+    header.setUint16(10, stamp.time, true);
+    header.setUint16(12, stamp.date, true);
+    header.setUint32(14, crc, true);
+    header.setUint32(18, entry.data.length, true);
+    header.setUint32(22, entry.data.length, true);
+    header.setUint16(26, nameBytes.length, true);
+    header.setUint16(28, 0, true);
+    central.push({ nameBytes, crc, size: entry.data.length, localOffset: offset });
+    push(new Uint8Array(header.buffer));
+    push(nameBytes);
+    push(entry.data);
+  }
+  const directoryStart = offset;
+  for (const item of central) {
+    const header = new DataView(new ArrayBuffer(46));
+    header.setUint32(0, 0x02014b50, true);
+    header.setUint16(4, 20, true);
+    header.setUint16(6, 20, true);
+    header.setUint16(8, 0, true);
+    header.setUint16(10, 0, true);
+    header.setUint16(12, stamp.time, true);
+    header.setUint16(14, stamp.date, true);
+    header.setUint32(16, item.crc, true);
+    header.setUint32(20, item.size, true);
+    header.setUint32(24, item.size, true);
+    header.setUint16(28, item.nameBytes.length, true);
+    header.setUint32(42, item.localOffset, true);
+    push(new Uint8Array(header.buffer));
+    push(item.nameBytes);
+  }
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(8, entries.length, true);
+  end.setUint16(10, entries.length, true);
+  end.setUint32(12, offset - directoryStart, true);
+  end.setUint32(16, directoryStart, true);
+  push(new Uint8Array(end.buffer));
+  const out = new Uint8Array(offset);
+  let position = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, position);
+    position += chunk.length;
+  }
+  return out;
+}
+
+/**
+ * Markdown 1 ファイル分を docx のバイト列にする。zip の日時は、その
+ * ファイルの front matter の updated に固定する（無ければ 1980-01-01）。
+ * @param {string} markdown
+ * @returns {Uint8Array}
+ */
+export function taskenViewDocxFromMarkdown(markdown) {
+  const encoder = new TextEncoder();
+  const stamp = dosDateTimeOf(docxUpdatedMsOf(markdown));
+  return zipStore(
+    [
+      { name: "[Content_Types].xml", data: encoder.encode(DOCX_CONTENT_TYPES_XML) },
+      { name: "_rels/.rels", data: encoder.encode(DOCX_PACKAGE_RELS_XML) },
+      { name: "word/document.xml", data: encoder.encode(docxDocumentXml(markdown)) },
+      { name: "word/styles.xml", data: encoder.encode(docxStylesXml()) },
+      { name: "word/numbering.xml", data: encoder.encode(DOCX_NUMBERING_XML) },
+      { name: "word/_rels/document.xml.rels", data: encoder.encode(DOCX_DOCUMENT_RELS_XML) },
+    ],
+    stamp,
+  );
+}
+
+/**
+ * 射影の Markdown から docx を作る。出すのは now と Theme の本体だけ
+ * （ノート・Document・index・archive は Markdown のまま）。
+ * @param {Map<string, string>} files buildTaskenViewFiles の返り値
+ * @returns {Map<string, Uint8Array>} 相対パス → docx のバイト列
+ */
+export function buildTaskenViewDocxFiles(files) {
+  const docx = new Map();
+  for (const [relative, content] of files) {
+    let target = null;
+    if (relative === "now.md") target = "now.docx";
+    else if (/^themes\/[^/]+\.md$/.test(relative)) target = relative.replace(/\.md$/, ".docx");
+    if (!target) continue;
+    docx.set(target, taskenViewDocxFromMarkdown(content));
+  }
+  return docx;
 }
