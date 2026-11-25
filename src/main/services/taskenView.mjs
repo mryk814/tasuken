@@ -6,6 +6,9 @@
  * 作るタイミングを担う。repository と読み取り口だけに依存するので、NAS の
  * node でも同じコードが使える。
  *
+ * 段 7（#815）からは、now と Theme の docx も同じ台帳で管理して書く
+ * （中身は shared の buildTaskenViewDocxFiles が同じ中間の形から作る）。
+ *
  * 書き手は Workspace に 1 台。Settings の「この端末で View を書く」を本人が
  * 入れた端末だけが書く。書く前に台帳 .tasken-view.json の writerDeviceId を
  * 見て、別の端末なら書かない（引き継ぐときだけ台帳の書き手を自分に変える）。
@@ -26,6 +29,7 @@ import path from "node:path";
 import {
   TASKEN_VIEW_LEDGER_FILE,
   TASKEN_VIEW_LEDGER_SCHEMA,
+  buildTaskenViewDocxFiles,
   buildTaskenViewFiles,
 } from "../../shared/taskenView.mjs";
 import {
@@ -54,7 +58,8 @@ function errorMessage(error) {
 }
 
 function sha256(content) {
-  return createHash("sha256").update(content, "utf8").digest("hex");
+  // 文字列は utf8 のバイト列として、Buffer はそのまま数える（docx はバイト列）。
+  return createHash("sha256").update(content).digest("hex");
 }
 
 /** 一時ファイルに書いてから rename する。途中で失敗しても壊れたファイルを残さない。 */
@@ -319,7 +324,16 @@ export class TaskenViewService {
     }
     let files;
     try {
-      files = buildTaskenViewFiles(this.snapshot(), { now: this.now() });
+      const markdownFiles = buildTaskenViewFiles(this.snapshot(), { now: this.now() });
+      // 台帳と比較・書き込みはバイト列でそろえる（Markdown は utf8、docx はバイト列）。
+      files = new Map();
+      for (const [relative, content] of markdownFiles) {
+        files.set(relative, Buffer.from(content, "utf8"));
+      }
+      // 段 7（#815）：now と Theme の docx を、同じ中間の形から出す。
+      for (const [relative, content] of buildTaskenViewDocxFiles(markdownFiles)) {
+        files.set(relative, Buffer.from(content));
+      }
     } catch (error) {
       return result("failed", { error: errorMessage(error) });
     }
@@ -330,7 +344,7 @@ export class TaskenViewService {
       fs.mkdirSync(viewDirectory, { recursive: true });
       for (const [relative, content] of files) {
         const hash = sha256(content);
-        const size = Buffer.byteLength(content, "utf8");
+        const size = content.length;
         const previous = previousFiles[relative];
         let needsWrite = !previous || previous.sha256 !== hash;
         if (!needsWrite) {
@@ -355,7 +369,7 @@ export class TaskenViewService {
       const nextFiles = {};
       for (const relative of [...files.keys()].sort()) {
         const content = files.get(relative);
-        nextFiles[relative] = { sha256: sha256(content), size: Buffer.byteLength(content, "utf8") };
+        nextFiles[relative] = { sha256: sha256(content), size: content.length };
       }
       const nextLedger = {
         schema: TASKEN_VIEW_LEDGER_SCHEMA,

@@ -6,7 +6,9 @@ import test from "node:test";
 
 import {
   TASKEN_VIEW_LEDGER_FILE,
+  buildTaskenViewDocxFiles,
   buildTaskenViewFiles,
+  taskenViewDocxFromMarkdown,
   taskenViewHtmlToText,
 } from "../src/shared/taskenView.mjs";
 import { TaskenViewService, readTaskenViewLedger } from "../src/main/services/taskenView.mjs";
@@ -521,6 +523,160 @@ test("段4: 本体のルートが cloud でなければ既定で書かず、他�
   const none = designationSetup(t, { cloud: true });
   assert.equal(none.service.writerEnabled(), false);
   assert.equal(none.service.status().designatedDeviceId, "");
+});
+
+// 段 7（#815）：docx。zip は無圧縮で作るので、試験でもそのまま読める。
+function readZipEntries(buffer) {
+  const entries = [];
+  let offset = 0;
+  while (offset + 30 <= buffer.length && buffer.readUInt32LE(offset) === 0x04034b50) {
+    const dosTime = buffer.readUInt16LE(offset + 10);
+    const dosDate = buffer.readUInt16LE(offset + 12);
+    const size = buffer.readUInt32LE(offset + 18);
+    const nameLength = buffer.readUInt16LE(offset + 26);
+    const extraLength = buffer.readUInt16LE(offset + 28);
+    const name = buffer.toString("utf8", offset + 30, offset + 30 + nameLength);
+    const dataStart = offset + 30 + nameLength + extraLength;
+    entries.push({
+      name,
+      dosTime,
+      dosDate,
+      data: buffer.subarray(dataStart, dataStart + size),
+    });
+    offset = dataStart + size;
+  }
+  return entries;
+}
+
+function dosToText(dosDate, dosTime) {
+  const pad = (value) => String(value).padStart(2, "0");
+  const year = ((dosDate >> 9) & 0x7f) + 1980;
+  const month = (dosDate >> 5) & 0x0f;
+  const day = dosDate & 0x1f;
+  const hour = (dosTime >> 11) & 0x1f;
+  const minute = (dosTime >> 5) & 0x3f;
+  const second = (dosTime & 0x1f) * 2;
+  return `${year}-${pad(month)}-${pad(day)} ${pad(hour)}:${pad(minute)}:${pad(second)}`;
+}
+
+test("段7: docx は同じ中間の形から決定的に作られ、zip 日時は updated に固定される", () => {
+  const markdown = [
+    "---",
+    "tasken_view: 1",
+    "kind: theme",
+    "theme_code: EXP-A",
+    "updated: 2026-11-19T10:00:00+09:00",
+    "---",
+    "",
+    "# EXP-A 触媒の条件出し",
+    "",
+    "## 未完了",
+    "",
+    "### 温度条件の再測定",
+    "- 状態: 進行中",
+    "- [x] 試薬の手配",
+    "- [ ] 測定",
+    "",
+    "- [報告書](documents/report.md)",
+  ].join("\n");
+  const first = Buffer.from(taskenViewDocxFromMarkdown(markdown));
+  const second = Buffer.from(taskenViewDocxFromMarkdown(markdown));
+  assert.ok(first.equals(second), "同じ入力から同じバイト列");
+  const entries = readZipEntries(first);
+  assert.deepEqual(
+    entries.map((entry) => entry.name),
+    [
+      "[Content_Types].xml",
+      "_rels/.rels",
+      "word/document.xml",
+      "word/styles.xml",
+      "word/numbering.xml",
+      "word/_rels/document.xml.rels",
+    ],
+  );
+  for (const entry of entries) {
+    assert.equal(
+      dosToText(entry.dosDate, entry.dosTime),
+      "2026-11-19 10:00:00",
+      `${entry.name} の日時が updated に固定される`,
+    );
+  }
+  const document = entries
+    .find((entry) => entry.name === "word/document.xml")
+    .data.toString("utf8");
+  assert.match(document, /触媒の条件出し/);
+  assert.match(document, /温度条件の再測定/);
+  assert.match(document, /☑ 試薬の手配/);
+  assert.match(document, /☐ 測定/);
+  assert.match(document, />報告書</);
+  assert.ok(!document.includes("tasken_view"), "front matter は本文に入れない");
+
+  // updated が無いファイルは、生成時刻でなく zip の起点（1980-01-01）に固定する。
+  const noUpdated = readZipEntries(Buffer.from(taskenViewDocxFromMarkdown("# 今\n")));
+  for (const entry of noUpdated) {
+    assert.equal(dosToText(entry.dosDate, entry.dosTime), "1980-01-01 00:00:00");
+  }
+});
+
+test("段7: docx の対象は now と Theme の本体だけ", () => {
+  const files = new Map([
+    ["README.md", "# readme"],
+    ["index.md", "# index"],
+    ["now.md", "# 今"],
+    ["themes/EXP-A.md", "# EXP-A"],
+    ["themes/EXP-A/notes/読書メモ--note-pla.md", "# 読書メモ"],
+    ["themes/EXP-A/documents/報告書--document.md", "# 報告書"],
+    ["archive/EXP-A/2025.md", "# 2025"],
+  ]);
+  const docx = buildTaskenViewDocxFiles(files);
+  assert.deepEqual([...docx.keys()], ["now.docx", "themes/EXP-A.docx"]);
+  const again = buildTaskenViewDocxFiles(files);
+  assert.ok(Buffer.from(docx.get("now.docx")).equals(Buffer.from(again.get("now.docx"))));
+});
+
+test("段7: docx も台帳に載り、作り直してもバイトが変わらない", (t) => {
+  const { service, viewDirectory } = setup(t);
+  const first = service.generateNow("test");
+  assert.equal(first.status, "written");
+  for (const relative of ["now.docx", "themes/EXP-A.docx", "themes/inbox.docx"]) {
+    assert.ok(first.written.includes(relative), `${relative} が書かれる`);
+    assert.ok(fs.existsSync(path.join(viewDirectory, relative)));
+  }
+  const ledger = readTaskenViewLedger(viewDirectory);
+  assert.equal(ledger.state, "present");
+  for (const relative of ["now.docx", "themes/EXP-A.docx", "themes/inbox.docx"]) {
+    assert.ok(ledger.ledger.files[relative], `台帳に ${relative} が載る`);
+  }
+  assert.ok(!("themes/EXP-A/notes/読書メモ--note-pla.docx" in ledger.ledger.files));
+  assert.ok(!("index.docx" in ledger.ledger.files));
+  const themeDocx = fs.readFileSync(path.join(viewDirectory, "themes", "EXP-A.docx"));
+  const document = readZipEntries(themeDocx)
+    .find((entry) => entry.name === "word/document.xml")
+    .data.toString("utf8");
+  assert.match(document, /温度条件の再測定/);
+  // Theme ファイルの updated（2026-11-19T10:00+09:00）が zip 日時になる。
+  for (const entry of readZipEntries(themeDocx)) {
+    assert.equal(dosToText(entry.dosDate, entry.dosTime), "2026-11-19 10:00:00");
+  }
+  const second = service.generateNow("test");
+  assert.equal(second.status, "unchanged");
+  assert.ok(fs.readFileSync(path.join(viewDirectory, "themes", "EXP-A.docx")).equals(themeDocx));
+  // 全部消しても同じバイト列が作り直せる。
+  fs.rmSync(viewDirectory, { recursive: true, force: true });
+  service.generateNow("test");
+  assert.ok(fs.readFileSync(path.join(viewDirectory, "themes", "EXP-A.docx")).equals(themeDocx));
+});
+
+test("段7: 記録を 1 件変えて、書き換わる docx は関わるファイルだけ", (t) => {
+  const { database, service } = setup(t);
+  service.generateNow("test");
+  database.save("note", { ...database.get("note", "note-plain1"), title: "読書メモ2" });
+  pin(database, "note-plain1", "2026-11-12T00:00:00.000Z", "2026-11-20T00:00:00.000Z");
+  const result = service.generateNow("test");
+  assert.equal(result.status, "written");
+  assert.ok(result.written.includes("themes/EXP-A.docx"), "関わる Theme の docx が書き換わる");
+  assert.ok(!result.written.includes("now.docx"), "now の docx は書かない");
+  assert.ok(!result.written.includes("themes/inbox.docx"), "関わらない Theme の docx は書かない");
 });
 
 test("段4: 本人が書き手の設定を触ったら、本体の指定より本人の値が正になる", (t) => {
