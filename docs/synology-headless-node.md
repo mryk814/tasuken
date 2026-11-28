@@ -100,6 +100,7 @@ sudo bash /volume1/tasken/_deploy/nas-install.sh
 ### 4. 動作確認
 
 - healthcheck: `sudo docker inspect --format '{{.State.Health.Status}}' tasken-headless`
+- 本体のログ: `sudo docker logs --tail=30 tasken-headless`（異常時はまずここ。tunnel は Phase 3 の手順 4、HTTP MCP は `sudo docker logs --tail=30 tasken-mcp-http`）
 - replicaがホストと同じWorkspaceを採用しているか（workspace_idがデータ端末と一致する）:
   ```bash
   sudo docker exec tasken-headless node -e "const D=require('better-sqlite3');const db=new D('/data/research-desk.sqlite',{readonly:true});console.log(db.prepare(\"select value from workspace_meta where key='workspace_id'\").get().value)"
